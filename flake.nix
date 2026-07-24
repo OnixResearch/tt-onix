@@ -13,6 +13,7 @@
 
       imports = [
         inputs.treefmt-nix.flakeModule
+        ./flake-modules/onix-packages.nix
       ];
 
       flake = {
