@@ -1,8 +1,8 @@
 # tenstorrent.nix
 
-A Nix Flake for using Tenstorrent hardware with Nix/NixOS. Packages are staged
-here in nixpkgs form before being upstreamed, so the overlay and module are
-drop-in replacements for what nixpkgs provides.
+A standalone private Nix flake for using Tenstorrent hardware with Nix/NixOS.
+The `OnixResearch/tenstorrent.nix` `main` branch is the sole repository
+authority; no external upstream remote is configured.
 
 ## Overlay
 
@@ -43,5 +43,4 @@ source boundary and non-claims.
 
 ## References
 
-- [RossComputerGuy/tenstorrent.nix](https://github.com/RossComputerGuy/tenstorrent.nix) — upstream package history used as this repository's base.
 - [onixcomputer/onix-core](https://github.com/onixcomputer/onix-core) — source repository for the migrated Onix package snapshot and its fine-grained development history.

@@ -4,10 +4,10 @@ The Onix package snapshot in this repository was imported from
 [`onixcomputer/onix-core`](https://github.com/onixcomputer/onix-core) commit
 `3a42d49ad3b449e94ed74e46118b2645af08c3fa` on 2026-07-24.
 
-The repository history through commit
-`3c4dcbb9f8de30ae0d43177c8bc25f12170ddd94` comes from
-[`RossComputerGuy/tenstorrent.nix`](https://github.com/RossComputerGuy/tenstorrent.nix),
-which was the exact revision consumed by `onix-core` before migration.
+The standalone repository retained the exact package baseline commit
+`3c4dcbb9f8de30ae0d43177c8bc25f12170ddd94` that `onix-core` consumed before
+migration. `OnixResearch/tenstorrent.nix` is now the sole repository authority;
+no external upstream remote is configured or followed.
 
 ## Included boundary
 
