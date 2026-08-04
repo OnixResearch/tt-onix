@@ -240,6 +240,30 @@ let EvidencePolicyC = {
   non_claims | BoundaryNonClaimsC,
 } in
 
+let HttpsUrlC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^https://" value
+) in
+
+# A dependency wheel whose identity is pinned by the metadata of an
+# admitted runtime wheel. The sha256 binds the exact URL.
+let WheelDependencyC = {
+  package | NonEmptyC,
+  version | NonEmptyC,
+  url | HttpsUrlC,
+  wheel_sha256 | HashHexC,
+  pinned_by | NonEmptyC,
+} in
+
+let WheelsC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  tt_lang | WheelDependencyC,
+} in
+
+let wheels_fields = [
+  "schema_version",
+  "tt_lang",
+] in
+
 let ProfileC = {
   schema_version | std.contract.from_predicate (fun value => value == 1),
   profile_id | NonEmptyC,
@@ -297,6 +321,8 @@ let profile_fields = [
 {
   Profile = ProfileC,
   ProfileClosed = ClosedRecordC profile_fields,
+  Wheels = WheelsC,
+  WheelsClosed = ClosedRecordC wheels_fields,
   HashHex = HashHexC,
   GitRevision = GitRevisionC,
   AdmittedBundleId = admitted_bundle_id,

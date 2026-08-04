@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_probe",
+  "probe": "wkv7-forward",
+  "shape_kind": "focused",
+  "profile_identity": "3278bf83c249af4e740b86b24811aef929c89544f7c018428f45ead40f0a1a46",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "probe_execute",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "probe_result": {
+    "compile_seconds": 5.293485898000199,
+    "deviations": {
+      "wkv7_output": {
+        "max_abs": 0.002218008041381836,
+        "pcc": 0.9999919533729553,
+        "reference_scale": 0.8220742344856262,
+        "relative": 0.00269806295871765
+      },
+      "wkv7_state": {
+        "max_abs": 0.0015644729137420654,
+        "pcc": 0.9999932646751404,
+        "reference_scale": 0.27968552708625793,
+        "relative": 0.005593685629859444
+      }
+    },
+    "device": {
+      "ordinal": 0,
+      "supported_devices": [
+        "xla:0",
+        "xla:1"
+      ],
+      "type": "TT",
+      "visible_count": 2
+    },
+    "dtype": "bfloat16",
+    "finite": true,
+    "hlo": {
+      "op_histogram": {
+        "add": 8,
+        "broadcast_in_dim": 20,
+        "concatenate": 1,
+        "dot_general": 8,
+        "exponential": 2,
+        "multiply": 12,
+        "negate": 1,
+        "reshape": 41,
+        "slice": 24,
+        "transpose": 4
+      },
+      "stablehlo_op_count": 121
+    },
+    "probe": "wkv7-forward",
+    "shape": {
+      "batch": 1,
+      "heads": 1,
+      "time": 4,
+      "width": 16
+    },
+    "status": "pass",
+    "tolerances_satisfied": true
+  },
+  "hlo_blake3": "03425c6d39319b8c4511796cf830253744f66d208d58aa01a99158e9f5b51f14",
+  "pip_freeze_blake3": "4d14eff27a704aaee7a84529c3b47fff0ba1dae6415338d218080b2a13432bac",
+  "max_stablehlo_operations": 200000,
+  "non_claims": [
+    "no full model support claim",
+    "no dual-card scaling claim",
+    "no speedup claim"
+  ]
+}

@@ -44,6 +44,12 @@ let
     nickel export --format json profile.ncl > "$out"
   '';
 
+  wheelsJson = runCommand "rwkv7-lora-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
+    cp ${./contracts.ncl} contracts.ncl
+    cp ${./wheels.ncl} wheels.ncl
+    nickel export --format json wheels.ncl > "$out"
+  '';
+
   # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
   probeRunner = runCommand "rwkv7-lora-p150a-probe" { } ''
     substitute ${./run-probe.sh} "$out" \
@@ -55,7 +61,9 @@ let
       --subst-var-by b3sum "${b3sum}/bin/b3sum" \
       --subst-var-by fuser "${psmisc}/bin/fuser" \
       --subst-var-by probe_py "${./probes/wkv7_probe.py}" \
-      --subst-var-by container_probe "${./container-probe.sh}"
+      --subst-var-by install_deps_py "${./probes/install_deps.py}" \
+      --subst-var-by container_probe "${./container-probe.sh}" \
+      --subst-var-by wheels_json "${wheelsJson}"
     chmod +x "$out"
   '';
 
@@ -64,6 +72,7 @@ let
     ln -s ${core}/bin/rwkv7-lora-p150a-core "$out/bin/rwkv7-lora-p150a-core"
     ln -s ${probeRunner} "$out/bin/rwkv7-lora-p150a-probe"
     ln -s ${profileJson} "$out/share/rwkv7-lora-p150a/profile.json"
+    ln -s ${wheelsJson} "$out/share/rwkv7-lora-p150a/wheels.json"
   '';
 in
 # r[verify tenstorrent.rwkv7_p150a_finetuning.configuration.valid]
@@ -239,6 +248,23 @@ runCommand "rwkv7-lora-p150a-check"
       exit 1
     fi
     grep -F "stale_probe_receipt" rejected.log
+
+    # The checked-in hardware probe receipts must re-validate against the
+    # admitted profile. A stale or drifted receipt fails this gate.
+    for receipt in evidence/2026-08-04-wkv7-*/receipt.json; do
+      "$CORE" admit-probe "$receipt" profile-first.json >checked-in-admission.json
+      grep -F '"status":"admitted"' checked-in-admission.json
+    done
+
+    # Negative: a checked-in receipt that failed its tolerances is rejected.
+    representative_receipt=evidence/2026-08-04-wkv7-backward-representative/receipt.json
+    jq '.probe_result.tolerances_satisfied = false' "$representative_receipt" >tolerance-drift.json
+    if "$CORE" admit-probe tolerance-drift.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "tolerance-drifted hardware receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "tolerance_failure" rejected.log
 
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \

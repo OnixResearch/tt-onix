@@ -7,6 +7,7 @@ set -euo pipefail
 
 CORE=@core@/bin/rwkv7-lora-p150a-core
 PLATFORM_CORE=@platform_core@/bin/training-platform-core
+WHEELS_JSON=@wheels_json@
 JQ=@jq@
 DOCKER=@docker@
 TTSMI=@ttsmi@
@@ -20,6 +21,7 @@ usage() {
 
 PROFILE=""
 MANIFEST=""
+WHEELS_JSON_OVERRIDE=""
 CONFIG=""
 DESCRIPTOR=""
 WHEELS_DIR=""
@@ -36,11 +38,15 @@ while [ "$#" -gt 0 ]; do
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     --probe) PROBE="$2"; shift 2 ;;
     --shape-kind) SHAPE_KIND="$2"; shift 2 ;;
+    --wheels-json) WHEELS_JSON_OVERRIDE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
 [ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
   && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] && [ -n "$PROBE" ] || usage
+if [ -n "$WHEELS_JSON_OVERRIDE" ]; then
+  WHEELS_JSON="$WHEELS_JSON_OVERRIDE"
+fi
 
 case "$PROBE" in
   wkv7-forward|wkv7-backward) ;;
@@ -99,6 +105,8 @@ check_wheel torch "$("$JQ" -r '.pytorch.version' "$MANIFEST")" \
   "$("$JQ" -r '.pytorch.wheel_sha256' "$MANIFEST")"
 check_wheel torch_xla "$("$JQ" -r '.pytorch_xla.version' "$MANIFEST")" \
   "$("$JQ" -r '.pytorch_xla.wheel_sha256' "$MANIFEST")"
+check_wheel tt_lang "$("$JQ" -r '.tt_lang.version' "$WHEELS_JSON")" \
+  "$("$JQ" -r '.tt_lang.wheel_sha256' "$WHEELS_JSON")"
 
 stage_status() { printf '{"name": "%s", "status": "%s"}' "$1" "$2"; }
 
@@ -110,9 +118,16 @@ finish_receipt() {
   if [ -f "$EVIDENCE_ROOT/probe-result.json" ]; then
     probe_result=$(cat "$EVIDENCE_ROOT/probe-result.json")
   fi
+  if ! printf '%s' "$probe_result" | "$JQ" -e . >/dev/null 2>&1; then
+    probe_result="{}"
+  fi
   local hlo_blake3=""
   if [ -f "$EVIDENCE_ROOT/probe.hlo" ]; then
     hlo_blake3=$("$B3SUM" "$EVIDENCE_ROOT/probe.hlo" | cut -d' ' -f1)
+  fi
+  local pip_freeze_blake3=""
+  if [ -f "$EVIDENCE_ROOT/pip-freeze.txt" ]; then
+    pip_freeze_blake3=$("$B3SUM" "$EVIDENCE_ROOT/pip-freeze.txt" | cut -d' ' -f1)
   fi
   "$JQ" -n \
     --argjson schema_version 1 \
@@ -126,6 +141,7 @@ finish_receipt() {
     --argjson stages "$stages" \
     --argjson probe_result "$probe_result" \
     --arg hlo_blake3 "$hlo_blake3" \
+    --arg pip_freeze_blake3 "$pip_freeze_blake3" \
     --argjson max_stablehlo_operations "$MAX_STABLEHLO_OPERATIONS" \
     '{
       schema_version: $schema_version,
@@ -139,6 +155,7 @@ finish_receipt() {
       stages: $stages,
       probe_result: $probe_result,
       hlo_blake3: $hlo_blake3,
+      pip_freeze_blake3: $pip_freeze_blake3,
       max_stablehlo_operations: $max_stablehlo_operations,
       non_claims: [
         "no full model support claim",
@@ -183,6 +200,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   -v "$HUGEPAGE_MOUNT:$HUGEPAGE_MOUNT" \
   -v "$WHEELS_DIR:/wheels:ro" \
   -v @probe_py@:/probe/wkv7_probe.py:ro \
+  -v @install_deps_py@:/probe/install_deps.py:ro \
   -v @container_probe@:/probe/container-probe.sh:ro \
   -v "$PROFILE:/probe/profile.json:ro" \
   -v "$EVIDENCE_ROOT:/evidence" \
