@@ -27,6 +27,39 @@ sets with `tt-kmd`.
 Matches the upstream `hardware.tenstorrent` module, replaces it when both are
 present, and applies the overlay automatically.
 
+## Fast local iteration
+
+Package-only changes do not need a NixOS activation. Run the exact package from
+the current checkout:
+
+```sh
+nix run .#ttwkv7 -- shape-test
+nix run .#ttwkv7-constant-probe -- self-test
+nix run .#ttwkv7-data-movement -- self-test
+```
+
+Each command rebuilds only the affected derivations. Nix reuses the unchanged
+host binaries, kernels, and dependencies from the store.
+
+Build a stable result link when you need to inspect or run several commands:
+
+```sh
+nix build .#ttwkv7 -o result-ttwkv7
+./result-ttwkv7/bin/wkv7 shape-test
+./result-ttwkv7/bin/wkv7-constant-probe self-test
+```
+
+Run the focused device-free checks before the final host integration check:
+
+```sh
+nix build .#checks.x86_64-linux.development-interface
+nix build .#checks.x86_64-linux.ttwkv7-architectures
+```
+
+A NixOS activation is still necessary for kernel modules, udev rules, system
+environment changes, and service changes. Use the full host closure as the
+final integration gate, not as the package inner loop.
+
 ## Onix packages
 
 On `x86_64-linux`, the flake also publishes:
