@@ -16,16 +16,41 @@
         config.allowUnfreePredicate = package: lib.getName package == "ttwkv7";
       };
       rwkvLab = pkgs.callPackage ../pkgs/rwkv-lab { };
-      rwkvLayerHarness = pkgs.callPackage ../pkgs/rwkv-layer-harness { };
-      # r[impl tenstorrent.rwkv7_p150x2.full_device_runtime]
-      rwkv7P150x2Runtime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
-        inherit (rwkvLayerHarness) model;
+      modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
+      rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
+      rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
+      rwkvTarget = modelTargets.mkModelTarget {
+        profile = rwkvProfile;
+        artifacts = rwkvArtifacts;
+        architectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
+        evidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
+        topology = modelTargets.mkTopology rwkvProfile;
+        builders = {
+          runtime = targetContext: pkgs.callPackage ../pkgs/rwkv7-p150x2
+            { inherit targetContext; };
+          evidence = context: pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence
+            {
+              targetContext = context;
+              deviceRuntime = context.runtime;
+            };
+          command = _context: pkgs.runCommand "rwkv7-p150x2-command" { } 
+            "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
+          sourceBoundary = _context: rwkv7P150x2SourceCheck;
+          closure = _context: rwkv7P150x2ProductionClosure;
+        };
       };
+      rwkvLayerHarness = pkgs.callPackage ../pkgs/rwkv-layer-harness {
+        targetProfile = rwkvProfile;
+        targetArtifacts = rwkvArtifacts;
+      };
+      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report { };
+      modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
+        inherit (pkgs) nickel;
+        modelTargets = modelTargets;
+      };
+      rwkv7P150x2Runtime = rwkvTarget.runtime;
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
-      rwkv7P150x2Evidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
-        inherit (rwkvLayerHarness) tokenizerVocabulary;
-        deviceRuntime = rwkv7P150x2Runtime;
-      };
+      rwkv7P150x2Evidence = rwkvTarget.evidence;
       rwkv7P150x2ProductionClosure = pkgs.closureInfo {
         rootPaths = [ rwkv7P150x2Evidence ];
       };
@@ -277,6 +302,7 @@
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        model-target-report = modelTargetReport;
         rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
         rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
@@ -287,6 +313,8 @@
       checks = lib.optionalAttrs isSupportedSystem {
         development-interface = developmentInterfaceCheck;
         migration-boundary = migrationBoundaryCheck;
+        model-target-profile-factory = modelTargetFactoryCheck;
+        model-target-candidate-report = modelTargetReport;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
         rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;

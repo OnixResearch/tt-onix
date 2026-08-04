@@ -1,0 +1,142 @@
+let contracts = import "contract.ncl" in
+
+{
+  schema_version = 1,
+  profiles = [
+    {
+      target_name = "rwkv7-goose-world2.8-0.1b-p150x2",
+      runnable = true,
+      model = {
+        id = "RWKV/RWKV7-Goose-World2.8-0.1B-HF",
+        revision = "d81965cb4e1a9f96696b4f70b84212b8f2e43216",
+        license = "Apache-2.0",
+        architecture_family = "rwkv7",
+        checkpoint_layout = "safetensors_single_file",
+        precision = "bf16_checkpoint_fp32_reference",
+      },
+      state = {
+        kind = "recurrent_matrix",
+        per_layer_element_count = 50688,
+        carry_semantics = "token_shift_and_wkv_matrix_carry",
+      },
+      resources = {
+        checkpoint_bytes = 382111072,
+        layer_count = 12,
+        hidden_size = 768,
+        vocabulary_size = 65536,
+        maximum_prompt_tokens = 32,
+      },
+      adapters = {
+        architecture = "rwkv7-metalium-p150x2-v1",
+        evidence = "rwkv7-p150x2-evidence-v1",
+      },
+      topology = {
+        id = "p150x2-exact-physical-0-1",
+        mesh_shape = [1, 2],
+        physical_device_ids = [0, 1],
+        replication = "full-lockstep",
+      },
+      artifacts = [
+        {
+          role = "checkpoint",
+          name = "rwkv7-goose-world2.8-0.1b-d81965cb4e1a9f96696b4f70b84212b8f2e43216.safetensors",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/model.safetensors",
+          nix_hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=",
+          blake3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5",
+        },
+        {
+          role = "tokenizer_vocabulary",
+          name = "rwkv_vocab_v20230424.txt",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/rwkv_vocab_v20230424.txt",
+          nix_hash = "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=",
+          blake3 = "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2",
+        },
+        {
+          role = "tokenizer_config",
+          name = "tokenizer_config.json",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/tokenizer_config.json",
+          nix_hash = "sha256-TgOqD11rGkAGoNnp8HDwFBjnNKsXx8SPKDM1lta9Xik=",
+          blake3 = "b2411eb362aefa260493811c9414e8da589a19d6cec44e8456953507e293755e",
+        },
+        {
+          role = "tokenizer_added_tokens",
+          name = "added_tokens.json",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/added_tokens.json",
+          nix_hash = "sha256-o0nK5s2qaAz2/A0pKbFvKp7bQ+twJ7LjRLHKgGOFT7k=",
+          blake3 = "02893c22a1e92502fdd31ba4d57b6e574692023505be7ba82d68d1e3142ff02f",
+        },
+        {
+          role = "tokenizer_implementation",
+          name = "hf_rwkv_tokenizer.py",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/hf_rwkv_tokenizer.py",
+          nix_hash = "sha256-qspeag9W0EPKFlTp3K+Qb888DgO1FyhjrXUGDoaFoQ4=",
+          blake3 = "0a2a88e97b455858e03bbbc83bb0228d8f36c2731fcb91cd94f05e2930e2aa24",
+        },
+        {
+          role = "tokenizer_special_tokens",
+          name = "special_tokens_map.json",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/special_tokens_map.json",
+          nix_hash = "sha256-H1EppN7ADOM+XFzScmyVKyKkeCcyHu08UY1DXUpkYBU=",
+          blake3 = "751ae3ea4b59073218a85facbee1536739b0aa26d5d5670e11ef6815e5bac870",
+        },
+        {
+          role = "model_config",
+          name = "config.json",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/config.json",
+          nix_hash = "sha256-VcFZ/IlA4WVXpCsE8K7QN0TxdiIcwSY3aUqx9+EMTG8=",
+          blake3 = "113edfd55813d327ae7e37987ee9c5ed123c69fa809670b3a0bcc07fd1e9295d",
+        },
+        {
+          role = "generation_config",
+          name = "generation_config.json",
+          url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/generation_config.json",
+          nix_hash = "sha256-2milZURvylpqKvSzCIkS6VOWX7+m6WgBmhTXVj1Y2Tc=",
+          blake3 = "2288838a56ea704a85691828bbc7f0ab2934c949b13a4d8f3af1b13d955ac2fa",
+        },
+      ],
+    },
+    {
+      target_name = "synthetic-transformer-kv-cache-fixture",
+      runnable = false,
+      model = {
+        id = "fixture/synthetic-transformer",
+        revision = "1111111111111111111111111111111111111111",
+        license = "fixture-only",
+        architecture_family = "synthetic_transformer",
+        checkpoint_layout = "synthetic_single_file",
+        precision = "bf16_fixture",
+      },
+      state = {
+        kind = "kv_cache",
+        per_layer_element_count = 128,
+        carry_semantics = "append_key_and_value_rows",
+      },
+      resources = {
+        checkpoint_bytes = 1024,
+        layer_count = 2,
+        hidden_size = 64,
+        vocabulary_size = 256,
+        maximum_prompt_tokens = 8,
+      },
+      adapters = {
+        architecture = "synthetic-transformer-device-free-v1",
+        evidence = "synthetic-transformer-evidence-v1",
+      },
+      topology = {
+        id = "device-free-fixture",
+        mesh_shape = [1, 1],
+        physical_device_ids = [0],
+        replication = "none",
+      },
+      artifacts = [
+        {
+          role = "fixture_weights",
+          name = "synthetic-transformer-weights.bin",
+          url = "fixture://synthetic-transformer-weights",
+          nix_hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=",
+          blake3 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+    },
+  ],
+} | contracts.Profiles

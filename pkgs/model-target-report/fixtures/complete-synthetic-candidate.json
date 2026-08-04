@@ -1,0 +1,14 @@
+{
+  "candidate_name": "synthetic-transformer-candidate",
+  "upstream_identity": "fixture/synthetic-transformer",
+  "revision": "1111111111111111111111111111111111111111",
+  "license": "fixture-only",
+  "artifacts": "all fixture artifacts are pinned",
+  "tokenizer": "synthetic byte tokenizer",
+  "state_kind": "kv_cache",
+  "required_operators": "embedding, rope, attention, cache update, matmul, argmax",
+  "memory_bounds": "device-free fixture only",
+  "reference_authority": "deterministic synthetic fixture",
+  "evidence_adapter": "synthetic-transformer-evidence-v1",
+  "topology_compatibility": "device-free-fixture"
+}

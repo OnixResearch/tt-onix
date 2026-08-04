@@ -60,7 +60,7 @@ using MeshDevice = ttnn::distributed::MeshDevice;
 using TensorToMesh = ttnn::distributed::TensorToMesh;
 
 constexpr std::uint32_t kSchemaVersion = 1U;
-constexpr std::uint32_t kHiddenSize = 768U;
+constexpr std::uint32_t kHiddenSize = RWKV7_PINNED_HIDDEN_SIZE;
 constexpr std::uint32_t kHeadSize = 64U;
 constexpr std::uint32_t kHeadCount = 12U;
 constexpr std::uint32_t kIntermediateSize = 3072U;
@@ -68,12 +68,12 @@ constexpr std::uint32_t kDecayRank = 64U;
 constexpr std::uint32_t kAttentionRank = 64U;
 constexpr std::uint32_t kGateRank = 128U;
 constexpr std::uint32_t kValueRank = 32U;
-constexpr std::uint32_t kLayerCount = 12U;
-constexpr std::uint32_t kVocabularySize = 65536U;
+constexpr std::uint32_t kLayerCount = RWKV7_PINNED_LAYER_COUNT;
+constexpr std::uint32_t kVocabularySize = RWKV7_PINNED_VOCABULARY_SIZE;
 constexpr std::uint32_t kLayerZero = 0U;
 constexpr std::uint32_t kMinimumGeneratedTokens = 2U;
 constexpr std::uint32_t kMaximumGeneratedTokens = 4U;
-constexpr std::uint32_t kMaximumPromptTokens = 32U;
+constexpr std::uint32_t kMaximumPromptTokens = RWKV7_PINNED_MAXIMUM_PROMPT_TOKENS;
 constexpr std::uint32_t kGenerationEosToken = 0U;
 constexpr std::uint32_t kMeshRows = 1U;
 constexpr std::uint32_t kMeshColumns = 2U;
@@ -95,12 +95,18 @@ constexpr std::size_t kBlake3DigestBytes = 32U;
 constexpr std::size_t kHexCharactersPerByte = 2U;
 constexpr std::uint32_t kHexRadix = 16U;
 constexpr std::uint32_t kBitsPerByte = 8U;
-constexpr std::uint64_t kExpectedCheckpointBytes = 382111072ULL;
-constexpr std::string_view kExpectedCheckpointBlake3 =
-    "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
-constexpr std::string_view kModelRevision =
-    "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-constexpr std::string_view kModelId = "RWKV/RWKV7-Goose-World2.8-0.1B-HF";
+constexpr std::uint64_t kExpectedCheckpointBytes = RWKV7_PINNED_CHECKPOINT_BYTES;
+constexpr std::string_view kExpectedCheckpointBlake3 = RWKV7_PINNED_CHECKPOINT_BLAKE3;
+constexpr std::string_view kTargetName = RWKV7_PINNED_TARGET_NAME;
+constexpr std::string_view kModelRevision = RWKV7_PINNED_MODEL_REVISION;
+constexpr std::string_view kModelId = RWKV7_PINNED_MODEL_ID;
+constexpr std::string_view kArchitectureFamily = RWKV7_PINNED_ARCHITECTURE_FAMILY;
+constexpr std::string_view kStateKind = RWKV7_PINNED_STATE_KIND;
+constexpr std::string_view kModelPrecision = RWKV7_PINNED_MODEL_PRECISION;
+constexpr std::string_view kArchitectureAdapter = RWKV7_PINNED_ARCHITECTURE_ADAPTER;
+constexpr std::string_view kEvidenceAdapter = RWKV7_PINNED_EVIDENCE_ADAPTER;
+constexpr std::string_view kTopologyId = RWKV7_PINNED_TOPOLOGY_ID;
+constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kTokensArgument = "--tokens";
 constexpr std::string_view kMaxNewArgument = "--max-new";
@@ -1588,22 +1594,35 @@ void run_runtime(const RuntimeRequest &request) {
       run_controls(context, weights, cold, request.evidence_root);
 
   const auto device_ids = context.mesh().get_device_ids();
+  const Json artifact_blake3 = Json::parse(RWKV7_PINNED_ARTIFACT_BLAKE3_JSON);
+  require(artifact_blake3.is_object(),
+          "pinned model artifact identities must be a JSON object");
+  require(artifact_blake3.value("checkpoint", "") == kExpectedCheckpointBlake3,
+          "pinned checkpoint identity differs from the artifact identity map");
   Json receipt{
       {"schema_version", kSchemaVersion},
       {"model",
-       {{"id", kModelId},
+       {{"target_name", kTargetName},
+        {"id", kModelId},
         {"revision", kModelRevision},
+        {"architecture_family", kArchitectureFamily},
+        {"state_kind", kStateKind},
+        {"precision", kModelPrecision},
+        {"architecture_adapter", kArchitectureAdapter},
+        {"evidence_adapter", kEvidenceAdapter},
+        {"artifact_blake3", artifact_blake3},
         {"checkpoint_path", RWKV7_PINNED_CHECKPOINT_PATH},
         {"checkpoint_byte_count", kExpectedCheckpointBytes},
         {"checkpoint_blake3", kExpectedCheckpointBlake3}}},
       {"mesh",
-       {{"descriptor", RWKV7_PINNED_MESH_DESCRIPTOR_PATH},
+       {{"id", kTopologyId},
+        {"descriptor", RWKV7_PINNED_MESH_DESCRIPTOR_PATH},
         {"shape", {kMeshRows, kMeshColumns}},
         {"physical_device_ids", {kPhysicalDeviceZero, kPhysicalDeviceOne}},
         {"opened_device_ids",
          {static_cast<int>(device_ids[kFirstIndex]),
           static_cast<int>(device_ids[kSecondIndex])}},
-        {"replication", "full-lockstep"}}},
+        {"replication", kReplication}}},
       {"request",
        {{"prompt_token_ids", request.prompt_tokens},
         {"max_new_tokens", request.max_new_tokens}}},

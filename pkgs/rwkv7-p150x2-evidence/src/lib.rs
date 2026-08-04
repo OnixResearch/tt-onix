@@ -1,4 +1,5 @@
 use half::bf16;
+use model_target_core::{TargetIdentity, TopologyIdentity};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
@@ -7,10 +8,22 @@ use std::path::{Component, Path};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const SAFETY_SCHEMA_VERSION: u32 = 3;
-pub const MODEL_REVISION: &str = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-pub const MODEL_BLAKE3: &str = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
-pub const TOKENIZER_VOCAB_BLAKE3: &str =
-    "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2";
+pub const TARGET_NAME: &str = env!("MODEL_TARGET_NAME");
+pub const MODEL_ID: &str = env!("MODEL_TARGET_MODEL_ID");
+pub const MODEL_REVISION: &str = env!("MODEL_TARGET_REVISION");
+pub const ARCHITECTURE_FAMILY: &str = env!("MODEL_TARGET_ARCHITECTURE_FAMILY");
+pub const STATE_KIND: &str = env!("MODEL_TARGET_STATE_KIND");
+pub const MODEL_PRECISION: &str = env!("MODEL_TARGET_PRECISION");
+pub const ARCHITECTURE_ADAPTER_ID: &str = env!("MODEL_TARGET_ARCHITECTURE_ADAPTER");
+pub const EVIDENCE_ADAPTER_ID: &str = env!("MODEL_TARGET_EVIDENCE_ADAPTER");
+pub const MODEL_ARTIFACT_BLAKE3_JSON: &str = env!("MODEL_TARGET_ARTIFACT_BLAKE3_JSON");
+pub const TOPOLOGY_ID: &str = env!("MODEL_TARGET_TOPOLOGY_ID");
+pub const MESH_SHAPE_JSON: &str = env!("MODEL_TARGET_MESH_SHAPE_JSON");
+pub const PHYSICAL_DEVICE_IDS_JSON: &str = env!("MODEL_TARGET_PHYSICAL_DEVICE_IDS_JSON");
+pub const REPLICATION: &str = env!("MODEL_TARGET_REPLICATION");
+pub const REQUIRED_OPERATIONS_JSON: &str = env!("MODEL_TARGET_REQUIRED_OPERATIONS_JSON");
+pub const MODEL_BLAKE3: &str = env!("MODEL_TARGET_CHECKPOINT_BLAKE3");
+pub const TOKENIZER_VOCAB_BLAKE3: &str = env!("MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3");
 pub const EXPECTED_BOARD_SERIALS: [&str; EXPECTED_CARD_COUNT] =
     ["0000040331921011", "000004033192100e"];
 pub const EXPECTED_BOARD_BDFS: [&str; EXPECTED_CARD_COUNT] = ["0000:01:00.0", "0000:03:00.0"];
@@ -141,13 +154,27 @@ pub struct RuntimeControls {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeModel {
+    pub target_name: String,
+    pub id: String,
     pub revision: String,
+    pub architecture_family: String,
+    pub state_kind: String,
+    pub precision: String,
+    pub architecture_adapter: String,
+    pub evidence_adapter: String,
+    pub artifact_blake3: BTreeMap<String, String>,
+    pub checkpoint_path: String,
+    pub checkpoint_byte_count: u64,
     pub checkpoint_blake3: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RuntimeMesh {
+    pub id: String,
+    pub descriptor: String,
     pub shape: Vec<usize>,
     pub physical_device_ids: Vec<usize>,
     pub opened_device_ids: Vec<usize>,
@@ -313,7 +340,12 @@ pub struct TokenizedRequest {
 pub struct ClassificationReceipt {
     pub schema_version: u32,
     pub outcome: String,
+    pub target_name: String,
+    pub model_id: String,
     pub model_revision: String,
+    pub architecture_adapter: String,
+    pub evidence_adapter: String,
+    pub artifact_blake3: BTreeMap<String, String>,
     pub checkpoint_blake3: String,
     pub prompt_token_ids: Vec<usize>,
     pub generated_token_ids: Vec<usize>,
@@ -518,6 +550,82 @@ pub fn parse_reference(bytes: &[u8]) -> Result<ReferenceManifest, String> {
     Ok(manifest)
 }
 
+// r[impl tenstorrent.model_targets.single_authority]
+pub fn expected_target_identity() -> Result<TargetIdentity, String> {
+    let artifact_blake3 = serde_json::from_str(MODEL_ARTIFACT_BLAKE3_JSON)
+        .map_err(|error| format!("invalid embedded artifact identity map: {error}"))?;
+    Ok(TargetIdentity {
+        target_name: TARGET_NAME.to_owned(),
+        model_id: MODEL_ID.to_owned(),
+        revision: MODEL_REVISION.to_owned(),
+        architecture_family: ARCHITECTURE_FAMILY.to_owned(),
+        state_kind: STATE_KIND.to_owned(),
+        precision: MODEL_PRECISION.to_owned(),
+        architecture_adapter: ARCHITECTURE_ADAPTER_ID.to_owned(),
+        evidence_adapter: EVIDENCE_ADAPTER_ID.to_owned(),
+        artifact_blake3,
+    })
+}
+
+pub fn runtime_target_identity(receipt: &RuntimeReceipt) -> TargetIdentity {
+    TargetIdentity {
+        target_name: receipt.model.target_name.clone(),
+        model_id: receipt.model.id.clone(),
+        revision: receipt.model.revision.clone(),
+        architecture_family: receipt.model.architecture_family.clone(),
+        state_kind: receipt.model.state_kind.clone(),
+        precision: receipt.model.precision.clone(),
+        architecture_adapter: receipt.model.architecture_adapter.clone(),
+        evidence_adapter: receipt.model.evidence_adapter.clone(),
+        artifact_blake3: receipt.model.artifact_blake3.clone(),
+    }
+}
+
+pub fn expected_topology_identity() -> Result<TopologyIdentity, String> {
+    let mesh_shape = serde_json::from_str(MESH_SHAPE_JSON)
+        .map_err(|error| format!("invalid embedded mesh shape: {error}"))?;
+    let physical_device_ids = serde_json::from_str(PHYSICAL_DEVICE_IDS_JSON)
+        .map_err(|error| format!("invalid embedded physical device IDs: {error}"))?;
+    Ok(TopologyIdentity {
+        id: TOPOLOGY_ID.to_owned(),
+        mesh_shape,
+        physical_device_ids,
+        replication: REPLICATION.to_owned(),
+    })
+}
+
+pub fn runtime_topology_identity(receipt: &RuntimeReceipt) -> Result<TopologyIdentity, String> {
+    let mesh_shape = convert_u32_values(&receipt.mesh.shape, "runtime mesh shape")?;
+    let physical_device_ids =
+        convert_u32_values(&receipt.mesh.physical_device_ids, "runtime physical device IDs")?;
+    Ok(TopologyIdentity {
+        id: receipt.mesh.id.clone(),
+        mesh_shape,
+        physical_device_ids,
+        replication: receipt.mesh.replication.clone(),
+    })
+}
+
+pub fn required_architecture_operations() -> Result<BTreeSet<String>, String> {
+    let values: Vec<String> = serde_json::from_str(REQUIRED_OPERATIONS_JSON)
+        .map_err(|error| format!("invalid embedded required operation list: {error}"))?;
+    let operations = values.iter().cloned().collect::<BTreeSet<_>>();
+    require(
+        operations.len() == values.len(),
+        "embedded required operation list contains duplicates",
+    )?;
+    Ok(operations)
+}
+
+fn convert_u32_values(values: &[usize], name: &str) -> Result<Vec<u32>, String> {
+    values
+        .iter()
+        .map(|value| {
+            u32::try_from(*value).map_err(|error| format!("{name} value overflows u32: {error}"))
+        })
+        .collect()
+}
+
 // r[verify tenstorrent.rwkv7_p150x2.full_device_runtime.invalid_mesh]
 pub fn parse_runtime(bytes: &[u8]) -> Result<RuntimeReceipt, String> {
     let receipt: RuntimeReceipt = serde_json::from_slice(bytes)
@@ -527,24 +635,20 @@ pub fn parse_runtime(bytes: &[u8]) -> Result<RuntimeReceipt, String> {
         "runtime schema version mismatch",
     )?;
     require(
-        receipt.model.revision == MODEL_REVISION,
-        "runtime model revision mismatch",
+        runtime_target_identity(&receipt) == expected_target_identity()?,
+        "runtime target identity mismatch",
     )?;
     require(
         receipt.model.checkpoint_blake3 == MODEL_BLAKE3,
         "runtime checkpoint BLAKE3 mismatch",
     )?;
     require(
-        receipt.mesh.shape == [1, EXPECTED_CARD_COUNT],
-        "runtime mesh shape mismatch",
+        runtime_topology_identity(&receipt)? == expected_topology_identity()?,
+        "runtime topology identity mismatch",
     )?;
     require(
-        receipt.mesh.physical_device_ids == [0, 1] && receipt.mesh.opened_device_ids == [0, 1],
-        "runtime physical device IDs mismatch",
-    )?;
-    require(
-        receipt.mesh.replication == "full-lockstep",
-        "runtime replication mode mismatch",
+        receipt.mesh.opened_device_ids == receipt.mesh.physical_device_ids,
+        "runtime opened physical device IDs mismatch",
     )?;
     require(
         !receipt.host_model_arithmetic,
@@ -1787,6 +1891,7 @@ mod tests {
     const TEST_ELEMENT_COUNT: usize = 2;
     const TEST_TOLERANCE: f32 = 0.01;
     const TEST_PROFILER_RUNTIME_ID: u64 = 7;
+    const TEST_CHECKPOINT_BYTE_COUNT: u64 = 1;
 
     fn artifact(path: &str, bytes: &[u8], elements: usize, card: Option<usize>) -> Artifact {
         Artifact {
@@ -1887,17 +1992,32 @@ mod tests {
     // r[verify tenstorrent.rwkv7_p150x2.full_device_runtime.invalid_mesh]
     #[test]
     fn runtime_parser_rejects_an_unexpected_physical_device() {
+        let target = expected_target_identity().expect("embedded target identity must parse");
+        let topology = expected_topology_identity().expect("embedded topology identity must parse");
+        let unexpected_device_ids = vec![0, EXPECTED_CARD_COUNT];
         let receipt = serde_json::json!({
             "schema_version": SCHEMA_VERSION,
             "model": {
-                "revision": MODEL_REVISION,
+                "target_name": target.target_name,
+                "id": target.model_id,
+                "revision": target.revision,
+                "architecture_family": target.architecture_family,
+                "state_kind": target.state_kind,
+                "precision": target.precision,
+                "architecture_adapter": target.architecture_adapter,
+                "evidence_adapter": target.evidence_adapter,
+                "artifact_blake3": target.artifact_blake3,
+                "checkpoint_path": "/nix/store/fixture-checkpoint",
+                "checkpoint_byte_count": TEST_CHECKPOINT_BYTE_COUNT,
                 "checkpoint_blake3": MODEL_BLAKE3,
             },
             "mesh": {
-                "shape": [1, EXPECTED_CARD_COUNT],
-                "physical_device_ids": [0, EXPECTED_CARD_COUNT],
+                "id": topology.id,
+                "descriptor": "/nix/store/fixture-mesh-descriptor",
+                "shape": topology.mesh_shape,
+                "physical_device_ids": unexpected_device_ids,
                 "opened_device_ids": [0, EXPECTED_CARD_COUNT],
-                "replication": "full-lockstep",
+                "replication": topology.replication,
             },
             "request": { "prompt_token_ids": [], "max_new_tokens": MINIMUM_GENERATED_TOKEN_COUNT },
             "program_cache": { "before_cold": 0, "after_cold": 1, "after_warm": 1 },
@@ -1934,7 +2054,7 @@ mod tests {
         assert!(
             parse_runtime(&serde_json::to_vec(&receipt).expect("runtime fixture must serialize"))
                 .expect_err("unexpected physical device must fail")
-                .contains("runtime physical device IDs mismatch")
+                .contains("runtime topology identity mismatch")
         );
     }
 

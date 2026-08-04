@@ -1,13 +1,18 @@
+use model_target_core::{
+    ArchitectureEvidence, CommonEvidenceEnvelope, validate_architecture_evidence,
+    validate_common_evidence,
+};
 use rwkv7_p150x2_evidence::{
     COMPLETE_STATE_ELEMENT_COUNT, CONTROL_DIVERGENCE_FLOOR, ClassificationReceipt,
     EXPECTED_CARD_COUNT, FINAL_HIDDEN_TOLERANCE, HIDDEN_ELEMENT_COUNT, LOGIT_ELEMENT_COUNT,
-    LOGIT_TOLERANCE, MODEL_BLAKE3, MODEL_REVISION, ReferenceManifest, ReferenceStep,
+    LOGIT_TOLERANCE, MODEL_BLAKE3, ReferenceManifest, ReferenceStep,
     RuntimeReceipt, RuntimeStep, SCHEMA_VERSION, STATE_TOLERANCE, SafetyReceipt, TensorComparison,
     attribute_required_stages, compare_complete_tensor, decode_device_bf16,
-    decode_generated_tokens, max_abs_difference, parse_inspector, parse_profiler, parse_reference,
-    parse_runtime, validate_artifact_bytes, validate_initial_zero_state,
-    validate_operation_inventory, validate_relative_artifact_path,
-    validate_runtime_against_reference, validate_safety,
+    decode_generated_tokens, expected_target_identity, expected_topology_identity,
+    max_abs_difference, parse_inspector, parse_profiler, parse_reference, parse_runtime,
+    required_architecture_operations, runtime_target_identity, runtime_topology_identity,
+    validate_artifact_bytes, validate_initial_zero_state, validate_operation_inventory,
+    validate_relative_artifact_path, validate_runtime_against_reference, validate_safety,
 };
 use serde::Serialize;
 use std::error::Error;
@@ -125,6 +130,42 @@ fn run() -> Result<(), Box<dyn Error>> {
         attribute_required_stages(&runtime, &inspector, &profiler_rows, profiler_byte_count)
             .map_err(invalid_data)?;
 
+    let expected_target = expected_target_identity().map_err(invalid_data)?;
+    let expected_topology = expected_topology_identity().map_err(invalid_data)?;
+    let process_attempt_count = u32::try_from(safety.process.invocation_count).map_err(|error| {
+        invalid_data(format!("process attempt count overflows u32: {error}"))
+    })?;
+    let common_evidence = CommonEvidenceEnvelope {
+        target: runtime_target_identity(&runtime),
+        topology: runtime_topology_identity(&runtime).map_err(invalid_data)?,
+        process_attempt_count,
+        profiler_attributed: !attribution.is_empty(),
+        host_model_arithmetic: runtime.host_model_arithmetic,
+        cpu_model_fallback: runtime.cpu_model_fallback,
+        generated_text_published: runtime.generated_text_published,
+    };
+    validate_common_evidence(&expected_target, &expected_topology, &common_evidence)
+        .map_err(invalid_data)?;
+    let required_operations = required_architecture_operations().map_err(invalid_data)?;
+    let architecture_evidence = ArchitectureEvidence {
+        adapter_id: expected_target.architecture_adapter.clone(),
+        architecture_family: expected_target.architecture_family.clone(),
+        state_kind: expected_target.state_kind.clone(),
+        observed_operations: runtime
+            .operation_counts
+            .iter()
+            .filter(|(_operation, count)| **count > 0)
+            .map(|(operation, _count)| operation.clone())
+            .collect(),
+        payload_complete: true,
+    };
+    validate_architecture_evidence(
+        &expected_target,
+        &required_operations,
+        &architecture_evidence,
+    )
+    .map_err(invalid_data)?;
+
     let generated_bytes = decode_generated_tokens(&vocabulary, &reference.generated_token_ids)
         .map_err(invalid_data)?;
     let generated_text = String::from_utf8(generated_bytes.clone()).map_err(|error| {
@@ -133,7 +174,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     let receipt = ClassificationReceipt {
         schema_version: SCHEMA_VERSION,
         outcome: "verified_full_device_p150x2_generation".to_owned(),
-        model_revision: MODEL_REVISION.to_owned(),
+        target_name: expected_target.target_name,
+        model_id: expected_target.model_id,
+        model_revision: expected_target.revision,
+        architecture_adapter: expected_target.architecture_adapter,
+        evidence_adapter: expected_target.evidence_adapter,
+        artifact_blake3: expected_target.artifact_blake3,
         checkpoint_blake3: MODEL_BLAKE3.to_owned(),
         prompt_token_ids: reference.prompt_token_ids,
         generated_token_ids: reference.generated_token_ids,

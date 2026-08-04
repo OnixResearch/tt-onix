@@ -14,9 +14,13 @@
   tt-logger,
   tt-metal,
   tt-umd,
-  model,
+  targetContext,
 }:
 let
+  profile = targetContext.profile;
+  artifacts = targetContext.artifacts;
+  model = artifacts.checkpoint.path;
+  artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
   metaliumRoot = "${tt-metal}/libexec/tt-metalium";
   meshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_x2_mesh_graph_descriptor.textproto";
 in
@@ -49,6 +53,23 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
     (lib.cmakeFeature "RWKV7_METALIUM_ROOT" metaliumRoot)
+    (lib.cmakeFeature "RWKV7_TARGET_NAME" profile.target_name)
+    (lib.cmakeFeature "RWKV7_MODEL_ID" profile.model.id)
+    (lib.cmakeFeature "RWKV7_MODEL_REVISION" profile.model.revision)
+    (lib.cmakeFeature "RWKV7_ARCHITECTURE_FAMILY" profile.model.architecture_family)
+    (lib.cmakeFeature "RWKV7_STATE_KIND" profile.state.kind)
+    (lib.cmakeFeature "RWKV7_MODEL_PRECISION" profile.model.precision)
+    (lib.cmakeFeature "RWKV7_ARCHITECTURE_ADAPTER" profile.adapters.architecture)
+    (lib.cmakeFeature "RWKV7_EVIDENCE_ADAPTER" profile.adapters.evidence)
+    (lib.cmakeFeature "RWKV7_ARTIFACT_BLAKE3_JSON" (builtins.toJSON artifactBlake3))
+    (lib.cmakeFeature "RWKV7_CHECKPOINT_BLAKE3" artifacts.checkpoint.blake3)
+    (lib.cmakeFeature "RWKV7_TOPOLOGY_ID" profile.topology.id)
+    (lib.cmakeFeature "RWKV7_REPLICATION" profile.topology.replication)
+    (lib.cmakeFeature "RWKV7_CHECKPOINT_BYTES" (toString profile.resources.checkpoint_bytes))
+    (lib.cmakeFeature "RWKV7_LAYER_COUNT" (toString profile.resources.layer_count))
+    (lib.cmakeFeature "RWKV7_HIDDEN_SIZE" (toString profile.resources.hidden_size))
+    (lib.cmakeFeature "RWKV7_VOCABULARY_SIZE" (toString profile.resources.vocabulary_size))
+    (lib.cmakeFeature "RWKV7_MAXIMUM_PROMPT_TOKENS" (toString profile.resources.maximum_prompt_tokens))
   ];
 
   postInstall = ''
@@ -68,7 +89,8 @@ stdenv.mkDerivation {
   '';
 
   passthru = {
-    inherit meshDescriptor model;
+    inherit artifactBlake3 meshDescriptor model profile;
+    targetName = profile.target_name;
   };
 
   meta = {
