@@ -44,6 +44,10 @@
         targetArtifacts = rwkvArtifacts;
       };
       modelTargetReport = pkgs.callPackage ../pkgs/model-target-report { };
+      rwkv7LoraReference = pkgs.callPackage ../pkgs/rwkv7-lora-reference {
+        model = rwkvArtifacts.checkpoint.path;
+        modelBlake3 = rwkvArtifacts.checkpoint.blake3;
+      };
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
         inherit (pkgs) nickel;
         modelTargets = modelTargets;
@@ -315,6 +319,7 @@
         migration-boundary = migrationBoundaryCheck;
         model-target-profile-factory = modelTargetFactoryCheck;
         model-target-candidate-report = modelTargetReport;
+        rwkv7-lora-reference = rwkv7LoraReference;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
         rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;
