@@ -20,7 +20,7 @@
 - [x] [parallel] V2 Add negative fixtures for mutable tags, stale identities, ABI mismatch, invalid device counts, wrong architecture, old firmware, missing hugepages, wrong mesh, missing links, busy devices, and failed restoration. r[tenstorrent.training_platform.verification]
 - [x] [depends:tenstorrent.training_platform.launch] V3 Run the bounded hardware smoke on two connected P150A cards and save the BLAKE3-bound receipt. r[tenstorrent.training_platform.evidence] r[tenstorrent.training_platform.verification]
 - [x] [serial] P9 Document runtime selection, hardware prerequisites, cable and descriptor requirements, recovery, exact commands, and non-claims. r[tenstorrent.training_platform.documentation]
-- [ ] [depends:tenstorrent.training_platform.verification] V4 Run formatting, focused tests, Nix package builds, NixOS evaluation, Cairn validation, and all lifecycle gates. r[tenstorrent.training_platform.verification]
+- [x] [depends:tenstorrent.training_platform.verification] V4 Run formatting, focused tests, Nix package builds, NixOS evaluation, Cairn validation, and all lifecycle gates. r[tenstorrent.training_platform.verification]
 
 ## Verification Coverage
 
