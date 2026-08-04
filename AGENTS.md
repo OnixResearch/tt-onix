@@ -89,9 +89,11 @@ Read these local references before you change RWKV-7 code, equations, tests, or 
   The downloaded checkout uses commit `952102498e9ed367ea0a59ee64106916d474d30f`.
 - Use `.pi/references/rwkv-7/oxen-how-rwkv-7-goose-works.html` for explanatory context and author notes.
   Source: <https://www.oxen.ai/blog/how-rwkv-7-goose-works-notes-from-the-author>.
+- Use <https://deepwiki.com/BlinkDL/RWKV-LM/1-overview> for a generated repository overview and source-file index.
 
 Treat the paper and upstream source as primary references.
-Treat the Oxen article as a secondary explanation.
+Treat the DeepWiki overview and Oxen article as secondary explanations.
+Check DeepWiki claims against the primary references because its indexed revision can differ.
 Keep the existing package pins unless the task requires a pin update.
 Record a mismatch when the paper, source, and local implementation differ.
 
