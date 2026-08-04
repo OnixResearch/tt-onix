@@ -7,6 +7,9 @@
   b3sum,
   coreutils,
   gnugrep,
+  docker,
+  psmisc,
+  tt-smi,
   trainingPlatform,
   platformEvidenceReceipt,
   cpuReference,
@@ -41,9 +44,25 @@ let
     nickel export --format json profile.ncl > "$out"
   '';
 
+  # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
+  probeRunner = runCommand "rwkv7-lora-p150a-probe" { } ''
+    substitute ${./run-probe.sh} "$out" \
+      --subst-var-by core "${core}" \
+      --subst-var-by platform_core "${trainingPlatform.passthru.core}" \
+      --subst-var-by jq "${jq}/bin/jq" \
+      --subst-var-by docker "${docker}/bin/docker" \
+      --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
+      --subst-var-by b3sum "${b3sum}/bin/b3sum" \
+      --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by probe_py "${./probes/wkv7_probe.py}" \
+      --subst-var-by container_probe "${./container-probe.sh}"
+    chmod +x "$out"
+  '';
+
   tools = runCommand "rwkv7-lora-p150a-tools" { } ''
     mkdir -p "$out/bin" "$out/share/rwkv7-lora-p150a"
     ln -s ${core}/bin/rwkv7-lora-p150a-core "$out/bin/rwkv7-lora-p150a-core"
+    ln -s ${probeRunner} "$out/bin/rwkv7-lora-p150a-probe"
     ln -s ${profileJson} "$out/share/rwkv7-lora-p150a/profile.json"
   '';
 in
@@ -61,6 +80,7 @@ runCommand "rwkv7-lora-p150a-check"
     ];
     CORE = "${core}/bin/rwkv7-lora-p150a-core";
     PLATFORM_CORE = platformCore;
+    PROBE_RUNNER = "${probeRunner}";
     PLATFORM_MANIFEST = "${platformManifest}";
     PLATFORM_CONFIG = "${platformConfig}";
     PLATFORM_DESCRIPTOR = "${platformDescriptor}";
@@ -176,6 +196,50 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "model_mismatch" rejected.log
 
+    # The probe runner shell must exist and reject missing arguments even
+    # though hardware runs happen outside the sandbox.
+    test -x "$PROBE_RUNNER"
+    if "$PROBE_RUNNER" > /dev/null 2> runner-usage.log; then
+      echo "probe runner accepted an empty invocation" >&2
+      exit 1
+    fi
+    grep -F "usage:" runner-usage.log
+
+    # Positive probe receipt admission against the live profile identity.
+    profile_identity=$(jq -r '.identity_blake3' profile-admission.json)
+    jq --arg identity "$profile_identity" '.profile_identity = $identity' \
+      fixtures/probe-receipt-base.json >probe-receipt.json
+    "$CORE" admit-probe probe-receipt.json profile-first.json >probe-admission.json
+    grep -F '"status":"admitted"' probe-admission.json
+
+    # Negative: host placement is rejected as forbidden fallback.
+    jq '.probe_result.device.type = "CPU"' probe-receipt.json >probe-host.json
+    if "$CORE" admit-probe probe-host.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "host placement probe was admitted" >&2
+      exit 1
+    fi
+    grep -F "host_fallback" rejected.log
+
+    # Negative: a tolerance failure is rejected.
+    jq '.probe_result.tolerances_satisfied = false' probe-receipt.json >probe-tolerance.json
+    if "$CORE" admit-probe probe-tolerance.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "tolerance-failing probe was admitted" >&2
+      exit 1
+    fi
+    grep -F "tolerance_failure" rejected.log
+
+    # Negative: a stale probe graph is rejected.
+    jq '.profile_identity = "0000000000000000000000000000000000000000000000000000000000000000"' \
+      probe-receipt.json >probe-stale.json
+    if "$CORE" admit-probe probe-stale.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "stale probe receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "stale_probe_receipt" rejected.log
+
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \
       --profile profile-first.json \
@@ -194,4 +258,5 @@ runCommand "rwkv7-lora-p150a-check"
     cp profile-admission.json "$out/profile-admission.json"
     cp platform-admission.json "$out/platform-admission.json"
     cp prerequisite-admission.json "$out/prerequisite-admission.json"
+    cp probe-admission.json "$out/probe-admission-fixture.json"
   ''

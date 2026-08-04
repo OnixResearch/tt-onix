@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_probe",
+  "probe": "wkv7-forward",
+  "shape_kind": "focused",
+  "profile_identity": "PLACEHOLDER_PROFILE_IDENTITY",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    { "name": "health_before", "status": "pass" },
+    { "name": "ownership", "status": "pass" },
+    { "name": "probe_execute", "status": "pass" },
+    { "name": "restore", "status": "pass" },
+    { "name": "health_after", "status": "pass" }
+  ],
+  "probe_result": {
+    "status": "pass",
+    "probe": "wkv7-forward",
+    "device": { "type": "TT", "ordinal": 0, "visible_count": 2 },
+    "finite": true,
+    "tolerances_satisfied": true,
+    "compile_seconds": 120.0,
+    "hlo": { "stablehlo_op_count": 900, "op_histogram": { "dot_general": 300 } }
+  },
+  "hlo_blake3": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "max_stablehlo_operations": 200000,
+  "non_claims": [
+    "no full model support claim",
+    "no dual-card scaling claim",
+    "no speedup claim"
+  ]
+}

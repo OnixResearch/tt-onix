@@ -2,6 +2,8 @@
 //!
 //! r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
 //! r[impl tenstorrent.rwkv7_p150a_finetuning.configuration]
+//! r[impl tenstorrent.rwkv7_p150a_finetuning.compiler]
+//! r[impl tenstorrent.rwkv7_p150a_finetuning.placement]
 //!
 //! Every function is deterministic and free of I/O, clocks, and process
 //! state. The CLI shell in `main.rs` owns all filesystem and process work.
@@ -89,6 +91,18 @@ const BOUNDARY_NON_CLAIMS: [&str; 4] = [
 ];
 
 const PLATFORM_RECEIPT_KIND: &str = "dual_p150a_platform_smoke";
+const PROBE_RECEIPT_KIND: &str = "rwkv7_lora_p150a_probe";
+const ADMITTED_PROBES: [&str; 2] = ["wkv7-backward", "wkv7-forward"];
+const PROBE_PASS_STATUS: &str = "pass";
+const PROBE_DEVICE_TYPE: &str = "TT";
+
+const PROBE_RECEIPT_STAGES: [&str; 5] = [
+    "health_before",
+    "ownership",
+    "probe_execute",
+    "restore",
+    "health_after",
+];
 const PLATFORM_PASS_STATUS: &str = "pass";
 const PLATFORM_ADMITTED_STATUS: &str = "admitted";
 
@@ -144,6 +158,17 @@ pub struct AdmittedProfile {
     pub full_compile_timeout_seconds: u64,
     pub max_stablehlo_operations: u64,
     pub hardware_attempt_seconds: u64,
+}
+
+/// Admitted focused probe receipt.
+// PartialEq only: `compile_seconds` is an f64 and cannot satisfy Eq.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProbeAdmission {
+    pub identity_blake3: String,
+    pub probe: String,
+    pub shape_kind: String,
+    pub stablehlo_op_count: u64,
+    pub compile_seconds: f64,
 }
 
 /// Deterministic prerequisite admission binding platform and CPU receipts.
@@ -879,6 +904,188 @@ fn minimal_cpu_receipt() -> Value {
     })
 }
 
+fn probe_stage_status(receipt: &Value, stage: &str) -> Result<String, Rejection> {
+    let stages = field(receipt, "stages")?
+        .as_array()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "probe receipt stages is not an array"))?;
+    for entry in stages {
+        if entry.get("name").and_then(Value::as_str) == Some(stage) {
+            return Ok(entry
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string());
+        }
+    }
+    Err(Rejection::new(
+        "missing_stage",
+        format!("probe receipt is missing stage '{stage}'"),
+    ))
+}
+
+/// Admit one focused probe receipt against the profile.
+///
+/// The receipt must carry all passing host stages, a passing probe result on
+/// the selected TT device, finite values inside the named tolerances, and an
+/// HLO graph inside the admitted operation limit. Any host placement, stale
+/// identity, or tolerance failure fails admission.
+pub fn admit_probe(receipt: &Value, profile: &Value) -> Result<ProbeAdmission, Rejection> {
+    reject_forbidden_keys(receipt)?;
+    let admitted_profile = admit_profile(profile)?;
+
+    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_str(receipt, "kind", PROBE_RECEIPT_KIND, "stale_probe_receipt")?;
+    let probe = string_field(receipt, "probe")?.to_string();
+    if !ADMITTED_PROBES.contains(&probe.as_str()) {
+        return Err(Rejection::new(
+            "stale_probe_receipt",
+            format!("unknown probe name '{probe}'"),
+        ));
+    }
+    let shape_kind = string_field(receipt, "shape_kind")?.to_string();
+    if shape_kind != "focused" && shape_kind != "representative" {
+        return Err(Rejection::new(
+            "stale_probe_receipt",
+            format!("unknown shape kind '{shape_kind}'"),
+        ));
+    }
+
+    let profile_identity = string_field(receipt, "profile_identity")?;
+    if profile_identity != admitted_profile.identity_blake3 {
+        return Err(Rejection::new(
+            "stale_probe_receipt",
+            format!(
+                "receipt profile identity {profile_identity} differs from admitted profile {}",
+                admitted_profile.identity_blake3
+            ),
+        ));
+    }
+
+    for stage in PROBE_RECEIPT_STAGES {
+        let status = probe_stage_status(receipt, stage)?;
+        if status != PROBE_PASS_STATUS {
+            return Err(Rejection::new(
+                "failing_stage",
+                format!("probe receipt stage '{stage}' has status '{status}'"),
+            ));
+        }
+    }
+
+    let result = field(receipt, "probe_result")?;
+    let status = string_field(result, "status")?;
+    if status != PROBE_PASS_STATUS {
+        return Err(Rejection::new(
+            "probe_failed",
+            format!("probe result status is '{status}'"),
+        ));
+    }
+    if string_field(result, "probe")? != probe {
+        return Err(Rejection::new(
+            "stale_probe_receipt",
+            "probe result name differs from the receipt probe",
+        ));
+    }
+
+    // Placement: model work must run on the selected TT device only.
+    let device = field(result, "device")?;
+    let device_type = string_field(device, "type")?;
+    if device_type != PROBE_DEVICE_TYPE {
+        return Err(Rejection::new(
+            "host_fallback",
+            format!("probe executed on device type '{device_type}'"),
+        ));
+    }
+    let ordinal = nonnegative_u64(device, "ordinal")?;
+    let profile_device = field(profile, "device")?;
+    let selection_ordinal = nonnegative_u64(profile_device, "selection_ordinal")?;
+    if ordinal != selection_ordinal {
+        return Err(Rejection::new(
+            "host_fallback",
+            format!("probe ran on ordinal {ordinal}, profile selects {selection_ordinal}"),
+        ));
+    }
+    let visible_count = field(device, "visible_count")
+        .and_then(|value| {
+            value
+                .as_u64()
+                .ok_or_else(|| Rejection::new("malformed_receipt", "visible_count is not an integer"))
+        })?;
+    let physical_count = nonnegative_u64(profile_device, "physical_count")?;
+    if visible_count != physical_count {
+        return Err(Rejection::new(
+            "stale_probe_receipt",
+            format!("visible device count {visible_count} differs from physical count {physical_count}"),
+        ));
+    }
+
+    let finite = bool_field(result, "finite")?;
+    if !finite {
+        return Err(Rejection::new("nonfinite_values", "probe result reports nonfinite values"));
+    }
+    let tolerances_satisfied = bool_field(result, "tolerances_satisfied")?;
+    if !tolerances_satisfied {
+        return Err(Rejection::new(
+            "tolerance_failure",
+            "probe deviations exceed the named tolerances",
+        ));
+    }
+
+    let hlo = field(result, "hlo")?;
+    let op_count = field(hlo, "stablehlo_op_count")?
+        .as_u64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer"))?;
+    if op_count == 0 {
+        return Err(Rejection::new(
+            "host_fallback",
+            "probe HLO graph contains no StableHLO operations",
+        ));
+    }
+    if op_count > admitted_profile.max_stablehlo_operations {
+        return Err(Rejection::new(
+            "op_limit_exceeded",
+            format!(
+                "probe HLO graph has {op_count} operations above the limit {}",
+                admitted_profile.max_stablehlo_operations
+            ),
+        ));
+    }
+
+    let compile_seconds = field(result, "compile_seconds")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "compile_seconds is not a number"))?;
+    if compile_seconds < 0.0 {
+        return Err(Rejection::new(
+            "malformed_receipt",
+            "compile_seconds is negative",
+        ));
+    }
+    if compile_seconds > admitted_profile.probe_compile_timeout_seconds as f64 {
+        return Err(Rejection::new(
+            "compile_timeout_exceeded",
+            format!(
+                "probe compile took {compile_seconds}s above the limit {}s",
+                admitted_profile.probe_compile_timeout_seconds
+            ),
+        ));
+    }
+
+    let hlo_blake3 = string_field(receipt, "hlo_blake3")?;
+    if !is_hash_hex(hlo_blake3) {
+        return Err(Rejection::new(
+            "malformed_receipt",
+            "probe HLO BLAKE3 is not a hex hash",
+        ));
+    }
+
+    Ok(ProbeAdmission {
+        identity_blake3: blake3_identity(receipt),
+        probe,
+        shape_kind,
+        stablehlo_op_count: op_count,
+        compile_seconds,
+    })
+}
+
 /// Built-in positive and negative admission fixtures.
 pub fn self_test() -> Result<String, Rejection> {
     // Positive: profile admission is deterministic.
@@ -1092,6 +1299,88 @@ pub fn self_test() -> Result<String, Rejection> {
             return Err(Rejection::new(
                 "self_test",
                 format!("malformed CPU receipt hash produced {other:?}"),
+            ));
+        }
+    }
+
+    // Positive: an admitted probe receipt validates deterministically.
+    let admitted_profile = admit_profile(&profile)?;
+    let probe_receipt = json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": PROBE_RECEIPT_KIND,
+        "probe": "wkv7-forward",
+        "shape_kind": "focused",
+        "profile_identity": admitted_profile.identity_blake3,
+        "stages": PROBE_RECEIPT_STAGES
+            .iter()
+            .map(|stage| json!({ "name": stage, "status": PROBE_PASS_STATUS }))
+            .collect::<Vec<_>>(),
+        "probe_result": {
+            "status": PROBE_PASS_STATUS,
+            "probe": "wkv7-forward",
+            "device": { "type": PROBE_DEVICE_TYPE, "ordinal": 0, "visible_count": 2 },
+            "finite": true,
+            "tolerances_satisfied": true,
+            "compile_seconds": 120.0,
+            "hlo": { "stablehlo_op_count": 900, "op_histogram": {} },
+        },
+        "hlo_blake3": "e".repeat(HEX_HASH_LEN),
+        "non_claims": [],
+    });
+    let first_probe = admit_probe(&probe_receipt, &profile)?;
+    let second_probe = admit_probe(&probe_receipt, &profile)?;
+    if first_probe != second_probe {
+        return Err(Rejection::new("self_test", "probe admission is not deterministic"));
+    }
+
+    // Negative: host execution fails as forbidden fallback.
+    let mut host_receipt = probe_receipt.clone();
+    host_receipt["probe_result"]["device"]["type"] = json!("CPU");
+    match admit_probe(&host_receipt, &profile) {
+        Err(rejection) if rejection.code == "host_fallback" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("host placement produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: a tolerance failure blocks the probe.
+    let mut tolerant_receipt = probe_receipt.clone();
+    tolerant_receipt["probe_result"]["tolerances_satisfied"] = json!(false);
+    match admit_probe(&tolerant_receipt, &profile) {
+        Err(rejection) if rejection.code == "tolerance_failure" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("tolerance failure produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: an oversized graph blocks the probe.
+    let mut oversized_receipt = probe_receipt.clone();
+    oversized_receipt["probe_result"]["hlo"]["stablehlo_op_count"] = json!(400000);
+    match admit_probe(&oversized_receipt, &profile) {
+        Err(rejection) if rejection.code == "op_limit_exceeded" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("oversized graph produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: a stale profile identity blocks the probe.
+    let mut stale_probe = probe_receipt.clone();
+    stale_probe["profile_identity"] = json!("0".repeat(HEX_HASH_LEN));
+    match admit_probe(&stale_probe, &profile) {
+        Err(rejection) if rejection.code == "stale_probe_receipt" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("stale probe identity produced {other:?}"),
             ));
         }
     }

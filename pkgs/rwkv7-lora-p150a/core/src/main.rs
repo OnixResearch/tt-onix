@@ -14,6 +14,7 @@ const USAGE_ERROR: u8 = 2;
 fn usage() -> String {
     "usage: rwkv7-lora-p150a-core self-test\n\
      usage: rwkv7-lora-p150a-core admit-profile PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core admit-probe RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-prerequisites --profile PATH --platform-admission PATH \
      --platform-receipt PATH --cpu-receipt PATH --cpu-receipt-blake3 HEX"
         .to_string()
@@ -118,6 +119,31 @@ fn run() -> Result<u8, String> {
                         "full_compile_timeout_seconds": admitted.full_compile_timeout_seconds,
                         "max_stablehlo_operations": admitted.max_stablehlo_operations,
                         "hardware_attempt_seconds": admitted.hardware_attempt_seconds,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-probe" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_p150a_core::admit_probe(&receipt, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "probe": admission.probe,
+                        "shape_kind": admission.shape_kind,
+                        "stablehlo_op_count": admission.stablehlo_op_count,
+                        "compile_seconds": admission.compile_seconds,
                     });
                     println!("{body}");
                     Ok(SUCCESS)
