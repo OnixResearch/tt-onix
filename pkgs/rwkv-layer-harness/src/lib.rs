@@ -46,6 +46,7 @@ pub const TEXT_GENERATION_STEP_LIMIT: usize = 3;
 pub const PROMPT_MAX_MESSAGE_BYTES: usize = 256;
 pub const PROMPT_MAX_TOKEN_COUNT: usize = 32;
 pub const PROMPT_MAX_NEW_TOKEN_COUNT: usize = 4;
+const FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT: usize = 2;
 pub const TTWKV7_BOUNDARY_INPUT_COUNT: usize = 6;
 pub const TTWKV7_BOUNDARY_ARTIFACT_COUNT: usize = 9;
 pub const MODEL_REVISION: &str = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
@@ -855,6 +856,24 @@ pub struct PromptReceipt {
     pub oracle_tolerance: f32,
     pub replay_tolerance: f32,
     pub non_claims: Vec<&'static str>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FullDeviceReferenceStep {
+    pub input_token_id: usize,
+    pub selected_token_id: usize,
+    pub final_hidden: Vec<f32>,
+    pub logits: Vec<f32>,
+    pub complete_recurrent_state: Vec<f32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FullDeviceReferenceTrace {
+    pub prompt_token_ids: Vec<usize>,
+    pub generated_token_ids: Vec<usize>,
+    pub steps: Vec<FullDeviceReferenceStep>,
+    pub reset_control: FullDeviceReferenceStep,
+    pub transposed_control: FullDeviceReferenceStep,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2435,6 +2454,155 @@ pub fn run_prompt_checkpoint(
         oracle_tolerance: ORACLE_TOLERANCE,
         replay_tolerance: REPLAY_TOLERANCE,
         non_claims: PROMPT_NON_CLAIMS.to_vec(),
+    })
+}
+
+// r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
+pub fn run_full_device_reference(
+    checkpoint: &[u8],
+    expected_model_blake3: &str,
+    authority_inputs: TokenizerAuthorityInputs<'_>,
+    request: PromptRequest,
+) -> Result<FullDeviceReferenceTrace, String> {
+    request.validate()?;
+    if request.max_new_tokens < FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT {
+        return Err(format!(
+            "full-device reference requires at least {FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT} generated tokens"
+        ));
+    }
+    verify_checkpoint_digest(checkpoint, expected_model_blake3)?;
+    let byte_count = u64::try_from(checkpoint.len())
+        .map_err(|error| format!("checkpoint byte count does not fit u64: {error}"))?;
+    if byte_count != MODEL_BYTE_COUNT {
+        return Err(format!(
+            "checkpoint byte count must be {MODEL_BYTE_COUNT}, found {byte_count}"
+        ));
+    }
+    let (tokenizer, _) = validate_tokenizer_authority(authority_inputs)?;
+    let rendered_chat_prompt = request.render_chat_prompt()?;
+    let prompt_token_ids = tokenizer.encode_wrapper_text(&rendered_chat_prompt)?;
+    require_prompt_token_limit(prompt_token_ids.len(), request.max_prompt_tokens)?;
+
+    let tensors = SafeTensors::deserialize(checkpoint)
+        .map_err(|error| format!("failed to decode safetensors checkpoint: {error}"))?;
+    let dimensions = Dimensions::reviewed();
+    let weights = (0..MODEL_LAYER_COUNT)
+        .map(|layer_index| load_layer(&tensors, dimensions, layer_index))
+        .collect::<Result<Vec<_>, _>>()?;
+    validate_model_weights(&weights)?;
+    let embedding = tensors
+        .tensor("model.embeddings.weight")
+        .map_err(|error| format!("missing model.embeddings.weight: {error}"))?;
+    let final_norm_weight = vector(&tensors, "model.norm.weight", dimensions.hidden_size)?;
+    let final_norm_bias = vector(&tensors, "model.norm.bias", dimensions.hidden_size)?;
+    let head_tensor = tensors
+        .tensor("lm_head.weight")
+        .map_err(|error| format!("missing lm_head.weight: {error}"))?;
+    let head = matrix(
+        &tensors,
+        "lm_head.weight",
+        VOCABULARY_SIZE,
+        dimensions.hidden_size,
+    )?;
+
+    let evaluate_step = |input_token_id: usize,
+                         final_output: &[f32],
+                         execution: &ModelExecutionState|
+     -> Result<FullDeviceReferenceStep, String> {
+        let evaluation = evaluate_head(
+            final_output,
+            &final_norm_weight,
+            &final_norm_bias,
+            &head,
+            &head_tensor,
+            dimensions,
+        )?;
+        Ok(FullDeviceReferenceStep {
+            input_token_id,
+            selected_token_id: evaluation.top_two.first.token_id,
+            final_hidden: evaluation.final_hidden,
+            logits: evaluation.logits,
+            complete_recurrent_state: execution.flattened_complete_state(),
+        })
+    };
+    let advance = |input_token_id: usize,
+                   execution: ModelExecutionState|
+     -> Result<(ModelExecutionState, Vec<f32>, FullDeviceReferenceStep), String> {
+        let token_embedding = embedding_row(&embedding, input_token_id, dimensions.hidden_size)?;
+        let (next_execution, final_output) =
+            run_model_token(&weights, &token_embedding, execution)?;
+        ensure_oracle_tolerance(&next_execution, "full-device reference")?;
+        let step = evaluate_step(input_token_id, &final_output, &next_execution)?;
+        Ok((next_execution, final_output, step))
+    };
+
+    let mut execution = ModelExecutionState::zero(dimensions)?;
+    let mut steps = Vec::new();
+    let mut final_output = Vec::new();
+    for token_id in &prompt_token_ids {
+        let (next_execution, next_output, step) = advance(*token_id, execution)?;
+        execution = next_execution;
+        final_output = next_output;
+        steps.push(step);
+    }
+    if final_output.is_empty() {
+        return Err("full-device reference prompt produced no output".to_owned());
+    }
+
+    let retained_control_state = execution.clone();
+    let mut generated_token_ids = Vec::with_capacity(request.max_new_tokens);
+    while generated_token_ids.len() < request.max_new_tokens {
+        let generated_token_id = steps
+            .last()
+            .ok_or_else(|| "full-device reference contains no completed token step".to_owned())?
+            .selected_token_id;
+        generated_token_ids.push(generated_token_id);
+        if generated_token_id == GENERATION_CONFIG_EOS_TOKEN_ID {
+            break;
+        }
+        if generated_token_ids.len() == request.max_new_tokens {
+            break;
+        }
+        let (next_execution, _, step) = advance(generated_token_id, execution)?;
+        execution = next_execution;
+        steps.push(step);
+    }
+    if generated_token_ids.len() < FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT {
+        return Err(format!(
+            "full-device reference stopped before {FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT} generated tokens"
+        ));
+    }
+    let control_input_token = generated_token_ids[0];
+
+    let (_, _, reset_control) =
+        advance(control_input_token, ModelExecutionState::zero(dimensions)?)?;
+    let mut transposed_state = retained_control_state;
+    for (layer, oracle) in transposed_state
+        .layers
+        .iter_mut()
+        .zip(transposed_state.oracle_matrices.iter_mut())
+    {
+        let mut transposed = vec![0.0_f32; layer.matrix.len()];
+        for head in 0..dimensions.head_count {
+            let base = head * dimensions.head_size * dimensions.head_size;
+            for row in 0..dimensions.head_size {
+                for column in 0..dimensions.head_size {
+                    transposed[base + row * dimensions.head_size + column] =
+                        layer.matrix[base + column * dimensions.head_size + row];
+                }
+            }
+        }
+        layer.matrix.clone_from(&transposed);
+        oracle.clone_from(&transposed);
+    }
+    let (_, _, transposed_control) = advance(control_input_token, transposed_state)?;
+
+    Ok(FullDeviceReferenceTrace {
+        prompt_token_ids,
+        generated_token_ids,
+        steps,
+        reset_control,
+        transposed_control,
     })
 }
 

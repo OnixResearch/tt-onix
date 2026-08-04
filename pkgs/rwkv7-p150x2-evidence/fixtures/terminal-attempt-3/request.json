@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "user_message": "Hello",
+  "rendered_chat_prompt": "<|rwkv_tokenizer_end_of_text|>User: Hello\n\nAssistant:",
+  "prompt_token_ids": [
+    0,
+    24281,
+    59,
+    36786,
+    65530,
+    5585,
+    41693,
+    59
+  ],
+  "max_prompt_tokens": 32,
+  "max_new_tokens": 3,
+  "prompt_token_ids_blake3": "2585248d91690d478b427261e8f4fb3914504b4add49344499ee59d67bea88f1"
+}
