@@ -2,8 +2,8 @@
 
 ## Phase 1: Focused compiler portfolio
 
-- [ ] [serial] B1 Validate current platform and CPU reference receipts before accelerator work. r[tenstorrent.rwkv7_p150a_finetuning.authority]
-- [ ] [serial] B2 Add named Nickel profiles for static shapes, dtypes, compile limits, memory limits, tolerances, run criteria, health limits, and timeouts. r[tenstorrent.rwkv7_p150a_finetuning.configuration]
+- [x] [serial] B1 Validate current platform and CPU reference receipts before accelerator work. r[tenstorrent.rwkv7_p150a_finetuning.authority]
+- [x] [serial] B2 Add named Nickel profiles for static shapes, dtypes, compile limits, memory limits, tolerances, run criteria, health limits, and timeouts. r[tenstorrent.rwkv7_p150a_finetuning.configuration]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.configuration] B3 Compile and run the direct TT-XLA WKV7 forward probe with placement evidence. r[tenstorrent.rwkv7_p150a_finetuning.compiler]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B4 Compile and run the direct TT-XLA WKV7 backward probe with CPU gradient comparison. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.parity]
 - [ ] [parallel] B5 Probe LoRA projections, masked loss, gradient norm, clipping, and adapter optimizer update. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]

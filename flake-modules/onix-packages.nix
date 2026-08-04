@@ -52,6 +52,14 @@
       };
       # r[impl tenstorrent.training_platform.verification]
       trainingPlatform = pkgs.callPackage ../pkgs/training-platform { };
+      # r[impl tenstorrent.rwkv7_p150a_finetuning.configuration]
+      # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
+      rwkv7LoraP150a = pkgs.callPackage ../pkgs/rwkv7-lora-p150a {
+        inherit trainingPlatform;
+        platformEvidenceReceipt =
+          ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
+        cpuReference = rwkv7LoraReference;
+      };
       # r[verify tenstorrent.training_platform.configuration.valid]
       trainingPlatformExampleEval = import (inputs.nixpkgs + "/nixos/lib/eval-config.nix") {
         inherit system;
@@ -351,6 +359,8 @@
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
         training-platform-core = trainingPlatform.core;
+        rwkv7-lora-p150a-tools = rwkv7LoraP150a.passthru.tools;
+        rwkv7-lora-p150a-core = rwkv7LoraP150a.passthru.core;
         rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
         rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
@@ -364,6 +374,7 @@
         model-target-profile-factory = modelTargetFactoryCheck;
         model-target-candidate-report = modelTargetReport;
         rwkv7-lora-reference = rwkv7LoraReference;
+        rwkv7-lora-p150a = rwkv7LoraP150a;
         training-platform = trainingPlatform;
         training-platform-nixos-example = trainingPlatformExampleCheck;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
