@@ -1,0 +1,9 @@
+[package]
+name = "model-target-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pure model-target identity, evidence, and candidate-report core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "host": "britton-desktop",
+  "attempt_lock_created": true,
+  "boards": [
+    {
+      "device_id": 0,
+      "serial": "0000040331921011",
+      "bdf": "0000:01:00.0",
+      "healthy_before": true,
+      "healthy_after_isolation": true,
+      "healthy_after_restoration": false
+    },
+    {
+      "device_id": 1,
+      "serial": "000004033192100e",
+      "bdf": "0000:03:00.0",
+      "healthy_before": true,
+      "healthy_after_isolation": true,
+      "healthy_after_restoration": false
+    }
+  ],
+  "owners": [
+    {
+      "unit": "docker-tt-inference-server-llama-3-1-8b-instruct-p150.service",
+      "container": "tt-inference-server-llama-3-1-8b-instruct-p150",
+      "active_before": true,
+      "stop_requested": true,
+      "stop_request_exit_status": 0,
+      "inactive_after_stop": true,
+      "main_pid_zero_after_stop": true,
+      "isolated": true,
+      "restored_to_prior_state": false,
+      "endpoint_healthy_after": false,
+      "container_healthy_after": false
+    },
+    {
+      "unit": "llamacpp-server-vibethinker-britton-desktop.service",
+      "container": null,
+      "active_before": true,
+      "stop_requested": true,
+      "stop_request_exit_status": 0,
+      "inactive_after_stop": true,
+      "main_pid_zero_after_stop": true,
+      "isolated": true,
+      "restored_to_prior_state": false,
+      "endpoint_healthy_after": false,
+      "container_healthy_after": null
+    }
+  ],
+  "device_zero_unowned": true,
+  "device_one_unowned": true,
+  "process": {
+    "invocation_count": 1,
+    "retry_count": 0,
+    "reconnect_count": 0,
+    "fallback_count": 0,
+    "exit_status": 1,
+    "timed_out": false
+  },
+  "restoration": {
+    "independent_timer_armed": true,
+    "exit_restoration_attempted": true,
+    "independent_timer_disarmed_after_health": false
+  }
+}

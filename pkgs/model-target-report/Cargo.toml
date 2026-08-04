@@ -1,0 +1,10 @@
+[package]
+name = "model-target-report"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Device-free model candidate report shell"
+
+[dependencies]
+model-target-core = { path = "../model-target-core" }
+serde_json = "1"

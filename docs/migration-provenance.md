@@ -25,3 +25,18 @@ history for the imported snapshot also remains available there.
 Migration validation is device-free. It does not claim fresh hardware execution,
 performance, general P150 compatibility, or exact BF16 parity beyond the retained
 receipts' explicit claim boundaries.
+
+## Post-migration full-device development
+
+The reusable RWKV-7 P150x2 runtime and classifier were reviewed and ported from
+the historical `onix-core` branch `rwkv-full-device-20260718`. The source work
+starts at commit `15e70fef` and the third owner-isolation revision ends at commit
+`9c1bed8e`.
+
+The standalone package removes machine-specific runbooks. Its retained attempt-3
+fixture records that devices 0 and 1 opened before a profiler and Watcher firmware
+conflict caused BRISC overflow. Device-free package checks do not convert that
+failure into a physical execution success claim.
+
+<!-- r[impl tenstorrent.rwkv7_p150x2.no_hardware_claim] -->
+<!-- r[verify tenstorrent.rwkv7_p150x2.no_hardware_claim.complete] -->

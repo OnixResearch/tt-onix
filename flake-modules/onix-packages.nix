@@ -16,7 +16,102 @@
         config.allowUnfreePredicate = package: lib.getName package == "ttwkv7";
       };
       rwkvLab = pkgs.callPackage ../pkgs/rwkv-lab { };
-      rwkvLayerHarness = pkgs.callPackage ../pkgs/rwkv-layer-harness { };
+      modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
+      rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
+      rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
+      rwkvTarget = modelTargets.mkModelTarget {
+        profile = rwkvProfile;
+        artifacts = rwkvArtifacts;
+        architectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
+        evidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
+        topology = modelTargets.mkTopology rwkvProfile;
+        builders = {
+          runtime = targetContext: pkgs.callPackage ../pkgs/rwkv7-p150x2
+            { inherit targetContext; };
+          evidence = context: pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence
+            {
+              targetContext = context;
+              deviceRuntime = context.runtime;
+            };
+          command = _context: pkgs.runCommand "rwkv7-p150x2-command" { } 
+            "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
+          sourceBoundary = _context: rwkv7P150x2SourceCheck;
+          closure = _context: rwkv7P150x2ProductionClosure;
+        };
+      };
+      rwkvLayerHarness = pkgs.callPackage ../pkgs/rwkv-layer-harness {
+        targetProfile = rwkvProfile;
+        targetArtifacts = rwkvArtifacts;
+      };
+      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report { };
+      modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
+        inherit (pkgs) nickel;
+        modelTargets = modelTargets;
+      };
+      rwkv7P150x2Runtime = rwkvTarget.runtime;
+      # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
+      rwkv7P150x2Evidence = rwkvTarget.evidence;
+      rwkv7P150x2ProductionClosure = pkgs.closureInfo {
+        rootPaths = [ rwkv7P150x2Evidence ];
+      };
+      rwkv7P150x2Attempt3Evidence =
+        pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence/terminal-attempt-3.nix
+          {
+            evidencePackage = rwkv7P150x2Evidence;
+          };
+      # r[impl tenstorrent.rwkv7_p150x2.device_free_validation]
+      # r[verify tenstorrent.rwkv7_p150x2.full_device_runtime.complete_path]
+      # r[verify tenstorrent.rwkv7_p150x2.device_free_validation.focused]
+      rwkv7P150x2SourceCheck =
+        pkgs.runCommand "rwkv7-p150x2-source-check"
+          {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          }
+          ''
+            set -eu
+            runtime_source=${../pkgs/rwkv7-p150x2/src/main.cpp}
+            command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
+
+            grep -F 'MeshShape{kMeshRows, kMeshColumns}' "$runtime_source"
+            grep -F 'physical_device_ids' "$runtime_source"
+            grep -F 'replicate_tensor_to_mesh_mapper' "$runtime_source"
+            grep -F 'ttnn::embedding' "$runtime_source"
+            grep -F 'ttnn::matmul' "$runtime_source"
+            grep -F 'ttnn::argmax' "$runtime_source"
+            grep -F 'ReadDeviceProfilerResults' "$runtime_source"
+            grep -F '!environment.watcher.has_value()' "$runtime_source"
+            grep -F '!environment.dprint_cores.has_value()' "$runtime_source"
+            grep -F 'remove_environment(WATCHER_ENVIRONMENT)' "$command_source"
+            grep -F 'remove_environment(DPRINT_CORES_ENVIRONMENT)' "$command_source"
+
+            if grep -E 'torch|pytorch|cpu-dispatch|test_only_cpu_server|std::system|popen|fork\(' \
+              "$runtime_source"; then
+              echo 'full-device runtime contains a forbidden CPU-model or process fallback surface' >&2
+              exit 1
+            fi
+            if grep -F 'set_environment(WATCHER_ENVIRONMENT' "$command_source"; then
+              echo 'profiler command assigns a value to the presence-based Watcher variable' >&2
+              exit 1
+            fi
+            touch "$out"
+          '';
+      # r[verify tenstorrent.rwkv7_p150x2.device_free_validation.cpu_fallback]
+      rwkv7P150x2ClosureCheck =
+        pkgs.runCommand "rwkv7-p150x2-production-closure-check"
+          {
+            nativeBuildInputs = [ pkgs.gnugrep ];
+          }
+          ''
+            set -eu
+            cp ${rwkv7P150x2ProductionClosure}/store-paths closure-paths.txt
+            if grep -Ei '/[^/]*(pytorch|torch-|rwkv-layer-harness|python.*safetensors)' \
+              closure-paths.txt; then
+              echo 'production closure contains a CPU-model or PyTorch fallback dependency' >&2
+              exit 1
+            fi
+            grep -F '${rwkv7P150x2Runtime}' closure-paths.txt
+            cp closure-paths.txt "$out"
+          '';
       ttwkv7 = ttwkv7Pkgs.callPackage ../pkgs/ttwkv7 {
         inherit (ttwkv7Pkgs) enchantum tt-logger tt-metal;
       };
@@ -205,6 +300,9 @@
         inherit ttsim ttwkv7;
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;
+        rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
+        rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        model-target-report = modelTargetReport;
         rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
         rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
@@ -215,6 +313,13 @@
       checks = lib.optionalAttrs isSupportedSystem {
         development-interface = developmentInterfaceCheck;
         migration-boundary = migrationBoundaryCheck;
+        model-target-profile-factory = modelTargetFactoryCheck;
+        model-target-candidate-report = modelTargetReport;
+        rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
+        rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;
+        rwkv7-p150x2-production-closure = rwkv7P150x2ClosureCheck;
+        rwkv7-p150x2-attempt-3-evidence = rwkv7P150x2Attempt3Evidence;
         rwkv-layer-framework-parity = rwkvLayerHarness.passthru.frameworkParityCheck;
         rwkv-ttwkv7-observed-layer = rwkvLayerHarness.passthru.observedLayerReplayCheck;
         rwkv-ttwkv7-observed-state-carry = rwkvLayerHarness.passthru.stateCarryCheck;

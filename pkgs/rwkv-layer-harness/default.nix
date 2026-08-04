@@ -6,28 +6,21 @@
   python3,
   runCommand,
   rustPlatform,
+  targetProfile,
+  targetArtifacts,
 }:
 let
-  modelRevision = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-  model = fetchurl {
-    name = "rwkv7-goose-world2.8-0.1b-${modelRevision}.safetensors";
-    url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/${modelRevision}/model.safetensors";
-    hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
-  };
-  modelBlake3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
-  tokenizerArtifact =
-    name: hash:
-    fetchurl {
-      inherit name hash;
-      url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/${modelRevision}/${name}";
-    };
-  tokenizerVocabulary = tokenizerArtifact "rwkv_vocab_v20230424.txt" "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=";
-  tokenizerConfig = tokenizerArtifact "tokenizer_config.json" "sha256-TgOqD11rGkAGoNnp8HDwFBjnNKsXx8SPKDM1lta9Xik=";
-  addedTokens = tokenizerArtifact "added_tokens.json" "sha256-o0nK5s2qaAz2/A0pKbFvKp7bQ+twJ7LjRLHKgGOFT7k=";
-  tokenizerImplementation = tokenizerArtifact "hf_rwkv_tokenizer.py" "sha256-qspeag9W0EPKFlTp3K+Qb888DgO1FyhjrXUGDoaFoQ4=";
-  specialTokensMap = tokenizerArtifact "special_tokens_map.json" "sha256-H1EppN7ADOM+XFzScmyVKyKkeCcyHu08UY1DXUpkYBU=";
-  modelConfig = tokenizerArtifact "config.json" "sha256-VcFZ/IlA4WVXpCsE8K7QN0TxdiIcwSY3aUqx9+EMTG8=";
-  generationConfig = tokenizerArtifact "generation_config.json" "sha256-2milZURvylpqKvSzCIkS6VOWX7+m6WgBmhTXVj1Y2Tc=";
+  modelRevision = targetProfile.model.revision;
+  model = targetArtifacts.checkpoint.path;
+  modelBlake3 = targetArtifacts.checkpoint.blake3;
+  modelSha256 = targetArtifacts.checkpoint.nix_hash;
+  tokenizerVocabulary = targetArtifacts.tokenizer_vocabulary.path;
+  tokenizerConfig = targetArtifacts.tokenizer_config.path;
+  addedTokens = targetArtifacts.tokenizer_added_tokens.path;
+  tokenizerImplementation = targetArtifacts.tokenizer_implementation.path;
+  specialTokensMap = targetArtifacts.tokenizer_special_tokens.path;
+  modelConfig = targetArtifacts.model_config.path;
+  generationConfig = targetArtifacts.generation_config.path;
   hfModelingSource = fetchurl {
     name = "modeling_rwkv7-${modelRevision}.py";
     url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/${modelRevision}/modeling_rwkv7.py";
@@ -1549,6 +1542,7 @@ let
         tokenizerConfig
         tokenizerImplementation
         tokenizerVocabulary
+        targetProfile
         ;
     };
 

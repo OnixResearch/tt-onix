@@ -7,6 +7,8 @@ let
     "docs/migration-provenance.md"
     "pkgs/rwkv-lab"
     "pkgs/rwkv-layer-harness"
+    "pkgs/rwkv7-p150x2"
+    "pkgs/rwkv7-p150x2-evidence"
     "pkgs/rwkv-ttwkv7-boundary-device"
     "pkgs/rwkv-ttwkv7-persistent-device"
     "pkgs/rwkv-ttwkv7-persistent-evidence"

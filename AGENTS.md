@@ -48,6 +48,27 @@ Use the low-level documentation for kernel API and NoC guidance.
 Use the package-matched driver sources for host ABI and device-node behavior.
 Use `ttsim` for device-free behavior checks when its documented feature set covers the path.
 
+### Simulator-before-hardware workflow
+
+Use a short `ttsim` smoke test before a new hardware attempt when the simulator covers the required architecture and operations.
+Do not wait for full simulated inference when a smaller test can remove the same software risk.
+
+- Run the same host and device binaries on `ttsim` and silicon. Do not add simulator-specific runtime branches.
+- Start Blackhole validation with the packaged `libttsim_bh.so` and a `1x1` mesh.
+  Require one device open, firmware compilation, representative weight loading, one RWKV layer, and recurrent-state carry.
+- Use a hardware-neutral smoke mode when the production runtime is fixed to a larger mesh.
+  Keep the production P150x2 command fail-closed on an exact `1x2` mesh with physical device IDs 0 and 1.
+- Advance to the packaged `libttsim_bh_x2.so` only after the single-chip smoke test passes.
+  Use a package-matched cluster descriptor, and test mesh opening, replication, and the bounded representative path.
+  Treat this experimental P300 model only as a preliminary check for a two-P150 deployment.
+- Prefer slow dispatch because `ttsim` fast dispatch has incomplete determinism coverage.
+- Set `TT_METAL_DISABLE_SFPLOADMACRO=1` when the tested SFPU path can use `SFPLOADMACRO`.
+- Use a named 60-minute timeout for a full-model simulator attempt. Stop at the timeout and preserve the exact blocker.
+- Require the smoke test to open the expected mesh, compile firmware, execute representative TT-NN operations, and carry recurrent state.
+- Mark every simulator receipt as simulated. Never use simulator evidence to claim physical placement, hardware profiling, performance, or successful silicon execution.
+- If the exact simulator path needs an unmatched TT-Metal branch or unsupported feature, record the mismatch and move to one bounded hardware attempt.
+- After the simulator smoke test passes, use hardware for physical-device attribution, profiler evidence, performance, and the final acceptance result.
+
 ### Tenstorrent system-management references
 
 - Read the package-matched Luwen source at `.pi/references/tenstorrent/luwen`.

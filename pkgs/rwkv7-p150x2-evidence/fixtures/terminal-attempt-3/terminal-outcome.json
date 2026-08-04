@@ -1,0 +1,5 @@
+{
+  "diagnostic": "multi-owner restoration health window expired; rollback timer remains armed",
+  "outcome": "restoration_failed",
+  "schema_version": 1
+}

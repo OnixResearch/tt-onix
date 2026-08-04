@@ -1,0 +1,14 @@
+{
+  "candidate_name": "Qwen3.6",
+  "upstream_identity": null,
+  "revision": null,
+  "license": null,
+  "artifacts": null,
+  "tokenizer": null,
+  "state_kind": null,
+  "required_operators": null,
+  "memory_bounds": null,
+  "reference_authority": null,
+  "evidence_adapter": null,
+  "topology_compatibility": null
+}
