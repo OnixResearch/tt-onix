@@ -10,6 +10,7 @@ let
     "pkgs/rwkv-ttwkv7-boundary-device"
     "pkgs/rwkv-ttwkv7-persistent-device"
     "pkgs/rwkv-ttwkv7-persistent-evidence"
+    "pkgs/rwkv-ttwkv7-persistent-receipt-validator"
     "pkgs/rwkv-ttwkv7-persistent-passed-evidence"
     "pkgs/tt-vibethinker-bench"
     "pkgs/ttsim"

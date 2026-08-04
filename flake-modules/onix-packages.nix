@@ -41,6 +41,9 @@
           ttwkv7OwnerControl
           ;
       };
+      rwkvTtwkv7PersistentReceiptValidator =
+        pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-receipt-validator
+          { };
       rwkvTtwkv7HostLayoutCheck = ttwkv7Pkgs.callPackage ../pkgs/ttwkv7/rwkv-host-layout-check.nix {
         inherit rwkvLayerHarness ttwkv7;
       };
@@ -63,6 +66,9 @@
       rwkvTtwkv7PersistentDevice4RunbookCheck =
         pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-device/runbook-check.nix
           { };
+      rwkvTtwkv7PersistentReceiptValidatorCheck =
+        pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-receipt-validator/check.nix
+          { validator = rwkvTtwkv7PersistentReceiptValidator; };
       rwkvTtwkv7PersistentPartialDiagnosticCheck =
         pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-evidence
           { };
@@ -201,6 +207,7 @@
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
         rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
+        rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
       };
@@ -221,6 +228,7 @@
         rwkv-ttwkv7-persistent-dispatch-transport = rwkvTtwkv7PersistentDispatchTransportCheck;
         rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDeviceCheck;
         rwkv-ttwkv7-persistent-device-4-runbook = rwkvTtwkv7PersistentDevice4RunbookCheck;
+        rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidatorCheck;
         rwkv-ttwkv7-persistent-partial-diagnostic = rwkvTtwkv7PersistentPartialDiagnosticCheck;
         rwkv-ttwkv7-persistent-device-4-evidence = rwkvTtwkv7PersistentDevice4EvidenceCheck;
         ttwkv7-architectures = ttwkv7.passthru.architectureCheck;
