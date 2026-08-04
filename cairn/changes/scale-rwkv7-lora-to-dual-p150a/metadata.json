@@ -1,0 +1,5 @@
+{
+  "depends_on": [
+    "bring-up-rwkv7-lora-on-p150a"
+  ]
+}
