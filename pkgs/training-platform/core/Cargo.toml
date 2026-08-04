@@ -1,0 +1,15 @@
+[package]
+name = "training-platform-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pure dual-P150A TT-XLA training-platform admission core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# preserve_order stays off: serde_json::Map is a BTreeMap, so serialized
+# output has sorted keys and the canonical form is deterministic.
+serde_json = "1"
+blake3 = "1"
+
+[dev-dependencies]

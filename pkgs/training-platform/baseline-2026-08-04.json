@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "kind": "dual_p150a_platform_baseline",
+  "recorded_date": "2026-08-04",
+  "recorded_without_mutation": true,
+  "flake": {
+    "repository": "github.com/OnixResearch/tenstorrent.nix",
+    "revision": "fa5c99826774970f7d03831517e2d61d29bc4497",
+    "tt_metal_package": "tt-metal-0.74.0",
+    "tt_metal_upstream": "v0.74.0-rc6"
+  },
+  "host": {
+    "os": "NixOS 26.11 (Zokor)",
+    "kernel": "6.18.37",
+    "driver": "TT-KMD 2.10.1-pre",
+    "tt_smi": "5.2.0",
+    "pyluwen": "0.8.5",
+    "tt_umd": "0.9.6",
+    "docker": "29.6.2"
+  },
+  "devices": {
+    "count": 2,
+    "board_class_observed": "p150a",
+    "dram_status": "ok on both devices",
+    "firmware_bundle": "18.8.0.0",
+    "cm_fw": "0.17.0.0",
+    "pcie": [
+      { "role": "device-0", "speed": "gen5", "width": "x8" },
+      { "role": "device-1", "speed": "gen5", "width": "x4" }
+    ]
+  },
+  "hugepages": {
+    "mount_1g": "/dev/hugepages-1G",
+    "pagesize_1g_configured": 8,
+    "pagesize_1g_free_at_recording": 6
+  },
+  "mesh": {
+    "name": "p150_x2",
+    "descriptor_blake3": "83b6c1ff57a7a4686cd38b1a29ac38540e4c86bfd8e01efa989a2f10ee1b970b"
+  },
+  "notes": [
+    "Board serial identifiers and raw telemetry logs stay outside this portable record.",
+    "The second device reports PCIe width x4; the first reports x8.",
+    "Firmware bundle 18.8.0.0 is below the Blackhole 19.5.0 floor recorded for the Qwen3.6 candidate; the platform manifest pins 18.8.0.0 as its own floor."
+  ]
+}
