@@ -42,3 +42,9 @@ Attempt 3 established owner isolation and device discovery. Its compile command 
 - Static source and closure checks cannot prove physical placement. A later hardware receipt must provide that evidence.
 - The stale C++ runtime can expose new compile or API drift during the current package build. Device-free builds must fail closed.
 - The retained fixture proves only the recorded attempt-3 failure boundary.
+
+## Validation Notes
+
+The focused runtime, classifier, source, closure, retained attempt-3, framework-parity, model-carry, and migration checks pass. The evidence crate also passes Clippy with warnings denied.
+
+The full flake check evaluates all outputs but stops at the existing `rwkv-ttwkv7-boundary-device` check. That check also fails unchanged on `origin/main`. Its fixed closure-count contract is outside this change. The layer harness also has two pre-existing `too_many_arguments` Clippy failures in `src/observed_layer.rs`; this change does not modify that file.

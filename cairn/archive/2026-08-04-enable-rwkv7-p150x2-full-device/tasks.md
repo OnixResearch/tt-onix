@@ -20,5 +20,5 @@
 
 ## Phase 5: Validation and integration
 
-- [ ] [serial] Run focused package, source, closure, retained-evidence, and historical RWKV checks. r[tenstorrent.rwkv7_p150x2.device_free_validation]
-- [ ] [serial] Run Cairn validation and gates, sync the accepted specification, archive the change, and integrate the verified branch. r[tenstorrent.rwkv7_p150x2.no_hardware_claim]
+- [x] [serial] Run focused package, source, closure, retained-evidence, and historical RWKV checks. r[tenstorrent.rwkv7_p150x2.device_free_validation]
+- [x] [serial] Run Cairn validation and gates, sync the accepted specification, archive the change, and integrate the verified branch. r[tenstorrent.rwkv7_p150x2.no_hardware_claim]
