@@ -156,5 +156,17 @@ Do not treat them as accepted upstream behavior.
 Read each metadata file before you reuse its patch.
 Run positive and negative tests for copied behavior.
 
+## Qwen3.6-A3B model target references
+
+- Read the Qwen3.6-35B-A3B bring-up tree at `.pi/references/qwen3-6-a3b/knight-ops-tt-metal`.
+  Source: <https://github.com/Knight-Ops/tt-metal/tree/qwen3_6_a3b-bringup/models/demos/qwen3_6_a3b>.
+  The sparse checkout uses branch `qwen3_6_a3b-bringup` and commit `37743f58d443be1eaf70ed10eb37b5377dc56b70`.
+  The checkout contains only `models/demos/qwen3_6_a3b`.
+
+Use this tree as the upstream bring-up reference for the Qwen3.6-A3B model target candidate.
+Treat its PCC, performance, memory, and firmware observations as upstream claims until this repository reproduces them.
+Record the Blackhole firmware floor (`>= 19.5.0`) and the pinned tt-metal `python_env` as machine facts, not as local evidence.
+Do not run demo, server, or test commands from the reference tree without a bounded change.
+
 The `.pi/` directory is not in version control.
 Download a missing reference from its listed source before you use it.
