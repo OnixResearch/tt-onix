@@ -5,13 +5,13 @@
 - [ ] [serial] B1 Validate current platform and CPU reference receipts before accelerator work. r[tenstorrent.rwkv7_p150a_finetuning.authority]
 - [ ] [serial] B2 Add named Nickel profiles for static shapes, dtypes, compile limits, memory limits, tolerances, run criteria, health limits, and timeouts. r[tenstorrent.rwkv7_p150a_finetuning.configuration]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.configuration] B3 Compile and run the direct TT-XLA WKV7 forward probe with placement evidence. r[tenstorrent.rwkv7_p150a_finetuning.compiler]
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B4 Compile and run the direct TT-XLA WKV7 backward probe with CPU gradient comparison. r[tenstorrent.rwkv7_p150a_finetuning.gradients]
+- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B4 Compile and run the direct TT-XLA WKV7 backward probe with CPU gradient comparison. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.parity]
 - [ ] [parallel] B5 Probe LoRA projections, masked loss, gradient norm, clipping, and adapter optimizer update. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B6 If direct WKV7 lowering fails, emit the exact blocker receipt and stop without host fallback or custom-op implementation. r[tenstorrent.rwkv7_p150a_finetuning.blocker]
 
 ## Phase 2: Full single-device training graph
 
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.gradients] B7 Build the full pinned RWKV-7 LoRA graph from the shared CPU authority and keep base tensors frozen. r[tenstorrent.rwkv7_p150a_finetuning.graph]
+- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.parity] B7 Build the full pinned RWKV-7 LoRA graph from the shared CPU authority and keep base tensors frozen. r[tenstorrent.rwkv7_p150a_finetuning.graph]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.graph] B8 Add the thin shell that selects one logical `1x1` P150A submesh while passing all host devices. r[tenstorrent.rwkv7_p150a_finetuning.device]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.graph] B9 Capture and validate full placement evidence with no model, loss, backward, clipping, or optimizer fallback. r[tenstorrent.rwkv7_p150a_finetuning.placement]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.placement] B10 Run one full step and compare logits, loss, selected states, gradients, clipping, and adapter deltas with CPU. r[tenstorrent.rwkv7_p150a_finetuning.parity] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]
