@@ -31,6 +31,10 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
+# Bind the launch plan to the canonical descriptor path, not to the symlink
+# name the caller used. Receipt identities must survive tools rebuilds.
+DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
+
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
   if [ -n "${!variable:-}" ]; then
     echo "training-platform-smoke: ambient $variable is set and would override the admitted bundle" >&2
@@ -155,9 +159,13 @@ SMOKE_STATUS=$?
 set -e
 
 if [ "$SMOKE_STATUS" -ne 0 ]; then
+  FAILED_STAGE=$(grep -oE '"stage": "[a-z_]+"' "$EVIDENCE_ROOT/smoke-output.json" | tail -1 | cut -d'"' -f4)
+  if [ "$FAILED_STAGE" = "smoke_execute" ]; then
+    fail_at smoke_execute "$S_HEALTH_BEFORE" "$(stage_status mesh_open pass)"
+  fi
   fail_at mesh_open "$S_HEALTH_BEFORE"
 fi
-if ! grep -F '"status": "pass"' "$EVIDENCE_ROOT/smoke-output.json" >/dev/null; then
+if ! grep -F '"status": "pass", "stage": "smoke_execute"' "$EVIDENCE_ROOT/smoke-output.json" >/dev/null; then
   fail_at smoke_execute "$S_HEALTH_BEFORE" "$(stage_status mesh_open pass)"
 fi
 S_MESH_OPEN=$(stage_status mesh_open pass)

@@ -64,7 +64,10 @@ TOOLS=$(nix build .#packages.x86_64-linux.training-platform-tools --no-link --pr
 ```
 
 The smoke writes a BLAKE3-bound receipt to the evidence root and validates it
-with `training-platform-core validate-receipt`.
+with `training-platform-core validate-receipt`. The passing 2026-08-04 receipt
+is checked in at `evidence/2026-08-04-dual-p150a-smoke/` and re-validated by
+the device-free check. That run needed one operator board reset
+(`tt-smi -r 0 1`) to clear a stale sysmem mapping left by an earlier session.
 
 The launcher rejects ambient `PYTHONPATH`, `PYTHONHOME`, `TT_METAL_HOME`, and
 `TT_METAL_RUNTIME_ROOT`. These variables can silently replace the admitted

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "dual_p150a_platform_smoke",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "mesh_open",
+      "status": "pass"
+    },
+    {
+      "name": "smoke_execute",
+      "status": "pass"
+    },
+    {
+      "name": "mesh_close",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "artifacts": {
+    "health-after.json": "8286049516b4e15c275b65e5c8107bbbf4ece9f152c17f2178957a70b4a0120e",
+    "health-before.json": "6bcbbe591fa736c077a2195ab3e52b2eec32da2d9a20cdfcd1e1de7cebeaf85b",
+    "preflight-admission.json": "ba1d1492a1ff89a32e728014d425e316c1b0ec750aa536de67cab1a4e89f17f3",
+    "preflight-snapshot.json": "7eec9993b93eb6b07970132620b8229fe56d698f768cf045c660c1761d603ae7",
+    "smoke-output.json": "878f5abc4f8c62f02b259979dfa663829a7a9747b33cfc0a14a97e045b1942c4"
+  },
+  "non_claims": [
+    "no training correctness claim",
+    "no gradient parity claim",
+    "no convergence claim",
+    "no speedup claim",
+    "no thermal endurance claim"
+  ]
+}

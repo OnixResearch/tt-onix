@@ -33,8 +33,10 @@
               targetContext = context;
               deviceRuntime = context.runtime;
             };
-          command = _context: pkgs.runCommand "rwkv7-p150x2-command" { } 
-            "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
+          command =
+            _context:
+            pkgs.runCommand "rwkv7-p150x2-command" { }
+              "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
           sourceBoundary = _context: rwkv7P150x2SourceCheck;
           closure = _context: rwkv7P150x2ProductionClosure;
         };

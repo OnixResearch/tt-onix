@@ -2,7 +2,7 @@
   lib,
   rustPlatform,
   runCommand,
-  substituteAll,
+  fetchurl,
   nickel,
   jq,
   docker,
@@ -13,7 +13,6 @@
   coreutils,
   gnugrep,
   gnused,
-  util-linux,
 }:
 let
   # r[impl tenstorrent.training_platform.runtime_bundle]
@@ -37,41 +36,53 @@ let
 
   descriptorPath = "${tt-metal}/libexec/tt-metalium/tt_metal/fabric/mesh_graph_descriptors/p150_x2_mesh_graph_descriptor.textproto";
 
+  # r[impl tenstorrent.training_platform.runtime_bundle]
+  # Exact TT-Blacksmith source revision from the admitted manifest.
+  ttBlacksmithSource = fetchurl {
+    name = "tt-blacksmith-6e44259c7f4342709ae7977cc3715cf5e2e19dac.tar.gz";
+    url = "https://github.com/tenstorrent/tt-blacksmith/archive/6e44259c7f4342709ae7977cc3715cf5e2e19dac.tar.gz";
+    hash = "sha256-svIdu7OzpJsx4fvhWSRT9p9/wp0p0/JVd3SZrAXcqkA=";
+  };
+
   manifestJson = runCommand "training-platform-manifest.json" { nativeBuildInputs = [ nickel ]; } ''
-    nickel export --format json ${./manifest.ncl} > "$out"
+    cp ${./manifest.ncl} manifest.ncl
+    cp ${./contracts.ncl} contracts.ncl
+    nickel export --format json manifest.ncl > "$out"
   '';
 
   configJson = runCommand "training-platform-config.json" { nativeBuildInputs = [ nickel ]; } ''
-    nickel export --format json ${./platform.ncl} > "$out"
+    cp ${./platform.ncl} platform.ncl
+    cp ${./contracts.ncl} contracts.ncl
+    nickel export --format json platform.ncl > "$out"
   '';
 
-  launcher = substituteAll {
-    src = ./launcher.sh;
-    isExecutable = true;
-    core = "${core}";
-    jq = "${jq}/bin/jq";
-    docker = "${docker}/bin/docker";
-  };
+  launcher = runCommand "training-platform-launcher" { } ''
+    substitute ${./launcher.sh} "$out" \
+      --subst-var-by core "${core}" \
+      --subst-var-by jq "${jq}/bin/jq" \
+      --subst-var-by docker "${docker}/bin/docker"
+    chmod +x "$out"
+  '';
 
-  containerSmoke = substituteAll {
-    src = ./container-smoke.sh;
-    isExecutable = true;
-    pjrt_version = "1.5.0.dev20260804002041";
-    pjrt_sha256 = "ae57e7a2e4f7c1c9533135e14db5a33201caa3ff1aa2278de9a88ebc9d4d3fe1";
-  };
+  containerSmoke = runCommand "training-platform-container-smoke" { } ''
+    substitute ${./container-smoke.sh} "$out" \
+      --subst-var-by pjrt_version "1.5.0.dev20260804002041" \
+      --subst-var-by pjrt_sha256 "ae57e7a2e4f7c1c9533135e14db5a33201caa3ff1aa2278de9a88ebc9d4d3fe1"
+    chmod +x "$out"
+  '';
 
-  smoke = substituteAll {
-    src = ./run-smoke.sh;
-    isExecutable = true;
-    core = "${core}";
-    jq = "${jq}/bin/jq";
-    docker = "${docker}/bin/docker";
-    ttsmi = "${tt-smi}/bin/tt-smi";
-    b3sum = "${b3sum}/bin/b3sum";
-    fuser = "${psmisc}/bin/fuser";
-    smoke_py = ./smoke.py;
-    container_smoke = "${containerSmoke}";
-  };
+  smoke = runCommand "training-platform-smoke" { } ''
+    substitute ${./run-smoke.sh} "$out" \
+      --subst-var-by core "${core}" \
+      --subst-var-by jq "${jq}/bin/jq" \
+      --subst-var-by docker "${docker}/bin/docker" \
+      --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
+      --subst-var-by b3sum "${b3sum}/bin/b3sum" \
+      --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by smoke_py "${./smoke.py}" \
+      --subst-var-by container_smoke "${containerSmoke}"
+    chmod +x "$out"
+  '';
 
   tools = runCommand "training-platform-tools" { } ''
     mkdir -p "$out/bin"
@@ -81,6 +92,7 @@ let
     ln -s ${manifestJson} "$out/share/training-platform/manifest.json"
     ln -s ${configJson} "$out/share/training-platform/platform.json"
     ln -s ${descriptorPath} "$out/share/training-platform/p150_x2_mesh_graph_descriptor.textproto"
+    ln -s ${ttBlacksmithSource} "$out/share/training-platform/tt-blacksmith.tar.gz"
   '';
 in
 # r[verify tenstorrent.training_platform.verification]
@@ -101,6 +113,7 @@ runCommand "training-platform-check"
         manifestJson
         configJson
         descriptorPath
+        ttBlacksmithSource
         launcher
         smoke
         ;
@@ -234,6 +247,13 @@ runCommand "training-platform-check"
       exit 1
     fi
     grep -F "overclaiming" rejected.log
+
+    # The checked-in hardware receipt must re-validate against the current
+    # admitted identities. A stale receipt fails this gate.
+    "$CORE" validate-receipt evidence/2026-08-04-dual-p150a-smoke/receipt.json \
+      manifest-first.json platform-first.json ${descriptorPath} \
+      > checked-in-admission.json
+    grep -F '"status":"admitted"' checked-in-admission.json
 
     mkdir -p "$out"
     cp manifest-first.json "$out/manifest.json"

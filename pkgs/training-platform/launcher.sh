@@ -22,6 +22,9 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] && [ "$#" -gt 0 ] || usage
 
+# Bind the launch plan to the canonical descriptor path.
+DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
+
 # r[verify tenstorrent.training_platform.launch.isolated]
 # Ambient Python and TT-Metal paths must not alter the selected bundle.
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
