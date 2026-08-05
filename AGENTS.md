@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Local pi skills
+
+The `.pi/skills/` directory holds pi skills copied from the reference checkouts.
+The `ttxla-*` skills come from `tt-xla/.claude/skills` at the pinned commit.
+The `ttllk-*` skills come from `tt-metal-latest/tt_metal/tt-llk/.claude/skills`.
+Skill `name:` fields match their directory names, so `/skill:ttxla-graph-break-analysis` and `/skill:ttllk-race-audit-all` work.
+Refresh a skill by copying the upstream directory again after a reference update.
+
 ## Tenstorrent documentation references
 
 Read these local references before you change Tenstorrent packages, modules, device setup, kernels, or operators.
