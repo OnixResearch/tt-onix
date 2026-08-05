@@ -40,13 +40,20 @@ IMAGE=$(printf '%s' "$PLAN" | @jq@ -r '.plan.image')
 DEVICE_ROOT=$(printf '%s' "$PLAN" | @jq@ -r '.plan.devices[0]')
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | @jq@ -r '.plan.mounts[0].host')
 DESCRIPTOR_CONTAINER=$(printf '%s' "$PLAN" | @jq@ -r '.plan.mounts[1].container')
-MESH_ENV_NAME=$(printf '%s' "$PLAN" | @jq@ -r '.plan.environment | keys[0]')
-MESH_ENV_VALUE=$(printf '%s' "$PLAN" | @jq@ -r '.plan.environment[keys[0]]')
+# The environment map has one admitted key. Extract it by name: a
+# `.plan.environment[keys[0]]` lookup evaluates `keys` against the root
+# object and silently yields null, which the runtime then reports as a
+# missing mesh graph descriptor.
+MESH_ENV_VALUE=$(printf '%s' "$PLAN" | @jq@ -r '.plan.environment.TT_MESH_GRAPH_DESC_PATH')
+if [ -z "$MESH_ENV_VALUE" ] || [ "$MESH_ENV_VALUE" = "null" ]; then
+  echo "training-platform-launch: launch plan carries no TT_MESH_GRAPH_DESC_PATH" >&2
+  exit 1
+fi
 
 exec @docker@ run --rm \
   --device "$DEVICE_ROOT" \
   -v "$HUGEPAGE_MOUNT:$HUGEPAGE_MOUNT" \
   -v "$DESCRIPTOR:$DESCRIPTOR_CONTAINER:ro" \
-  -e "$MESH_ENV_NAME=$MESH_ENV_VALUE" \
+  -e "TT_MESH_GRAPH_DESC_PATH=$MESH_ENV_VALUE" \
   "$IMAGE" \
   "$@"

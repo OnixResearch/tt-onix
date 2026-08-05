@@ -122,6 +122,39 @@ weighted mean over active labels across the whole global batch, so padding
 cannot change the mean. Local SFT data must map into this shape before
 admission; the profile rejects batches that cannot shard evenly.
 
+## Runtime facts learned during dual bring-up
+
+All of these are encoded in the probes and runners:
+
+- Multichip torch-xla on this bundle needs the pinned TT-Blacksmith device
+  manager environment: `XLA_STABLEHLO_COMPILE=1`,
+  `XLA_ALWAYS_ALLREDUCE=1`, `CONVERT_SHLO_TO_SHARDY=1`, and
+  `DISABLE_NUMERIC_CC_TOKEN=1`, plus `xr.use_spmd()`. Without it the
+  backend fails with `GSPMD presharded argument missing @Sharding custom
+  call`.
+- The multichip optimizer step must go through
+  `xm.optimizer_step(optimizer, barrier=True)` so the all-reduce stays
+  inside the optimizer graph.
+- The gradient all-reduce lowers inside the TT backend after SPMD
+  partitioning. No pre-partition StableHLO dump can show the collective,
+  so collective evidence is behavioral: exact reduced values from distinct
+  per-device contributions, the data-axis sharding annotation, and
+  numerical parity with the global-batch reference.
+- `xs.get_xla_sharding_specs` is not exported by this wheel's public
+  `torch_xla.distributed.spmd` namespace. The probes read placement through
+  `torch_xla._XLAC._get_xla_sharding_spec`, the same binding TT-Blacksmith
+  uses.
+- Gradient and other intermediate tensors return an empty sharding spec.
+  Replica-equality evidence comes from parameters that the runner marks
+  explicitly replicated with a rank-matched all-`None` partition spec. An
+  empty tuple spec fails with `Partition spec length (0)`.
+- The training-platform `launcher.sh` once extracted the mesh descriptor
+  path with `.plan.environment[keys[0]]`, which evaluates `keys` against
+  the root object and yields `null`. It now reads the admitted
+  `TT_MESH_GRAPH_DESC_PATH` key by name and fails closed when it is absent.
+- A crashed or interrupted run can leave a stale sysmem mapping. Clear it
+  with `tt-smi -r 0 1` before retrying.
+
 ## Failure diagnosis
 
 - `stage ownership failed`: a process owns a device node. Find it with
@@ -139,6 +172,12 @@ admission; the profile rejects batches that cannot shard evenly.
 - Non-finite logits or loss: the model uses the precise norm
   implementations from the single-card package. Do not reintroduce the
   fused `nn.LayerNorm`/`nn.GroupNorm`.
+
+- `ambient TT_METAL_HOME is set`: the runners fail closed on ambient
+  `PYTHONPATH`, `PYTHONHOME`, `TT_METAL_HOME`, and `TT_METAL_RUNTIME_ROOT`
+  because they can silently replace the admitted runtime. Host shells that
+  load the NixOS Tenstorrent module export these; unset them for the run
+  (`env -u TT_METAL_HOME -u TT_METAL_RUNTIME_ROOT ...`).
 
 ## Recovery
 
