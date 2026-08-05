@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_dual_p150a_run",
+  "profile_identity": "34d5ee998c0dc02f92801dae27fca1aedf85ca05db6381ed13a7c3315b90c117",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "step_execute",
+      "status": "pass"
+    },
+    {
+      "name": "cleanup",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "shard_plan": {
+    "identity_blake3": "e03dbe65a2d3cb35f62d641d1d6a93998bb73492f7351fba4014f1a033f5f860",
+    "shard_kind": "even_contiguous",
+    "replicas": [
+      {
+        "active_tokens": 64,
+        "ordinal": 0,
+        "sample_ids": [
+          "sample-0"
+        ]
+      },
+      {
+        "active_tokens": 64,
+        "ordinal": 1,
+        "sample_ids": [
+          "sample-1"
+        ]
+      }
+    ]
+  },
+  "step_identity": "ca626a8aedaa7df3116698dd0873a00692c08e5e2a992ebba9f321db377d0360",
+  "run": {
+    "steps": 8,
+    "finite": true,
+    "base_unchanged": true,
+    "improved": true,
+    "initial_loss": 13.1875,
+    "final_loss": 0.0,
+    "cpu_final_loss": 0.0009862593142315745,
+    "improvement_ratio": 0.9,
+    "losses": [
+      13.1875,
+      7.53125,
+      4.53125,
+      2.84375,
+      1.8046875,
+      0.008544921875,
+      0.046142578125,
+      0.0
+    ],
+    "cpu_losses": [
+      13.181903839111328,
+      7.526481628417969,
+      4.476934909820557,
+      2.681191921234131,
+      2.195453643798828,
+      0.019358627498149872,
+      0.06255107372999191,
+      0.0009862593142315745
+    ],
+    "gradient_reductions": 8,
+    "per_device": [
+      {
+        "active_tokens": 512,
+        "ordinal": 0,
+        "steps": 8
+      },
+      {
+        "active_tokens": 512,
+        "ordinal": 1,
+        "steps": 8
+      }
+    ],
+    "replica_boundaries": [
+      {
+        "equal": true,
+        "step": 0
+      },
+      {
+        "equal": true,
+        "step": 1
+      },
+      {
+        "equal": true,
+        "step": 2
+      },
+      {
+        "equal": true,
+        "step": 3
+      },
+      {
+        "equal": true,
+        "step": 4
+      },
+      {
+        "equal": true,
+        "step": 5
+      },
+      {
+        "equal": true,
+        "step": 6
+      },
+      {
+        "equal": true,
+        "step": 7
+      }
+    ]
+  },
+  "non_claims": [
+    "no speedup claim",
+    "no scaling efficiency claim",
+    "no long-run stability claim",
+    "no useful generalization claim",
+    "no support claim for other RWKV models"
+  ]
+}
