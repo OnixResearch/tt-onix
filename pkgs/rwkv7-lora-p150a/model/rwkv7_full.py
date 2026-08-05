@@ -77,6 +77,60 @@ def token_shift(x):
     return prev - x
 
 
+class PreciseLayerNorm(nn.Module):
+    """LayerNorm computed with explicit fp32 reductions.
+
+    The fused nn.LayerNorm lowers to a numerically wrong kernel on this
+    runtime (error scales with input magnitude). The explicit mean/variance/
+    rsqrt decomposition is exact, so norms use this instead. Keeps the same
+    weight/bias parameter names so the checkpoint still loads strictly.
+    """
+
+    def __init__(self, dim, bias=True, eps=1e-5):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.bias = nn.Parameter(torch.zeros(dim)) if bias else None
+        self.eps = eps
+
+    def forward(self, x):
+        xf = x.float()
+        mean = xf.mean(dim=-1, keepdim=True)
+        centered = xf - mean
+        var = (centered * centered).mean(dim=-1, keepdim=True)
+        out = centered * torch.rsqrt(var + self.eps)
+        out = out * self.weight.float()
+        if self.bias is not None:
+            out = out + self.bias.float()
+        return out.to(x.dtype)
+
+
+class PreciseGroupNorm(nn.Module):
+    """GroupNorm computed with explicit fp32 reductions (same reason)."""
+
+    def __init__(self, num_groups, num_channels, eps=1e-5, affine=True):
+        super().__init__()
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(num_channels))
+        self.bias = nn.Parameter(torch.zeros(num_channels)) if affine else None
+
+    def forward(self, x):
+        orig_shape = x.shape
+        xf = x.float()
+        n = orig_shape[0]
+        xg = xf.reshape(n, self.num_groups, -1)
+        mean = xg.mean(dim=-1, keepdim=True)
+        centered = xg - mean
+        var = (centered * centered).mean(dim=-1, keepdim=True)
+        out = centered * torch.rsqrt(var + self.eps)
+        out = out.reshape(orig_shape)
+        out = out * self.weight.float()
+        if self.bias is not None:
+            out = out + self.bias.float()
+        return out.to(x.dtype)
+
+
 class LoRA(nn.Module):
     """fla-compatible low-rank block: Linear -> act -> Linear."""
 
@@ -134,7 +188,7 @@ class RWKV7Attention(nn.Module):
         self.g_lora = LoRA(hidden_size, self.value_dim, gate_low_rank_dim,
                            activation="sigmoid", bias=False)
 
-        self.g_norm = nn.GroupNorm(
+        self.g_norm = PreciseGroupNorm(
             num_groups=self.num_heads, num_channels=self.value_dim,
             eps=head_dim * norm_eps, affine=True,
         )
@@ -287,12 +341,12 @@ class RWKV7Block(nn.Module):
         super().__init__()
         self.norm_first = norm_first
         if norm_first and layer_idx == 0:
-            self.pre_norm = nn.LayerNorm(hidden_size, bias=True, eps=norm_eps)
-        self.attn_norm = nn.LayerNorm(hidden_size, bias=True, eps=norm_eps)
+            self.pre_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
+        self.attn_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
         self.attn = RWKV7Attention(hidden_size, head_dim, decay_low_rank_dim,
                                    gate_low_rank_dim, a_low_rank_dim, v_low_rank_dim,
                                    norm_eps, layer_idx)
-        self.ffn_norm = nn.LayerNorm(hidden_size, bias=True, eps=norm_eps)
+        self.ffn_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
         self.ffn = RWKV7FeedForward(hidden_size, intermediate_size)
 
     def forward(self, hidden_states, v_first):
@@ -320,7 +374,7 @@ class RWKV7Model(nn.Module):
             )
             for i in range(config["num_hidden_layers"])
         ])
-        self.norm = nn.LayerNorm(config["hidden_size"], bias=True, eps=config["norm_eps"])
+        self.norm = PreciseLayerNorm(config["hidden_size"], bias=True, eps=config["norm_eps"])
 
     def forward(self, input_ids):
         h = self.embeddings(input_ids)
