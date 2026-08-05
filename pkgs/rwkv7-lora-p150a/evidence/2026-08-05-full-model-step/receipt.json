@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_step",
+  "profile_identity": "d6e9ec5efc43b72865d2855cef344d64ece88394a0428f37a89a765e73af444c",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "step_execute",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "placement": {
+    "device": "TT",
+    "ordinal": 0,
+    "stablehlo_op_count": 25594,
+    "visible_count": 2
+  },
+  "step": {
+    "clip_dev": 0.0981297492980957,
+    "clip_norm": 3.78125,
+    "cpu_clip_norm": 3.6831202507019043,
+    "cpu_loss": 9.126317024230957,
+    "delta_pass_fraction": 0.9908824025848766,
+    "finite": true,
+    "grad_pass_fraction": 1.0,
+    "loss": 9.125,
+    "loss_dev": 0.0013170242309570312,
+    "max_delta_rel_dev": 2.007055514375571,
+    "max_grad_rel_dev": 0.21987198454124043,
+    "seconds": 392.8917670009978
+  },
+  "parity": {
+    "adapter_delta_ok": true,
+    "all_ok": true,
+    "clip_ok": true,
+    "gradients_ok": true,
+    "loss_ok": true
+  },
+  "placement_hlo_blake3": "5945b738a49505d8290e01e149f0a2bca5cf6723faacec46f4c9811fde415de4",
+  "non_claims": [
+    "no dual-card scaling claim",
+    "no useful generalization claim",
+    "no speedup claim",
+    "no support claim for other RWKV models"
+  ]
+}

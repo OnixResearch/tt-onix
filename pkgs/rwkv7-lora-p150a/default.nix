@@ -67,10 +67,29 @@ let
     chmod +x "$out"
   '';
 
+  # r[impl tenstorrent.rwkv7_p150a_finetuning.placement]
+  # r[impl tenstorrent.rwkv7_p150a_finetuning.parity]
+  fullStepRunner = runCommand "rwkv7-lora-p150a-full-step" { } ''
+    substitute ${./run-full-model.sh} "$out" \
+      --subst-var-by core "${core}" \
+      --subst-var-by platform_core "${trainingPlatform.passthru.core}" \
+      --subst-var-by jq "${jq}/bin/jq" \
+      --subst-var-by docker "${docker}/bin/docker" \
+      --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
+      --subst-var-by b3sum "${b3sum}/bin/b3sum" \
+      --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by probe_py "${./probes/full_model_probe.py}" \
+      --subst-var-by model_dir "${./model}" \
+      --subst-var-by install_deps_py "${./probes/install_deps.py}" \
+      --subst-var-by container_script "${./container-full-model.sh}"
+    chmod +x "$out"
+  '';
+
   tools = runCommand "rwkv7-lora-p150a-tools" { } ''
     mkdir -p "$out/bin" "$out/share/rwkv7-lora-p150a"
     ln -s ${core}/bin/rwkv7-lora-p150a-core "$out/bin/rwkv7-lora-p150a-core"
     ln -s ${probeRunner} "$out/bin/rwkv7-lora-p150a-probe"
+    ln -s ${fullStepRunner} "$out/bin/rwkv7-lora-p150a-full-step"
     ln -s ${profileJson} "$out/share/rwkv7-lora-p150a/profile.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-p150a/wheels.json"
   '';
@@ -266,6 +285,33 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "tolerance_failure" rejected.log
 
+    # r[verify tenstorrent.rwkv7_p150a_finetuning.placement]
+    # r[verify tenstorrent.rwkv7_p150a_finetuning.parity]
+    # The checked-in full-model step receipt re-validates against the admitted
+    # profile. This is the bounded single-device training evidence.
+    step_receipt=evidence/2026-08-05-full-model-step/receipt.json
+    "$CORE" admit-step "$step_receipt" profile-first.json >step-admission.json
+    grep -F '"status":"admitted"' step-admission.json
+    grep -F '"stablehlo_op_count":25594' step-admission.json
+
+    # Negative: a step receipt with a low delta pass fraction is rejected.
+    jq '.step.delta_pass_fraction = 0.4' "$step_receipt" >step-low-delta.json
+    if "$CORE" admit-step step-low-delta.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "low-delta step receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "tolerance_failure" rejected.log
+
+    # Negative: a step receipt with host placement is rejected.
+    jq '.placement.device = "CPU"' "$step_receipt" >step-host.json
+    if "$CORE" admit-step step-host.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "host-placement step receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "host_fallback" rejected.log
+
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \
       --profile profile-first.json \
@@ -285,4 +331,5 @@ runCommand "rwkv7-lora-p150a-check"
     cp platform-admission.json "$out/platform-admission.json"
     cp prerequisite-admission.json "$out/prerequisite-admission.json"
     cp probe-admission.json "$out/probe-admission-fixture.json"
+    cp step-admission.json "$out/step-admission.json"
   ''

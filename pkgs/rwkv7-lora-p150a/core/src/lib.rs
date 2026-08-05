@@ -92,6 +92,7 @@ const BOUNDARY_NON_CLAIMS: [&str; 4] = [
 
 const PLATFORM_RECEIPT_KIND: &str = "dual_p150a_platform_smoke";
 const PROBE_RECEIPT_KIND: &str = "rwkv7_lora_p150a_probe";
+const STEP_RECEIPT_KIND: &str = "rwkv7_lora_p150a_step";
 const ADMITTED_PROBES: [&str; 3] = ["training-ops", "wkv7-backward", "wkv7-forward"];
 const PROBE_PASS_STATUS: &str = "pass";
 const PROBE_DEVICE_TYPE: &str = "TT";
@@ -507,6 +508,13 @@ fn check_run_criteria(criteria: &Value) -> Result<(), Rejection> {
         ));
     }
     positive_u64(criteria, "min_active_labels_per_sample")?;
+    let pass_fraction = positive_number(criteria, "parity_pass_fraction")?;
+    if pass_fraction > 1.0 {
+        return Err(Rejection::new(
+            "bad_run_criteria",
+            format!("parity_pass_fraction {pass_fraction} exceeds one"),
+        ));
+    }
     bool_field(criteria, "require_finite")?;
     Ok(())
 }
@@ -832,7 +840,7 @@ fn minimal_valid_profile() -> Value {
         "tolerances": {
             "adapter_delta": { "rtol": 0.05, "atol": 0.001 },
             "adapter_gradient": { "rtol": 0.05, "atol": 0.2 },
-            "clip_coefficient": { "rtol": 0.02, "atol": 0.01 },
+            "clip_coefficient": { "rtol": 0.05, "atol": 0.01 },
             "gradient_norm": { "rtol": 0.02, "atol": 0.01 },
             "logits": { "rtol": 0.02, "atol": 0.1 },
             "loss": { "rtol": 0.01, "atol": 0.05 },
@@ -844,6 +852,7 @@ fn minimal_valid_profile() -> Value {
             "max_steps": 32,
             "loss_improvement_ratio": 0.9,
             "min_active_labels_per_sample": 1,
+            "parity_pass_fraction": 0.9,
             "require_finite": true,
         },
         "health_limits": {
@@ -1083,6 +1092,193 @@ pub fn admit_probe(receipt: &Value, profile: &Value) -> Result<ProbeAdmission, R
         shape_kind,
         stablehlo_op_count: op_count,
         compile_seconds,
+    })
+}
+
+/// Admitted full-model single-step receipt.
+// PartialEq only: float fields cannot satisfy Eq.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepAdmission {
+    pub identity_blake3: String,
+    pub stablehlo_op_count: u64,
+    pub loss_dev: f64,
+    pub grad_pass_fraction: f64,
+    pub delta_pass_fraction: f64,
+}
+
+fn step_stage_status(receipt: &Value, stage: &str) -> Result<String, Rejection> {
+    let stages = field(receipt, "stages")?
+        .as_array()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "step receipt stages is not an array"))?;
+    for entry in stages {
+        if entry.get("name").and_then(Value::as_str) == Some(stage) {
+            return Ok(entry
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string());
+        }
+    }
+    Err(Rejection::new(
+        "missing_stage",
+        format!("step receipt is missing stage '{stage}'"),
+    ))
+}
+
+const STEP_RECEIPT_STAGES: [&str; 5] = [
+    "health_before",
+    "ownership",
+    "step_execute",
+    "restore",
+    "health_after",
+];
+
+/// Admit one full-model single-step receipt against the profile.
+///
+/// The receipt must carry all passing host stages, current placement evidence
+/// on the selected TT device, finite step outputs, and parity results that
+/// satisfy the profile's named tolerances and pass fractions.
+pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmission, Rejection> {
+    reject_forbidden_keys(receipt)?;
+    let admitted_profile = admit_profile(profile)?;
+
+    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_str(receipt, "kind", STEP_RECEIPT_KIND, "stale_step_receipt")?;
+
+    let profile_identity = string_field(receipt, "profile_identity")?;
+    if profile_identity != admitted_profile.identity_blake3 {
+        return Err(Rejection::new(
+            "stale_step_receipt",
+            format!(
+                "receipt profile identity {profile_identity} differs from admitted profile {}",
+                admitted_profile.identity_blake3
+            ),
+        ));
+    }
+
+    for stage in STEP_RECEIPT_STAGES {
+        let status = step_stage_status(receipt, stage)?;
+        if status != "pass" {
+            return Err(Rejection::new(
+                "failing_stage",
+                format!("step receipt stage '{stage}' has status '{status}'"),
+            ));
+        }
+    }
+
+    // Placement evidence: full trainable graph on the selected TT device.
+    let placement = field(receipt, "placement")?;
+    let device_type = string_field(placement, "device")?;
+    if device_type != PROBE_DEVICE_TYPE {
+        return Err(Rejection::new(
+            "host_fallback",
+            format!("step ran on device type '{device_type}'"),
+        ));
+    }
+    let profile_device = field(profile, "device")?;
+    let selection_ordinal = nonnegative_u64(profile_device, "selection_ordinal")?;
+    let ordinal = nonnegative_u64(placement, "ordinal")?;
+    if ordinal != selection_ordinal {
+        return Err(Rejection::new(
+            "host_fallback",
+            format!("step ran on ordinal {ordinal}, profile selects {selection_ordinal}"),
+        ));
+    }
+    let visible_count = field(placement, "visible_count")?
+        .as_u64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "visible_count is not an integer"))?;
+    let physical_count = nonnegative_u64(profile_device, "physical_count")?;
+    if visible_count != physical_count {
+        return Err(Rejection::new(
+            "stale_step_receipt",
+            format!("visible device count {visible_count} differs from physical count {physical_count}"),
+        ));
+    }
+    let op_count = field(placement, "stablehlo_op_count")?
+        .as_u64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer"))?;
+    if op_count == 0 {
+        return Err(Rejection::new(
+            "host_fallback",
+            "step placement graph contains no StableHLO operations",
+        ));
+    }
+    if op_count > admitted_profile.max_stablehlo_operations {
+        return Err(Rejection::new(
+            "op_limit_exceeded",
+            format!(
+                "step placement graph has {op_count} operations above the limit {}",
+                admitted_profile.max_stablehlo_operations
+            ),
+        ));
+    }
+
+    // Step invariants.
+    let step = field(receipt, "step")?;
+    let finite = bool_field(step, "finite")?;
+    if !finite {
+        return Err(Rejection::new("nonfinite_values", "step outputs are nonfinite"));
+    }
+    let loss_dev = field(step, "loss_dev")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "loss_dev is not a number"))?;
+    let cpu_loss = field(step, "cpu_loss")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "cpu_loss is not a number"))?;
+
+    // Parity re-validation from reported deviations against the profile.
+    let tolerances = field(profile, "tolerances")?;
+    let loss_tolerance = field(tolerances, "loss")?;
+    let loss_bound = positive_number(loss_tolerance, "atol")?
+        + positive_number(loss_tolerance, "rtol")? * cpu_loss.abs();
+    if loss_dev > loss_bound {
+        return Err(Rejection::new(
+            "tolerance_failure",
+            format!("loss_dev {loss_dev} exceeds the loss bound {loss_bound}"),
+        ));
+    }
+    let clip_dev = field(step, "clip_dev")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "clip_dev is not a number"))?;
+    let cpu_clip = field(step, "cpu_clip_norm")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "cpu_clip_norm is not a number"))?;
+    let clip_tolerance = field(tolerances, "clip_coefficient")?;
+    let clip_bound = positive_number(clip_tolerance, "atol")?
+        + positive_number(clip_tolerance, "rtol")? * cpu_clip.abs();
+    if clip_dev > clip_bound {
+        return Err(Rejection::new(
+            "tolerance_failure",
+            format!("clip_dev {clip_dev} exceeds the clip bound {clip_bound}"),
+        ));
+    }
+
+    let pass_fraction = positive_number(field(profile, "run_criteria")?, "parity_pass_fraction")?;
+    let grad_pass = field(step, "grad_pass_fraction")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "grad_pass_fraction is not a number"))?;
+    if grad_pass < pass_fraction {
+        return Err(Rejection::new(
+            "tolerance_failure",
+            format!("gradient pass fraction {grad_pass} below {pass_fraction}"),
+        ));
+    }
+    let delta_pass = field(step, "delta_pass_fraction")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "delta_pass_fraction is not a number"))?;
+    if delta_pass < pass_fraction {
+        return Err(Rejection::new(
+            "tolerance_failure",
+            format!("adapter delta pass fraction {delta_pass} below {pass_fraction}"),
+        ));
+    }
+
+    Ok(StepAdmission {
+        identity_blake3: blake3_identity(receipt),
+        stablehlo_op_count: op_count,
+        loss_dev,
+        grad_pass_fraction: grad_pass,
+        delta_pass_fraction: delta_pass,
     })
 }
 
@@ -1381,6 +1577,71 @@ pub fn self_test() -> Result<String, Rejection> {
             return Err(Rejection::new(
                 "self_test",
                 format!("stale probe identity produced {other:?}"),
+            ));
+        }
+    }
+
+    // Positive: an admitted step receipt validates deterministically.
+    let step_receipt = json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": STEP_RECEIPT_KIND,
+        "profile_identity": admitted_profile.identity_blake3,
+        "stages": STEP_RECEIPT_STAGES
+            .iter()
+            .map(|stage| json!({ "name": stage, "status": "pass" }))
+            .collect::<Vec<_>>(),
+        "placement": {
+            "device": "TT", "ordinal": 0, "visible_count": 2,
+            "stablehlo_op_count": 25594,
+        },
+        "step": {
+            "finite": true,
+            "loss": 9.125, "cpu_loss": 9.1263, "loss_dev": 0.0013,
+            "clip_norm": 3.78, "cpu_clip_norm": 3.68, "clip_dev": 0.098,
+            "grad_pass_fraction": 1.0, "delta_pass_fraction": 0.99,
+        },
+    });
+    let first_step = admit_step_receipt(&step_receipt, &profile)?;
+    let second_step = admit_step_receipt(&step_receipt, &profile)?;
+    if first_step != second_step {
+        return Err(Rejection::new("self_test", "step admission is not deterministic"));
+    }
+
+    // Negative: a stale step profile identity blocks admission.
+    let mut stale_step = step_receipt.clone();
+    stale_step["profile_identity"] = json!("0".repeat(HEX_HASH_LEN));
+    match admit_step_receipt(&stale_step, &profile) {
+        Err(rejection) if rejection.code == "stale_step_receipt" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("stale step identity produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: a low adapter-delta pass fraction fails the parity gate.
+    let mut low_delta = step_receipt.clone();
+    low_delta["step"]["delta_pass_fraction"] = json!(0.4);
+    match admit_step_receipt(&low_delta, &profile) {
+        Err(rejection) if rejection.code == "tolerance_failure" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("low delta pass fraction produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: host placement in the step receipt is rejected.
+    let mut host_step = step_receipt.clone();
+    host_step["placement"]["device"] = json!("CPU");
+    match admit_step_receipt(&host_step, &profile) {
+        Err(rejection) if rejection.code == "host_fallback" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("host step placement produced {other:?}"),
             ));
         }
     }

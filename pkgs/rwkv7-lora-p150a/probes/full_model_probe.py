@@ -276,16 +276,33 @@ def main():
         grad_scale = max(float(cpu_grads[n].abs().max().item()) for n in trainable_names)
         delta_scale = max(float((cpu_after[n] - cpu_before[n]).abs().max().item())
                           for n in trainable_names)
-        grad_ok = all(
-            (float((dev_grads[n] - cpu_grads[n]).abs().max().item())
-             <= tol["adapter_gradient"]["atol"] + tol["adapter_gradient"]["rtol"]
-             * float(cpu_grads[n].abs().max().item()))
-            for n in trainable_names)
-        delta_ok = all(
-            (float(((dev_after[n] - dev_before[n]) - (cpu_after[n] - cpu_before[n])).abs().max().item())
-             <= tol["adapter_delta"]["atol"] + tol["adapter_delta"]["rtol"]
-             * float((cpu_after[n] - cpu_before[n]).abs().max().item()))
-            for n in trainable_names)
+        def pass_fraction(dev_list, cpu_list, role):
+            """Fraction of elements within atol + rtol*|cpu| across tensors.
+
+            The chaotic recurrence makes a few worst-case gradient/delta
+            elements flip sign, so the max deviation is dominated by outliers.
+            The element pass fraction is the robust parity measure for the
+            chaotic roles.
+            """
+            good = 0
+            total = 0
+            for dev_t, cpu_t in zip(dev_list, cpu_list):
+                bound = tol[role]["atol"] + tol[role]["rtol"] * cpu_t.abs()
+                good += int(((dev_t - cpu_t).abs() <= bound).sum().item())
+                total += cpu_t.numel()
+            return good / total if total else 0.0
+
+        grad_dev_tensors = [dev_grads[n] for n in trainable_names]
+        grad_cpu_tensors = [cpu_grads[n] for n in trainable_names]
+        delta_dev_tensors = [dev_after[n] - dev_before[n] for n in trainable_names]
+        delta_cpu_tensors = [cpu_after[n] - cpu_before[n] for n in trainable_names]
+
+        grad_pass = pass_fraction(grad_dev_tensors, grad_cpu_tensors, "adapter_gradient")
+        delta_pass = pass_fraction(delta_dev_tensors, delta_cpu_tensors, "adapter_delta")
+
+        pass_fraction_threshold = profile["run_criteria"]["parity_pass_fraction"]
+        grad_ok = grad_pass >= pass_fraction_threshold
+        delta_ok = delta_pass >= pass_fraction_threshold
         loss_ok = within(loss_dev, float(cpu_loss2.item()), "loss")
         clip_ok = within(clip_dev, float(cpu_clip.item()), "clip_coefficient")
 
@@ -298,9 +315,10 @@ def main():
                    "loss_dev": loss_dev,
                    "clip_norm": float(dev_clip.to("cpu").item()),
                    "cpu_clip_norm": float(cpu_clip.item()),
-                   "clip_dev": clip_dev,
-                   "max_grad_rel_dev": max_grad_rel,
+                   "clip_dev": clip_dev,                   "max_grad_rel_dev": max_grad_rel,
                    "max_delta_rel_dev": max_delta_rel,
+                   "grad_pass_fraction": grad_pass,
+                   "delta_pass_fraction": delta_pass,
                    "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item())},
              parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
                      "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,

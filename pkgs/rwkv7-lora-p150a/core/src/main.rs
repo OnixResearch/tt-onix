@@ -15,6 +15,7 @@ fn usage() -> String {
     "usage: rwkv7-lora-p150a-core self-test\n\
      usage: rwkv7-lora-p150a-core admit-profile PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-probe RECEIPT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-prerequisites --profile PATH --platform-admission PATH \
      --platform-receipt PATH --cpu-receipt PATH --cpu-receipt-blake3 HEX"
         .to_string()
@@ -144,6 +145,31 @@ fn run() -> Result<u8, String> {
                         "shape_kind": admission.shape_kind,
                         "stablehlo_op_count": admission.stablehlo_op_count,
                         "compile_seconds": admission.compile_seconds,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-step" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_p150a_core::admit_step_receipt(&receipt, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "stablehlo_op_count": admission.stablehlo_op_count,
+                        "loss_dev": admission.loss_dev,
+                        "grad_pass_fraction": admission.grad_pass_fraction,
+                        "delta_pass_fraction": admission.delta_pass_fraction,
                     });
                     println!("{body}");
                     Ok(SUCCESS)

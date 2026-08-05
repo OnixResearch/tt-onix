@@ -160,6 +160,7 @@ let RunCriteriaC = {
   max_steps | PositiveIntC,
   loss_improvement_ratio | PositiveC,
   min_active_labels_per_sample | PositiveIntC,
+  parity_pass_fraction | PositiveC,
   require_finite | Bool,
 } in
 

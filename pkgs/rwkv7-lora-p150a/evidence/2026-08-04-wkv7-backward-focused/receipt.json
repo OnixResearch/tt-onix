@@ -3,7 +3,7 @@
   "kind": "rwkv7_lora_p150a_probe",
   "probe": "wkv7-backward",
   "shape_kind": "focused",
-  "profile_identity": "3278bf83c249af4e740b86b24811aef929c89544f7c018428f45ead40f0a1a46",
+  "profile_identity": "d6e9ec5efc43b72865d2855cef344d64ece88394a0428f37a89a765e73af444c",
   "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
   "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
   "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
@@ -30,7 +30,7 @@
     }
   ],
   "probe_result": {
-    "compile_seconds": 11.400356556000133,
+    "compile_seconds": 11.105549735999375,
     "deviations": {
       "a": {
         "max_abs": 0.009524285793304443,
@@ -88,8 +88,8 @@
     "finite": true,
     "hlo": {
       "op_histogram": {
-        "add": 9,
-        "broadcast_in_dim": 22,
+        "add": 8,
+        "broadcast_in_dim": 20,
         "concatenate": 1,
         "dot_general": 8,
         "exponential": 2,
@@ -99,7 +99,7 @@
         "slice": 24,
         "transpose": 4
       },
-      "stablehlo_op_count": 124
+      "stablehlo_op_count": 121
     },
     "loss_deviation": {
       "max_abs": 0.008304595947265625,
@@ -117,7 +117,7 @@
     "status": "pass",
     "tolerances_satisfied": true
   },
-  "hlo_blake3": "eb1db2ebdbe63a7baf5f4d64e2401490c738d2af167b0b93b91c5130f54a6d78",
+  "hlo_blake3": "03425c6d39319b8c4511796cf830253744f66d208d58aa01a99158e9f5b51f14",
   "pip_freeze_blake3": "4d14eff27a704aaee7a84529c3b47fff0ba1dae6415338d218080b2a13432bac",
   "max_stablehlo_operations": 200000,
   "non_claims": [
