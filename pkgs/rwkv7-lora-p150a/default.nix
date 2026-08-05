@@ -312,6 +312,33 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "host_fallback" rejected.log
 
+    # r[verify tenstorrent.rwkv7_p150a_finetuning.run]
+    # The checked-in bounded multi-step run receipt re-validates against the
+    # admitted profile: finite values, adapter-only mutation, and the loss
+    # improvement criterion.
+    run_receipt=evidence/2026-08-05-multistep-run/receipt.json
+    "$CORE" admit-run "$run_receipt" profile-first.json >run-admission.json
+    grep -F '"status":"admitted"' run-admission.json
+    grep -F '"steps":8' run-admission.json
+
+    # Negative: a run receipt with a base tensor mutation is rejected.
+    jq '.run.base_unchanged = false' "$run_receipt" >run-mutated.json
+    if "$CORE" admit-run run-mutated.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "base-mutating run receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "base_mutated" rejected.log
+
+    # Negative: a run receipt that fails the loss criterion is rejected.
+    jq '.run.final_loss = 13.0' "$run_receipt" >run-flat.json
+    if "$CORE" admit-run run-flat.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "non-improving run receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "loss_criterion" rejected.log
+
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \
       --profile profile-first.json \
@@ -332,4 +359,5 @@ runCommand "rwkv7-lora-p150a-check"
     cp prerequisite-admission.json "$out/prerequisite-admission.json"
     cp probe-admission.json "$out/probe-admission-fixture.json"
     cp step-admission.json "$out/step-admission.json"
+    cp run-admission.json "$out/run-admission.json"
   ''

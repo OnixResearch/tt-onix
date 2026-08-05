@@ -1282,6 +1282,100 @@ pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmiss
     })
 }
 
+const RUN_RECEIPT_KIND: &str = "rwkv7_lora_p150a_run";
+
+/// Admitted bounded multi-step run receipt.
+// PartialEq only: float fields cannot satisfy Eq.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunAdmission {
+    pub identity_blake3: String,
+    pub steps: u64,
+    pub initial_loss: f64,
+    pub final_loss: f64,
+}
+
+/// Admit one bounded multi-step run receipt against the profile.
+///
+/// The run must stay finite, mutate only adapters, keep the step count inside
+/// the named bounds, and satisfy the configured loss-improvement criterion.
+pub fn admit_run_receipt(receipt: &Value, profile: &Value) -> Result<RunAdmission, Rejection> {
+    reject_forbidden_keys(receipt)?;
+    let admitted_profile = admit_profile(profile)?;
+
+    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_str(receipt, "kind", RUN_RECEIPT_KIND, "stale_run_receipt")?;
+
+    let profile_identity = string_field(receipt, "profile_identity")?;
+    if profile_identity != admitted_profile.identity_blake3 {
+        return Err(Rejection::new(
+            "stale_run_receipt",
+            format!(
+                "receipt profile identity {profile_identity} differs from admitted profile {}",
+                admitted_profile.identity_blake3
+            ),
+        ));
+    }
+
+    for stage in STEP_RECEIPT_STAGES {
+        let status = step_stage_status(receipt, stage)?;
+        if status != "pass" {
+            return Err(Rejection::new(
+                "failing_stage",
+                format!("run receipt stage '{stage}' has status '{status}'"),
+            ));
+        }
+    }
+
+    let run = field(receipt, "run")?;
+    let finite = bool_field(run, "finite")?;
+    if !finite {
+        return Err(Rejection::new("nonfinite_values", "run produced a nonfinite value"));
+    }
+    let base_unchanged = bool_field(run, "base_unchanged")?;
+    if !base_unchanged {
+        return Err(Rejection::new(
+            "base_mutated",
+            "a base tensor changed during the bounded run",
+        ));
+    }
+
+    let steps = field(run, "steps")?
+        .as_u64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "steps is not an integer"))?;
+    let run_criteria = field(profile, "run_criteria")?;
+    let min_steps = positive_u64(run_criteria, "min_steps")?;
+    let max_steps = positive_u64(run_criteria, "max_steps")?;
+    if steps < min_steps || steps > max_steps {
+        return Err(Rejection::new(
+            "bad_run_criteria",
+            format!("steps {steps} is outside [{min_steps}, {max_steps}]"),
+        ));
+    }
+
+    let initial_loss = field(run, "initial_loss")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "initial_loss is not a number"))?;
+    let final_loss = field(run, "final_loss")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "final_loss is not a number"))?;
+    let improvement_ratio = positive_number(run_criteria, "loss_improvement_ratio")?;
+    if !(final_loss <= improvement_ratio * initial_loss) {
+        return Err(Rejection::new(
+            "loss_criterion",
+            format!(
+                "final loss {final_loss} did not satisfy the improvement criterion (ratio {improvement_ratio} of initial {initial_loss})"
+            ),
+        ));
+    }
+
+    Ok(RunAdmission {
+        identity_blake3: blake3_identity(receipt),
+        steps,
+        initial_loss,
+        final_loss,
+    })
+}
+
 /// Built-in positive and negative admission fixtures.
 pub fn self_test() -> Result<String, Rejection> {
     // Positive: profile admission is deterministic.
@@ -1642,6 +1736,57 @@ pub fn self_test() -> Result<String, Rejection> {
             return Err(Rejection::new(
                 "self_test",
                 format!("host step placement produced {other:?}"),
+            ));
+        }
+    }
+
+    // Positive: an admitted run receipt validates deterministically.
+    let run_receipt = json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": RUN_RECEIPT_KIND,
+        "profile_identity": admitted_profile.identity_blake3,
+        "stages": STEP_RECEIPT_STAGES
+            .iter()
+            .map(|stage| json!({ "name": stage, "status": "pass" }))
+            .collect::<Vec<_>>(),
+        "run": {
+            "steps": 8,
+            "finite": true,
+            "base_unchanged": true,
+            "improved": true,
+            "initial_loss": 13.19,
+            "final_loss": 0.0,
+            "improvement_ratio": 0.9,
+        },
+    });
+    let first_run = admit_run_receipt(&run_receipt, &profile)?;
+    let second_run = admit_run_receipt(&run_receipt, &profile)?;
+    if first_run != second_run {
+        return Err(Rejection::new("self_test", "run admission is not deterministic"));
+    }
+
+    // Negative: a base tensor mutation fails the run.
+    let mut mutated = run_receipt.clone();
+    mutated["run"]["base_unchanged"] = json!(false);
+    match admit_run_receipt(&mutated, &profile) {
+        Err(rejection) if rejection.code == "base_mutated" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("base mutation produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: an unimproved run fails the loss criterion.
+    let mut flat = run_receipt.clone();
+    flat["run"]["final_loss"] = json!(13.0);
+    match admit_run_receipt(&flat, &profile) {
+        Err(rejection) if rejection.code == "loss_criterion" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("unimproved run produced {other:?}"),
             ));
         }
     }

@@ -18,7 +18,7 @@
 
 ## Phase 3: Bounded fine-tuning and artifacts
 
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.optimizer] B11 Run the named multi-step acceptance profile and validate finite values, adapter-only mutation, and the configured loss criterion. r[tenstorrent.rwkv7_p150a_finetuning.run]
+- [x] [depends:tenstorrent.rwkv7_p150a_finetuning.optimizer] B11 Run the named multi-step acceptance profile and validate finite values, adapter-only mutation, and the configured loss criterion. r[tenstorrent.rwkv7_p150a_finetuning.run]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.run] B12 Save, load, and resume the shared adapter artifact with TT-XLA graph, placement, precision, and device evidence. r[tenstorrent.rwkv7_p150a_finetuning.checkpoint]
 - [ ] [parallel] V1 Add positive device-free fixtures for compile receipts, placement, numerical comparisons, optimizer results, artifacts, health, and restoration. r[tenstorrent.rwkv7_p150a_finetuning.verification]
 - [ ] [parallel] V2 Add negative fixtures for unsupported operations, fallback, stale graphs, bad shapes, nonfinite values, missing gradients, base mutation, tolerance failures, close failures, and stale receipts. r[tenstorrent.rwkv7_p150a_finetuning.verification]

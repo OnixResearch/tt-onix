@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_run",
+  "profile_identity": "d6e9ec5efc43b72865d2855cef344d64ece88394a0428f37a89a765e73af444c",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "step_execute",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "run": {
+    "steps": 8,
+    "finite": true,
+    "base_unchanged": true,
+    "improved": true,
+    "initial_loss": 13.1875,
+    "final_loss": 0.0,
+    "cpu_final_loss": 0.0009874338284134865,
+    "improvement_ratio": 0.9,
+    "losses": [
+      13.1875,
+      7.53125,
+      4.53125,
+      2.84375,
+      1.8046875,
+      0.008544921875,
+      0.046142578125,
+      0.0
+    ],
+    "cpu_losses": [
+      13.181901931762695,
+      7.526481628417969,
+      4.476935863494873,
+      2.6811909675598145,
+      2.195444345474243,
+      0.01935703307390213,
+      0.06260551512241364,
+      0.0009874338284134865
+    ]
+  },
+  "non_claims": [
+    "no dual-card scaling claim",
+    "no useful generalization claim",
+    "no speedup claim",
+    "no support claim for other RWKV models"
+  ]
+}

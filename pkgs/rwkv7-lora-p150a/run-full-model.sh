@@ -31,6 +31,7 @@ CHECKPOINT=""
 WHEELS_DIR=""
 EVIDENCE_ROOT=""
 DTYPE=""
+MODE="receipt"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -41,6 +42,7 @@ while [ "$#" -gt 0 ]; do
     --wheels-dir) WHEELS_DIR="$2"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     --dtype) DTYPE="$2"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -54,6 +56,10 @@ if [ -n "$DTYPE" ]; then
     *) usage ;;
   esac
 fi
+case "$MODE" in
+  receipt|multistep) ;;
+  *) usage ;;
+esac
 
 DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
@@ -95,44 +101,78 @@ finish_receipt() {
   if [ -f "$EVIDENCE_ROOT/placement.hlo" ]; then
     placement_hlo_blake3=$("$B3SUM" "$EVIDENCE_ROOT/placement.hlo" | cut -d' ' -f1)
   fi
-  local placement step parity
-  placement=$(printf '%s' "$probe_result" | "$JQ" '.placement // {}')
-  step=$(printf '%s' "$probe_result" | "$JQ" '.step // {}')
-  parity=$(printf '%s' "$probe_result" | "$JQ" '.parity // {}')
-  "$JQ" -n \
-    --argjson schema_version 1 \
-    --arg kind "rwkv7_lora_p150a_step" \
-    --arg profile_identity "$PROFILE_IDENTITY" \
-    --arg bundle_identity "$BUNDLE_IDENTITY" \
-    --arg config_identity "$CONFIG_IDENTITY" \
-    --arg launch_plan_identity "$PLAN_IDENTITY" \
-    --argjson stages "$stages" \
-    --argjson placement "$placement" \
-    --argjson step "$step" \
-    --argjson parity "$parity" \
-    --arg placement_hlo_blake3 "$placement_hlo_blake3" \
-    '{
-      schema_version: $schema_version,
-      kind: $kind,
-      profile_identity: $profile_identity,
-      bundle_identity: $bundle_identity,
-      config_identity: $config_identity,
-      launch_plan_identity: $launch_plan_identity,
-      stages: $stages,
-      placement: $placement,
-      step: $step,
-      parity: $parity,
-      placement_hlo_blake3: $placement_hlo_blake3,
-      non_claims: [
-        "no dual-card scaling claim",
-        "no useful generalization claim",
-        "no speedup claim",
-        "no support claim for other RWKV models"
-      ]
-    }' > "$EVIDENCE_ROOT/receipt.json"
-  if [ "$overall" -eq 0 ]; then
-    "$CORE" admit-step "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
-      > "$EVIDENCE_ROOT/step-admission.json"
+  if [ "$MODE" = "multistep" ]; then
+    local run
+    run=$(printf '%s' "$probe_result" | "$JQ" '{steps, finite, base_unchanged, improved, initial_loss, final_loss, cpu_final_loss, improvement_ratio, losses, cpu_losses}')
+    "$JQ" -n \
+      --argjson schema_version 1 \
+      --arg kind "rwkv7_lora_p150a_run" \
+      --arg profile_identity "$PROFILE_IDENTITY" \
+      --arg bundle_identity "$BUNDLE_IDENTITY" \
+      --arg config_identity "$CONFIG_IDENTITY" \
+      --arg launch_plan_identity "$PLAN_IDENTITY" \
+      --argjson stages "$stages" \
+      --argjson run "$run" \
+      '{
+        schema_version: $schema_version,
+        kind: $kind,
+        profile_identity: $profile_identity,
+        bundle_identity: $bundle_identity,
+        config_identity: $config_identity,
+        launch_plan_identity: $launch_plan_identity,
+        stages: $stages,
+        run: $run,
+        non_claims: [
+          "no dual-card scaling claim",
+          "no useful generalization claim",
+          "no speedup claim",
+          "no support claim for other RWKV models"
+        ]
+      }' > "$EVIDENCE_ROOT/receipt.json"
+    if [ "$overall" -eq 0 ]; then
+      "$CORE" admit-run "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/run-admission.json"
+    fi
+  else
+    local placement step parity
+    placement=$(printf '%s' "$probe_result" | "$JQ" '.placement // {}')
+    step=$(printf '%s' "$probe_result" | "$JQ" '.step // {}')
+    parity=$(printf '%s' "$probe_result" | "$JQ" '.parity // {}')
+    "$JQ" -n \
+      --argjson schema_version 1 \
+      --arg kind "rwkv7_lora_p150a_step" \
+      --arg profile_identity "$PROFILE_IDENTITY" \
+      --arg bundle_identity "$BUNDLE_IDENTITY" \
+      --arg config_identity "$CONFIG_IDENTITY" \
+      --arg launch_plan_identity "$PLAN_IDENTITY" \
+      --argjson stages "$stages" \
+      --argjson placement "$placement" \
+      --argjson step "$step" \
+      --argjson parity "$parity" \
+      --arg placement_hlo_blake3 "$placement_hlo_blake3" \
+      '{
+        schema_version: $schema_version,
+        kind: $kind,
+        profile_identity: $profile_identity,
+        bundle_identity: $bundle_identity,
+        config_identity: $config_identity,
+        launch_plan_identity: $launch_plan_identity,
+        stages: $stages,
+        placement: $placement,
+        step: $step,
+        parity: $parity,
+        placement_hlo_blake3: $placement_hlo_blake3,
+        non_claims: [
+          "no dual-card scaling claim",
+          "no useful generalization claim",
+          "no speedup claim",
+          "no support claim for other RWKV models"
+        ]
+      }' > "$EVIDENCE_ROOT/receipt.json"
+    if [ "$overall" -eq 0 ]; then
+      "$CORE" admit-step "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/step-admission.json"
+    fi
   fi
   exit "$overall"
 }
@@ -174,7 +214,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   bash /container-full-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode receipt $DTYPE_ARG \
+    --mode $MODE $DTYPE_ARG \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
 set -e

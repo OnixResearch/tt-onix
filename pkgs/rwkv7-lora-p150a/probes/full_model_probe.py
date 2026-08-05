@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -57,7 +58,7 @@ def main():
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--mode", default="forward",
-                        choices=["forward", "step", "debug", "isolate", "receipt"])
+                        choices=["forward", "step", "debug", "isolate", "receipt", "multistep"])
     parser.add_argument("--dtype", default="",
                         help="override model dtype: bf16 or fp32 (default: profile)")
     parser.add_argument("--emit-cpu", default="",
@@ -323,6 +324,84 @@ def main():
              parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
                      "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,
                      "all_ok": loss_ok and clip_ok and grad_ok and delta_ok})
+        return
+
+    # mode == "multistep": bounded multi-step run with loss-improvement
+    # criterion, adapter-only mutation, and finite-value validation.
+    if args.mode == "multistep":
+        run_criteria = profile["run_criteria"]
+        steps = run_criteria["min_steps"]
+        improvement_ratio = run_criteria["loss_improvement_ratio"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+        trainable_set = set(trainable_names)
+
+        def base_snapshot(model):
+            return {n: p.detach().to("cpu").float().clone()
+                    for n, p in model.named_parameters() if n not in trainable_set}
+
+        def run_steps(model, optimizer, ids, labels, on_device):
+            losses = []
+            params = [model.get_parameter(n) for n in trainable_names]
+            for _ in range(steps):
+                optimizer.zero_grad()
+                logits, loss = compute_loss(model, ids, labels)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(params, clip_norm)
+                optimizer.step()
+                if on_device:
+                    torch_xla.sync(wait=True)
+                losses.append(float(loss.detach().to("cpu").item()))
+            return losses
+
+        # Use a periodic sequence so the model can reliably reduce loss in a
+        # bounded number of steps; a purely random batch cannot be learned.
+        static_shape = profile["static_shape"]
+        tokens = static_shape["micro_batch"] * static_shape["sequence_length"]
+        vocab = profile["model"]["vocabulary_size"]
+        period = 8
+        base_tokens = torch.randint(0, vocab, (period,), generator=torch.Generator().manual_seed(profile["seed"]))
+        ms_input_ids = base_tokens.repeat(tokens // period + 1)[:tokens].unsqueeze(0)
+        ms_labels = ms_input_ids.clone()
+
+        # Device run first (backward ordering rule).
+        dev_optimizer = torch.optim.AdamW(
+            [dev_model.get_parameter(n) for n in trainable_names],
+            lr=lr, weight_decay=0.0, capturable=True)
+        dev_base_before = base_snapshot(dev_model)
+        t0 = time.monotonic()
+        dev_losses = run_steps(dev_model, dev_optimizer,
+                               ms_input_ids.to(device), ms_labels.to(device), True)
+        dev_base_after = base_snapshot(dev_model)
+        dev_seconds = time.monotonic() - t0
+
+        base_changed = any(
+            not torch.equal(dev_base_before[n], dev_base_after[n])
+            for n in dev_base_before)
+
+        # CPU reference run after the device run.
+        cpu_optimizer = torch.optim.AdamW(
+            [cpu_model.get_parameter(n) for n in trainable_names],
+            lr=lr, weight_decay=0.0, capturable=False)
+        cpu_losses = run_steps(cpu_model, cpu_optimizer, ms_input_ids, ms_labels, False)
+
+        finite = all(
+            all(math.isfinite(v) for v in losses) for losses in [dev_losses, cpu_losses])
+        improved = dev_losses[-1] <= improvement_ratio * dev_losses[0]
+        final_loss_dev = abs(dev_losses[-1] - cpu_losses[-1])
+
+        emit("pass", mode="multistep", device_count=len(supported),
+             seconds=dev_seconds,
+             steps=steps,
+             losses=dev_losses,
+             cpu_losses=cpu_losses,
+             initial_loss=dev_losses[0],
+             final_loss=dev_losses[-1],
+             cpu_final_loss=cpu_losses[-1],
+             final_loss_dev=final_loss_dev,
+             finite=finite,
+             base_unchanged=(not base_changed),
+             improved=improved,
+             improvement_ratio=improvement_ratio)
         return
 
     # mode == "step": backward + AdamW adapter update
