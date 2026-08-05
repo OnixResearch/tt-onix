@@ -23,7 +23,9 @@
 - [x] [parallel] V2 Add negative fixtures for device mismatch, wrong mesh, missing links, invalid axes, bad shards, wrong reductions, fallback, timeout, divergence, nonfinite values, corrupt artifacts, health faults, and failed restoration. r[tenstorrent.rwkv7_dual_p150a.verification]
 - [x] [depends:tenstorrent.rwkv7_dual_p150a.checkpoint] V3 Produce the bounded dual-P150A fine-tuning receipt and canonical adapter artifact. r[tenstorrent.rwkv7_dual_p150a.evidence]
 - [x] [serial] D12 Document cable and mesh prerequisites, exact fine-tuning command, data contract, evidence, recovery, artifact use, and non-claims. r[tenstorrent.rwkv7_dual_p150a.documentation]
-- [ ] [depends:tenstorrent.rwkv7_dual_p150a.verification] V4 Run formatting, focused tests, package checks, all prerequisite regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.rwkv7_dual_p150a.verification]
+- [x] [depends:tenstorrent.rwkv7_dual_p150a.verification] V4 Run formatting, focused tests, package checks, all prerequisite regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.rwkv7_dual_p150a.verification]
+
+  V4 evidence: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` pass on the dual core; `checks.x86_64-linux.rwkv7-lora-dual-p150a`, `rwkv7-lora-p150a`, `training-platform`, and `rwkv7-lora-reference` pass; `nix flake check` passes every attribute except the pre-existing `model-target-candidate-report` failure (missing `upstream_identity` reviewed fact), which reproduces on `origin/main` and belongs to the active `add-qwen3-6-a3b-candidate-target` change. Cairn validate and all three gates pass.
 
 ## Verification Coverage
 
