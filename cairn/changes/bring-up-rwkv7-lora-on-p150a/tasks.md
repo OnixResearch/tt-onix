@@ -11,8 +11,8 @@
 
 ## Phase 2: Full single-device training graph
 
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.parity] B7 Build the full pinned RWKV-7 LoRA graph from the shared CPU authority and keep base tensors frozen. r[tenstorrent.rwkv7_p150a_finetuning.graph]
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.graph] B8 Add the thin shell that selects one logical `1x1` P150A submesh while passing all host devices. r[tenstorrent.rwkv7_p150a_finetuning.device]
+- [x] [depends:tenstorrent.rwkv7_p150a_finetuning.parity] B7 Build the full pinned RWKV-7 LoRA graph from the shared CPU authority and keep base tensors frozen. r[tenstorrent.rwkv7_p150a_finetuning.graph]
+- [x] [depends:tenstorrent.rwkv7_p150a_finetuning.graph] B8 Add the thin shell that selects one logical `1x1` P150A submesh while passing all host devices. r[tenstorrent.rwkv7_p150a_finetuning.device]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.graph] B9 Capture and validate full placement evidence with no model, loss, backward, clipping, or optimizer fallback. r[tenstorrent.rwkv7_p150a_finetuning.placement]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.placement] B10 Run one full step and compare logits, loss, selected states, gradients, clipping, and adapter deltas with CPU. r[tenstorrent.rwkv7_p150a_finetuning.parity] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]
 
