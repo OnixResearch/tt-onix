@@ -15,6 +15,10 @@ Read these local references before you change Tenstorrent packages, modules, dev
 - Read the package-matched `tt-metal` docs at `.pi/references/tenstorrent/tt-metal-docs/docs`.
   Source: <https://github.com/tenstorrent/tt-metal/tree/v0.74.0-rc6/docs>.
   The downloaded checkout uses commit `c49bb7625e6a495337483353a5228339fece2c11`.
+- Read the built latest TT-NN documentation at `.pi/references/tenstorrent/ttnn-docs-latest/docs.tenstorrent.com/tt-metal/latest/ttnn`.
+  Start at `index.html`.
+  Source: <https://docs.tenstorrent.com/tt-metal/latest/ttnn/index.html>.
+  The downloaded mirror uses the site state of 2026-08-05.
 - Read the technical reports at `.pi/references/tenstorrent/tt-metal-docs/tech_reports`.
   Source: <https://github.com/tenstorrent/tt-metal/tree/v0.74.0-rc6/tech_reports>.
 
@@ -46,12 +50,18 @@ Read these package-matched or commit-pinned sources before you change hardware b
   Source: <https://github.com/tenstorrent/tt-xla>.
   The downloaded checkout uses commit `10b111f3885a598958b0c4e393a07d672584736a`.
   This commit matches the `tt_xla_source` pin in `pkgs/training-platform/manifest.ncl`.
+- Read the latest upstream `tt-metal` source at `.pi/references/tenstorrent/tt-metal-latest`.
+  Source: <https://github.com/tenstorrent/tt-metal>.
+  The downloaded checkout uses commit `0fa87dd38f087a10383dd320670419428db45979` from the `main` branch on 2026-08-05.
 
 Use the ISA documentation as the hardware behavior contract.
 Use the low-level documentation for kernel API and NoC guidance.
 Use the package-matched driver sources for host ABI and device-node behavior.
 Use `ttsim` for device-free behavior checks when its documented feature set covers the path.
 Use `tt-xla` for PJRT, PyTorch/XLA, and JAX frontend behavior before you change the training platform.
+Use `tt-metal-latest` and the latest TT-NN mirror for current upstream behavior only.
+The package-matched `tt-metal-docs` checkout stays the authority for packaged behavior.
+Do not update a package pin only because the latest upstream source changed.
 
 ### Simulator-before-hardware workflow
 
