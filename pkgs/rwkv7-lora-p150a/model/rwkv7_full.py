@@ -42,6 +42,17 @@ def naive_wkv7_forward(r, w, k, v, a, b, state):
     runtime (see probes/wkv7_probe.py).
     """
     batch, time_steps, heads, width = r.shape
+    # fla accumulates the recurrent state in fp32 even for bf16 inputs.
+    # Doing the recurrence in the input dtype overflows on the real model,
+    # so upcast here and downcast the outputs on return.
+    orig_dtype = r.dtype
+    r = r.float()
+    w = w.float()
+    k = k.float()
+    v = v.float()
+    a = a.float()
+    b = b.float()
+    state = state.float()
     wactivated = (-(w.exp())).exp()
     outputs = []
     current = state
@@ -53,7 +64,7 @@ def naive_wkv7_forward(r, w, k, v, a, b, state):
         )
         outputs.append(torch.einsum("bhj,bhij->bhi", _step(r, t), current))
     out = torch.stack(outputs, dim=1)
-    return out, current
+    return out.to(orig_dtype), current.to(orig_dtype)
 
 
 def _step(x, t):
@@ -152,7 +163,10 @@ class RWKV7Attention(nn.Module):
         g = self.g_lora(xg)
 
         H, D = self.num_heads, self.head_dim
-        kk = F.normalize((k * self.k_k).view(batch, seq_len, H, D), dim=-1, p=2.0)
+        # F.normalize's eps underflows to zero in bf16, so a tiny-norm row
+        # divides by ~0 and produces Inf. fla upcasts its l2 norm to fp32;
+        # match that here.
+        kk = F.normalize((k * self.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0).to(k.dtype)
         # k = k * (1 + (a - 1) * k_a)  (fused_k_rwkv7)
         a_sig_hd = a_sig.view(batch, seq_len, H, D)
         k = k.addcmul(k * (a_sig - 1), self.k_a)
@@ -179,6 +193,73 @@ class RWKV7Attention(nn.Module):
 
         o = self.o_proj(o)
         return o, v_first
+
+
+def attention_intermediates(attn, hidden_states):
+    """Mirror RWKV7Attention.forward but return every intermediate tensor.
+
+    Used to localize a device-vs-CPU numerical divergence op by op. Only
+    valid for layer 0 (v_first = v, no lerp).
+    """
+    batch, seq_len, _ = hidden_states.shape
+    out = {}
+    delta = token_shift(hidden_states)
+    out["delta"] = delta
+    xr = hidden_states + delta * attn.x_r
+    xw = hidden_states + delta * attn.x_w
+    xk = hidden_states + delta * attn.x_k
+    xv = hidden_states + delta * attn.x_v
+    xa = hidden_states + delta * attn.x_a
+    xg = hidden_states + delta * attn.x_g
+    out["xr"] = xr
+    out["xw"] = xw
+    out["xk"] = xk
+    out["xv"] = xv
+    out["xa"] = xa
+    out["xg"] = xg
+    r = attn.r_proj(xr)
+    w_log = LOG_SQRT_TWO_PI_MINUS_HALF * torch.sigmoid(attn.w_lora(xw))
+    k = attn.k_proj(xk)
+    v = attn.v_proj(xv)
+    out["r"] = r
+    out["w_log"] = w_log
+    out["k_pre"] = k
+    out["v"] = v
+    a_sig = torch.sigmoid(attn.a_lora(xa))
+    g = attn.g_lora(xg)
+    out["a_sig"] = a_sig
+    out["g"] = g
+    H, D = attn.num_heads, attn.head_dim
+    kk = F.normalize((k * attn.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0).to(k.dtype)
+    out["kk"] = kk
+    a_sig_hd = a_sig.view(batch, seq_len, H, D)
+    k_post = k.addcmul(k * (a_sig - 1), attn.k_a)
+    out["k_post"] = k_post
+    r4 = r.view(batch, seq_len, H, D)
+    w_naive4 = torch.log(-w_log).view(batch, seq_len, H, D)
+    k4 = k_post.view(batch, seq_len, H, D)
+    v4 = v.view(batch, seq_len, H, attn.head_v_dim)
+    a_naive4 = -kk
+    b_naive4 = kk * a_sig_hd
+    out["w_naive"] = w_naive4
+    out["a_naive"] = a_naive4
+    out["b_naive"] = b_naive4
+    state0 = torch.zeros(batch, H, D, attn.head_v_dim,
+                         dtype=hidden_states.dtype, device=hidden_states.device)
+    o, final_state = naive_wkv7_forward(r4, w_naive4, k4, v4, a_naive4, b_naive4, state0)
+    out["wkv_o"] = o
+    out["wkv_state"] = final_state
+    o_norm = attn.g_norm(o.reshape(batch * seq_len, H * attn.head_v_dim)).view(
+        batch, seq_len, attn.value_dim)
+    out["o_norm"] = o_norm
+    r_k_b = attn.r_k.unsqueeze(0).unsqueeze(0)
+    correction_scalar = (r4 * k4 * r_k_b).sum(-1, keepdim=True)
+    gated = o_norm.view(batch, seq_len, H, attn.head_v_dim) + correction_scalar * v4
+    o_gated = gated.reshape(batch, seq_len, attn.value_dim) * g
+    out["o_gated"] = o_gated
+    o_final = attn.o_proj(o_gated)
+    out["o_final"] = o_final
+    return out
 
 
 class RWKV7FeedForward(nn.Module):
