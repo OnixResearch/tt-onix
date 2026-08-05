@@ -23,7 +23,7 @@
 - [ ] [parallel] V1 Add positive device-free fixtures for compile receipts, placement, numerical comparisons, optimizer results, artifacts, health, and restoration. r[tenstorrent.rwkv7_p150a_finetuning.verification]
 - [ ] [parallel] V2 Add negative fixtures for unsupported operations, fallback, stale graphs, bad shapes, nonfinite values, missing gradients, base mutation, tolerance failures, close failures, and stale receipts. r[tenstorrent.rwkv7_p150a_finetuning.verification]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.checkpoint] V3 Produce the bounded single-P150A fine-tuning receipt and adapter artifact. r[tenstorrent.rwkv7_p150a_finetuning.evidence]
-- [ ] [serial] B13 Document prerequisites, exact commands, compile diagnosis, recovery, artifact use, and non-claims. r[tenstorrent.rwkv7_p150a_finetuning.documentation]
+- [x] [serial] B13 Document prerequisites, exact commands, compile diagnosis, recovery, artifact use, and non-claims. r[tenstorrent.rwkv7_p150a_finetuning.documentation]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.verification] V4 Run formatting, focused tests, package checks, platform and CPU regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.rwkv7_p150a_finetuning.verification]
 
 ## Verification Coverage
