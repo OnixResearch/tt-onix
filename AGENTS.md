@@ -42,11 +42,16 @@ Read these package-matched or commit-pinned sources before you change hardware b
 - Read the device-free simulator source and ABI docs at `.pi/references/tenstorrent/ttsim`.
   Source: <https://github.com/tenstorrent/ttsim/tree/v1.9.2>.
   The downloaded checkout uses commit `f80c33939e58e8c3c6d5b04edc0e3a03e5144d13`.
+- Read the training-platform frontend source at `.pi/references/tenstorrent/tt-xla`.
+  Source: <https://github.com/tenstorrent/tt-xla>.
+  The downloaded checkout uses commit `10b111f3885a598958b0c4e393a07d672584736a`.
+  This commit matches the `tt_xla_source` pin in `pkgs/training-platform/manifest.ncl`.
 
 Use the ISA documentation as the hardware behavior contract.
 Use the low-level documentation for kernel API and NoC guidance.
 Use the package-matched driver sources for host ABI and device-node behavior.
 Use `ttsim` for device-free behavior checks when its documented feature set covers the path.
+Use `tt-xla` for PJRT, PyTorch/XLA, and JAX frontend behavior before you change the training platform.
 
 ### Simulator-before-hardware workflow
 
