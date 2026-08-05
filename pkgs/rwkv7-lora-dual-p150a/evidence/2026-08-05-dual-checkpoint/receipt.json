@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_dual_p150a_checkpoint",
+  "profile_identity": "34d5ee998c0dc02f92801dae27fca1aedf85ca05db6381ed13a7c3315b90c117",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "step_execute",
+      "status": "pass"
+    },
+    {
+      "name": "cleanup",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "checkpoint": {
+    "pre_steps": 2,
+    "post_steps": 2,
+    "replica_equality_before_save": true,
+    "canonical_single_artifact": true,
+    "adapter_load_max_diff": 0.0,
+    "replicas_loaded": 2,
+    "post_load_replica_equality": true,
+    "final_loss_interrupted": 0.1123046875,
+    "final_loss_resumed": 0.1123046875,
+    "resume_loss_dev": 0.0
+  },
+  "adapter_blake3": "a8833a734996b217607c796339d45f88ca5aeec41f5aed6ae9202e558916bce4",
+  "non_claims": [
+    "no speedup claim",
+    "no scaling efficiency claim",
+    "no long-run stability claim",
+    "no useful generalization claim",
+    "no support claim for other RWKV models"
+  ]
+}
