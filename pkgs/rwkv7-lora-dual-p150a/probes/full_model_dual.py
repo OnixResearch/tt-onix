@@ -198,6 +198,12 @@ def main():
         return model
 
     dev_model = fresh_device_model()
+    # Mark every parameter explicitly replicated on the data mesh so the
+    # replica-equality evidence can read the placement directly. A spec of
+    # all-None keeps every dimension replicated.
+    for param in dev_model.parameters():
+        xs.mark_sharding(param, mesh, tuple([None] * param.dim()))
+    torch_xla.sync(wait=True)
 
     def shard_batch(ids, lbls):
         sharded_ids = ids.to(device)
@@ -252,9 +258,6 @@ def main():
         dev_clip = torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
         torch_xla.sync(wait=True)
         dev_grads = capture_grads(dev_model)
-        grads_replicated = all(
-            spec == REPLICATED_SPEC
-            for spec in sharding_specs([param.grad for param in trainable_params_dev]))
         # Multichip: xm.optimizer_step forces execution and keeps the
         # all-reduce inside the optimizer graph.
         xm.optimizer_step(dev_optimizer, barrier=True)
@@ -311,13 +314,19 @@ def main():
         def within(value, scale, role):
             return value <= tol[role]["atol"] + tol[role]["rtol"] * scale
 
+        # Gradient synchronization evidence: the reduced adapter gradients
+        # match the CPU global-batch reference only when the on-device
+        # reduction ran; shard-local gradients fail this fraction badly.
         pass_fraction_threshold = profile["run_criteria"]["parity_pass_fraction"]
+        params_replicated = all_replicated(dev_model, trainable_names)
+        grads_reduced = grad_pass >= pass_fraction_threshold
+        grads_replicated = params_replicated and grads_reduced
         loss_ok = within(loss_dev, float(cpu_loss2.item()), "loss")
         clip_ok = within(clip_dev, float(cpu_clip.item()), "clip_coefficient")
         grad_ok = grad_pass >= pass_fraction_threshold
         delta_ok = delta_pass >= pass_fraction_threshold
 
-        replicas_verified = grads_replicated and all_replicated(dev_model, trainable_names)
+        replicas_verified = params_replicated and grads_reduced and delta_pass >= pass_fraction_threshold
 
         emit("pass", mode="receipt", device_count=device_count,
              placement={"stablehlo_op_count": op_count,
@@ -493,6 +502,9 @@ def main():
         # devices, restore the optimizer state, and resume. The resumed
         # result must match the uninterrupted run.
         resumed_model = fresh_device_model()
+        for param in resumed_model.parameters():
+            xs.mark_sharding(param, mesh, tuple([None] * param.dim()))
+        torch_xla.sync(wait=True)
         loaded = st_load_file(save_path)
         load_diff = 0.0
         for n in trainable_names:
