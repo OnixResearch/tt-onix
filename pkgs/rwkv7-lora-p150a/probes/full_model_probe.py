@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 
@@ -24,6 +25,7 @@ import rwkv7_full as M
 LOSS_IGNORE_INDEX = M.LOSS_IGNORE_INDEX
 ROLES = list(M.LORA_ROLE_TO_ATTR.keys())
 SELECTED_ORDINAL = 0
+HLO_OP_PATTERN = re.compile(r"stablehlo\.([a-z_0-9]+)")
 
 
 def emit(status, **extra):
@@ -55,7 +57,7 @@ def main():
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--mode", default="forward",
-                        choices=["forward", "step", "debug", "isolate"])
+                        choices=["forward", "step", "debug", "isolate", "receipt"])
     parser.add_argument("--dtype", default="",
                         help="override model dtype: bf16 or fp32 (default: profile)")
     parser.add_argument("--emit-cpu", default="",
@@ -200,6 +202,109 @@ def main():
              logits_finite=bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
              cpu_loss=float(cpu_loss.item()),
              loss_dev=float(abs(dev_loss.to("cpu").item() - cpu_loss.item())))
+        return
+
+    # mode == "receipt": full one-step placement + parity receipt
+    if args.mode == "receipt":
+        clip_norm = profile["optimizer"]["clip_norm"]
+        tol = profile["tolerances"]
+        trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
+        trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
+
+        def adapter_snapshot(model):
+            return {n: model.get_parameter(n).detach().to("cpu").float().clone()
+                    for n in trainable_names}
+
+        def capture_grads(model):
+            return {n: model.get_parameter(n).grad.detach().to("cpu").float().clone()
+                    for n in trainable_names}
+
+        # Device step first (backward ordering rule).
+        dev_optimizer = torch.optim.AdamW(trainable_params_dev, lr=lr,
+                                          weight_decay=0.0, capturable=True)
+        t0 = time.monotonic()
+        dev_before = adapter_snapshot(dev_model)
+        dev_logits, dev_loss = compute_loss(dev_model, input_ids.to(device),
+                                            labels.to(device))
+        dev_loss.backward()
+        dev_clip = torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
+        torch_xla.sync(wait=True)
+        dev_grads = capture_grads(dev_model)
+        dev_optimizer.step()
+        torch_xla.sync(wait=True)
+        dev_after = adapter_snapshot(dev_model)
+        dev_seconds = time.monotonic() - t0
+
+        # CPU reference step after the device backward.
+        cpu_optimizer = torch.optim.AdamW(trainable_params_cpu, lr=lr,
+                                          weight_decay=0.0, capturable=False)
+        cpu_before = adapter_snapshot(cpu_model)
+        cpu_logits2, cpu_loss2 = compute_loss(cpu_model, input_ids, labels)
+        cpu_loss2.backward()
+        cpu_clip = torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
+        cpu_grads = capture_grads(cpu_model)
+        cpu_optimizer.step()
+        cpu_after = adapter_snapshot(cpu_model)
+
+        # Placement evidence: lower the full forward to StableHLO and count ops.
+        from torch_xla.stablehlo import exported_program_to_stablehlo
+        export_module = M.RWKV7ForCausalLM(M.GOOSE_0P1B_CONFIG)
+        export_module.load_state_dict(state_dict, strict=True)
+        export_module.eval()
+        exported = torch.export.export(export_module, (input_ids,))
+        stablehlo_text = exported_program_to_stablehlo(exported).get_stablehlo_text()
+        op_count = len(HLO_OP_PATTERN.findall(stablehlo_text))
+        with open("/evidence/placement.hlo", "w", encoding="utf-8") as handle:
+            handle.write(stablehlo_text)
+
+        def rel_dev(dev_t, cpu_t):
+            scale = max(float(cpu_t.abs().max().item()), 1e-9)
+            return float((dev_t - cpu_t).abs().max().item()) / scale
+
+        grad_devs = {n: rel_dev(dev_grads[n], cpu_grads[n]) for n in trainable_names}
+        delta_devs = {n: rel_dev(dev_after[n] - dev_before[n],
+                                 cpu_after[n] - cpu_before[n])
+                      for n in trainable_names}
+        max_grad_rel = max(grad_devs.values())
+        max_delta_rel = max(delta_devs.values())
+        loss_dev = abs(float(dev_loss.to("cpu").item()) - float(cpu_loss2.item()))
+        clip_dev = abs(float(dev_clip.to("cpu").item()) - float(cpu_clip.item()))
+
+        def within(value, scale, role):
+            return value <= tol[role]["atol"] + tol[role]["rtol"] * scale
+
+        grad_scale = max(float(cpu_grads[n].abs().max().item()) for n in trainable_names)
+        delta_scale = max(float((cpu_after[n] - cpu_before[n]).abs().max().item())
+                          for n in trainable_names)
+        grad_ok = all(
+            (float((dev_grads[n] - cpu_grads[n]).abs().max().item())
+             <= tol["adapter_gradient"]["atol"] + tol["adapter_gradient"]["rtol"]
+             * float(cpu_grads[n].abs().max().item()))
+            for n in trainable_names)
+        delta_ok = all(
+            (float(((dev_after[n] - dev_before[n]) - (cpu_after[n] - cpu_before[n])).abs().max().item())
+             <= tol["adapter_delta"]["atol"] + tol["adapter_delta"]["rtol"]
+             * float((cpu_after[n] - cpu_before[n]).abs().max().item()))
+            for n in trainable_names)
+        loss_ok = within(loss_dev, float(cpu_loss2.item()), "loss")
+        clip_ok = within(clip_dev, float(cpu_clip.item()), "clip_coefficient")
+
+        emit("pass", mode="receipt", device_count=len(supported),
+             placement={"stablehlo_op_count": op_count, "device": "TT",
+                        "ordinal": SELECTED_ORDINAL, "visible_count": len(supported)},
+             step={"seconds": dev_seconds,
+                   "loss": float(dev_loss.to("cpu").item()),
+                   "cpu_loss": float(cpu_loss2.item()),
+                   "loss_dev": loss_dev,
+                   "clip_norm": float(dev_clip.to("cpu").item()),
+                   "cpu_clip_norm": float(cpu_clip.item()),
+                   "clip_dev": clip_dev,
+                   "max_grad_rel_dev": max_grad_rel,
+                   "max_delta_rel_dev": max_delta_rel,
+                   "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item())},
+             parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
+                     "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,
+                     "all_ok": loss_ok and clip_ok and grad_ok and delta_ok})
         return
 
     # mode == "step": backward + AdamW adapter update
