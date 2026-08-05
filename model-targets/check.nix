@@ -14,7 +14,8 @@ let
   rwkvTopology = modelTargets.mkTopology rwkvProfile;
   transformerTopology = modelTargets.mkTopology transformerProfile;
 
-  fixtureArtifacts = profile:
+  fixtureArtifacts =
+    profile:
     builtins.listToAttrs (
       map (artifact: {
         name = artifact.role;
@@ -35,7 +36,8 @@ let
     closure = _context: "closure";
   };
 
-  mkRwkvFixture = overrides:
+  mkRwkvFixture =
+    overrides:
     modelTargets.mkModelTarget (
       {
         profile = rwkvProfile;
@@ -48,7 +50,8 @@ let
       // overrides
     );
 
-  forceTarget = target:
+  forceTarget =
+    target:
     builtins.deepSeq [
       target.runtime
       target.command
@@ -73,17 +76,23 @@ let
   );
   architectureMismatch = builtins.tryEval (
     forceTarget (mkRwkvFixture {
-      architectureAdapter = rwkvAdapter // { architectureFamilies = [ "other" ]; };
+      architectureAdapter = rwkvAdapter // {
+        architectureFamilies = [ "other" ];
+      };
     })
   );
   stateMismatch = builtins.tryEval (
     forceTarget (mkRwkvFixture {
-      architectureAdapter = rwkvAdapter // { stateKinds = [ "kv_cache" ]; };
+      architectureAdapter = rwkvAdapter // {
+        stateKinds = [ "kv_cache" ];
+      };
     })
   );
   evidenceMismatch = builtins.tryEval (
     forceTarget (mkRwkvFixture {
-      evidenceAdapter = rwkvEvidenceAdapter // { id = "wrong-evidence-adapter"; };
+      evidenceAdapter = rwkvEvidenceAdapter // {
+        id = "wrong-evidence-adapter";
+      };
     })
   );
   artifactMismatch = builtins.tryEval (
@@ -97,12 +106,16 @@ let
   );
   precisionMismatch = builtins.tryEval (
     forceTarget (mkRwkvFixture {
-      architectureAdapter = rwkvAdapter // { precisions = [ "fp32" ]; };
+      architectureAdapter = rwkvAdapter // {
+        precisions = [ "fp32" ];
+      };
     })
   );
   topologyMismatch = builtins.tryEval (
     forceTarget (mkRwkvFixture {
-      topology = rwkvTopology // { id = "other-topology"; };
+      topology = rwkvTopology // {
+        id = "other-topology";
+      };
     })
   );
 in

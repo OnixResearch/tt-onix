@@ -15,13 +15,15 @@ let
     builtins.length profileData.profiles == builtins.length (builtins.attrNames profilesByName);
   targetLibrary = import ./mk-model-target.nix { inherit lib; };
 
-  getProfile = targetName:
+  getProfile =
+    targetName:
     if builtins.hasAttr targetName profilesByName then
       profilesByName.${targetName}
     else
       throw "unknown model target profile '${targetName}'";
 
-  fetchProfileArtifacts = profile:
+  fetchProfileArtifacts =
+    profile:
     builtins.listToAttrs (
       map (artifact: {
         name = artifact.role;
@@ -66,7 +68,8 @@ let
     "argmax"
   ];
 
-  mkArchitectureAdapter = profile:
+  mkArchitectureAdapter =
+    profile:
     if profile.model.architecture_family == "rwkv7" then
       {
         id = profile.adapters.architecture;
@@ -127,8 +130,9 @@ let
     physicalDeviceIds = profile.topology.physical_device_ids;
   };
 in
-assert lib.assertMsg (profileData.schema_version == expectedSchemaVersion)
-  "model target profile schema version mismatch";
+assert lib.assertMsg (
+  profileData.schema_version == expectedSchemaVersion
+) "model target profile schema version mismatch";
 assert lib.assertMsg profileNamesAreUnique "model target profile names must be unique";
 {
   inherit

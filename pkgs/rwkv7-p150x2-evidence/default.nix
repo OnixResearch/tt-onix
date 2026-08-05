@@ -11,7 +11,7 @@ let
   packageSource = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      ./. 
+      ./.
       ../model-target-core
     ];
   };

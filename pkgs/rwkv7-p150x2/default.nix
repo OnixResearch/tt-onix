@@ -89,7 +89,12 @@ stdenv.mkDerivation {
   '';
 
   passthru = {
-    inherit artifactBlake3 meshDescriptor model profile;
+    inherit
+      artifactBlake3
+      meshDescriptor
+      model
+      profile
+      ;
     targetName = profile.target_name;
   };
 

@@ -16,7 +16,10 @@ let
 in
 runCommand "rwkv7-lora-reference-check"
   {
-    nativeBuildInputs = [ nickel pythonEnvironment ];
+    nativeBuildInputs = [
+      nickel
+      pythonEnvironment
+    ];
     RWKV7_LORA_MODEL = model;
     RWKV7_LORA_MODEL_BLAKE3 = modelBlake3;
   }
