@@ -20,9 +20,9 @@
 
 - [x] [depends:tenstorrent.rwkv7_p150a_finetuning.optimizer] B11 Run the named multi-step acceptance profile and validate finite values, adapter-only mutation, and the configured loss criterion. r[tenstorrent.rwkv7_p150a_finetuning.run]
 - [x] [depends:tenstorrent.rwkv7_p150a_finetuning.run] B12 Save, load, and resume the shared adapter artifact with TT-XLA graph, placement, precision, and device evidence. r[tenstorrent.rwkv7_p150a_finetuning.checkpoint]
-- [ ] [parallel] V1 Add positive device-free fixtures for compile receipts, placement, numerical comparisons, optimizer results, artifacts, health, and restoration. r[tenstorrent.rwkv7_p150a_finetuning.verification]
-- [ ] [parallel] V2 Add negative fixtures for unsupported operations, fallback, stale graphs, bad shapes, nonfinite values, missing gradients, base mutation, tolerance failures, close failures, and stale receipts. r[tenstorrent.rwkv7_p150a_finetuning.verification]
-- [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.checkpoint] V3 Produce the bounded single-P150A fine-tuning receipt and adapter artifact. r[tenstorrent.rwkv7_p150a_finetuning.evidence]
+- [x] [parallel] V1 Add positive device-free fixtures for compile receipts, placement, numerical comparisons, optimizer results, artifacts, health, and restoration. r[tenstorrent.rwkv7_p150a_finetuning.verification]
+- [x] [parallel] V2 Add negative fixtures for unsupported operations, fallback, stale graphs, bad shapes, nonfinite values, missing gradients, base mutation, tolerance failures, close failures, and stale receipts. r[tenstorrent.rwkv7_p150a_finetuning.verification]
+- [x] [depends:tenstorrent.rwkv7_p150a_finetuning.checkpoint] V3 Produce the bounded single-P150A fine-tuning receipt and adapter artifact. r[tenstorrent.rwkv7_p150a_finetuning.evidence]
 - [x] [serial] B13 Document prerequisites, exact commands, compile diagnosis, recovery, artifact use, and non-claims. r[tenstorrent.rwkv7_p150a_finetuning.documentation]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.verification] V4 Run formatting, focused tests, package checks, platform and CPU regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.rwkv7_p150a_finetuning.verification]
 

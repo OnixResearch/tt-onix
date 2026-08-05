@@ -365,6 +365,47 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "resume_drift" rejected.log
 
+    # r[verify tenstorrent.rwkv7_p150a_finetuning.verification]
+    # Negative: a probe receipt with nonfinite values is rejected.
+    probe_receipt=evidence/2026-08-04-wkv7-forward-focused/receipt.json
+    jq '.probe_result.finite = false' "$probe_receipt" >probe-nonfinite.json
+    if "$CORE" admit-probe probe-nonfinite.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "nonfinite probe receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "nonfinite_values" rejected.log
+
+    # Negative: a probe receipt with no lowered operations is rejected as
+    # fallback (an unsupported operation produces no TT graph).
+    jq '.probe_result.hlo.stablehlo_op_count = 0' "$probe_receipt" >probe-no-ops.json
+    if "$CORE" admit-probe probe-no-ops.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "zero-op probe receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "host_fallback" rejected.log
+
+    # Negative: a step receipt that produced no adapter gradients is rejected
+    # through its low pass fraction.
+    step_receipt=evidence/2026-08-05-full-model-step/receipt.json
+    jq '.step.grad_pass_fraction = 0.1' "$step_receipt" >step-missing-grads.json
+    if "$CORE" admit-step step-missing-grads.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "missing-gradient step receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "tolerance_failure" rejected.log
+
+    # Negative: a step receipt whose device restore failed is rejected.
+    jq '(.stages[] | select(.name == "restore") | .status) = "fail"' "$step_receipt" >step-restore-fail.json
+    if "$CORE" admit-step step-restore-fail.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "restore-failed step receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "failing_stage" rejected.log
+
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \
       --profile profile-first.json \
