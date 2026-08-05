@@ -56,8 +56,7 @@
       # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
       rwkv7LoraP150a = pkgs.callPackage ../pkgs/rwkv7-lora-p150a {
         inherit trainingPlatform;
-        platformEvidenceReceipt =
-          ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
+        platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
       # r[verify tenstorrent.training_platform.configuration.valid]
