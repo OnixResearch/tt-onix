@@ -91,10 +91,10 @@ def main():
         if isinstance(module, M.LoRALinear):
             torch.nn.init.normal_(module.lora_A, std=0.02)
             torch.nn.init.zeros_(module.lora_B)
+    # CPU forward only here. The CPU backward must run AFTER the device
+    # backward: this runtime's autograd engine trips a device-index assert if
+    # a CPU backward initializes the engine before an XLA backward.
     cpu_logits, cpu_loss = compute_loss(cpu_model, input_ids, labels)
-    cpu_loss.backward()
-    cpu_grads = {n: cpu_model.get_parameter(n).grad.clone()
-                 for n in trainable_names}
 
     # ---- Device run ----
     import torch_xla
@@ -215,6 +215,11 @@ def main():
     optimizer.step()
     torch_xla.sync(wait=True)
     dt = time.monotonic() - t0
+
+    # CPU reference backward runs only after the device backward completes.
+    cpu_loss.backward()
+    cpu_grads = {n: cpu_model.get_parameter(n).grad.clone()
+                 for n in trainable_names}
 
     max_grad_dev = 0.0
     for n in trainable_names:
