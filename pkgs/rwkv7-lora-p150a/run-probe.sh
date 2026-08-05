@@ -49,7 +49,7 @@ if [ -n "$WHEELS_JSON_OVERRIDE" ]; then
 fi
 
 case "$PROBE" in
-  wkv7-forward|wkv7-backward) ;;
+  wkv7-forward|wkv7-backward|training-ops) ;;
   *) usage ;;
 esac
 case "$SHAPE_KIND" in

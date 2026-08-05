@@ -251,7 +251,7 @@ runCommand "rwkv7-lora-p150a-check"
 
     # The checked-in hardware probe receipts must re-validate against the
     # admitted profile. A stale or drifted receipt fails this gate.
-    for receipt in evidence/2026-08-04-wkv7-*/receipt.json; do
+    for receipt in evidence/2026-08-04-*/receipt.json; do
       "$CORE" admit-probe "$receipt" profile-first.json >checked-in-admission.json
       grep -F '"status":"admitted"' checked-in-admission.json
     done

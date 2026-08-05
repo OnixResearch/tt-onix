@@ -347,10 +347,137 @@ def run_wkv7_backward(args):
     return result
 
 
+def run_training_ops(args):
+    import torch_xla
+
+    profile = args.profile
+    model = profile["model"]
+    hidden = model["hidden_size"]
+    vocab = model["vocabulary_size"]
+    static_shape = profile["static_shape"]
+    tokens = static_shape["micro_batch"] * static_shape["sequence_length"]
+    rank = profile["lora"]["rank"]
+    optimizer_policy = profile["optimizer"]
+    learning_rate = optimizer_policy["learning_rate"]
+    clip_norm = optimizer_policy["clip_norm"]
+    grad_tolerance = profile["tolerances"]["adapter_gradient"]
+    loss_tolerance = profile["tolerances"]["loss"]
+    delta_tolerance = profile["tolerances"]["adapter_delta"]
+    dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+
+    # Build every input once on CPU so the device and reference runs consume
+    # identical values.
+    generator = torch.Generator().manual_seed(SEED)
+    x_cpu = torch.randn(tokens, hidden, generator=generator)
+    labels_cpu = torch.randint(0, vocab, (tokens,), generator=generator)
+    labels_cpu[::3] = LOSS_IGNORE_INDEX
+    logits_cpu = torch.randn(tokens, vocab, generator=generator)
+    grad_src_cpu = torch.randn(hidden, rank, generator=generator)
+    param_init_cpu = torch.randn(hidden, rank, generator=generator) * 0.02
+    base_w_cpu = torch.randn(hidden, hidden, generator=generator) * 0.02
+    lora_a_cpu = torch.randn(rank, hidden, generator=generator) * 0.02
+    lora_b_cpu = torch.zeros(hidden, rank)
+
+    # Placement evidence: the LoRA projection lowers to StableHLO.
+    export_module = LoraProjectionModule(hidden, rank, torch.float32, generator)
+    hlo_summary = capture_stablehlo_export(export_module, (x_cpu,), args.hlo)
+
+    def projection(x, base_w, lora_a, lora_b):
+        return torch.nn.functional.linear(x, base_w) + x @ lora_a.t() @ lora_b.t()
+
+    # Device phase runs first so the autograd engine is not pre-initialized
+    # by a CPU backward.
+    device, supported = prepare_device(args.hlo)
+    compile_start = time.monotonic()
+
+    x_dev = x_cpu.to(device).to(dtype)
+    base_w_dev = base_w_cpu.to(device).to(dtype)
+    lora_a_dev = lora_a_cpu.to(device).to(dtype).requires_grad_(True)
+    lora_b_dev = lora_b_cpu.to(device).to(dtype).requires_grad_(True)
+    proj_out = projection(x_dev, base_w_dev, lora_a_dev, lora_b_dev)
+    proj_out.sum().backward()
+
+    logits_dev = logits_cpu.to(device).to(dtype).requires_grad_(True)
+    loss_dev = MaskedLossModule()(logits_dev, labels_cpu.to(device))
+    loss_dev.backward()
+
+    param_dev = param_init_cpu.to(device).to(dtype).requires_grad_(True)
+    grad_src_dev = grad_src_cpu.to(device).to(dtype)
+    (param_dev * grad_src_dev).sum().backward()
+    clipped_norm_dev = torch.nn.utils.clip_grad_norm_([param_dev], clip_norm)
+    optimizer_dev = torch.optim.AdamW([param_dev], lr=learning_rate, weight_decay=0.0, capturable=True)
+    optimizer_dev.step()
+    torch_xla.sync(wait=True)
+
+    device_results = {
+        "lora_a_grad": lora_a_dev.grad.detach().to("cpu").to(torch.float32),
+        "lora_b_grad": lora_b_dev.grad.detach().to("cpu").to(torch.float32),
+        "loss": loss_dev.detach().to("cpu").to(torch.float32),
+        "logits_grad": logits_dev.grad.detach().to("cpu").to(torch.float32),
+        "clipped_norm": clipped_norm_dev.detach().to("cpu").to(torch.float32),
+        "param_after": param_dev.detach().to("cpu").to(torch.float32),
+    }
+    compile_seconds = time.monotonic() - compile_start
+
+    # CPU reference phase.
+    lora_a_ref = lora_a_cpu.clone().requires_grad_(True)
+    lora_b_ref = lora_b_cpu.clone().requires_grad_(True)
+    proj_ref = projection(x_cpu, base_w_cpu, lora_a_ref, lora_b_ref)
+    proj_ref.sum().backward()
+
+    logits_ref = logits_cpu.clone().requires_grad_(True)
+    loss_ref = MaskedLossModule()(logits_ref, labels_cpu)
+    loss_ref.backward()
+
+    param_ref = param_init_cpu.clone().requires_grad_(True)
+    (param_ref * grad_src_cpu).sum().backward()
+    clipped_norm_ref = torch.nn.utils.clip_grad_norm_([param_ref], clip_norm)
+    optimizer_ref = torch.optim.AdamW([param_ref], lr=learning_rate, weight_decay=0.0)
+    optimizer_ref.step()
+
+    deviations = {
+        "lora_a_grad": compute_deviation(device_results["lora_a_grad"], lora_a_ref.grad),
+        "lora_b_grad": compute_deviation(device_results["lora_b_grad"], lora_b_ref.grad),
+        "logits_grad": compute_deviation(device_results["logits_grad"], logits_ref.grad),
+        "param_delta": compute_deviation(
+            device_results["param_after"] - param_init_cpu, param_ref.detach() - param_init_cpu
+        ),
+    }
+    result = {
+        "device": {
+            "type": "TT",
+            "ordinal": SELECTED_DEVICE_ORDINAL,
+            "visible_count": len(supported),
+            "supported_devices": supported,
+        },
+        "compile_seconds": compile_seconds,
+        "shape": {"tokens": tokens, "hidden": hidden, "vocab": vocab, "rank": rank},
+        "dtype": str(dtype).replace("torch.", ""),
+        "loss_deviation": compute_deviation(device_results["loss"], loss_ref.detach()),
+        "clipped_norm_deviation": compute_deviation(
+            device_results["clipped_norm"], clipped_norm_ref.detach()
+        ),
+        "deviations": deviations,
+        "tolerances_satisfied": (
+            check_tolerance(deviations["lora_a_grad"], grad_tolerance)
+            and check_tolerance(deviations["lora_b_grad"], grad_tolerance)
+            and check_tolerance(deviations["logits_grad"], grad_tolerance)
+            and check_tolerance(deviations["param_delta"], delta_tolerance)
+            and check_tolerance(
+                compute_deviation(device_results["loss"], loss_ref.detach()), loss_tolerance
+            )
+        ),
+        "finite": True,
+        "hlo": hlo_summary,
+    }
+    return result
+
+
 def run_probe(args):
     handlers = {
         "wkv7-forward": run_wkv7_forward,
         "wkv7-backward": run_wkv7_backward,
+        "training-ops": run_training_ops,
     }
     handler = handlers.get(args.probe)
     if handler is None:

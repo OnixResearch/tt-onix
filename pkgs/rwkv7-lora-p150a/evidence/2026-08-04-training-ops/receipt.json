@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_probe",
+  "probe": "training-ops",
+  "shape_kind": "representative",
+  "profile_identity": "3278bf83c249af4e740b86b24811aef929c89544f7c018428f45ead40f0a1a46",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "probe_execute",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "probe_result": {
+    "clipped_norm_deviation": {
+      "max_abs": 0.02790069580078125,
+      "pcc": 1.0,
+      "reference_scale": 39.27790069580078,
+      "relative": 0.0007103408101381581
+    },
+    "compile_seconds": 24.787820376000127,
+    "deviations": {
+      "logits_grad": {
+        "max_abs": 0.000005796551704406738,
+        "pcc": 1.0,
+        "reference_scale": 0.023809507489204407,
+        "relative": 0.00024345533846237613
+      },
+      "lora_a_grad": {
+        "max_abs": 0.0,
+        "pcc": 1.0,
+        "reference_scale": 0.0,
+        "relative": 0.0
+      },
+      "lora_b_grad": {
+        "max_abs": 0.03479480743408203,
+        "pcc": 0.9999986290931702,
+        "reference_scale": 8.222294807434082,
+        "relative": 0.004231763546427787
+      },
+      "param_delta": {
+        "max_abs": 0.00025741755962371826,
+        "pcc": 0.999988853931427,
+        "reference_scale": 0.009999999776482582,
+        "relative": 0.025741756537744923
+      }
+    },
+    "device": {
+      "ordinal": 0,
+      "supported_devices": [
+        "xla:0",
+        "xla:1"
+      ],
+      "type": "TT",
+      "visible_count": 2
+    },
+    "dtype": "bfloat16",
+    "finite": true,
+    "hlo": {
+      "op_histogram": {
+        "add": 1,
+        "dot_general": 3,
+        "transpose": 3
+      },
+      "stablehlo_op_count": 7
+    },
+    "loss_deviation": {
+      "max_abs": 0.018733978271484375,
+      "pcc": 1.0,
+      "reference_scale": 11.793766021728516,
+      "relative": 0.0015884644681749154
+    },
+    "probe": "training-ops",
+    "shape": {
+      "hidden": 768,
+      "rank": 2,
+      "tokens": 64,
+      "vocab": 65536
+    },
+    "status": "pass",
+    "tolerances_satisfied": true
+  },
+  "hlo_blake3": "95a80884ea5cd77aabcba6fb3d8e4701412df8f413f1c3a21065c7a2b89dc703",
+  "pip_freeze_blake3": "4d14eff27a704aaee7a84529c3b47fff0ba1dae6415338d218080b2a13432bac",
+  "max_stablehlo_operations": 200000,
+  "non_claims": [
+    "no full model support claim",
+    "no dual-card scaling claim",
+    "no speedup claim"
+  ]
+}

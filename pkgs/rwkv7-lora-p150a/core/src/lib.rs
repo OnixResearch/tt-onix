@@ -92,7 +92,7 @@ const BOUNDARY_NON_CLAIMS: [&str; 4] = [
 
 const PLATFORM_RECEIPT_KIND: &str = "dual_p150a_platform_smoke";
 const PROBE_RECEIPT_KIND: &str = "rwkv7_lora_p150a_probe";
-const ADMITTED_PROBES: [&str; 2] = ["wkv7-backward", "wkv7-forward"];
+const ADMITTED_PROBES: [&str; 3] = ["training-ops", "wkv7-backward", "wkv7-forward"];
 const PROBE_PASS_STATUS: &str = "pass";
 const PROBE_DEVICE_TYPE: &str = "TT";
 

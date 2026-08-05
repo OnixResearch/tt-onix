@@ -6,7 +6,7 @@
 - [x] [serial] B2 Add named Nickel profiles for static shapes, dtypes, compile limits, memory limits, tolerances, run criteria, health limits, and timeouts. r[tenstorrent.rwkv7_p150a_finetuning.configuration]
 - [x] [depends:tenstorrent.rwkv7_p150a_finetuning.configuration] B3 Compile and run the direct TT-XLA WKV7 forward probe with placement evidence. r[tenstorrent.rwkv7_p150a_finetuning.compiler]
 - [x] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B4 Compile and run the direct TT-XLA WKV7 backward probe with CPU gradient comparison. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.parity]
-- [ ] [parallel] B5 Probe LoRA projections, masked loss, gradient norm, clipping, and adapter optimizer update. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]
+- [x] [parallel] B5 Probe LoRA projections, masked loss, gradient norm, clipping, and adapter optimizer update. r[tenstorrent.rwkv7_p150a_finetuning.compiler] r[tenstorrent.rwkv7_p150a_finetuning.optimizer]
 - [ ] [depends:tenstorrent.rwkv7_p150a_finetuning.compiler] B6 If direct WKV7 lowering fails, emit the exact blocker receipt and stop without host fallback or custom-op implementation. r[tenstorrent.rwkv7_p150a_finetuning.blocker]
 
 ## Phase 2: Full single-device training graph
