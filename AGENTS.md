@@ -113,6 +113,17 @@ Use Luwen for chip discovery, initialization, diagnostics, firmware communicatio
 Use these package-matched sources for command behavior, supported options, diagnostics, and failure handling.
 Do not cache firmware binaries in the reference tree.
 
+### Tenstorrent ecosystem references
+
+- Read the curated project directory at `.pi/references/tenstorrent/tt-awesome`.
+  Start with `README.md`. The structured entries live under `entries/`.
+  Source: <https://github.com/tenstorrent/tt-awesome>.
+  The downloaded checkout uses commit `a975e492a8e1826952b1967c96f2ead9573bfbab`.
+
+Use `tt-awesome` to discover community and official projects, kernels, and tools for Tenstorrent hardware.
+Treat its entries as leads, not as verified behavior. Confirm claims against the linked project source.
+Do not treat a listed project as package-matched authority.
+
 ## RWKV-7 references
 
 Read these local references before you change RWKV-7 code, equations, tests, or package pins.
