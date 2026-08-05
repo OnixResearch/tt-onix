@@ -47,6 +47,7 @@ const INSPECTOR_INITIALIZATION_ENVIRONMENT: &str = "TT_METAL_INSPECTOR_INITIALIZ
 const INSPECTOR_RUNTIME_ENTRIES_ENVIRONMENT: &str = "TT_METAL_INSPECTOR_LOG_RUNTIME_ENTRIES";
 const INSPECTOR_RPC_ENVIRONMENT: &str = "TT_METAL_INSPECTOR_RPC";
 const DEVICE_PROFILER_ENVIRONMENT: &str = "TT_METAL_DEVICE_PROFILER";
+const MID_RUN_DUMP_ENVIRONMENT: &str = "TT_METAL_PROFILER_MID_RUN_DUMP";
 const WATCHER_ENVIRONMENT: &str = "TT_METAL_WATCHER";
 const DPRINT_CORES_ENVIRONMENT: &str = "TT_METAL_DPRINT_CORES";
 const ENABLED_ENVIRONMENT_VALUE: &str = "1";
@@ -93,6 +94,9 @@ fn profiler_environment_policy(evidence_root: &Path) -> Vec<EnvironmentMutation>
         ),
         set_environment(INSPECTOR_RPC_ENVIRONMENT, DISABLED_ENVIRONMENT_VALUE),
         set_environment(DEVICE_PROFILER_ENVIRONMENT, ENABLED_ENVIRONMENT_VALUE),
+        // The device CSV only appears mid-run when mid-run dumps are enabled;
+        // the runtime requires the file synchronously after each flush.
+        set_environment(MID_RUN_DUMP_ENVIRONMENT, ENABLED_ENVIRONMENT_VALUE),
         remove_environment(WATCHER_ENVIRONMENT),
         remove_environment(DPRINT_CORES_ENVIRONMENT),
     ]
@@ -141,6 +145,11 @@ fn validate_profiler_environment_policy(policy: &[EnvironmentMutation]) -> Resul
     require_environment_set(
         policy,
         DEVICE_PROFILER_ENVIRONMENT,
+        OsStr::new(ENABLED_ENVIRONMENT_VALUE),
+    )?;
+    require_environment_set(
+        policy,
+        MID_RUN_DUMP_ENVIRONMENT,
         OsStr::new(ENABLED_ENVIRONMENT_VALUE),
     )?;
     require_environment_removed(policy, WATCHER_ENVIRONMENT)?;
@@ -458,8 +467,8 @@ fn invalid_data(message: impl Into<String>) -> io::Error {
 mod tests {
     use super::{
         DISABLED_ENVIRONMENT_VALUE, DPRINT_CORES_ENVIRONMENT, EnvironmentMutation,
-        GENERATION_BOUND_OPTION, WATCHER_ENVIRONMENT, parse_positive_bound,
-        profiler_environment_policy, require_new_absolute_path,
+        GENERATION_BOUND_OPTION, MID_RUN_DUMP_ENVIRONMENT, WATCHER_ENVIRONMENT,
+        parse_positive_bound, profiler_environment_policy, require_new_absolute_path,
         validate_profiler_environment_policy,
     };
     use std::ffi::OsString;
@@ -497,6 +506,30 @@ mod tests {
         let policy = profiler_environment_policy(Path::new("/tmp/evidence"));
         validate_profiler_environment_policy(&policy)
             .expect("clean profiler environment policy must pass");
+    }
+
+    #[test]
+    fn profiler_policy_rejects_zero_or_disabled_mid_run_dump() {
+        for value in [DISABLED_ENVIRONMENT_VALUE, "0"] {
+            let mut policy = profiler_environment_policy(Path::new("/tmp/evidence"));
+            assign_environment(&mut policy, MID_RUN_DUMP_ENVIRONMENT, value);
+            assert!(
+                validate_profiler_environment_policy(&policy)
+                    .expect_err("disabled mid-run dump must fail")
+                    .contains("must set TT_METAL_PROFILER_MID_RUN_DUMP")
+            );
+        }
+        let mut policy = profiler_environment_policy(Path::new("/tmp/evidence"));
+        let mutation = policy
+            .iter_mut()
+            .find(|mutation| mutation.name == MID_RUN_DUMP_ENVIRONMENT)
+            .expect("test policy must contain the mid-run dump mutation");
+        mutation.value = None;
+        assert!(
+            validate_profiler_environment_policy(&policy)
+                .expect_err("missing mid-run dump must fail")
+                .contains("must set TT_METAL_PROFILER_MID_RUN_DUMP")
+        );
     }
 
     // r[verify tenstorrent.rwkv7_p150x2.profiler_isolation.watcher_zero]

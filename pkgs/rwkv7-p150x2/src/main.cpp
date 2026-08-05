@@ -587,11 +587,11 @@ public:
 
   void flush_profiler(std::string stage) {
     require(mesh_ != nullptr, "cannot flush profiler without an open mesh");
-    for (tt::tt_metal::IDevice *device : mesh_->get_devices()) {
-      require(device != nullptr,
-              "mesh returned a null physical device while flushing profiler");
-      tt::tt_metal::detail::ReadDeviceProfilerResults(device);
-    }
+    // The mesh-level read drains the profiler thread pool (wait_for_thread_pool)
+    // before returning, so the processed device CSV exists synchronously. A
+    // per-device detail::ReadDeviceProfilerResults only enqueues the
+    // processor to that pool and returns before the file is written.
+    tt::tt_metal::ReadMeshDeviceProfilerResults(*mesh_);
     require(std::filesystem::exists(profiler_csv_path_),
             "device profiler did not create its raw CSV");
     const std::uint64_t end_byte =
@@ -624,16 +624,18 @@ public:
         checked_element_count(shape, "host BF16 tensor");
     require(values.size() == expected,
             "host BF16 tensor size does not match its shape");
+    // Create the host tensor directly in its target layout. Tensor::from_vector
+    // pads a TILE-layout tensor to its tile-aligned padded shape at creation, so
+    // a (1, hidden) norm/bias vector whose height is below the tile height still
+    // converts. The previous ROW_MAJOR -> to_layout(TILE) path demanded an
+    // explicit 32-multiple height and aborted on every such vector.
     const ttnn::TensorSpec spec(
         make_shape(shape),
         tt::tt_metal::TensorLayout(
             ttnn::DataType::BFLOAT16,
-            tt::tt_metal::PageConfig(ttnn::Layout::ROW_MAJOR),
+            tt::tt_metal::PageConfig(target_layout),
             tt::tt_metal::MemoryConfig{}));
     Tensor host = Tensor::from_vector(std::move(values), spec);
-    if (target_layout == ttnn::Layout::TILE) {
-      host = host.to_layout(ttnn::Layout::TILE);
-    }
     return checked(
         ttnn::distributed::distribute_tensor(host, *mapper_, std::ref(*mesh_)),
         "host-to-device-bf16");
@@ -1443,6 +1445,7 @@ struct EvidenceEnvironment {
   std::optional<std::string> inspector_runtime_entries;
   std::optional<std::string> inspector_rpc;
   std::optional<std::string> device_profiler;
+  std::optional<std::string> mid_run_dump;
   std::optional<std::string> watcher;
   std::optional<std::string> dprint_cores;
 };
@@ -1476,6 +1479,14 @@ void validate_evidence_environment(const EvidenceEnvironment &environment,
   require_environment_value(environment.device_profiler,
                             "TT_METAL_DEVICE_PROFILER",
                             kEnabledEnvironmentValue);
+  // The runtime tracks per-stage profiler byte ranges into the device CSV.
+  // That file is only appended mid-run when TT_METAL_PROFILER_MID_RUN_DUMP is
+  // enabled; without it ProcessDeviceProfilerResults never calls
+  // dumpDeviceResults and the CSV appears only at device close, which makes
+  // every flush_profiler existence check fail.
+  require_environment_value(environment.mid_run_dump,
+                            "TT_METAL_PROFILER_MID_RUN_DUMP",
+                            kEnabledEnvironmentValue);
   require(!environment.watcher.has_value(),
           "TT_METAL_WATCHER must be unset while profiling");
   require(!environment.dprint_cores.has_value(),
@@ -1500,6 +1511,7 @@ EvidenceEnvironment capture_evidence_environment() {
       read_environment_value("TT_METAL_INSPECTOR_LOG_RUNTIME_ENTRIES"),
       read_environment_value("TT_METAL_INSPECTOR_RPC"),
       read_environment_value("TT_METAL_DEVICE_PROFILER"),
+      read_environment_value("TT_METAL_PROFILER_MID_RUN_DUMP"),
       read_environment_value("TT_METAL_WATCHER"),
       read_environment_value("TT_METAL_DPRINT_CORES")};
 }
@@ -1711,9 +1723,18 @@ void run_self_test() {
       std::string(kEnabledEnvironmentValue),
       std::string(kDisabledEnvironmentValue),
       std::string(kEnabledEnvironmentValue),
+      std::string(kEnabledEnvironmentValue),
       std::nullopt,
       std::nullopt};
   validate_evidence_environment(valid_environment, environment_root);
+
+  EvidenceEnvironment missing_mid_run_dump = valid_environment;
+  missing_mid_run_dump.mid_run_dump = std::nullopt;
+  expect_operation_failure(
+      [&missing_mid_run_dump, &environment_root]() {
+        validate_evidence_environment(missing_mid_run_dump, environment_root);
+      },
+      "TT_METAL_PROFILER_MID_RUN_DUMP is required");
 
   // r[verify tenstorrent.rwkv7_p150x2.profiler_isolation.watcher_zero]
   for (const std::string_view watcher_value :
