@@ -339,6 +339,32 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "loss_criterion" rejected.log
 
+    # r[verify tenstorrent.rwkv7_p150a_finetuning.checkpoint]
+    # The checked-in checkpoint receipt re-validates: byte-identical adapter
+    # load and an exact resumed result.
+    checkpoint_receipt=evidence/2026-08-05-checkpoint-resume/receipt.json
+    "$CORE" admit-checkpoint "$checkpoint_receipt" profile-first.json >checkpoint-admission.json
+    grep -F '"status":"admitted"' checkpoint-admission.json
+    grep -F '"resume_loss_dev":0' checkpoint-admission.json
+
+    # Negative: a checkpoint receipt with adapter load drift is rejected.
+    jq '.checkpoint.adapter_load_max_diff = 0.5' "$checkpoint_receipt" >checkpoint-drift.json
+    if "$CORE" admit-checkpoint checkpoint-drift.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "adapter-drift checkpoint receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "adapter_load_drift" rejected.log
+
+    # Negative: a checkpoint receipt with resume drift is rejected.
+    jq '.checkpoint.resume_loss_dev = 5.0' "$checkpoint_receipt" >checkpoint-resume-drift.json
+    if "$CORE" admit-checkpoint checkpoint-resume-drift.json profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "resume-drift checkpoint receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F "resume_drift" rejected.log
+
     # Negative: a malformed CPU receipt identity blocks admission.
     if "$CORE" admit-prerequisites \
       --profile profile-first.json \
@@ -360,4 +386,5 @@ runCommand "rwkv7-lora-p150a-check"
     cp probe-admission.json "$out/probe-admission-fixture.json"
     cp step-admission.json "$out/step-admission.json"
     cp run-admission.json "$out/run-admission.json"
+    cp checkpoint-admission.json "$out/checkpoint-admission.json"
   ''

@@ -57,7 +57,7 @@ if [ -n "$DTYPE" ]; then
   esac
 fi
 case "$MODE" in
-  receipt|multistep) ;;
+  receipt|multistep|checkpoint) ;;
   *) usage ;;
 esac
 
@@ -132,6 +132,44 @@ finish_receipt() {
     if [ "$overall" -eq 0 ]; then
       "$CORE" admit-run "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
         > "$EVIDENCE_ROOT/run-admission.json"
+    fi
+  elif [ "$MODE" = "checkpoint" ]; then
+    local checkpoint adapter_blake3
+    checkpoint=$(printf '%s' "$probe_result" | "$JQ" '{pre_steps, post_steps, adapter_load_max_diff, final_loss_interrupted, final_loss_resumed, resume_loss_dev}')
+    adapter_blake3=""
+    if [ -f "$EVIDENCE_ROOT/adapter.safetensors" ]; then
+      adapter_blake3=$("$B3SUM" "$EVIDENCE_ROOT/adapter.safetensors" | cut -d' ' -f1)
+    fi
+    "$JQ" -n \
+      --argjson schema_version 1 \
+      --arg kind "rwkv7_lora_p150a_checkpoint" \
+      --arg profile_identity "$PROFILE_IDENTITY" \
+      --arg bundle_identity "$BUNDLE_IDENTITY" \
+      --arg config_identity "$CONFIG_IDENTITY" \
+      --arg launch_plan_identity "$PLAN_IDENTITY" \
+      --argjson stages "$stages" \
+      --argjson checkpoint "$checkpoint" \
+      --arg adapter_blake3 "$adapter_blake3" \
+      '{
+        schema_version: $schema_version,
+        kind: $kind,
+        profile_identity: $profile_identity,
+        bundle_identity: $bundle_identity,
+        config_identity: $config_identity,
+        launch_plan_identity: $launch_plan_identity,
+        stages: $stages,
+        checkpoint: $checkpoint,
+        adapter_blake3: $adapter_blake3,
+        non_claims: [
+          "no dual-card scaling claim",
+          "no useful generalization claim",
+          "no speedup claim",
+          "no support claim for other RWKV models"
+        ]
+      }' > "$EVIDENCE_ROOT/receipt.json"
+    if [ "$overall" -eq 0 ]; then
+      "$CORE" admit-checkpoint "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/checkpoint-admission.json"
     fi
   else
     local placement step parity

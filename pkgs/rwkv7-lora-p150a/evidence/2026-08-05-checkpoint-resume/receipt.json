@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_lora_p150a_checkpoint",
+  "profile_identity": "d6e9ec5efc43b72865d2855cef344d64ece88394a0428f37a89a765e73af444c",
+  "bundle_identity": "9e03c9c0dbbc5158d577939ce2b9ab80043fbc61228385ab0f6bc2bd4f3c110c",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "d869b8552b3147371bc9889aee6a841a171d70760263835c6927a08b11f1d6e6",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "ownership",
+      "status": "pass"
+    },
+    {
+      "name": "step_execute",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "checkpoint": {
+    "pre_steps": 2,
+    "post_steps": 2,
+    "adapter_load_max_diff": 0.0,
+    "final_loss_interrupted": 0.039306640625,
+    "final_loss_resumed": 0.039306640625,
+    "resume_loss_dev": 0.0
+  },
+  "adapter_blake3": "0c1140082a525630eabfab3503d27cabc8a6d610590f4be5d44b4c9f05834aff",
+  "non_claims": [
+    "no dual-card scaling claim",
+    "no useful generalization claim",
+    "no speedup claim",
+    "no support claim for other RWKV models"
+  ]
+}

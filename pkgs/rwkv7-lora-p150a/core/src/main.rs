@@ -17,6 +17,7 @@ fn usage() -> String {
      usage: rwkv7-lora-p150a-core admit-probe RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-run RECEIPT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core admit-checkpoint RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-prerequisites --profile PATH --platform-admission PATH \
      --platform-receipt PATH --cpu-receipt PATH --cpu-receipt-blake3 HEX"
         .to_string()
@@ -195,6 +196,29 @@ fn run() -> Result<u8, String> {
                         "steps": admission.steps,
                         "initial_loss": admission.initial_loss,
                         "final_loss": admission.final_loss,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-checkpoint" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_p150a_core::admit_checkpoint_receipt(&receipt, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "adapter_load_max_diff": admission.adapter_load_max_diff,
+                        "resume_loss_dev": admission.resume_loss_dev,
                     });
                     println!("{body}");
                     Ok(SUCCESS)

@@ -1376,6 +1376,85 @@ pub fn admit_run_receipt(receipt: &Value, profile: &Value) -> Result<RunAdmissio
     })
 }
 
+const CHECKPOINT_RECEIPT_KIND: &str = "rwkv7_lora_p150a_checkpoint";
+const MAX_ADAPTER_LOAD_DIFF: f64 = 0.0;
+
+/// Admitted checkpoint save/load/resume receipt.
+// PartialEq only: float fields cannot satisfy Eq.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckpointAdmission {
+    pub identity_blake3: String,
+    pub adapter_load_max_diff: f64,
+    pub resume_loss_dev: f64,
+}
+
+/// Admit one checkpoint save/load/resume receipt against the profile.
+///
+/// The adapter save/load round trip must be byte-identical, and the resumed
+/// result must match the uninterrupted run within the named loss tolerance.
+pub fn admit_checkpoint_receipt(receipt: &Value, profile: &Value) -> Result<CheckpointAdmission, Rejection> {
+    reject_forbidden_keys(receipt)?;
+    let admitted_profile = admit_profile(profile)?;
+
+    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_str(receipt, "kind", CHECKPOINT_RECEIPT_KIND, "stale_checkpoint_receipt")?;
+
+    let profile_identity = string_field(receipt, "profile_identity")?;
+    if profile_identity != admitted_profile.identity_blake3 {
+        return Err(Rejection::new(
+            "stale_checkpoint_receipt",
+            format!(
+                "receipt profile identity {profile_identity} differs from admitted profile {}",
+                admitted_profile.identity_blake3
+            ),
+        ));
+    }
+
+    for stage in STEP_RECEIPT_STAGES {
+        let status = step_stage_status(receipt, stage)?;
+        if status != "pass" {
+            return Err(Rejection::new(
+                "failing_stage",
+                format!("checkpoint receipt stage '{stage}' has status '{status}'"),
+            ));
+        }
+    }
+
+    let checkpoint = field(receipt, "checkpoint")?;
+    let adapter_load_max_diff = field(checkpoint, "adapter_load_max_diff")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "adapter_load_max_diff is not a number"))?;
+    if adapter_load_max_diff > MAX_ADAPTER_LOAD_DIFF {
+        return Err(Rejection::new(
+            "adapter_load_drift",
+            format!("adapter load max diff {adapter_load_max_diff} is not byte-identical"),
+        ));
+    }
+
+    let resume_loss_dev = field(checkpoint, "resume_loss_dev")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "resume_loss_dev is not a number"))?;
+    let tolerances = field(profile, "tolerances")?;
+    let loss_tolerance = field(tolerances, "loss")?;
+    let resumed = field(checkpoint, "final_loss_resumed")?
+        .as_f64()
+        .ok_or_else(|| Rejection::new("malformed_receipt", "final_loss_resumed is not a number"))?;
+    let bound = positive_number(loss_tolerance, "atol")?
+        + positive_number(loss_tolerance, "rtol")? * resumed.abs();
+    if resume_loss_dev > bound {
+        return Err(Rejection::new(
+            "resume_drift",
+            format!("resume loss deviation {resume_loss_dev} exceeds the bound {bound}"),
+        ));
+    }
+
+    Ok(CheckpointAdmission {
+        identity_blake3: blake3_identity(receipt),
+        adapter_load_max_diff,
+        resume_loss_dev,
+    })
+}
+
 /// Built-in positive and negative admission fixtures.
 pub fn self_test() -> Result<String, Rejection> {
     // Positive: profile admission is deterministic.
@@ -1787,6 +1866,56 @@ pub fn self_test() -> Result<String, Rejection> {
             return Err(Rejection::new(
                 "self_test",
                 format!("unimproved run produced {other:?}"),
+            ));
+        }
+    }
+
+    // Positive: an admitted checkpoint receipt validates deterministically.
+    let checkpoint_receipt = json!({
+        "schema_version": SCHEMA_VERSION,
+        "kind": CHECKPOINT_RECEIPT_KIND,
+        "profile_identity": admitted_profile.identity_blake3,
+        "stages": STEP_RECEIPT_STAGES
+            .iter()
+            .map(|stage| json!({ "name": stage, "status": "pass" }))
+            .collect::<Vec<_>>(),
+        "checkpoint": {
+            "pre_steps": 2,
+            "post_steps": 2,
+            "adapter_load_max_diff": 0.0,
+            "final_loss_interrupted": 0.039,
+            "final_loss_resumed": 0.039,
+            "resume_loss_dev": 0.0,
+        },
+    });
+    let first_ckpt = admit_checkpoint_receipt(&checkpoint_receipt, &profile)?;
+    let second_ckpt = admit_checkpoint_receipt(&checkpoint_receipt, &profile)?;
+    if first_ckpt != second_ckpt {
+        return Err(Rejection::new("self_test", "checkpoint admission is not deterministic"));
+    }
+
+    // Negative: adapter load drift fails.
+    let mut drifted = checkpoint_receipt.clone();
+    drifted["checkpoint"]["adapter_load_max_diff"] = json!(0.5);
+    match admit_checkpoint_receipt(&drifted, &profile) {
+        Err(rejection) if rejection.code == "adapter_load_drift" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("adapter load drift produced {other:?}"),
+            ));
+        }
+    }
+
+    // Negative: resume drift beyond tolerance fails.
+    let mut resumed_drift = checkpoint_receipt.clone();
+    resumed_drift["checkpoint"]["resume_loss_dev"] = json!(5.0);
+    match admit_checkpoint_receipt(&resumed_drift, &profile) {
+        Err(rejection) if rejection.code == "resume_drift" => {}
+        other => {
+            return Err(Rejection::new(
+                "self_test",
+                format!("resume drift produced {other:?}"),
             ));
         }
     }

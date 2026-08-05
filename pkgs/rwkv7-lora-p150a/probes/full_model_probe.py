@@ -58,7 +58,7 @@ def main():
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--mode", default="forward",
-                        choices=["forward", "step", "debug", "isolate", "receipt", "multistep"])
+                        choices=["forward", "step", "debug", "isolate", "receipt", "multistep", "checkpoint"])
     parser.add_argument("--dtype", default="",
                         help="override model dtype: bf16 or fp32 (default: profile)")
     parser.add_argument("--emit-cpu", default="",
@@ -324,6 +324,89 @@ def main():
              parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
                      "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,
                      "all_ok": loss_ok and clip_ok and grad_ok and delta_ok})
+        return
+
+    # mode == "checkpoint": adapter save, load, and resume parity.
+    if args.mode == "checkpoint":
+        from safetensors.torch import save_file as st_save_file
+        from safetensors.torch import load_file as st_load_file
+
+        run_criteria = profile["run_criteria"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+        trainable_set = set(trainable_names)
+        save_path = "/evidence/adapter.safetensors"
+
+        def adapter_snapshot(model):
+            # Preserve the model dtype so the safetensors save/load round trip
+            # is byte-identical; casting to fp32 here would introduce a load
+            # deviation that the resume comparison then amplifies.
+            return {n: model.get_parameter(n).detach().to("cpu").clone()
+                    for n in trainable_names}
+
+        def run_n_steps(model, optimizer, ids, labels, count):
+            params = [model.get_parameter(n) for n in trainable_names]
+            last = None
+            for _ in range(count):
+                optimizer.zero_grad()
+                logits, loss = compute_loss(model, ids, labels)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(params, clip_norm)
+                optimizer.step()
+                torch_xla.sync(wait=True)
+                last = float(loss.detach().to("cpu").item())
+            return last
+
+        pre_steps = 2
+        post_steps = 2
+
+        # Model A: train pre_steps, save the adapter and optimizer state, then
+        # continue. Restoring both makes resume match the uninterrupted run.
+        opt_a = torch.optim.AdamW([dev_model.get_parameter(n) for n in trainable_names],
+                                  lr=lr, weight_decay=0.0, capturable=True)
+        run_n_steps(dev_model, opt_a, input_ids.to(device), labels.to(device), pre_steps)
+        saved_adapters = adapter_snapshot(dev_model)
+        st_save_file(saved_adapters, save_path)
+        os.chmod(save_path, 0o644)
+        opt_state_path = "/evidence/optimizer_state.pt"
+        torch.save(opt_a.state_dict(), opt_state_path)
+        os.chmod(opt_state_path, 0o644)
+        final_a = run_n_steps(dev_model, opt_a, input_ids.to(device), labels.to(device), post_steps)
+
+        # Fresh model C: load the saved adapter and continue; must match A.
+        resumed_model = M.RWKV7ForCausalLM(M.GOOSE_0P1B_CONFIG)
+        resumed_model.load_state_dict(state_dict, strict=True)
+        M.apply_lora(resumed_model, ROLES, rank, scale)
+        torch.manual_seed(profile["seed"] + 1)
+        for module in resumed_model.modules():
+            if isinstance(module, M.LoRALinear):
+                torch.nn.init.normal_(module.lora_A, std=0.02)
+                torch.nn.init.zeros_(module.lora_B)
+        resumed_model = resumed_model.to(dtype).to(device)
+        loaded = st_load_file(save_path)
+        load_diff = 0.0
+        for n in trainable_names:
+            if n not in loaded:
+                raise RuntimeError(f"saved adapter is missing '{n}'")
+            # Round-trip check: the loaded tensor must equal the saved tensor.
+            load_diff = max(
+                load_diff,
+                float((loaded[n].float() - saved_adapters[n].float()).abs().max().item()))
+            target = resumed_model.get_parameter(n)
+            with torch.no_grad():
+                target.copy_(loaded[n].to(target.dtype).to(target.device))
+        torch_xla.sync(wait=True)
+        opt_c = torch.optim.AdamW([resumed_model.get_parameter(n) for n in trainable_names],
+                                  lr=lr, weight_decay=0.0, capturable=True)
+        opt_c.load_state_dict(torch.load(opt_state_path))
+        final_c = run_n_steps(resumed_model, opt_c, input_ids.to(device), labels.to(device), post_steps)
+
+        resume_dev = abs(final_c - final_a)
+        emit("pass", mode="checkpoint", device_count=len(supported),
+             pre_steps=pre_steps, post_steps=post_steps,
+             adapter_load_max_diff=load_diff,
+             final_loss_interrupted=final_a,
+             final_loss_resumed=final_c,
+             resume_loss_dev=resume_dev)
         return
 
     # mode == "multistep": bounded multi-step run with loss-improvement
