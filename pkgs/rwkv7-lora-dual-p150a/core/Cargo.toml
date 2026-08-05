@@ -1,0 +1,18 @@
+[package]
+name = "rwkv7-lora-dual-p150a-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pure dual-P150A RWKV-7 LoRA data-parallel admission core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# preserve_order stays off: serde_json::Map is a BTreeMap, so serialized
+# output has sorted keys and the canonical form is deterministic.
+serde_json = "1"
+blake3 = "1"
+# The single-P150A core re-validates the prerequisite receipts that the
+# dual-card authority chain binds.
+rwkv7-lora-p150a-core = { path = "../../rwkv7-lora-p150a/core" }
+
+[dev-dependencies]

@@ -2,9 +2,9 @@
 
 ## Phase 1: Mesh and collective baseline
 
-- [ ] [serial] D1 Validate current platform, CPU, and single-P150A receipts with matching model and runtime identities. r[tenstorrent.rwkv7_dual_p150a.authority]
-- [ ] [serial] D2 Add typed Nickel profiles for physical mesh, logical data axis, shard policy, reduction policy, replica validation, run criteria, limits, timeouts, and artifacts. r[tenstorrent.rwkv7_dual_p150a.configuration]
-- [ ] [depends:tenstorrent.rwkv7_dual_p150a.configuration] D3 Add pure global-batch shard planning with exact sample and active-label coverage. r[tenstorrent.rwkv7_dual_p150a.sharding]
+- [x] [serial] D1 Validate current platform, CPU, and single-P150A receipts with matching model and runtime identities. r[tenstorrent.rwkv7_dual_p150a.authority]
+- [x] [serial] D2 Add typed Nickel profiles for physical mesh, logical data axis, shard policy, reduction policy, replica validation, run criteria, limits, timeouts, and artifacts. r[tenstorrent.rwkv7_dual_p150a.configuration]
+- [x] [depends:tenstorrent.rwkv7_dual_p150a.configuration] D3 Add pure global-batch shard planning with exact sample and active-label coverage. r[tenstorrent.rwkv7_dual_p150a.sharding]
 - [ ] [depends:tenstorrent.rwkv7_dual_p150a.configuration] D4 Compile and run focused logical-mesh, all-reduce, barrier, placement, timeout, and output probes. r[tenstorrent.rwkv7_dual_p150a.collectives]
 
 ## Phase 2: Data-parallel training

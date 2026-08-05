@@ -1,0 +1,394 @@
+# r[impl tenstorrent.rwkv7_dual_p150a.configuration]
+# Typed contracts for the dual-P150A RWKV-7 LoRA data-parallel profile.
+# The admission core in core/src/ re-checks every rule in Rust before
+# compilation, device access, or evidence admission.
+
+let NonEmptyC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.length value > 0
+) in
+
+let PositiveC = std.contract.from_predicate (fun value =>
+  std.is_number value && value > 0
+) in
+
+let NonNegativeC = std.contract.from_predicate (fun value =>
+  std.is_number value && value >= 0
+) in
+
+let PositiveIntC = std.contract.from_predicate (fun value =>
+  std.is_number value && value > 0 && std.number.is_integer value
+) in
+
+let HashHexC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^[0-9a-f]{64}$" value
+) in
+
+let GitRevisionC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^[0-9a-f]{40}$" value
+) in
+
+let AbsolutePathC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^/" value && !(std.string.is_match "\\.\\." value)
+) in
+
+let admitted_bundle_id = "tt-xla-training-2026-08-04" in
+
+let BundleIdC = std.contract.from_predicate (fun value =>
+  value == admitted_bundle_id
+) in
+
+let admitted_model_id = "RWKV/RWKV7-Goose-World2.8-0.1B-HF" in
+
+let admitted_precision_class = "bf16_from_fp32_cpu" in
+
+let admitted_adapter_format = "safetensors-adapter-only" in
+
+let admitted_hash_algorithm = "blake3" in
+
+let admitted_roles = [
+  "attention.receptance",
+  "attention.key",
+  "attention.value",
+  "attention.output",
+  "feed_forward.key",
+  "feed_forward.value",
+] in
+
+let LoraRolesC = std.contract.from_predicate (fun value =>
+  std.is_array value
+  && std.array.length value > 0
+  && std.array.all (fun role => std.array.elem role admitted_roles) value
+) in
+
+let DtypeC = std.contract.from_predicate (fun value =>
+  std.array.elem value ["bf16", "fp32"]
+) in
+
+let ModelC = {
+  model_id | std.contract.from_predicate (fun value => value == admitted_model_id),
+  revision | GitRevisionC,
+  checkpoint_blake3 | HashHexC,
+  layer_count | PositiveIntC,
+  hidden_size | PositiveIntC,
+  head_count | PositiveIntC,
+  head_size | PositiveIntC,
+  vocabulary_size | PositiveIntC,
+  precision | NonEmptyC,
+} in
+
+let TokenizerC = {
+  vocabulary_blake3 | HashHexC,
+  vocabulary_entry_count | PositiveIntC,
+} in
+
+# Physical mesh: two p150a cards as one p150_x2 1x2 mesh. The runner is
+# fail-closed on physical device IDs 0 and 1.
+let DeviceC = {
+  physical_count | std.contract.from_predicate (fun value => value == 2),
+  architecture | std.contract.from_predicate (fun value => value == "blackhole"),
+  board_class | std.contract.from_predicate (fun value => value == "p150a"),
+  device_root | AbsolutePathC,
+  physical_device_ids | std.contract.from_predicate (fun value =>
+    value == [0, 1]
+  ),
+  mesh_descriptor | std.contract.from_predicate (fun value => value == "p150_x2"),
+  logical_mesh = {
+    rows | std.contract.from_predicate (fun value => value == 1),
+    columns | std.contract.from_predicate (fun value => value == 2),
+  },
+  container_device_isolation | std.contract.from_predicate (fun value => value == "unsupported"),
+} in
+
+# Logical data axis: two data replicas over the physical columns.
+let DataAxisC = {
+  name | std.contract.from_predicate (fun value => value == "data"),
+  replicas | std.contract.from_predicate (fun value => value == 2),
+  orientation | std.contract.from_predicate (fun value => value == "columns"),
+} in
+
+# Shard policy: contiguous even split of the admitted global batch.
+let ShardPolicyC = {
+  kind | std.contract.from_predicate (fun value => value == "even_contiguous"),
+  allow_uneven | std.contract.from_predicate (fun value => value == false),
+} in
+
+# Reduction policy: mean all-reduce of adapter gradients on device, and a
+# weighted mean over active labels for loss reporting.
+let ReductionPolicyC = {
+  gradient_op | std.contract.from_predicate (fun value => value == "mean"),
+  gradient_scope | std.contract.from_predicate (fun value => value == "adapter_gradients"),
+  loss_reduction | std.contract.from_predicate (fun value => value == "weighted_active_labels"),
+  placement | std.contract.from_predicate (fun value => value == "tt"),
+} in
+
+# Replica policy: exact equality of adapters and optimizer state at every
+# admitted boundary. The SPMD runtime guarantees identical replicas.
+let ReplicaPolicyC = {
+  equality | std.contract.from_predicate (fun value => value == "exact"),
+  mechanism | std.contract.from_predicate (fun value => value == "spmd_replicated"),
+  boundaries | std.contract.from_predicate (fun value =>
+    std.is_array value
+    && std.array.all
+      (fun boundary =>
+        std.array.elem boundary ["optimizer_update", "canonical_save", "resume"])
+      value
+    && std.array.elem "optimizer_update" value
+    && std.array.elem "canonical_save" value
+    && std.array.elem "resume" value
+  ),
+} in
+
+# Static shapes are positive integers. micro_batch counts samples per
+# replica; the global batch is micro_batch times the replica count.
+let StaticShapeC = {
+  micro_batch | PositiveIntC,
+  sequence_length | PositiveIntC,
+  gradient_accumulation_steps | PositiveIntC,
+} in
+
+let ProbeShapeC = {
+  batch | PositiveIntC,
+  time | PositiveIntC,
+  heads | PositiveIntC,
+  width | PositiveIntC,
+} in
+
+let ProbeC = {
+  focused | ProbeShapeC,
+  representative | ProbeShapeC,
+} in
+
+let PrecisionC = {
+  precision_class | std.contract.from_predicate (fun value =>
+    value == admitted_precision_class
+  ),
+  model_dtype | DtypeC,
+  optimizer_dtype | DtypeC,
+  comparison_dtype | DtypeC,
+} in
+
+let CompileLimitsC = {
+  probe_compile_timeout_seconds | PositiveC,
+  full_compile_timeout_seconds | PositiveC,
+  max_stablehlo_operations | PositiveIntC,
+} in
+
+let MemoryLimitsC = {
+  max_device_bytes | PositiveC,
+  max_host_bytes | PositiveC,
+} in
+
+let ToleranceC = {
+  rtol | PositiveC,
+  atol | PositiveC,
+} in
+
+let tolerance_roles = [
+  "logits",
+  "loss",
+  "wkv7_output",
+  "wkv7_state",
+  "adapter_gradient",
+  "gradient_norm",
+  "clip_coefficient",
+  "adapter_delta",
+] in
+
+let TolerancesC = std.contract.from_predicate (fun value =>
+  std.is_record value
+  && std.array.all (fun role => std.array.elem role (std.record.fields value)) tolerance_roles
+) in
+
+let RunCriteriaC = {
+  min_steps | PositiveIntC,
+  max_steps | PositiveIntC,
+  loss_improvement_ratio | PositiveC,
+  min_active_labels_per_sample | PositiveIntC,
+  parity_pass_fraction | PositiveC,
+  require_finite | Bool,
+} in
+
+let HealthLimitsC = {
+  max_board_temperature_c | PositiveC,
+  max_power_watts | PositiveC,
+  require_dram_ok | Bool,
+} in
+
+let TimeoutsC = {
+  hardware_attempt_seconds | PositiveC,
+  multi_step_run_seconds | PositiveC,
+  collective_timeout_seconds | PositiveC,
+} in
+
+let LoraC = {
+  rank | PositiveIntC,
+  scale | PositiveC,
+  target_roles | LoraRolesC,
+} in
+
+let OptimizerC = {
+  kind | std.contract.from_predicate (fun value => value == "adamw"),
+  learning_rate | PositiveC,
+  gradient_accumulation_steps | PositiveIntC,
+  clip_norm | PositiveC,
+} in
+
+let ArtifactPolicyC = {
+  format | std.contract.from_predicate (fun value => value == admitted_adapter_format),
+  canonical | std.contract.from_predicate (fun value => value == "single_adapter_after_replica_equality"),
+  artifact_root | AbsolutePathC,
+} in
+
+let EvidenceExcludedC = std.contract.from_predicate (fun value =>
+  std.is_array value
+  && std.array.all
+    (fun item =>
+      std.array.elem
+        item
+        ["credentials", "raw_logs", "serial_numbers", "absolute_private_paths"])
+    value
+) in
+
+let required_receipts = [
+  "prerequisite",
+  "collective",
+  "shard",
+  "placement",
+  "parity",
+  "replica",
+  "optimizer",
+  "run",
+  "artifact",
+  "health",
+  "cleanup",
+  "restoration",
+] in
+
+let RequiredReceiptsC = std.contract.from_predicate (fun value =>
+  std.is_array value
+  && std.array.all (fun kind => std.array.elem kind value) required_receipts
+) in
+
+let boundary_non_claims = [
+  "no speedup claim",
+  "no scaling efficiency claim",
+  "no long-run stability claim",
+  "no useful generalization claim",
+  "no support claim for other RWKV models",
+] in
+
+let BoundaryNonClaimsC = std.contract.from_predicate (fun value =>
+  std.is_array value
+  && std.array.all (fun claim => std.array.elem claim value) boundary_non_claims
+) in
+
+let EvidencePolicyC = {
+  hash_algorithm | std.contract.from_predicate (fun value =>
+    value == admitted_hash_algorithm
+  ),
+  exclude | EvidenceExcludedC,
+  required_receipts | RequiredReceiptsC,
+  non_claims | BoundaryNonClaimsC,
+} in
+
+let HttpsUrlC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^https://" value
+) in
+
+# A dependency wheel whose identity is pinned by the metadata of an
+# admitted runtime wheel. The sha256 binds the exact URL.
+let WheelDependencyC = {
+  package | NonEmptyC,
+  version | NonEmptyC,
+  url | HttpsUrlC,
+  wheel_sha256 | HashHexC,
+  pinned_by | NonEmptyC,
+} in
+
+let WheelsC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  tt_lang | WheelDependencyC,
+} in
+
+let wheels_fields = [
+  "schema_version",
+  "tt_lang",
+] in
+
+let ProfileC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  profile_id | NonEmptyC,
+  bundle_id | BundleIdC,
+  model | ModelC,
+  tokenizer | TokenizerC,
+  device | DeviceC,
+  data_axis | DataAxisC,
+  shard_policy | ShardPolicyC,
+  reduction_policy | ReductionPolicyC,
+  replica_policy | ReplicaPolicyC,
+  static_shape | StaticShapeC,
+  probe | ProbeC,
+  precision | PrecisionC,
+  compile_limits | CompileLimitsC,
+  memory_limits | MemoryLimitsC,
+  tolerances | TolerancesC,
+  run_criteria | RunCriteriaC,
+  health_limits | HealthLimitsC,
+  timeouts | TimeoutsC,
+  lora | LoraC,
+  optimizer | OptimizerC,
+  seed | NonNegativeC,
+  artifact_policy | ArtifactPolicyC,
+  evidence_policy | EvidencePolicyC,
+} in
+
+# Closed-record contract: rejects any field outside the admitted set.
+let ClosedRecordC = fun allowed =>
+  std.contract.from_predicate (fun value =>
+    std.is_record value
+    && std.array.all (fun field => std.array.elem field allowed) (std.record.fields value)
+  )
+in
+
+let profile_fields = [
+  "schema_version",
+  "profile_id",
+  "bundle_id",
+  "model",
+  "tokenizer",
+  "device",
+  "data_axis",
+  "shard_policy",
+  "reduction_policy",
+  "replica_policy",
+  "static_shape",
+  "probe",
+  "precision",
+  "compile_limits",
+  "memory_limits",
+  "tolerances",
+  "run_criteria",
+  "health_limits",
+  "timeouts",
+  "lora",
+  "optimizer",
+  "seed",
+  "artifact_policy",
+  "evidence_policy",
+] in
+
+{
+  Profile = ProfileC,
+  ProfileClosed = ClosedRecordC profile_fields,
+  Wheels = WheelsC,
+  WheelsClosed = ClosedRecordC wheels_fields,
+  HashHex = HashHexC,
+  GitRevision = GitRevisionC,
+  AdmittedBundleId = admitted_bundle_id,
+  AdmittedModelId = admitted_model_id,
+  AdmittedPrecisionClass = admitted_precision_class,
+  AdmittedAdapterFormat = admitted_adapter_format,
+  ToleranceRoles = tolerance_roles,
+  RequiredReceipts = required_receipts,
+  BoundaryNonClaims = boundary_non_claims,
+}
