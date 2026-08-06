@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016 # jq filters use their own $variables.
 # r[impl tenstorrent.rwkv7_dual_p150a.graph]
 # r[impl tenstorrent.rwkv7_dual_p150a.sharding]
 # r[impl tenstorrent.rwkv7_dual_p150a.parity]
@@ -10,6 +12,8 @@ set -euo pipefail
 
 CORE=@core@/bin/rwkv7-lora-dual-p150a-core
 PLATFORM_CORE=@platform_core@/bin/training-platform-core
+PLATFORM_AUTHORITY=@platform_authority@
+WHEELS_DIR=@platform_wheelhouse@
 JQ=@jq@
 DOCKER=@docker@
 TTSMI=@ttsmi@
@@ -17,16 +21,12 @@ B3SUM=@b3sum@
 FUSER=@fuser@
 
 usage() {
-  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --manifest PATH --config PATH --descriptor PATH --checkpoint PATH --wheels-dir PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|multistep|checkpoint] [--parity-receipt PATH]" >&2
+  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|multistep|checkpoint] [--parity-receipt PATH]" >&2
   exit 2
 }
 
 PROFILE=""
-MANIFEST=""
-CONFIG=""
-DESCRIPTOR=""
 CHECKPOINT=""
-WHEELS_DIR=""
 EVIDENCE_ROOT=""
 DTYPE=""
 MODE="receipt"
@@ -34,11 +34,7 @@ PARITY_RECEIPT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
-    --manifest) MANIFEST="$2"; shift 2 ;;
-    --config) CONFIG="$2"; shift 2 ;;
-    --descriptor) DESCRIPTOR="$2"; shift 2 ;;
     --checkpoint) CHECKPOINT="$2"; shift 2 ;;
-    --wheels-dir) WHEELS_DIR="$2"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     --dtype) DTYPE="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
@@ -46,13 +42,12 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
-[ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
-  && [ -n "$CHECKPOINT" ] && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
+[ -n "$PROFILE" ] && [ -n "$CHECKPOINT" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
-DTYPE_ARG=""
+DTYPE_ARGS=()
 if [ -n "$DTYPE" ]; then
   case "$DTYPE" in
-    bf16|fp32) DTYPE_ARG="--dtype $DTYPE" ;;
+    bf16|fp32) DTYPE_ARGS=(--dtype "$DTYPE") ;;
     *) usage ;;
   esac
 fi
@@ -65,7 +60,6 @@ if [ "$MODE" = "multistep" ] && [ -z "$PARITY_RECEIPT" ]; then
   usage
 fi
 
-DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
@@ -80,7 +74,6 @@ mkdir -p "$EVIDENCE_ROOT"
 "$CORE" admit-profile "$PROFILE" > "$EVIDENCE_ROOT/profile-admission.json"
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
 TIMEOUT_SECONDS=$("$JQ" -r '.full_compile_timeout_seconds' "$EVIDENCE_ROOT/profile-admission.json")
-REPLICAS=$("$JQ" -r '.replicas' "$EVIDENCE_ROOT/profile-admission.json")
 GLOBAL_BATCH=$("$JQ" -r '.global_batch' "$EVIDENCE_ROOT/profile-admission.json")
 SEQUENCE_LENGTH=$("$JQ" -r '.sequence_length' "$EVIDENCE_ROOT/profile-admission.json")
 
@@ -107,7 +100,8 @@ if [ "$MODE" = "multistep" ]; then
   STEP_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/parity-admission.json")
 fi
 
-PLAN=$("$PLATFORM_CORE" launch-plan "$MANIFEST" "$CONFIG" "$DESCRIPTOR")
+PLAN=$("$PLATFORM_CORE" authorized-launch-plan "$PLATFORM_AUTHORITY")
+DESCRIPTOR=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].host')
 IMAGE=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.image')
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[0].host')
 DESCRIPTOR_CONTAINER=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].container')
@@ -305,7 +299,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   bash /container-dual-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode $MODE $DTYPE_ARG \
+    --mode "$MODE" "${DTYPE_ARGS[@]}" \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
 set -e

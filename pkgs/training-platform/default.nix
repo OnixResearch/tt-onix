@@ -5,6 +5,8 @@
   fetchurl,
   nickel,
   jq,
+  cacert,
+  python312Packages,
   docker,
   b3sum,
   psmisc,
@@ -56,32 +58,95 @@ let
     nickel export --format json platform.ncl > "$out"
   '';
 
+  policyJson =
+    runCommand "training-platform-admission-policy.json" { nativeBuildInputs = [ nickel ]; }
+      ''
+        cp ${./admission-policy.ncl} admission-policy.ncl
+        cp ${./manifest.ncl} manifest.ncl
+        cp ${./platform.ncl} platform.ncl
+        cp ${./contracts.ncl} contracts.ncl
+        nickel export --format json admission-policy.ncl > "$out"
+      '';
+
+  # r[impl tenstorrent.training_platform.runtime_bundle]
+  # Network access is restricted to this fixed-output build. Hardware runs
+  # consume only the resulting read-only, hash-locked wheelhouse.
+  wheelhouse =
+    runCommand "training-platform-wheelhouse"
+      {
+        nativeBuildInputs = [ python312Packages.pip ];
+        SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
+        outputHashAlgo = "sha256";
+        outputHashMode = "recursive";
+        outputHash = "sha256-bTo6Sa93TXHT/Gbr2FpvUU15CqWWwLePU6BZ/jgBJRU=";
+      }
+      ''
+        mkdir -p "$out"
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        pip download \
+          --disable-pip-version-check \
+          --no-cache-dir \
+          --require-hashes \
+          --no-deps \
+          --only-binary=:all: \
+          --dest "$out" \
+          --requirement ${./wheelhouse-fetch.lock}
+        cp ${./requirements.lock} "$out/requirements.lock"
+      '';
+
+  authorityJson =
+    runCommand "training-platform-runtime-authority.json"
+      {
+        nativeBuildInputs = [
+          jq
+          b3sum
+        ];
+      }
+      ''
+        descriptor_blake3=$(b3sum ${descriptorPath} | cut -d' ' -f1)
+        requirements_blake3=$(b3sum ${wheelhouse}/requirements.lock | cut -d' ' -f1)
+        jq \
+          --arg descriptor_path ${lib.escapeShellArg descriptorPath} \
+          --arg descriptor_blake3 "$descriptor_blake3" \
+          --arg wheelhouse_path ${lib.escapeShellArg "${wheelhouse}"} \
+          --arg requirements_path ${lib.escapeShellArg "${wheelhouse}/requirements.lock"} \
+          --arg requirements_blake3 "$requirements_blake3" \
+          '. + {
+            descriptor: {path: $descriptor_path, blake3: $descriptor_blake3},
+            wheelhouse: {
+              path: $wheelhouse_path,
+              requirements_path: $requirements_path,
+              requirements_blake3: $requirements_blake3
+            }
+          }' ${policyJson} > "$out"
+      '';
+
   launcher = runCommand "training-platform-launcher" { } ''
     substitute ${./launcher.sh} "$out" \
-      --subst-var-by core "${core}" \
-      --subst-var-by jq "${jq}/bin/jq" \
-      --subst-var-by docker "${docker}/bin/docker"
-    chmod +x "$out"
-  '';
-
-  containerSmoke = runCommand "training-platform-container-smoke" { } ''
-    substitute ${./container-smoke.sh} "$out" \
-      --subst-var-by pjrt_version "1.5.0.dev20260804002041" \
-      --subst-var-by pjrt_sha256 "ae57e7a2e4f7c1c9533135e14db5a33201caa3ff1aa2278de9a88ebc9d4d3fe1"
-    chmod +x "$out"
-  '';
-
-  smoke = runCommand "training-platform-smoke" { } ''
-    substitute ${./run-smoke.sh} "$out" \
       --subst-var-by core "${core}" \
       --subst-var-by jq "${jq}/bin/jq" \
       --subst-var-by docker "${docker}/bin/docker" \
       --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
       --subst-var-by b3sum "${b3sum}/bin/b3sum" \
       --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by authority "${authorityJson}" \
       --subst-var-by smoke_py "${./smoke.py}" \
       --subst-var-by container_smoke "${containerSmoke}"
     chmod +x "$out"
+    patchShebangs "$out"
+  '';
+
+  containerSmoke = runCommand "training-platform-container-smoke" { } ''
+    cp ${./container-smoke.sh} "$out"
+    chmod +x "$out"
+  '';
+
+  smoke = runCommand "training-platform-smoke" { } ''
+    substitute ${./run-smoke.sh} "$out" \
+      --subst-var-by launcher "${launcher}"
+    chmod +x "$out"
+    patchShebangs "$out"
   '';
 
   tools = runCommand "training-platform-tools" { } ''
@@ -91,6 +156,9 @@ let
     mkdir -p "$out/share/training-platform"
     ln -s ${manifestJson} "$out/share/training-platform/manifest.json"
     ln -s ${configJson} "$out/share/training-platform/platform.json"
+    ln -s ${policyJson} "$out/share/training-platform/admission-policy.json"
+    ln -s ${authorityJson} "$out/share/training-platform/runtime-authority.json"
+    ln -s ${wheelhouse} "$out/share/training-platform/wheelhouse"
     ln -s ${descriptorPath} "$out/share/training-platform/p150_x2_mesh_graph_descriptor.textproto"
     ln -s ${ttBlacksmithSource} "$out/share/training-platform/tt-blacksmith.tar.gz"
   '';
@@ -104,6 +172,7 @@ runCommand "training-platform-check"
       coreutils
       gnugrep
       gnused
+      python312Packages.pip
     ];
     CORE = "${core}/bin/training-platform-core";
     passthru = {
@@ -112,6 +181,9 @@ runCommand "training-platform-check"
         tools
         manifestJson
         configJson
+        policyJson
+        authorityJson
+        wheelhouse
         descriptorPath
         ttBlacksmithSource
         launcher
@@ -144,23 +216,50 @@ runCommand "training-platform-check"
       grep -F "contract" fixture.log
     done
 
-    # Positive core admission.
+    # Positive core and package-owned authority admission.
     "$CORE" self-test | grep -F "self-test: PASS"
     "$CORE" admit-bundle manifest-first.json > bundle.json
     grep -F '"status":"admitted"' bundle.json
     "$CORE" validate-config platform-first.json manifest-first.json > validated.json
     grep -F '"status":"admitted"' validated.json
-    "$CORE" launch-plan manifest-first.json platform-first.json \
-      ${descriptorPath} > plan.json
-    grep -F '"identity_blake3":"' plan.json
+    "$CORE" authorized-launch-plan ${authorityJson} > plan.json
+    grep -F '"status":"admitted"' plan.json
+    grep -F '"runtime_authority_identity":"' plan.json
     grep -F 'ghcr.io/tenstorrent/tt-xla/tt-xla-base-ubuntu-24-04@sha256:8dcad76548126bb33c13ce554192cb9f27612fa3766b7c7e7ae6f591f2ab6503' \
       plan.json
+    grep -F '${wheelhouse}' plan.json
     grep -F 'PYTHONPATH' plan.json
 
-    # Positive preflight admission.
-    "$CORE" admit-preflight fixtures/positive/preflight-snapshot.json \
-      manifest-first.json platform-first.json > preflight.json
+    # Positive preflight admission excludes stable board identities.
+    "$CORE" admit-authorized-preflight fixtures/positive/preflight-snapshot.json \
+      ${authorityJson} > preflight.json
     grep -F '"status":"admitted"' preflight.json
+    grep -F '"device_count":2' preflight.json
+    if grep -F 'board_id' preflight.json; then
+      echo "portable preflight admission contains a board identity" >&2
+      exit 1
+    fi
+
+    # The complete runtime closure resolves without an index.
+    pip install --dry-run --ignore-installed --break-system-packages --no-index --no-deps \
+      --find-links ${wheelhouse} --require-hashes \
+      --requirement ${wheelhouse}/requirements.lock >offline-install.log
+    grep -F 'Would install' offline-install.log
+    if grep -E 'https?://|Looking in indexes' offline-install.log; then
+      echo "offline install attempted network resolution" >&2
+      exit 1
+    fi
+
+    # Runtime container scripts contain no package-index or Pip-upgrade path.
+    if grep -E 'extra-index-url|--upgrade pip|pip download|https?://' \
+      container-smoke.sh \
+      ${../rwkv7-lora-p150a/container-probe.sh} \
+      ${../rwkv7-lora-p150a/container-full-model.sh} \
+      ${../rwkv7-lora-dual-p150a/container-collective.sh} \
+      ${../rwkv7-lora-dual-p150a/container-dual-model.sh}; then
+      echo "hardware container script retains a network package path" >&2
+      exit 1
+    fi
 
     # Negative preflight fixtures must fail with stable codes.
     check_rejected() {
@@ -178,6 +277,7 @@ runCommand "training-platform-check"
     check_rejected fixtures/negative/snapshot-no-hugepages.json "missing_hugepages"
     check_rejected fixtures/negative/snapshot-wrong-board.json "wrong_architecture"
     check_rejected fixtures/negative/snapshot-driver-mismatch.json "driver_mismatch"
+    check_rejected fixtures/negative/snapshot-duplicate-device.json "duplicate_device"
 
     # Positive receipt admission built from live identities.
     BUNDLE_ID=$(jq -r '.identity_blake3' bundle.json)
@@ -193,6 +293,7 @@ runCommand "training-platform-check"
         launch_plan_identity: $plan,
         stages: [
           {name: "health_before", status: "pass"},
+          {name: "preflight", status: "pass"},
           {name: "mesh_open", status: "pass"},
           {name: "smoke_execute", status: "pass"},
           {name: "mesh_close", status: "pass"},
@@ -208,15 +309,29 @@ runCommand "training-platform-check"
           "no thermal endurance claim"
         ]
       }' > receipt-valid.json
-    "$CORE" validate-receipt receipt-valid.json manifest-first.json platform-first.json \
-      ${descriptorPath} > receipt-admission.json
-    grep -F '"status":"admitted"' receipt-admission.json
+    "$CORE" validate-terminal-receipt receipt-valid.json ${authorityJson} \
+      > receipt-admission.json
+    grep -F '"outcome":"success"' receipt-admission.json
+
+    # A complete failure receipt validates but cannot satisfy success admission.
+    jq '.stages = [
+      {name: "health_before", status: "pass"},
+      {name: "preflight", status: "fail"},
+      {name: "mesh_open", status: "not_observed"},
+      {name: "smoke_execute", status: "not_observed"},
+      {name: "mesh_close", status: "not_observed"},
+      {name: "restore", status: "not_observed"},
+      {name: "health_after", status: "not_observed"}
+    ] | .artifacts = {}' receipt-valid.json > receipt-failure.json
+    "$CORE" validate-terminal-receipt receipt-failure.json ${authorityJson} \
+      > receipt-failure-admission.json
+    grep -F '"outcome":"failure"' receipt-failure-admission.json
 
     # Negative receipt fixtures must fail with stable codes.
     jq '.bundle_identity = "0000000000000000000000000000000000000000000000000000000000000000"' \
       receipt-valid.json > receipt-stale.json
-    if "$CORE" validate-receipt receipt-stale.json manifest-first.json platform-first.json \
-      ${descriptorPath} > /dev/null 2> rejected.log; then
+    if "$CORE" validate-terminal-receipt receipt-stale.json ${authorityJson} \
+      > /dev/null 2> rejected.log; then
       echo "stale receipt identity admitted" >&2
       exit 1
     fi
@@ -224,8 +339,8 @@ runCommand "training-platform-check"
 
     jq '.stages = [{name: "health_before", status: "pass"}]' \
       receipt-valid.json > receipt-missing-stage.json
-    if "$CORE" validate-receipt receipt-missing-stage.json manifest-first.json \
-      platform-first.json ${descriptorPath} > /dev/null 2> rejected.log; then
+    if "$CORE" validate-terminal-receipt receipt-missing-stage.json ${authorityJson} \
+      > /dev/null 2> rejected.log; then
       echo "receipt with missing stages admitted" >&2
       exit 1
     fi
@@ -233,27 +348,60 @@ runCommand "training-platform-check"
 
     jq '.artifacts.device_serial_number = "2c6f51c4f3e2a5f6d7a7e38fdde0b63f0e2be3d4566f6c0c38139cb2c46d2ab5"' \
       receipt-valid.json > receipt-serial.json
-    if "$CORE" validate-receipt receipt-serial.json manifest-first.json platform-first.json \
-      ${descriptorPath} > /dev/null 2> rejected.log; then
+    if "$CORE" validate-terminal-receipt receipt-serial.json ${authorityJson} \
+      > /dev/null 2> rejected.log; then
       echo "receipt with serial number admitted" >&2
       exit 1
     fi
     grep -F "unsafe_field" rejected.log
 
     jq '.non_claims = ["no speedup claim"]' receipt-valid.json > receipt-overclaim.json
-    if "$CORE" validate-receipt receipt-overclaim.json manifest-first.json \
-      platform-first.json ${descriptorPath} > /dev/null 2> rejected.log; then
+    if "$CORE" validate-terminal-receipt receipt-overclaim.json ${authorityJson} \
+      > /dev/null 2> rejected.log; then
       echo "overclaiming receipt admitted" >&2
       exit 1
     fi
     grep -F "overclaiming" rejected.log
 
-    # The checked-in hardware receipt must re-validate against the current
-    # admitted identities. A stale receipt fails this gate.
-    "$CORE" validate-receipt evidence/2026-08-04-dual-p150a-smoke/receipt.json \
-      manifest-first.json platform-first.json ${descriptorPath} \
-      > checked-in-admission.json
-    grep -F '"status":"admitted"' checked-in-admission.json
+    # Historical evidence is retained only as a sanitized disclosure. It
+    # cannot satisfy current platform admission after the driver correction.
+    grep -F '"status": "superseded"' \
+      evidence/2026-08-04-dual-p150a-smoke/receipt.json
+    if "$CORE" validate-terminal-receipt \
+      evidence/2026-08-04-dual-p150a-smoke/receipt.json ${authorityJson} \
+      > /dev/null 2> rejected.log; then
+      echo "superseded historical receipt was admitted" >&2
+      exit 1
+    fi
+    grep -F 'unknown_field' rejected.log
+    for artifact in evidence/2026-08-04-dual-p150a-smoke/*.json; do
+      "$CORE" validate-portable-artifact "$artifact" > /dev/null
+    done
+    jq -n '{board_id: "0000040331921011"}' > unsafe-artifact.json
+    if "$CORE" validate-portable-artifact unsafe-artifact.json \
+      > /dev/null 2> rejected.log; then
+      echo "portable artifact admitted a stable board identity" >&2
+      exit 1
+    fi
+    grep -F 'unsafe_field' rejected.log
+
+    # Production launchers carry only package-owned platform authority.
+    grep -F '${authorityJson}' ${launcher}
+    grep -F 'authorized-launch-plan' ${launcher}
+    grep -F 'validate-portable-artifact "$artifact"' ${launcher}
+    grep -F '2> "$PRIVATE_ROOT/preflight-error.log"' ${launcher}
+    grep -F 'if ! mkdir "$EVIDENCE_ROOT"' ${launcher}
+    if grep -E -- '--manifest|--config|--descriptor|--wheels-dir' ${launcher}; then
+      echo "production launcher accepts caller-controlled platform authority" >&2
+      exit 1
+    fi
+
+    if ${launcher} --evidence-root "$PWD/outside-authority" -- true \
+      > /dev/null 2> rejected.log; then
+      echo "production launcher accepted an unapproved evidence root" >&2
+      exit 1
+    fi
+    grep -F 'evidence root is outside package authority' rejected.log
 
     mkdir -p "$out"
     cp manifest-first.json "$out/manifest.json"

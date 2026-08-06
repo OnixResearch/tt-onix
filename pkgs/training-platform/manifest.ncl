@@ -1,6 +1,7 @@
 # r[impl tenstorrent.training_platform.runtime_bundle]
-# Immutable TT-XLA training compatibility manifest, resolved and verified on
-# 2026-08-04 from the listed upstream authorities. See README.md for sources.
+# Immutable TT-XLA training compatibility manifest. The original component
+# set was resolved on 2026-08-04. The packaged driver authority was corrected
+# to stable TT-KMD 2.10.0 on 2026-08-06. See README.md for sources.
 let contracts = import "contracts.ncl" in
 {
   schema_version = 1,
@@ -55,10 +56,10 @@ let contracts = import "contracts.ncl" in
   },
   driver = {
     name = "TT-KMD",
-    version = "2.10.1-pre",
+    version = "2.10.0",
   },
   firmware = {
     bundle_version = "18.8.0.0",
     floor_version = "18.8.0.0",
   },
-} | contracts.BundleClosed | contracts.Bundle
+} | contracts.BundleClosed | contracts.BundleDeepClosed | contracts.Bundle

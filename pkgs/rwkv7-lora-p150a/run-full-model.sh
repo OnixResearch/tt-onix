@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016 # jq filters use their own $variables.
 # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.placement]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.parity]
@@ -17,42 +19,35 @@ FUSER=@fuser@
 PROBE_PY=@probe_py@
 MODEL_DIR=@model_dir@
 CONTAINER_SCRIPT=@container_script@
+PLATFORM_AUTHORITY=@platform_authority@
+WHEELS_DIR=@platform_wheelhouse@
 
 usage() {
-  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --manifest PATH --config PATH --descriptor PATH --checkpoint PATH --wheels-dir PATH --evidence-root PATH [--dtype bf16|fp32]" >&2
+  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32]" >&2
   exit 2
 }
 
 PROFILE=""
-MANIFEST=""
-CONFIG=""
-DESCRIPTOR=""
 CHECKPOINT=""
-WHEELS_DIR=""
 EVIDENCE_ROOT=""
 DTYPE=""
 MODE="receipt"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
-    --manifest) MANIFEST="$2"; shift 2 ;;
-    --config) CONFIG="$2"; shift 2 ;;
-    --descriptor) DESCRIPTOR="$2"; shift 2 ;;
     --checkpoint) CHECKPOINT="$2"; shift 2 ;;
-    --wheels-dir) WHEELS_DIR="$2"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     --dtype) DTYPE="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
-[ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
-  && [ -n "$CHECKPOINT" ] && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
+[ -n "$PROFILE" ] && [ -n "$CHECKPOINT" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
-DTYPE_ARG=""
+DTYPE_ARGS=()
 if [ -n "$DTYPE" ]; then
   case "$DTYPE" in
-    bf16|fp32) DTYPE_ARG="--dtype $DTYPE" ;;
+    bf16|fp32) DTYPE_ARGS=(--dtype "$DTYPE") ;;
     *) usage ;;
   esac
 fi
@@ -61,7 +56,6 @@ case "$MODE" in
   *) usage ;;
 esac
 
-DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
@@ -77,7 +71,7 @@ mkdir -p "$EVIDENCE_ROOT"
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
 TIMEOUT_SECONDS=$("$JQ" -r '.full_compile_timeout_seconds' "$EVIDENCE_ROOT/profile-admission.json")
 
-PLAN=$("$PLATFORM_CORE" launch-plan "$MANIFEST" "$CONFIG" "$DESCRIPTOR")
+PLAN=$("$PLATFORM_CORE" authorized-launch-plan "$PLATFORM_AUTHORITY")
 IMAGE=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.image')
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[0].host')
 BUNDLE_IDENTITY=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.bundle_identity')
@@ -252,7 +246,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   bash /container-full-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode $MODE $DTYPE_ARG \
+    --mode "$MODE" "${DTYPE_ARGS[@]}" \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
 set -e

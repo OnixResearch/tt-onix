@@ -5,4 +5,4 @@ let platform = import "../platform.ncl" in
 platform
 & {
   unexpected_field = "not admitted",
-} | contracts.PlatformConfigClosed | contracts.PlatformConfig
+} | contracts.PlatformConfigClosed | contracts.PlatformConfigDeepClosed | contracts.PlatformConfig

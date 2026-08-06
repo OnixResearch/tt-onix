@@ -10,8 +10,9 @@ endurance.
 ## Runtime identity
 
 The compatibility manifest lives in `manifest.ncl` and exports to JSON. Every
-component carries an immutable identity. Identities were resolved from the
-listed upstream authorities on 2026-08-04.
+component carries an immutable identity. The original identities were
+resolved from the listed upstream authorities on 2026-08-04. The packaged
+driver authority was corrected to stable TT-KMD `2.10.0` on 2026-08-06.
 
 | Component | Identity |
 |---|---|
@@ -22,11 +23,15 @@ listed upstream authorities on 2026-08-04.
 | PyTorch | `torch 2.11.0+cpu` (cp312), wheel sha256 `f82e2ae20c1545bb03997d1cc3143d94e14b800038669ee1aca45808a9acc338` |
 | PyTorch/XLA | `torch-xla 2.9.0+gitb230007` (cp312), wheel sha256 `4318d8cce4f9de38d497712b9e80cb74746dc16dc8e2a15e555c417711757481` |
 | JAX | `jax 0.7.1`, `jaxlib 0.7.1` |
-| Driver | TT-KMD `2.10.1-pre` |
+| Driver | TT-KMD `2.10.0` |
 | Firmware floor | bundle `18.8.0.0` |
 
 The pinned TT-Blacksmith revision pins `pjrt-plugin-tt==1.5.0.dev20260804002041`
 in `env/xla_requirements.txt`. The bundle is internally coherent.
+
+The package exports one runtime authority. It binds the manifest,
+configuration, admission policy, mesh descriptor, requirements lock, and
+wheelhouse paths. The launcher does not accept replacement platform files.
 
 The recorded host baseline is `baseline-2026-08-04.json`.
 
@@ -38,10 +43,14 @@ The recorded host baseline is `baseline-2026-08-04.json`.
   `hardware.tenstorrent.meshName = "p150_x2"`.
 - Reserved 1G hugepages mounted at `/dev/hugepages-1G`. The validated host
   reserves eight pages.
-- TT-KMD driver and firmware at or above the manifest floor on both cards.
+- TT-KMD `2.10.0` and firmware bundle `18.8.0.0` on both cards.
 - Docker for the runtime container.
 
-`nixos/examples/dual-p150a-training.nix` declares all of these.
+`nixos/examples/dual-p150a-training.nix` declares all of these. The flake
+exports it as `nixosModules."dual-p150a-training"`. The base module provides
+`hardware.tenstorrent.driverPackage` and
+`hardware.tenstorrent.descriptorPackage`. Evaluation fails when an
+override does not match the admitted runtime.
 
 ## Commands
 
@@ -56,27 +65,42 @@ tensor operation, mesh close, restoration, health capture):
 
 ```sh
 TOOLS=$(nix build .#packages.x86_64-linux.training-platform-tools --no-link --print-out-paths)
-"$TOOLS/bin/training-platform-smoke" \
-  --manifest "$TOOLS/share/training-platform/manifest.json" \
-  --config "$TOOLS/share/training-platform/platform.json" \
-  --descriptor "$TOOLS/share/training-platform/p150_x2_mesh_graph_descriptor.textproto" \
-  --evidence-root /var/lib/tenstorrent-training/evidence
+RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
+env -u PYTHONPATH -u PYTHONHOME -u TT_METAL_HOME -u TT_METAL_RUNTIME_ROOT \
+  "$TOOLS/bin/training-platform-smoke" \
+  --evidence-root "/var/lib/tenstorrent-training/evidence/$RUN_ID"
 ```
 
-The smoke writes a BLAKE3-bound receipt to the evidence root and validates it
-with `training-platform-core validate-receipt`. The passing 2026-08-04 receipt
-is checked in at `evidence/2026-08-04-dual-p150a-smoke/` and re-validated by
-the device-free check. That run needed one operator board reset
-(`tt-smi -r 0 1`) to clear a stale sysmem mapping left by an earlier session.
+The training NixOS profile creates the authorized evidence parent for the
+`tenstorrent` group. Each attempt must use one new direct child of that parent.
+The launcher rejects reused paths and paths outside the package authority.
+
+The smoke uses only its package-owned runtime authority. The launcher performs
+preflight and launch in one process. It rejects a stale or modified authority
+before Docker starts.
+
+Each terminal exit writes a BLAKE3-bound receipt and validates it with
+`training-platform-core validate-terminal-receipt`. Failed receipts identify
+the first failed stage. They mark all later stages as `not_observed`.
+
+The files in `evidence/2026-08-04-dual-p150a-smoke/` are sanitized historical
+summaries. They are explicitly superseded because that run observed the
+former TT-KMD `2.10.1-pre` authority. They cannot satisfy current platform
+admission.
 
 The launcher rejects ambient `PYTHONPATH`, `PYTHONHOME`, `TT_METAL_HOME`, and
 `TT_METAL_RUNTIME_ROOT`. These variables can silently replace the admitted
 runtime.
 
+The container installs its complete CPython 3.12 closure from the packaged
+wheelhouse. It uses `--no-index`, `--no-deps`, and `--require-hashes`.
+`pip check` then validates the installed closure. Hardware runs do not resolve
+or download Python dependencies.
+
 ## Recovery
 
-If the smoke fails before `mesh_open`, no device state changed. Read the
-admission diagnostic.
+If the smoke fails before `mesh_open`, no mesh state changed. Read the failed
+receipt and the private raw log directory.
 
 If the smoke fails inside the container, the container is removed by
 `--rm`. Check that no process owns `/dev/tenstorrent/0` or
@@ -89,9 +113,11 @@ procedure outside this runtime.
 
 ## Evidence and non-claims
 
-Receipts bind the bundle, configuration, and launch-plan identities with
-BLAKE3. Receipts exclude credentials, raw logs, serial numbers, and absolute
-private paths.
+Receipts bind the runtime-authority, bundle, configuration, and launch-plan
+identities with BLAKE3. The portable evidence tree is
+`<evidence-root>/portable`. It contains only sanitized artifacts. Raw logs stay
+in `<evidence-root>/private`, which has mode `0700`. Credentials, serial
+numbers, and absolute private paths do not enter the portable tree.
 
 A passing receipt proves:
 

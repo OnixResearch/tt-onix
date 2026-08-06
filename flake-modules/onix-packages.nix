@@ -56,39 +56,79 @@
       # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
       rwkv7LoraP150a = pkgs.callPackage ../pkgs/rwkv7-lora-p150a {
         inherit trainingPlatform;
-        platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
       # r[impl tenstorrent.rwkv7_dual_p150a.configuration]
       # r[impl tenstorrent.rwkv7_dual_p150a.authority]
       rwkv7LoraDualP150a = pkgs.callPackage ../pkgs/rwkv7-lora-dual-p150a {
         inherit trainingPlatform rwkv7LoraP150a;
-        platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
       # r[verify tenstorrent.training_platform.configuration.valid]
-      trainingPlatformExampleEval = import (inputs.nixpkgs + "/nixos/lib/eval-config.nix") {
-        inherit system;
-        modules = [
-          self.nixosModules.default
-          ../nixos/examples/dual-p150a-training.nix
-          {
-            config = {
-              nixpkgs.hostPlatform = system;
-              system.stateVersion = "26.11";
-              fileSystems."/".device = "nodev";
-              fileSystems."/".fsType = "tmpfs";
-              boot.loader.grub.enable = false;
-            };
-          }
-        ];
+      trainingPlatformEval =
+        extraConfig:
+        import (inputs.nixpkgs + "/nixos/lib/eval-config.nix") {
+          inherit system;
+          modules = [
+            self.nixosModules.default
+            self.nixosModules."dual-p150a-training"
+            {
+              config = {
+                nixpkgs.hostPlatform = system;
+                system.stateVersion = "26.11";
+                fileSystems."/".device = "nodev";
+                fileSystems."/".fsType = "tmpfs";
+                boot.loader.grub.enable = false;
+              }
+              // extraConfig;
+            }
+          ];
+        };
+      trainingPlatformExampleEval = trainingPlatformEval { };
+      incompatibleTrainingDriver = pkgs.runCommand "tt-kmd-incompatible-fixture" {
+        pname = "tt-kmd";
+        version = "2.7.0";
+      } "mkdir -p $out";
+      incompatibleDescriptorPackage =
+        pkgs.runCommand "training-descriptor-incompatible-fixture" { }
+          "mkdir -p $out";
+      trainingPlatformInvalidDriverEval = trainingPlatformEval {
+        hardware.tenstorrent.driverPackage = lib.mkForce incompatibleTrainingDriver;
       };
+      trainingPlatformInvalidDescriptorEval = trainingPlatformEval {
+        hardware.tenstorrent.descriptorPackage = lib.mkForce incompatibleDescriptorPackage;
+      };
+      trainingPlatformInvalidHugepageEval = trainingPlatformEval {
+        hardware.tenstorrent.training.hugepageMount = lib.mkForce "/tmp/unapproved-hugepages";
+      };
+      hasFailedAssertion =
+        message: evaluation:
+        lib.any (
+          assertion: !assertion.assertion && lib.hasInfix message assertion.message
+        ) evaluation.config.assertions;
+      invalidDriverRejected = hasFailedAssertion "does not match admitted training driver" trainingPlatformInvalidDriverEval;
+      invalidDescriptorRejected = hasFailedAssertion "package-owned TT-Metal descriptor" trainingPlatformInvalidDescriptorEval;
+      invalidHugepageRejected = hasFailedAssertion "requires hugepageMount" trainingPlatformInvalidHugepageEval;
       trainingPlatformExampleCheck =
+        assert lib.assertMsg invalidDriverRejected
+          "the training example must reject an incompatible TT-KMD package";
+        assert lib.assertMsg invalidDescriptorRejected
+          "the training example must reject an incompatible descriptor package";
+        assert lib.assertMsg invalidHugepageRejected
+          "the training example must reject an incompatible hugepage mount";
         assert lib.assertMsg (
           trainingPlatformExampleEval.config.hardware.tenstorrent.meshName == "p150_x2"
         ) "the training example must select the p150_x2 mesh";
         assert lib.assertMsg (trainingPlatformExampleEval.config.virtualisation.docker.enable
         ) "the training example must enable docker";
+        assert lib.assertMsg (
+          lib.getVersion trainingPlatformExampleEval.config.hardware.tenstorrent.driverPackage == "2.10.0"
+        ) "the training example must select TT-KMD 2.10.0";
+        assert lib.assertMsg (
+          trainingPlatformExampleEval.config.hardware.tenstorrent.accessPolicy == "group-restricted"
+        ) "the training example must use group-restricted device access";
+        assert lib.assertMsg (trainingPlatformExampleEval.config.hardware.tenstorrent.training.enable
+        ) "the training example must enable the admitted host profile";
         pkgs.runCommand "training-platform-nixos-example" { } ''
           set -euo pipefail
           descriptor=${trainingPlatformExampleEval.config.environment.variables.TT_MESH_GRAPH_DESC_PATH}
@@ -99,9 +139,22 @@
               exit 1
               ;;
           esac
+          test -e "$descriptor"
           kernel_params=${pkgs.writeText "training-example-kernel-params" (lib.concatStringsSep "\n" trainingPlatformExampleEval.config.boot.kernelParams)}
           grep -Fx 'hugepagesz=1G' "$kernel_params"
           grep -Fx 'hugepages=8' "$kernel_params"
+          mount_options=${
+            pkgs.writeText "training-example-mount-options" (
+              lib.concatStringsSep "\n" (
+                map (mount: mount.options) trainingPlatformExampleEval.config.systemd.mounts
+              )
+            )
+          }
+          grep -F 'mode=0770' "$mount_options"
+          grep -F 'gid=tenstorrent' "$mount_options"
+          tmpfiles_rules=${pkgs.writeText "training-example-tmpfiles-rules" (lib.concatStringsSep "\n" trainingPlatformExampleEval.config.systemd.tmpfiles.rules)}
+          grep -Fx 'd /var/lib/tenstorrent-training 0750 root tenstorrent - -' "$tmpfiles_rules"
+          grep -Fx 'd /var/lib/tenstorrent-training/evidence 0770 root tenstorrent - -' "$tmpfiles_rules"
           echo '${trainingPlatformExampleEval.config.hardware.tenstorrent.meshName}' > "$out"
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {

@@ -5,4 +5,4 @@ let platform = import "../platform.ncl" in
 platform
 & {
   cache.root | force = "var/lib/tenstorrent-training/cache",
-} | contracts.PlatformConfigClosed | contracts.PlatformConfig
+} | contracts.PlatformConfigClosed | contracts.PlatformConfigDeepClosed | contracts.PlatformConfig

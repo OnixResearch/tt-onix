@@ -5,4 +5,4 @@ let manifest = import "../manifest.ncl" in
 manifest
 & {
   runtime_image.digest | force = "latest",
-} | contracts.BundleClosed | contracts.Bundle
+} | contracts.BundleClosed | contracts.BundleDeepClosed | contracts.Bundle

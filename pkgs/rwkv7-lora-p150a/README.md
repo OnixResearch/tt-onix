@@ -98,13 +98,8 @@ Compile probes (hardware):
 
 ```sh
 TOOLS=$(nix build .#packages.x86_64-linux.rwkv7-lora-p150a-tools --no-link --print-out-paths)
-PLATFORM=$(nix build .#packages.x86_64-linux.training-platform-tools --no-link --print-out-paths)
 "$TOOLS/bin/rwkv7-lora-p150a-probe" \
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
-  --manifest "$PLATFORM/share/training-platform/manifest.json" \
-  --config "$PLATFORM/share/training-platform/platform.json" \
-  --descriptor "$PLATFORM/share/training-platform/p150_x2_mesh_graph_descriptor.textproto" \
-  --wheels-dir <wheel-cache-dir> \
   --evidence-root <evidence-dir> \
   --probe wkv7-forward --shape-kind representative
 ```
@@ -117,11 +112,7 @@ Full-model step, bounded run, and checkpoint (hardware):
 ```sh
 "$TOOLS/bin/rwkv7-lora-p150a-full-step" \
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
-  --manifest "$PLATFORM/share/training-platform/manifest.json" \
-  --config "$PLATFORM/share/training-platform/platform.json" \
-  --descriptor "$PLATFORM/share/training-platform/p150_x2_mesh_graph_descriptor.textproto" \
   --checkpoint <pinned-checkpoint.safetensors> \
-  --wheels-dir <wheel-cache-dir> \
   --evidence-root <evidence-dir> \
   --mode receipt          # or: multistep, checkpoint
 ```
@@ -130,6 +121,8 @@ Full-model step, bounded run, and checkpoint (hardware):
 - `multistep`: bounded multi-step run with loss-improvement criterion.
 - `checkpoint`: adapter save/load/resume receipt and the Safetensors artifact.
 
+Each runner uses the package-owned training-platform authority and offline
+wheelhouse. It does not accept replacement platform files or wheel sources.
 Each run writes a BLAKE3-bound receipt to the evidence root and validates it
 with the admission core before it counts as evidence.
 

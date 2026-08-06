@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016 # jq filters use their own $variables.
 # r[impl tenstorrent.rwkv7_p150a_finetuning.compiler]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
 # Host-side orchestrator for one focused single-device compile probe.
@@ -8,6 +10,8 @@ set -euo pipefail
 CORE=@core@/bin/rwkv7-lora-p150a-core
 PLATFORM_CORE=@platform_core@/bin/training-platform-core
 WHEELS_JSON=@wheels_json@
+PLATFORM_AUTHORITY=@platform_authority@
+WHEELS_DIR=@platform_wheelhouse@
 JQ=@jq@
 DOCKER=@docker@
 TTSMI=@ttsmi@
@@ -15,38 +19,24 @@ B3SUM=@b3sum@
 FUSER=@fuser@
 
 usage() {
-  echo "usage: rwkv7-lora-p150a-probe --profile PATH --manifest PATH --config PATH --descriptor PATH --wheels-dir PATH --evidence-root PATH --probe NAME --shape-kind KIND" >&2
+  echo "usage: rwkv7-lora-p150a-probe --profile PATH --evidence-root PATH --probe NAME --shape-kind KIND" >&2
   exit 2
 }
 
 PROFILE=""
-MANIFEST=""
-WHEELS_JSON_OVERRIDE=""
-CONFIG=""
-DESCRIPTOR=""
-WHEELS_DIR=""
 EVIDENCE_ROOT=""
 PROBE=""
 SHAPE_KIND="focused"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
-    --manifest) MANIFEST="$2"; shift 2 ;;
-    --config) CONFIG="$2"; shift 2 ;;
-    --descriptor) DESCRIPTOR="$2"; shift 2 ;;
-    --wheels-dir) WHEELS_DIR="$2"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     --probe) PROBE="$2"; shift 2 ;;
     --shape-kind) SHAPE_KIND="$2"; shift 2 ;;
-    --wheels-json) WHEELS_JSON_OVERRIDE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
-[ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
-  && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] && [ -n "$PROBE" ] || usage
-if [ -n "$WHEELS_JSON_OVERRIDE" ]; then
-  WHEELS_JSON="$WHEELS_JSON_OVERRIDE"
-fi
+[ -n "$PROFILE" ] && [ -n "$EVIDENCE_ROOT" ] && [ -n "$PROBE" ] || usage
 
 case "$PROBE" in
   wkv7-forward|wkv7-backward|training-ops) ;;
@@ -56,8 +46,6 @@ case "$SHAPE_KIND" in
   focused|representative) ;;
   *) usage ;;
 esac
-
-DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
   if [ -n "${!variable:-}" ]; then
@@ -78,7 +66,7 @@ MAX_STABLEHLO_OPERATIONS=$("$JQ" -r '.max_stablehlo_operations' "$EVIDENCE_ROOT/
 # profile deliberately does not export TT_MESH_GRAPH_DESC_PATH: one logical
 # 1x1 device per card is the admitted selection, and a 1x2 mesh descriptor
 # would fuse both cards into one logical device.
-PLAN=$("$PLATFORM_CORE" launch-plan "$MANIFEST" "$CONFIG" "$DESCRIPTOR")
+PLAN=$("$PLATFORM_CORE" authorized-launch-plan "$PLATFORM_AUTHORITY")
 IMAGE=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.image')
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[0].host')
 BUNDLE_IDENTITY=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.bundle_identity')
@@ -99,12 +87,12 @@ check_wheel() {
     exit 1
   }
 }
-check_wheel pjrt_plugin_tt "$("$JQ" -r '.pjrt_plugin.version' "$MANIFEST")" \
-  "$("$JQ" -r '.pjrt_plugin.wheel_sha256' "$MANIFEST")"
-check_wheel torch "$("$JQ" -r '.pytorch.version' "$MANIFEST")" \
-  "$("$JQ" -r '.pytorch.wheel_sha256' "$MANIFEST")"
-check_wheel torch_xla "$("$JQ" -r '.pytorch_xla.version' "$MANIFEST")" \
-  "$("$JQ" -r '.pytorch_xla.wheel_sha256' "$MANIFEST")"
+check_wheel pjrt_plugin_tt "$("$JQ" -r '.manifest.pjrt_plugin.version' "$PLATFORM_AUTHORITY")" \
+  "$("$JQ" -r '.manifest.pjrt_plugin.wheel_sha256' "$PLATFORM_AUTHORITY")"
+check_wheel torch "$("$JQ" -r '.manifest.pytorch.version' "$PLATFORM_AUTHORITY")" \
+  "$("$JQ" -r '.manifest.pytorch.wheel_sha256' "$PLATFORM_AUTHORITY")"
+check_wheel torch_xla "$("$JQ" -r '.manifest.pytorch_xla.version' "$PLATFORM_AUTHORITY")" \
+  "$("$JQ" -r '.manifest.pytorch_xla.wheel_sha256' "$PLATFORM_AUTHORITY")"
 check_wheel tt_lang "$("$JQ" -r '.tt_lang.version' "$WHEELS_JSON")" \
   "$("$JQ" -r '.tt_lang.wheel_sha256' "$WHEELS_JSON")"
 

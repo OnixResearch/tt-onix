@@ -18,7 +18,10 @@
 
       flake = {
         overlays.default = import ./overlay.nix;
-        nixosModules.default = ./nixos/module.nix;
+        nixosModules = {
+          default = ./nixos/module.nix;
+          "dual-p150a-training" = ./nixos/examples/dual-p150a-training.nix;
+        };
       };
 
       perSystem =

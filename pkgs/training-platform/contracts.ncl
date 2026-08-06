@@ -11,6 +11,10 @@ let PositiveC = std.contract.from_predicate (fun value =>
   std.is_number value && value > 0
 ) in
 
+let SchemaVersionC = std.contract.from_predicate (fun value =>
+  value == 1
+) in
+
 # Full-length lowercase hex content identity, for example BLAKE3 or sha256.
 let HashHexC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.is_match "^[0-9a-f]{64}$" value
@@ -90,7 +94,7 @@ let FirmwareC = {
 } in
 
 let BundleC = {
-  schema_version | PositiveC,
+  schema_version | SchemaVersionC,
   bundle_id | NonEmptyC,
   recorded_date | IsoDateC,
   runtime_image | ImageC,
@@ -172,6 +176,30 @@ let bundle_fields = [
   "firmware",
 ] in
 
+let BundleDeepClosedC = std.contract.from_predicate (fun value =>
+  std.is_record value
+  && std.array.all (fun field => std.array.elem field bundle_fields) (std.record.fields value)
+  && std.array.all
+    (fun pair =>
+      std.is_record pair.nested
+      && std.array.all
+        (fun field => std.array.elem field pair.allowed)
+        (std.record.fields pair.nested))
+    [
+      { nested = value.runtime_image, allowed = ["repository", "digest", "created", "base_os"] },
+      { nested = value.pjrt_plugin, allowed = ["package", "version", "wheel_sha256", "python_abi", "index"] },
+      { nested = value.tt_xla_source, allowed = ["repository", "revision", "revision_date"] },
+      { nested = value.tt_blacksmith_source, allowed = ["repository", "revision", "revision_date"] },
+      { nested = value.pytorch, allowed = ["package", "version", "wheel_sha256", "python_abi"] },
+      { nested = value.pytorch_xla, allowed = ["package", "version", "wheel_sha256", "python_abi"] },
+      { nested = value.jax, allowed = ["package", "version", "python_abi"] },
+      { nested = value.jaxlib, allowed = ["package", "version", "python_abi"] },
+      { nested = value.transformers, allowed = ["package", "version", "python_abi"] },
+      { nested = value.driver, allowed = ["name", "version"] },
+      { nested = value.firmware, allowed = ["bundle_version", "floor_version"] },
+    ]
+) in
+
 let config_fields = [
   "schema_version",
   "bundle_id",
@@ -184,14 +212,38 @@ let config_fields = [
   "smoke",
 ] in
 
+let PlatformConfigDeepClosedC = std.contract.from_predicate (fun value =>
+  std.is_record value
+  && std.array.all (fun field => std.array.elem field config_fields) (std.record.fields value)
+  && std.array.all
+    (fun pair =>
+      std.is_record pair.nested
+      && std.array.all
+        (fun field => std.array.elem field pair.allowed)
+        (std.record.fields pair.nested))
+    [
+      { nested = value.devices, allowed = ["count", "architecture", "board_class", "device_root"] },
+      { nested = value.mesh, allowed = ["name", "rows", "columns", "fabric_channels", "descriptor_relative_path"] },
+      { nested = value.hugepages, allowed = ["mount", "page_size", "required_free_pages"] },
+      { nested = value.cache, allowed = ["root"] },
+      { nested = value.output, allowed = ["evidence_root"] },
+      { nested = value.evidence, allowed = ["hash_algorithm", "exclude"] },
+      { nested = value.smoke, allowed = ["timeout_seconds", "collective_free"] },
+    ]
+) in
+
+let EvidenceExclusions = [
+  "credentials",
+  "raw_logs",
+  "serial_numbers",
+  "absolute_private_paths",
+] in
+
 let EvidenceExcludedC = std.contract.from_predicate (fun value =>
   std.is_array value
-  && std.array.all
-    (fun item =>
-      std.array.elem
-        item
-        ["credentials", "raw_logs", "serial_numbers", "absolute_private_paths"])
-    value
+  && std.array.length value == std.array.length EvidenceExclusions
+  && std.array.all (fun item => std.array.elem item EvidenceExclusions) value
+  && std.array.all (fun required => std.array.elem required value) EvidenceExclusions
 ) in
 
 let EvidenceC = {
@@ -200,7 +252,7 @@ let EvidenceC = {
 } in
 
 let PlatformConfigC = {
-  schema_version | PositiveC,
+  schema_version | SchemaVersionC,
   bundle_id | NonEmptyC,
   devices | DevicesC,
   mesh | MeshC,
@@ -214,11 +266,21 @@ let PlatformConfigC = {
   },
 } in
 
+let AdmissionPolicyC = {
+  schema_version | SchemaVersionC,
+  manifest | BundleC | BundleDeepClosedC,
+  configuration | PlatformConfigC | PlatformConfigDeepClosedC,
+} in
+
 {
+  AdmissionPolicy = AdmissionPolicyC,
+  AdmissionPolicyClosed = ClosedRecordC ["schema_version", "manifest", "configuration"],
   Bundle = BundleC,
   BundleClosed = ClosedRecordC bundle_fields,
+  BundleDeepClosed = BundleDeepClosedC,
   PlatformConfig = PlatformConfigC,
   PlatformConfigClosed = ClosedRecordC config_fields,
+  PlatformConfigDeepClosed = PlatformConfigDeepClosedC,
   HashHex = HashHexC,
   GitRevision = GitRevisionC,
   ImageDigest = ImageDigestC,

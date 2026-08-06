@@ -5,4 +5,4 @@ let manifest = import "../manifest.ncl" in
 manifest
 & {
   transformers.version | force = ">=4.0",
-} | contracts.BundleClosed | contracts.Bundle
+} | contracts.BundleClosed | contracts.BundleDeepClosed | contracts.Bundle
