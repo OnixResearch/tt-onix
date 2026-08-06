@@ -232,6 +232,7 @@
           { };
       ttVibeThinkerBench = pkgs.callPackage ../pkgs/tt-vibethinker-bench { };
       ttsim = pkgs.callPackage ../pkgs/ttsim { };
+      rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
 
       developmentAppSpecs = {
@@ -254,6 +255,11 @@
           package = ttwkv7;
           executable = "wkv7-diagnose";
           description = "Run the ttWKV7 cross-kernel diagnostic wrapper from this checkout";
+        };
+        rwkv7-chat = {
+          package = rwkv7Chat;
+          executable = "rwkv7-chat";
+          description = "Chat with RWKV-7 on the Tenstorrent card via llama.cpp Metalium";
         };
       };
       isSafeExecutableName =
@@ -358,6 +364,7 @@
 
       packages = lib.optionalAttrs isSupportedSystem {
         inherit ttsim ttwkv7;
+        rwkv7-chat = rwkv7Chat;
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
