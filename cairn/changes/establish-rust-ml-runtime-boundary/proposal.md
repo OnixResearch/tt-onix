@@ -13,7 +13,8 @@ A small Rust runtime boundary can reuse the current pure dispatch logic. It can 
 - Add thin adapters for the current `llama-cpp-metalium` chat path and the persistent RWKV-7 command path.
 - Add a deterministic fake adapter for positive and negative device-free tests.
 - Add fail-closed source admission for future Rust Metalium bridges.
-- Record `Knight-Ops/libtt-metal-cxx` as rejected at commit `3f62391f9d1cb4d5bdf85266239f63a67f93b016` because the reviewed tree has no license file or Cargo license field.
+- Admit `Knight-Ops/libtt-metal-cxx` at commit `3f62391f9d1cb4d5bdf85266239f63a67f93b016` under repository-maintainer approval.
+- Record the missing upstream SPDX identifier as metadata debt without blocking private repository use.
 - Add BLAKE3-bound runtime receipts with explicit simulated, device-free, or physical execution classification.
 
 ## Impact
@@ -28,6 +29,6 @@ A small Rust runtime boundary can reuse the current pure dispatch logic. It can 
 
 - A general tensor API or compiler IR.
 - Burn, Candle, CubeCL, `mistral.rs`, or `zyx` model support.
-- Use or packaging of source that lacks an explicit license.
+- Claiming an exact SPDX license before upstream records one.
 - Hardware performance claims or long simulator runs.
 - A stable dynamic plugin ABI.

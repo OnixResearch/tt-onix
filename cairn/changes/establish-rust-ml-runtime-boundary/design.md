@@ -4,7 +4,9 @@ The repository already separates much RWKV-7 logic into pure Rust cores. `pkgs/r
 
 `pkgs/rwkv7-chat/default.nix` has a different boundary. It invokes `llama-cli` directly and embeds Metalium-specific environment rules. The full-model P150x2 path uses `rwkv7-p150x2-command` and a separate evidence schema.
 
-The reviewed `Knight-Ops/libtt-metal-cxx` tree exposes useful TT-Metal host APIs through `cxx`. However, commit `3f62391f9d1cb4d5bdf85266239f63a67f93b016` has no license file. Its `Cargo.toml` also has no license field. The repository cannot copy, package, or distribute that source without clear permission.
+The reviewed `Knight-Ops/libtt-metal-cxx` tree exposes useful TT-Metal host APIs through `cxx`. Commit `3f62391f9d1cb4d5bdf85266239f63a67f93b016` has no license file or Cargo license field.
+
+The repository maintainer confirms that the bridge is open-source Tenstorrent work and approves its use here. This approval permits repository integration. It does not identify an exact SPDX license.
 
 ## Decisions
 
@@ -36,13 +38,15 @@ The adapters own process launch, environment setup, timeout handling, and cleanu
 
 **Rationale:** The existing ABI has strong validation, but its layer and state fields are model-specific. The common boundary must also admit KV-cache and hybrid-state runtimes.
 
-### Decision: Fail closed on third-party bridge licensing
+### Decision: Bind source authorization and license metadata separately
 
-**Choice:** Add a candidate-source manifest with URL, revision, content identity, declared license, API scope, and admission result. Reject a candidate when either the source tree or package metadata lacks an explicit license.
+**Choice:** Add a candidate-source manifest with URL, revision, content identity, authorization basis, license status, API scope, and admission result.
 
-The initial manifest records `libtt-metal-cxx` as rejected. No package fetch, source copy, bridge build, or flake output uses it.
+An explicit upstream license or repository-maintainer approval can authorize use. The initial manifest admits `libtt-metal-cxx` under maintainer approval. It records the missing SPDX identifier as metadata debt.
 
-**Rationale:** The source is technically relevant, but technical fit does not grant redistribution rights. A later change can reconsider it after upstream adds an explicit license.
+The package can fetch, patch, build, test, and expose the approved source. It cannot claim a specific SPDX license until upstream records one.
+
+**Rationale:** Local authority permits this private repository to use the source. Separate metadata prevents the package from inventing legal terms.
 
 ### Decision: Make capability claims exact
 
@@ -62,7 +66,7 @@ A physical classification requires existing physical evidence. A simulator resul
 
 Positive device-free tests cover valid Nickel export, fake session transitions, current adapter command construction, capability admission, and deterministic receipts.
 
-Negative tests cover unknown runtimes, unsupported operations, invalid transitions, duplicate close, timeout, malformed adapter output, global process termination, missing source licenses, and false physical claims.
+Negative tests cover unknown runtimes, unsupported operations, invalid transitions, duplicate close, timeout, malformed adapter output, global process termination, missing source authority, and false physical claims.
 
 Focused checks verify that the pure core has no process, environment, filesystem, socket, clock, or device access. Existing runtime and chat defaults must keep their current behavior.
 
@@ -71,7 +75,7 @@ Focused checks verify that the pure core has no process, environment, filesystem
 - The first contract can omit operations needed by a later runtime. Versioned capability data permits additive updates.
 - A common boundary can hide backend details. Backend-specific evidence remains available through typed extension fields.
 - Process adapters add one translation layer. The pure core keeps this layer small and deterministic.
-- `libtt-metal-cxx` can gain a license later. The candidate manifest makes a new review explicit.
+- The exact `libtt-metal-cxx` SPDX identifier remains unknown. Package metadata records that fact without blocking approved use.
 
 ## Non-Goals
 

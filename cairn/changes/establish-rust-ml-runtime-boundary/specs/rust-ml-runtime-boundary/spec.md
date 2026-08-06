@@ -51,7 +51,7 @@ r[tenstorrent.rust_ml.adapter_boundary.process_ownership]
 - AND the unrelated process remains unchanged
 
 ### Requirement: Fail-closed third-party source admission
-r[tenstorrent.rust_ml.source_admission] The repository MUST admit a third-party runtime or bridge source only after it binds an exact revision, content identity, explicit license, API scope, and compatibility verdict. Missing or ambiguous licensing MUST block fetch, build, packaging, and publication.
+r[tenstorrent.rust_ml.source_admission] The repository MUST bind each third-party runtime source to an exact revision, content identity, authorization basis, license status, API scope, and compatibility verdict. An explicit upstream license or repository-maintainer approval MAY authorize use. Missing authorization MUST block source and package outputs. The repository MUST NOT invent an unknown SPDX identifier.
 
 #### Scenario: Licensed source is admitted
 r[tenstorrent.rust_ml.source_admission.valid]
@@ -59,11 +59,19 @@ r[tenstorrent.rust_ml.source_admission.valid]
 - WHEN source admission runs
 - THEN it produces one deterministic admitted verdict
 
-#### Scenario: Source without a license is rejected
-r[tenstorrent.rust_ml.source_admission.missing_license]
-- GIVEN the reviewed `libtt-metal-cxx` commit without a license file or package license field
+#### Scenario: Approved source with unknown SPDX is admitted
+r[tenstorrent.rust_ml.source_admission.maintainer_approval]
+- GIVEN `libtt-metal-cxx` at the reviewed commit
+- AND repository-maintainer approval for its use as open-source Tenstorrent work
 - WHEN source admission runs
-- THEN it produces a rejected verdict that names the missing license
+- THEN it produces an admitted verdict under maintainer approval
+- AND it records the unknown SPDX identifier as metadata debt
+
+#### Scenario: Source without authority is rejected
+r[tenstorrent.rust_ml.source_admission.missing_authority]
+- GIVEN a source without an explicit license or repository-maintainer approval
+- WHEN source admission runs
+- THEN it produces a rejected verdict that names the missing authority
 - AND no package or source output is exposed
 
 ### Requirement: Common runtime evidence envelope
