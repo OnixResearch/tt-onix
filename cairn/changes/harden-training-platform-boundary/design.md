@@ -84,7 +84,8 @@ authority requires `2.10.0`. The terminal failure receipt validated, and Docker
 did not start. The attempt also exposed an empty portable preflight file. The
 launcher now keeps rejected preflight output private, validates each portable
 artifact, and requires a fresh run directory under the authorized evidence
-parent.
+parent. The flake exports exact core and smoke apps plus a development shell.
+The shell clears ambient runtime overrides but does not manage the kernel.
 
 A successful bounded dual-P150A smoke must replace the stale platform receipt
 after the host installs TT-KMD `2.10.0`. The receipt will keep all training and

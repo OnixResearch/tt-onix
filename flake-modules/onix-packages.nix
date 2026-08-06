@@ -308,6 +308,16 @@
           executable = "wkv7-diagnose";
           description = "Run the ttWKV7 cross-kernel diagnostic wrapper from this checkout";
         };
+        training-platform-core = {
+          package = trainingPlatform.core;
+          executable = "training-platform-core";
+          description = "Run the reviewed training-platform admission core";
+        };
+        training-platform-smoke = {
+          package = trainingPlatform.tools;
+          executable = "training-platform-smoke";
+          description = "Run the reviewed bounded dual-P150A smoke";
+        };
       };
       isSafeExecutableName =
         executable: builtins.match "^[A-Za-z0-9][A-Za-z0-9._+-]*$" executable != null;
@@ -331,6 +341,25 @@
             meta = { inherit description; };
           };
       developmentApps = lib.mapAttrs mkDevelopmentApp developmentAppSpecs;
+      trainingPlatformDevShell = pkgs.mkShell {
+        packages = [
+          pkgs.b3sum
+          pkgs.cargo
+          pkgs.clippy
+          pkgs.docker
+          pkgs.jq
+          pkgs.nickel
+          pkgs.rustc
+          pkgs.rustfmt
+          pkgs.shellcheck
+          pkgs.tt-smi
+          trainingPlatform.core
+          trainingPlatform.tools
+        ];
+        shellHook = ''
+          unset PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT
+        '';
+      };
       storeDirectory = builtins.storeDir;
       positiveDevelopmentAppFixture = builtins.tryEval (
         mkDevelopmentApp "positive-fixture" {
@@ -393,6 +422,9 @@
           ${developmentApps.ttwkv7-data-movement.program} self-test >data-movement.log
           grep -F ${lib.escapeShellArg dataMovementDiagnostic} data-movement.log
 
+          ${developmentApps.training-platform-core.program} self-test >training-platform.log
+          grep -F 'training-platform-core self-test: PASS' training-platform.log
+
           if ${developmentApps.ttwkv7-diagnose.program} ${lib.escapeShellArg invalidDiagnosticMode} \
             >diagnostic-invalid.log 2>&1; then
             echo "ttwkv7-diagnose accepted an invalid mode" >&2
@@ -408,6 +440,11 @@
     in
     {
       apps = lib.optionalAttrs isSupportedSystem developmentApps;
+
+      devShells = lib.optionalAttrs isSupportedSystem {
+        default = trainingPlatformDevShell;
+        training-platform = trainingPlatformDevShell;
+      };
 
       packages = lib.optionalAttrs isSupportedSystem {
         inherit ttsim ttwkv7;

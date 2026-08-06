@@ -29,6 +29,19 @@ present, and applies the overlay automatically.
 
 ## Fast local iteration
 
+Enter the default development shell for Rust, Nickel, ShellCheck, TT-SMI, and
+the reviewed training-platform tools:
+
+```sh
+nix develop
+# Equivalent named shell:
+nix develop .#training-platform
+```
+
+The shell clears ambient Python and TT-Metal runtime overrides. It does not
+install or load a kernel driver. A NixOS activation remains necessary for
+TT-KMD changes.
+
 Package-only changes do not need a NixOS activation. Run the exact package from
 the current checkout:
 
@@ -36,6 +49,7 @@ the current checkout:
 nix run .#ttwkv7 -- shape-test
 nix run .#ttwkv7-constant-probe -- self-test
 nix run .#ttwkv7-data-movement -- self-test
+nix run .#training-platform-core -- self-test
 ```
 
 Each command rebuilds only the affected derivations. Nix reuses the unchanged

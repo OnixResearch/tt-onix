@@ -64,12 +64,14 @@ Run the bounded hardware smoke (preflight, mesh open, one collective-free
 tensor operation, mesh close, restoration, health capture):
 
 ```sh
-TOOLS=$(nix build .#packages.x86_64-linux.training-platform-tools --no-link --print-out-paths)
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
 env -u PYTHONPATH -u PYTHONHOME -u TT_METAL_HOME -u TT_METAL_RUNTIME_ROOT \
-  "$TOOLS/bin/training-platform-smoke" \
+  nix run .#training-platform-smoke -- \
   --evidence-root "/var/lib/tenstorrent-training/evidence/$RUN_ID"
 ```
+
+Use `nix develop .#training-platform` for an interactive shell with the same
+reviewed tools. The shell does not install or load TT-KMD.
 
 The training NixOS profile creates the authorized evidence parent for the
 `tenstorrent` group. Each attempt must use one new direct child of that parent.
