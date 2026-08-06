@@ -112,3 +112,11 @@ boundary and non-claims.
 - [tenstorrent/tt-flash](https://github.com/tenstorrent/tt-flash) — firmware update and compatibility-check source.
 - [tenstorrent/tt-burnin](https://github.com/tenstorrent/tt-burnin) — hardware stress and validation source.
 - [tenstorrent/tt-system-tools](https://github.com/tenstorrent/tt-system-tools) — incident collection and `tt-oops` source.
+
+### RWKV ecosystem resources
+
+- [Recently updated RWKV repositories](https://github.com/search?o=desc&q=rwkv&s=updated&type=Repositories) — GitHub discovery search for current RWKV projects.
+- [RWKV Wiki](https://wiki.rwkv.com) — community documentation for RWKV architectures, models, terminology, and tools.
+- [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) — desktop runner, model manager, and OpenAI-compatible RWKV service.
+- [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) — parameter-efficient fine-tuning reference for RWKV models.
+- [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) — Rust and Vulkan RWKV inference server with an OpenAI-compatible API.

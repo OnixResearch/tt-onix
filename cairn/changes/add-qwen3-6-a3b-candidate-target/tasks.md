@@ -9,7 +9,7 @@
 
 ## Phase 2: Contract and candidate profile
 
-- [ ] [depends:tenstorrent.model_targets.qwen3_6_upstream_authority] C1 Extend the Nickel contract with the hybrid state kind, MoE layer-mix facts, multi-shard layout, and candidate precision value. Regenerate canonical profile data. r[tenstorrent.model_targets.hybrid_profile_contract]
+- [ ] [depends:tenstorrent.model_targets.qwen3_6_upstream_authority] C1 Extend the Nickel contract with the hybrid state kind, MoE layer-mix facts, multi-shard layout, and candidate precision value. Regenerate canonical profile and consumer projection data. r[tenstorrent.model_targets.hybrid_profile_contract]
 - [ ] [depends:tenstorrent.model_targets.hybrid_profile_contract] C2 Add the non-runnable `qwen3-6-35b-a3b-p150x1-candidate` profile with metadata artifacts and the single-P150 topology. r[tenstorrent.model_targets.qwen3_6_candidate_profile]
 - [ ] [depends:tenstorrent.model_targets.qwen3_6_candidate_profile] C3 Add device-free hybrid adapter facts: equations source, state lifecycle, required-operator inventory with ttsim coverage audit, and candidate tolerances. r[tenstorrent.model_targets.qwen3_6_candidate_profile]
 
@@ -23,7 +23,7 @@
 - [ ] [parallel] V1 Add positive fixtures for authority admission, hybrid export, candidate evaluation, and the complete verdict. r[tenstorrent.model_targets.hybrid_profile_contract] r[tenstorrent.model_targets.qwen3_6_candidate_report]
 - [ ] [parallel] V2 Add negative fixtures for authority drift, missing state component, runnable Qwen profile, and unreviewed fact. r[tenstorrent.model_targets.qwen3_6_upstream_authority] r[tenstorrent.model_targets.qwen3_6_candidate_report]
 - [ ] [serial] D1 Document the reference pin, candidate facts, verdict interpretation, bounded next change, and explicit non-claims. r[tenstorrent.model_targets.qwen3_6_upstream_authority]
-- [ ] [depends:tenstorrent.model_targets.qwen3_6_candidate_report] V3 Run formatting, focused package tests, Nix checks, profile freshness, existing RWKV regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.model_targets.qwen3_6_candidate_report]
+- [ ] [depends:tenstorrent.model_targets.qwen3_6_candidate_report] V3 Run formatting, focused package tests, Nix checks, profile and consumer freshness, existing RWKV regressions, Cairn validation, and all lifecycle gates. r[tenstorrent.model_targets.qwen3_6_candidate_report]
 
 ## Verification Coverage
 
