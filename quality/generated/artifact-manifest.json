@@ -2,10 +2,34 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "model-targets/generated/consumer-identities.h",
+      "class": "generated_source",
+      "byte_count": 8908,
+      "blake3": "26d24b87278151b9f131cca4d3d11c9ea4274b10736c7b68622b856f497bdad8"
+    },
+    {
+      "path": "model-targets/generated/consumer-identities.nix",
+      "class": "generated_source",
+      "byte_count": 5912,
+      "blake3": "bef46f232e73bb2685fc5d9b6524dd4b14e20ccc6a561792515fe67a3a81b733"
+    },
+    {
+      "path": "model-targets/generated/consumer-identities.rs",
+      "class": "generated_source",
+      "byte_count": 10936,
+      "blake3": "bbc8ced826296243c8f289eb1b6515c6a27475c13030aa2f63f94633b30f54b5"
+    },
+    {
+      "path": "model-targets/generated/consumer_identities.py",
+      "class": "generated_source",
+      "byte_count": 8333,
+      "blake3": "1bad6f9f59e52a6dce69b1de729279d8c39402df3f53662155d1c679dc8fe0bb"
+    },
+    {
       "path": "model-targets/generated/profiles.json",
       "class": "generated_source",
-      "byte_count": 6062,
-      "blake3": "1427c4695ae2c1e01f255786d872c8e6f92c4ca2be50bec87262e57b0fa70e0d"
+      "byte_count": 7699,
+      "blake3": "deac907d55429beeca80e080f8253d51885442f25a471cb6e0ea35e0c59a5056"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",

@@ -5,22 +5,45 @@
 let
   expectedSchemaVersion = 1;
   profileData = builtins.fromJSON (builtins.readFile ./generated/profiles.json);
-  profilesByName = builtins.listToAttrs (
+  generatedConsumerProfiles = import ./generated/consumer-identities.nix;
+  rawProfilesByName = builtins.listToAttrs (
     map (profile: {
       name = profile.target_name;
       value = profile;
     }) profileData.profiles
   );
+  consumerProfilesByName = builtins.listToAttrs (
+    map (profile: {
+      name = profile.target_name;
+      value = profile;
+    }) generatedConsumerProfiles
+  );
   profileNamesAreUnique =
-    builtins.length profileData.profiles == builtins.length (builtins.attrNames profilesByName);
+    builtins.length profileData.profiles == builtins.length (builtins.attrNames rawProfilesByName);
   targetLibrary = import ./mk-model-target.nix { inherit lib; };
 
   getProfile =
     targetName:
-    if builtins.hasAttr targetName profilesByName then
-      profilesByName.${targetName}
+    if !builtins.hasAttr targetName rawProfilesByName then
+      throw "unknown model target profile '${targetName}'"
+    else if !builtins.hasAttr targetName consumerProfilesByName then
+      throw "missing generated consumer identity for model target profile '${targetName}'"
     else
-      throw "unknown model target profile '${targetName}'";
+      let
+        rawProfile = rawProfilesByName.${targetName};
+        consumerIdentity = consumerProfilesByName.${targetName};
+        projectedProfile = builtins.removeAttrs consumerIdentity [ "profile_blake3" ];
+      in
+      if projectedProfile != rawProfile then
+        throw "generated consumer identity mismatch for model target profile '${targetName}'"
+      else
+        rawProfile
+        // {
+          profile_identity = consumerIdentity.profile_blake3;
+          consumer_identity = consumerIdentity;
+        };
+
+  profilesByName = lib.mapAttrs (targetName: _profile: getProfile targetName) rawProfilesByName;
 
   fetchProfileArtifacts =
     profile:
@@ -75,18 +98,18 @@ let
         id = profile.adapters.architecture;
         architectureFamilies = [ "rwkv7" ];
         stateKinds = [ "recurrent_matrix" ];
-        checkpointLayouts = [ "safetensors_single_file" ];
-        precisions = [ "bf16_checkpoint_fp32_reference" ];
-        topologies = [ "p150x2-exact-physical-0-1" ];
+        checkpointLayouts = [ profile.model.checkpoint_layout ];
+        precisions = [ profile.model.precision ];
+        topologies = [ profile.topology.id ];
         equations = "rwkv7_generalized_delta_rule";
         tensorLayout = "rwkv7_hf_world2_8";
         requiredOperations = rwkvRequiredOperations;
         referenceAuthority = "rwkv7_paper_and_package_matched_cpu_fp32";
         tolerances = {
-          finalHidden = 0.5;
-          logits = 1.0;
-          recurrentState = 1.0;
-          controlDivergenceFloor = 0.5;
+          finalHidden = profile.consumer.tolerances.final_hidden;
+          logits = profile.consumer.tolerances.logits;
+          recurrentState = profile.consumer.tolerances.recurrent_state;
+          controlDivergenceFloor = profile.consumer.tolerances.control_divergence_floor;
         };
       }
     else if profile.model.architecture_family == "synthetic_transformer" then
@@ -94,16 +117,16 @@ let
         id = profile.adapters.architecture;
         architectureFamilies = [ "synthetic_transformer" ];
         stateKinds = [ "kv_cache" ];
-        checkpointLayouts = [ "synthetic_single_file" ];
-        precisions = [ "bf16_fixture" ];
-        topologies = [ "device-free-fixture" ];
+        checkpointLayouts = [ profile.model.checkpoint_layout ];
+        precisions = [ profile.model.precision ];
+        topologies = [ profile.topology.id ];
         equations = "scaled_dot_product_attention_fixture";
         tensorLayout = "transformer_qkv_fixture";
         requiredOperations = transformerFixtureRequiredOperations;
         referenceAuthority = "device_free_synthetic_fixture";
         tolerances = {
-          logits = 0.01;
-          kvCache = 0.01;
+          logits = profile.consumer.tolerances.logits;
+          kvCache = profile.consumer.tolerances.recurrent_state;
         };
       }
     else

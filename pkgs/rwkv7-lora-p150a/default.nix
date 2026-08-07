@@ -13,8 +13,17 @@
   trainingPlatform,
   platformEvidenceReceipt,
   cpuReference,
+  targetProfile,
 }:
 let
+  packageSource = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ./.
+      ../../model-targets
+    ];
+  };
+
   # r[impl tenstorrent.rwkv7_p150a_finetuning.configuration]
   # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
   core = rustPlatform.buildRustPackage {
@@ -37,16 +46,16 @@ let
   platformDescriptor = trainingPlatform.passthru.descriptorPath;
 
   profileJson = runCommand "rwkv7-lora-p150a-profile.json" { nativeBuildInputs = [ nickel ]; } ''
-    cp ${./contracts.ncl} contracts.ncl
-    cp ${./profile.ncl} profile.ncl
-    mkdir fixtures
-    cp ${./fixtures/base-profile.ncl} fixtures/base-profile.ncl
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-p150a"
     nickel export --format json profile.ncl > "$out"
   '';
 
   wheelsJson = runCommand "rwkv7-lora-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
-    cp ${./contracts.ncl} contracts.ncl
-    cp ${./wheels.ncl} wheels.ncl
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-p150a"
     nickel export --format json wheels.ncl > "$out"
   '';
 
@@ -65,6 +74,7 @@ let
       --subst-var-by container_probe "${./container-probe.sh}" \
       --subst-var-by wheels_json "${wheelsJson}"
     chmod +x "$out"
+    patchShebangs "$out"
   '';
 
   # r[impl tenstorrent.rwkv7_p150a_finetuning.placement]
@@ -83,15 +93,17 @@ let
       --subst-var-by install_deps_py "${./probes/install_deps.py}" \
       --subst-var-by container_script "${./container-full-model.sh}"
     chmod +x "$out"
+    patchShebangs "$out"
   '';
 
   tools = runCommand "rwkv7-lora-p150a-tools" { } ''
-    mkdir -p "$out/bin" "$out/share/rwkv7-lora-p150a"
+    mkdir -p "$out/bin" "$out/share/rwkv7-lora-p150a" "$out/share/model-target"
     ln -s ${core}/bin/rwkv7-lora-p150a-core "$out/bin/rwkv7-lora-p150a-core"
     ln -s ${probeRunner} "$out/bin/rwkv7-lora-p150a-probe"
     ln -s ${fullStepRunner} "$out/bin/rwkv7-lora-p150a-full-step"
     ln -s ${profileJson} "$out/share/rwkv7-lora-p150a/profile.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-p150a/wheels.json"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
 in
 # r[verify tenstorrent.rwkv7_p150a_finetuning.configuration.valid]
@@ -120,9 +132,9 @@ runCommand "rwkv7-lora-p150a-check"
   }
   ''
     set -euo pipefail
-    cp -r ${./.} "$PWD/source"
-    chmod -R u+w "$PWD/source"
-    cd "$PWD/source"
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-p150a"
 
     # Valid profile exports deterministically and carries a stable identity.
     nickel export --format json profile.ncl >profile-first.json
@@ -419,7 +431,8 @@ runCommand "rwkv7-lora-p150a-check"
     fi
     grep -F "malformed_receipt" rejected.log
 
-    mkdir -p "$out"
+    mkdir -p "$out/share/model-target"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp profile-first.json "$out/profile.json"
     cp profile-admission.json "$out/profile-admission.json"
     cp platform-admission.json "$out/platform-admission.json"

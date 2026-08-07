@@ -16,6 +16,7 @@
         config.allowUnfreePredicate = package: lib.getName package == "ttwkv7";
       };
       rwkvLab = pkgs.callPackage ../pkgs/rwkv-lab { };
+      modelTargetConsumerGenerator = pkgs.callPackage ../pkgs/model-target-consumer-generator { };
       modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
       rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
       rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
@@ -35,9 +36,14 @@
               deviceRuntime = context.runtime;
             };
           command =
-            _context:
-            pkgs.runCommand "rwkv7-p150x2-command" { }
-              "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
+            context:
+            pkgs.runCommand "rwkv7-p150x2-command" { } ''
+              mkdir -p "$out/bin" "$out/share/model-target"
+              ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command \
+                "$out/bin/rwkv7-p150x2-command"
+              echo '${context.profile.profile_identity}' \
+                >"$out/share/model-target/profile-blake3"
+            '';
           sourceBoundary = _context: rwkv7P150x2SourceCheck;
           closure = _context: rwkv7P150x2ProductionClosure;
         };
@@ -46,10 +52,13 @@
         targetProfile = rwkvProfile;
         targetArtifacts = rwkvArtifacts;
       };
-      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report { };
+      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report {
+        targetProfile = rwkvProfile;
+      };
       rwkv7LoraReference = pkgs.callPackage ../pkgs/rwkv7-lora-reference {
         model = rwkvArtifacts.checkpoint.path;
         modelBlake3 = rwkvArtifacts.checkpoint.blake3;
+        targetProfile = rwkvProfile;
       };
       # r[impl tenstorrent.training_platform.verification]
       trainingPlatform = pkgs.callPackage ../pkgs/training-platform { };
@@ -57,6 +66,7 @@
       # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
       rwkv7LoraP150a = pkgs.callPackage ../pkgs/rwkv7-lora-p150a {
         inherit trainingPlatform;
+        targetProfile = rwkvProfile;
         platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
@@ -64,6 +74,7 @@
       # r[impl tenstorrent.rwkv7_dual_p150a.authority]
       rwkv7LoraDualP150a = pkgs.callPackage ../pkgs/rwkv7-lora-dual-p150a {
         inherit trainingPlatform rwkv7LoraP150a;
+        targetProfile = rwkvProfile;
         platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
@@ -107,7 +118,7 @@
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
         inherit (pkgs) nickel;
-        modelTargets = modelTargets;
+        inherit modelTargetConsumerGenerator modelTargets;
       };
       rwkv7P150x2Runtime = rwkvTarget.runtime;
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
@@ -144,6 +155,14 @@
             grep -F '!environment.dprint_cores.has_value()' "$runtime_source"
             grep -F 'remove_environment(WATCHER_ENVIRONMENT)' "$command_source"
             grep -F 'remove_environment(DPRINT_CORES_ENVIRONMENT)' "$command_source"
+
+            for output in \
+              ${rwkv7P150x2Runtime} \
+              ${rwkvTarget.command} \
+              ${rwkv7P150x2Evidence}; do
+              grep -Fx '${rwkvProfile.profile_identity}' \
+                "$output/share/model-target/profile-blake3"
+            done
 
             if grep -E 'torch|pytorch|cpu-dispatch|test_only_cpu_server|std::system|popen|fork\(' \
               "$runtime_source"; then
@@ -241,6 +260,7 @@
         cairn = inputs.cairn.packages.${system}.cairn;
         cairnPolicy = "${inputs.cairn}/cairn-policy/generated/cairn-policy.json";
         evidenceEnvironment = {
+          MODEL_TARGET_PROFILE_BLAKE3 = rwkvProfile.profile_identity;
           MODEL_TARGET_NAME = rwkvProfile.target_name;
           MODEL_TARGET_MODEL_ID = rwkvProfile.model.id;
           MODEL_TARGET_REVISION = rwkvProfile.model.revision;
@@ -435,6 +455,7 @@
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
         training-platform-core = trainingPlatform.core;
@@ -453,6 +474,7 @@
       checks = lib.optionalAttrs isSupportedSystem {
         development-interface = developmentInterfaceCheck;
         migration-boundary = migrationBoundaryCheck;
+        model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-profile-factory = modelTargetFactoryCheck;
         model-target-candidate-report = modelTargetReport;
         rwkv7-lora-reference = rwkv7LoraReference;

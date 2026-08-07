@@ -1,3 +1,5 @@
+mod generated_model_target_identity;
+
 use half::bf16;
 use model_target_core::{TargetIdentity, TopologyIdentity};
 use serde::{Deserialize, Serialize};
@@ -8,22 +10,15 @@ use std::path::{Component, Path};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const SAFETY_SCHEMA_VERSION: u32 = 3;
-pub const TARGET_NAME: &str = env!("MODEL_TARGET_NAME");
-pub const MODEL_ID: &str = env!("MODEL_TARGET_MODEL_ID");
-pub const MODEL_REVISION: &str = env!("MODEL_TARGET_REVISION");
-pub const ARCHITECTURE_FAMILY: &str = env!("MODEL_TARGET_ARCHITECTURE_FAMILY");
-pub const STATE_KIND: &str = env!("MODEL_TARGET_STATE_KIND");
-pub const MODEL_PRECISION: &str = env!("MODEL_TARGET_PRECISION");
-pub const ARCHITECTURE_ADAPTER_ID: &str = env!("MODEL_TARGET_ARCHITECTURE_ADAPTER");
-pub const EVIDENCE_ADAPTER_ID: &str = env!("MODEL_TARGET_EVIDENCE_ADAPTER");
-pub const MODEL_ARTIFACT_BLAKE3_JSON: &str = env!("MODEL_TARGET_ARTIFACT_BLAKE3_JSON");
-pub const TOPOLOGY_ID: &str = env!("MODEL_TARGET_TOPOLOGY_ID");
-pub const MESH_SHAPE_JSON: &str = env!("MODEL_TARGET_MESH_SHAPE_JSON");
-pub const PHYSICAL_DEVICE_IDS_JSON: &str = env!("MODEL_TARGET_PHYSICAL_DEVICE_IDS_JSON");
-pub const REPLICATION: &str = env!("MODEL_TARGET_REPLICATION");
+pub use generated_model_target_identity::{
+    ARCHITECTURE_ADAPTER_ID, ARCHITECTURE_FAMILY, CONTROL_DIVERGENCE_FLOOR, EVIDENCE_ADAPTER_ID,
+    FINAL_HIDDEN_TOLERANCE, LOGIT_TOLERANCE, MESH_SHAPE_JSON, MODEL_BLAKE3, MODEL_ID,
+    MODEL_PRECISION, MODEL_REVISION, PHYSICAL_DEVICE_IDS_JSON, PROFILE_BLAKE3, REPLICATION,
+    STATE_KIND, TARGET_NAME, TOKENIZER_VOCAB_BLAKE3, TOPOLOGY_ID,
+};
+pub const MODEL_ARTIFACT_BLAKE3_JSON: &str = generated_model_target_identity::ARTIFACT_BLAKE3_JSON;
+pub const BUILT_PROFILE_BLAKE3: &str = env!("MODEL_TARGET_PROFILE_BLAKE3");
 pub const REQUIRED_OPERATIONS_JSON: &str = env!("MODEL_TARGET_REQUIRED_OPERATIONS_JSON");
-pub const MODEL_BLAKE3: &str = env!("MODEL_TARGET_CHECKPOINT_BLAKE3");
-pub const TOKENIZER_VOCAB_BLAKE3: &str = env!("MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3");
 pub const EXPECTED_BOARD_SERIALS: [&str; EXPECTED_CARD_COUNT] =
     ["0000040331921011", "000004033192100e"];
 pub const EXPECTED_BOARD_BDFS: [&str; EXPECTED_CARD_COUNT] = ["0000:01:00.0", "0000:03:00.0"];
@@ -34,22 +29,21 @@ pub const EXPECTED_SECONDARY_OWNER_UNIT: &str =
     "llamacpp-server-vibethinker-britton-desktop.service";
 pub const EXPECTED_OWNER_COUNT: usize = 2;
 pub const EXPECTED_CARD_COUNT: usize = 2;
-pub const EXPECTED_LAYER_COUNT: usize = 12;
-pub const HIDDEN_ELEMENT_COUNT: usize = 768;
-pub const LOGIT_ELEMENT_COUNT: usize = 65_536;
-pub const COMPLETE_STATE_ELEMENT_COUNT: usize = 608_256;
+pub const EXPECTED_LAYER_COUNT: usize = generated_model_target_identity::MODEL_LAYER_COUNT;
+pub const HIDDEN_ELEMENT_COUNT: usize = generated_model_target_identity::HIDDEN_SIZE;
+pub const LOGIT_ELEMENT_COUNT: usize = generated_model_target_identity::VOCABULARY_SIZE;
+pub const COMPLETE_STATE_ELEMENT_COUNT: usize =
+    generated_model_target_identity::COMPLETE_STATE_ELEMENT_COUNT;
 pub const MINIMUM_GENERATED_TOKEN_COUNT: usize = 2;
 pub const MAXIMUM_GENERATED_TOKEN_COUNT: usize = 4;
-pub const MAXIMUM_PROMPT_TOKEN_COUNT: usize = 32;
+pub const MAXIMUM_PROMPT_TOKEN_COUNT: usize =
+    generated_model_target_identity::MAXIMUM_PROMPT_TOKENS;
 pub const MAXIMUM_MESSAGE_BYTE_COUNT: usize = 256;
 pub const GENERATION_EOS_TOKEN_ID: usize = 0;
 pub const TOKENIZER_WRAPPER_EOS_TOKEN_ID: usize = 65_530;
 pub const TOKENIZER_LAST_VOCAB_ID: usize = 65_529;
 pub const TOKENIZER_VOCAB_ENTRY_COUNT: usize = 65_529;
-pub const FINAL_HIDDEN_TOLERANCE: f32 = 0.5;
-pub const LOGIT_TOLERANCE: f32 = 1.0;
-pub const STATE_TOLERANCE: f32 = 1.0;
-pub const CONTROL_DIVERGENCE_FLOOR: f32 = 0.5;
+pub const STATE_TOLERANCE: f32 = generated_model_target_identity::RECURRENT_STATE_TOLERANCE;
 const F32_BYTE_WIDTH: usize = 4;
 const BF16_BYTE_WIDTH: usize = 2;
 const PYTHON_BYTE_HEX_DIGITS: usize = 2;
@@ -562,6 +556,11 @@ pub fn parse_reference(bytes: &[u8]) -> Result<ReferenceManifest, String> {
 
 // r[impl tenstorrent.model_targets.single_authority]
 pub fn expected_target_identity() -> Result<TargetIdentity, String> {
+    if BUILT_PROFILE_BLAKE3 != PROFILE_BLAKE3 {
+        return Err(format!(
+            "built profile identity mismatch: generated {PROFILE_BLAKE3}, package {BUILT_PROFILE_BLAKE3}"
+        ));
+    }
     let artifact_blake3 = serde_json::from_str(MODEL_ARTIFACT_BLAKE3_JSON)
         .map_err(|error| format!("invalid embedded artifact identity map: {error}"))?;
     Ok(TargetIdentity {

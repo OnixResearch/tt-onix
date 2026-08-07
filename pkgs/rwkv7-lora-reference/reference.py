@@ -14,6 +14,20 @@ import sys
 import lora_core
 import torch
 import wkv7
+from generated_model_target_identity import (
+    CPU_REFERENCE_PRECISION,
+    HEAD_COUNT,
+    HEAD_SIZE,
+    HIDDEN_SIZE,
+    LORA_FINITE_DIFFERENCE_TOLERANCE,
+    LORA_GRADIENT_AGREEMENT_TOLERANCE,
+    MODEL_ID,
+    MODEL_LAYER_COUNT,
+    MODEL_REVISION,
+    PROFILE_BLAKE3,
+    TOKENIZER_VOCAB_BLAKE3,
+)
+from generated_model_target_identity import MODEL_BLAKE3 as CHECKPOINT_BLAKE3
 
 torch.manual_seed(0)
 
@@ -21,17 +35,10 @@ BOUNDED_BATCH = 1
 BOUNDED_TIME = 4
 BOUNDED_HEADS = 2
 BOUNDED_WIDTH = 4
-GRADIENT_TOLERANCE = 5e-3
-FINITE_DIFFERENCE_TOLERANCE = 2e-2
+GRADIENT_TOLERANCE = LORA_GRADIENT_AGREEMENT_TOLERANCE
+FINITE_DIFFERENCE_TOLERANCE = LORA_FINITE_DIFFERENCE_TOLERANCE
 LORA_RANK = 2
 LEARNING_RATE = 1e-2
-
-MODEL_ID = "RWKV/RWKV7-Goose-World2.8-0.1B-HF"
-MODEL_REVISION = "d81965cb4e1a9f96696b4f70b84212b8f2e43216"
-CHECKPOINT_BLAKE3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5"
-TOKENIZER_VOCAB_BLAKE3 = (
-    "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2"
-)
 
 
 def bounded_inputs() -> dict[str, torch.Tensor]:
@@ -324,11 +331,11 @@ def check_model_authority() -> dict[str, object]:
         "revision": MODEL_REVISION,
         "checkpoint_blake3": CHECKPOINT_BLAKE3,
         "tokenizer_vocab_blake3": TOKENIZER_VOCAB_BLAKE3,
-        "layer_count": 12,
-        "hidden_size": 768,
-        "head_count": 12,
-        "head_size": 64,
-        "precision": "fp32_from_bf16",
+        "layer_count": MODEL_LAYER_COUNT,
+        "hidden_size": HIDDEN_SIZE,
+        "head_count": HEAD_COUNT,
+        "head_size": HEAD_SIZE,
+        "precision": CPU_REFERENCE_PRECISION,
     }
     identity = lora_core.authority_identity(fields)
     identity_again = lora_core.authority_identity(fields)
@@ -337,7 +344,10 @@ def check_model_authority() -> dict[str, object]:
     drifted = dict(fields, revision="deadbeef")
     if lora_core.authority_identity(drifted) == identity:
         raise ValueError("authority drift was not detected")
-    return {"authority_blake3": identity}
+    return {
+        "authority_blake3": identity,
+        "profile_blake3": PROFILE_BLAKE3,
+    }
 
 
 def check_model_load() -> dict[str, object]:

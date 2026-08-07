@@ -78,6 +78,8 @@ stdenv.mkDerivation {
       --set TT_METAL_HOME ${lib.escapeShellArg metaliumRoot} \
       --set TT_METAL_RUNTIME_ROOT ${lib.escapeShellArg metaliumRoot} \
       --set TT_MESH_GRAPH_DESC_PATH ${lib.escapeShellArg meshDescriptor}
+    mkdir -p "$out/share/model-target"
+    echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
 
   doInstallCheck = true;
@@ -95,6 +97,7 @@ stdenv.mkDerivation {
       model
       profile
       ;
+    profileIdentity = profile.profile_identity;
     targetName = profile.target_name;
   };
 

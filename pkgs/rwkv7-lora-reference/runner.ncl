@@ -1,19 +1,26 @@
 let contracts = import "config.ncl" in
+let target_profiles = import "../../model-targets/profiles.ncl" in
+let target = std.array.first (std.array.filter
+  (fun profile => profile.target_name == "rwkv7-goose-world2.8-0.1b-p150x2")
+  target_profiles.profiles) in
+let artifact = fun role => std.array.first (std.array.filter
+  (fun value => value.role == role)
+  target.artifacts) in
 {
   schema_version = 1,
   model = {
-    model_id = "RWKV/RWKV7-Goose-World2.8-0.1B-HF",
-    revision = "d81965cb4e1a9f96696b4f70b84212b8f2e43216",
-    checkpoint_blake3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5",
-    layer_count = 12,
-    hidden_size = 768,
-    head_count = 12,
-    head_size = 64,
-    vocabulary_size = 65536,
-    precision = "fp32_from_bf16",
+    model_id = target.model.id,
+    revision = target.model.revision,
+    checkpoint_blake3 = (artifact "checkpoint").blake3,
+    layer_count = target.resources.layer_count,
+    hidden_size = target.resources.hidden_size,
+    head_count = target.consumer.dimensions.head_count,
+    head_size = target.consumer.dimensions.head_size,
+    vocabulary_size = target.resources.vocabulary_size,
+    precision = target.consumer.precisions.cpu_reference,
   },
   tokenizer = {
-    vocabulary_blake3 = "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2",
+    vocabulary_blake3 = (artifact "tokenizer_vocabulary").blake3,
     vocabulary_entry_count = 65529,
   },
   data = {
@@ -44,8 +51,8 @@ let contracts = import "config.ncl" in
   },
   seed = 0,
   tolerances = {
-    gradient_agreement = 0.005,
-    finite_difference = 0.02,
+    gradient_agreement = target.consumer.tolerances.lora_gradient_agreement,
+    finite_difference = target.consumer.tolerances.lora_finite_difference,
     equation = 0.001,
   },
   output_path = "out/adapter",

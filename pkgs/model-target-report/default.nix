@@ -1,6 +1,7 @@
 {
   lib,
   rustPlatform,
+  targetProfile,
 }:
 let
   packageSource = lib.fileset.toSource {
@@ -21,7 +22,8 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   postInstall = ''
-    mkdir -p "$out/share/model-target-report"
+    mkdir -p "$out/share/model-target-report" "$out/share/model-target"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp ${./fixtures/complete-synthetic-candidate.json} \
       "$out/share/model-target-report/complete-synthetic-candidate.json"
     cp ${./fixtures/qwen3.6-unreviewed.json} \
@@ -50,7 +52,8 @@ rustPlatform.buildRustPackage {
     grep -F '"runnable_output_exposed": false' unsupported.json
     grep -F 'missing reviewed candidate fact: upstream_identity' unsupported.json
 
-    if "$out/bin/model-target-report" report /dev/null >invalid.log 2>&1; then
+    printf '{' >malformed-candidate.json
+    if "$out/bin/model-target-report" report malformed-candidate.json >invalid.log 2>&1; then
       echo "candidate report accepted malformed JSON" >&2
       exit 1
     fi

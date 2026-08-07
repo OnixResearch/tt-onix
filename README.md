@@ -41,6 +41,9 @@ nix run .#ttwkv7-data-movement -- self-test
 Each command rebuilds only the affected derivations. Nix reuses the unchanged
 host binaries, kernels, and dependencies from the store.
 
+See [Model target consumer identities](docs/model-target-consumer-identities.md)
+for the canonical profile edit, regeneration, and freshness workflow.
+
 Build a stable result link when you need to inspect or run several commands:
 
 ```sh

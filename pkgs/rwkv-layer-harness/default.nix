@@ -10,6 +10,7 @@
   targetArtifacts,
 }:
 let
+  profileIdentity = targetProfile.profile_identity;
   modelRevision = targetProfile.model.revision;
   model = targetArtifacts.checkpoint.path;
   modelBlake3 = targetArtifacts.checkpoint.blake3;
@@ -23,7 +24,7 @@ let
   generationConfig = targetArtifacts.generation_config.path;
   hfModelingSource = fetchurl {
     name = "modeling_rwkv7-${modelRevision}.py";
-    url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/${modelRevision}/modeling_rwkv7.py";
+    url = "https://huggingface.co/${targetProfile.model.id}/resolve/${modelRevision}/modeling_rwkv7.py";
     hash = "sha256-CwBZk2Oziq7f+c1xUZ1aDqfHSOHXcaTXQkNp+S6FChc=";
   };
   flaRevision = "17dd5662554d46b6bcb1d1ff728cebb461c9aef9";
@@ -343,6 +344,13 @@ let
   observedPostStateByteCount = 98304;
   writerRawByteCount = 147456;
   truncatedOutputByteCount = observedOutputByteCount - 1;
+  frameworkReferenceSource = lib.fileset.toSource {
+    root = ./reference;
+    fileset = lib.fileset.unions [
+      ./reference/generated_model_target_identity.py
+      ./reference/rwkv7_torch_equation_reference.py
+    ];
+  };
   frameworkParityCheck =
     runCommand "rwkv-layer-harness-torch-equation-parity"
       {
@@ -355,12 +363,12 @@ let
         ${package}/bin/rwkv-framework-fixture > rust-fixture-first.json
         ${package}/bin/rwkv-framework-fixture > rust-fixture-second.json
         cmp rust-fixture-first.json rust-fixture-second.json
-        python ${./reference/rwkv7_torch_equation_reference.py} --self-test > "$out/self-test.json"
+        python ${frameworkReferenceSource}/rwkv7_torch_equation_reference.py --self-test > "$out/self-test.json"
         grep -Fq '"changed_vector_rejected":true' "$out/self-test.json"
         grep -Fq '"malformed_vector_rejected":true' "$out/self-test.json"
 
         printf '{}\n' > malformed-fixture.json
-        if python ${./reference/rwkv7_torch_equation_reference.py} \
+        if python ${frameworkReferenceSource}/rwkv7_torch_equation_reference.py \
           --model ${model} \
           --rust-fixture malformed-fixture.json \
           --hf-source ${hfModelingSource} \
@@ -373,7 +381,7 @@ let
         grep -F 'Rust fixture is missing fields' malformed-error.log
 
         if grep -E 'torch\.cuda|device=.*cuda|import subprocess|from subprocess|import requests|import urllib' \
-          ${./reference/rwkv7_torch_equation_reference.py}; then
+          ${frameworkReferenceSource}/rwkv7_torch_equation_reference.py; then
           echo "PyTorch equation reference contains a GPU, subprocess, or network surface" >&2
           exit 1
         fi
@@ -382,7 +390,7 @@ let
         grep -Fq 'state = state * w' ${officialRwkvSource}
 
         for receipt_name in receipt-first.json receipt-second.json; do
-          python ${./reference/rwkv7_torch_equation_reference.py} \
+          python ${frameworkReferenceSource}/rwkv7_torch_equation_reference.py \
             --model ${model} \
             --rust-fixture rust-fixture-first.json \
             --hf-source ${hfModelingSource} \
@@ -1240,9 +1248,10 @@ let
     RWKV_GENERATION_CONFIG = generationConfig;
 
     postInstall = ''
-      mkdir -p "$out/share/rwkv-layer-harness"
+      mkdir -p "$out/share/rwkv-layer-harness" "$out/share/model-target"
       "$out/bin/rwkv-ttwkv7-fixture" \
         >"$out/share/rwkv-layer-harness/ttwkv7-boundary.json"
+      echo '${profileIdentity}' >"$out/share/model-target/profile-blake3"
     '';
 
     doInstallCheck = true;
@@ -1255,7 +1264,8 @@ let
       $out/bin/rwkv-layer-harness >"$fixture_root/second.json"
       cmp "$fixture_root/first.json" "$fixture_root/second.json"
 
-      grep -F '"model_id": "RWKV/RWKV7-Goose-World2.8-0.1B-HF"' "$fixture_root/first.json"
+      grep -F '"model_id": "${targetProfile.model.id}"' "$fixture_root/first.json"
+      grep -Fx '${profileIdentity}' "$out/share/model-target/profile-blake3"
       grep -F '"revision": "${modelRevision}"' "$fixture_root/first.json"
       grep -F '"blake3": "${modelBlake3}"' "$fixture_root/first.json"
       grep -F '"hidden_size": 768' "$fixture_root/first.json"

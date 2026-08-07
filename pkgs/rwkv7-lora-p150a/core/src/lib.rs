@@ -11,6 +11,8 @@
 //! Later phases extend this crate with probe, placement, parity, optimizer,
 //! run, and evidence admission. Each phase keeps the same core/shell split.
 
+mod generated_model_target_identity;
+
 use std::cmp::Ordering;
 
 use serde_json::{Value, json};
@@ -21,19 +23,18 @@ const HEX_HASH_LEN: usize = 64;
 // Admitted runtime bundle from the training platform manifest.
 const REQUIRED_BUNDLE_ID: &str = "tt-xla-training-2026-08-04";
 
-// CPU authority identities from pkgs/rwkv7-lora-reference.
-const REQUIRED_MODEL_ID: &str = "RWKV/RWKV7-Goose-World2.8-0.1B-HF";
-const REQUIRED_MODEL_REVISION: &str = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-const REQUIRED_CHECKPOINT_BLAKE3: &str =
-    "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
+// Generated CPU authority identities from the canonical model target profile.
+const REQUIRED_MODEL_ID: &str = generated_model_target_identity::MODEL_ID;
+const REQUIRED_MODEL_REVISION: &str = generated_model_target_identity::MODEL_REVISION;
+const REQUIRED_CHECKPOINT_BLAKE3: &str = generated_model_target_identity::MODEL_BLAKE3;
 const REQUIRED_TOKENIZER_VOCAB_BLAKE3: &str =
-    "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2";
-const REQUIRED_CPU_PRECISION: &str = "fp32_from_bf16";
-const REQUIRED_LAYER_COUNT: u64 = 12;
-const REQUIRED_HIDDEN_SIZE: u64 = 768;
-const REQUIRED_HEAD_COUNT: u64 = 12;
-const REQUIRED_HEAD_SIZE: u64 = 64;
-const REQUIRED_VOCABULARY_SIZE: u64 = 65536;
+    generated_model_target_identity::TOKENIZER_VOCAB_BLAKE3;
+const REQUIRED_CPU_PRECISION: &str = generated_model_target_identity::CPU_REFERENCE_PRECISION;
+const REQUIRED_LAYER_COUNT: u64 = generated_model_target_identity::MODEL_LAYER_COUNT as u64;
+const REQUIRED_HIDDEN_SIZE: u64 = generated_model_target_identity::HIDDEN_SIZE as u64;
+const REQUIRED_HEAD_COUNT: u64 = generated_model_target_identity::HEAD_COUNT as u64;
+const REQUIRED_HEAD_SIZE: u64 = generated_model_target_identity::HEAD_SIZE as u64;
+const REQUIRED_VOCABULARY_SIZE: u64 = generated_model_target_identity::VOCABULARY_SIZE as u64;
 const REQUIRED_VOCABULARY_ENTRY_COUNT: u64 = 65529;
 const CPU_REFERENCE_OUTCOME: &str = "bounded_cpu_reference_pass";
 
@@ -194,7 +195,26 @@ pub fn blake3_identity(value: &Value) -> String {
 }
 
 fn is_hash_hex(value: &str) -> bool {
-    value.len() == HEX_HASH_LEN && value.chars().all(|c| c.is_ascii_hexdigit())
+    value.len() == HEX_HASH_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+#[cfg(test)]
+mod hash_tests {
+    use super::{HEX_HASH_LEN, is_hash_hex};
+
+    const LOWER_HEX_CHARACTER: &str = "a";
+    const UPPER_HEX_CHARACTER: &str = "A";
+
+    #[test]
+    fn hash_grammar_accepts_lowercase_and_rejects_uppercase() {
+        let lowercase = LOWER_HEX_CHARACTER.repeat(HEX_HASH_LEN);
+        let uppercase = UPPER_HEX_CHARACTER.repeat(HEX_HASH_LEN);
+        assert!(is_hash_hex(&lowercase));
+        assert!(!is_hash_hex(&uppercase));
+    }
 }
 
 fn field<'a>(value: &'a Value, key: &str) -> Result<&'a Value, Rejection> {

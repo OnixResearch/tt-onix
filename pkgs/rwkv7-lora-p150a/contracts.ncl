@@ -3,6 +3,11 @@
 # The admission core in core/src/ re-checks every rule in Rust before
 # compilation, device access, or evidence admission.
 
+let target_profiles = import "../../model-targets/profiles.ncl" in
+let target = std.array.first (std.array.filter
+  (fun profile => profile.target_name == "rwkv7-goose-world2.8-0.1b-p150x2")
+  target_profiles.profiles) in
+
 let NonEmptyC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.length value > 0
 ) in
@@ -37,11 +42,11 @@ let BundleIdC = std.contract.from_predicate (fun value =>
   value == admitted_bundle_id
 ) in
 
-let admitted_model_id = "RWKV/RWKV7-Goose-World2.8-0.1B-HF" in
+let admitted_model_id = target.model.id in
 
 let admitted_precision_class = "bf16_from_fp32_cpu" in
 
-let admitted_adapter_format = "safetensors-adapter-only" in
+let admitted_adapter_format = target.consumer.adapter_format in
 
 let admitted_hash_algorithm = "blake3" in
 

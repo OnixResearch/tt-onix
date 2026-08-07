@@ -14,8 +14,17 @@
   platformEvidenceReceipt,
   cpuReference,
   rwkv7LoraP150a,
+  targetProfile,
 }:
 let
+  packageSource = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ./.
+      ../../model-targets
+    ];
+  };
+
   # r[impl tenstorrent.rwkv7_dual_p150a.configuration]
   # r[impl tenstorrent.rwkv7_dual_p150a.authority]
   # The dual core binds the single-P150A receipts through the single core
@@ -53,16 +62,16 @@ let
   singleCheckpointReceipt = ../rwkv7-lora-p150a/evidence/2026-08-05-checkpoint-resume/receipt.json;
 
   profileJson = runCommand "rwkv7-lora-dual-p150a-profile.json" { nativeBuildInputs = [ nickel ]; } ''
-    cp ${./contracts.ncl} contracts.ncl
-    cp ${./profile.ncl} profile.ncl
-    mkdir fixtures
-    cp ${./fixtures/base-profile.ncl} fixtures/base-profile.ncl
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-dual-p150a"
     nickel export --format json profile.ncl > "$out"
   '';
 
   wheelsJson = runCommand "rwkv7-lora-dual-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
-    cp ${./contracts.ncl} contracts.ncl
-    cp ${./wheels.ncl} wheels.ncl
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-dual-p150a"
     nickel export --format json wheels.ncl > "$out"
   '';
 
@@ -80,6 +89,7 @@ let
       --subst-var-by install_deps_py "${../rwkv7-lora-p150a/probes/install_deps.py}" \
       --subst-var-by container_collective "${./container-collective.sh}"
     chmod +x "$out"
+    patchShebangs "$out"
   '';
 
   # r[impl tenstorrent.rwkv7_dual_p150a.graph]
@@ -98,15 +108,17 @@ let
       --subst-var-by install_deps_py "${../rwkv7-lora-p150a/probes/install_deps.py}" \
       --subst-var-by container_script "${./container-dual-model.sh}"
     chmod +x "$out"
+    patchShebangs "$out"
   '';
 
   tools = runCommand "rwkv7-lora-dual-p150a-tools" { } ''
-    mkdir -p "$out/bin" "$out/share/rwkv7-lora-dual-p150a"
+    mkdir -p "$out/bin" "$out/share/rwkv7-lora-dual-p150a" "$out/share/model-target"
     ln -s ${core}/bin/rwkv7-lora-dual-p150a-core "$out/bin/rwkv7-lora-dual-p150a-core"
     ln -s ${collectiveRunner} "$out/bin/rwkv7-lora-dual-p150a-collective"
     ln -s ${fullStepRunner} "$out/bin/rwkv7-lora-dual-p150a-full-step"
     ln -s ${profileJson} "$out/share/rwkv7-lora-dual-p150a/profile.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-dual-p150a/wheels.json"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
 in
 # r[verify tenstorrent.rwkv7_dual_p150a.configuration.valid]
@@ -141,9 +153,9 @@ runCommand "rwkv7-lora-dual-p150a-check"
   }
   ''
     set -euo pipefail
-    cp -r ${./.} "$PWD/source"
-    chmod -R u+w "$PWD/source"
-    cd "$PWD/source"
+    cp -r ${packageSource} "$PWD/repository"
+    chmod -R u+w "$PWD/repository"
+    cd "$PWD/repository/pkgs/rwkv7-lora-dual-p150a"
 
     # Valid profile exports deterministically and carries a stable identity.
     nickel export --format json profile.ncl >profile-first.json
@@ -319,7 +331,8 @@ runCommand "rwkv7-lora-dual-p150a-check"
       grep -F '"status":"admitted"' checked-in-admission.json
     done
 
-    mkdir -p "$out"
+    mkdir -p "$out/share/model-target"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp profile-first.json "$out/profile.json"
     cp profile-admission.json "$out/profile-admission.json"
     cp shard-plan.json "$out/shard-plan.json"

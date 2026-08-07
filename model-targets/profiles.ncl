@@ -36,6 +36,31 @@ let contracts = import "contract.ncl" in
         physical_device_ids = [0, 1],
         replication = "full-lockstep",
       },
+      consumer = {
+        dimensions = {
+          head_count = 12,
+          head_size = 64,
+          intermediate_size = 3072,
+          complete_state_element_count = 608256,
+        },
+        precisions = {
+          cpu_reference = "fp32_from_bf16",
+          runtime_arithmetic = "cpu_fp32_from_bf16",
+          ttwkv7_boundary = "little_endian_bf16_storage_cpu_fp32_recurrence",
+        },
+        tolerances = {
+          harness_oracle = 0.00001,
+          harness_replay = 0.00001,
+          state_carry_divergence_floor = 0.0001,
+          final_hidden = 0.5,
+          logits = 1.0,
+          recurrent_state = 1.0,
+          control_divergence_floor = 0.5,
+          lora_gradient_agreement = 0.005,
+          lora_finite_difference = 0.02,
+        },
+        adapter_format = "safetensors-adapter-only",
+      },
       artifacts = [
         {
           role = "checkpoint",
@@ -127,6 +152,31 @@ let contracts = import "contract.ncl" in
         mesh_shape = [1, 1],
         physical_device_ids = [0],
         replication = "none",
+      },
+      consumer = {
+        dimensions = {
+          head_count = 2,
+          head_size = 32,
+          intermediate_size = 128,
+          complete_state_element_count = 256,
+        },
+        precisions = {
+          cpu_reference = "fp32_fixture",
+          runtime_arithmetic = "fp32_fixture",
+          ttwkv7_boundary = "not_applicable",
+        },
+        tolerances = {
+          harness_oracle = 0.00001,
+          harness_replay = 0.00001,
+          state_carry_divergence_floor = 0.0001,
+          final_hidden = 0.01,
+          logits = 0.01,
+          recurrent_state = 0.01,
+          control_divergence_floor = 0.01,
+          lora_gradient_agreement = 0.005,
+          lora_finite_difference = 0.02,
+        },
+        adapter_format = "fixture-only",
       },
       artifacts = [
         {

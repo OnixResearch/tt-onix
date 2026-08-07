@@ -1,0 +1,10 @@
+[package]
+name = "model-target-consumer-generator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Deterministic model-target identity projection generator"
+
+[dependencies]
+blake3 = "1"
+serde_json = "1"

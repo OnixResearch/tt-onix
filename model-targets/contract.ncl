@@ -31,6 +31,10 @@ let StateKindContract = std.contract.from_predicate (fun value =>
   value == "recurrent_matrix" || value == "kv_cache"
 ) in
 
+let PositiveTolerance = std.contract.from_predicate (fun value =>
+  std.is_number value && value > 0
+) in
+
 let ProfileArtifact = {
   role | NonEmpty,
   name | NonEmpty,
@@ -71,6 +75,31 @@ let ModelProfileContract = {
     mesh_shape | Array Positive,
     physical_device_ids | Array NonNegative,
     replication | NonEmpty,
+  },
+  consumer | {
+    dimensions | {
+      head_count | Positive,
+      head_size | Positive,
+      intermediate_size | Positive,
+      complete_state_element_count | Positive,
+    },
+    precisions | {
+      cpu_reference | NonEmpty,
+      runtime_arithmetic | NonEmpty,
+      ttwkv7_boundary | NonEmpty,
+    },
+    tolerances | {
+      harness_oracle | PositiveTolerance,
+      harness_replay | PositiveTolerance,
+      state_carry_divergence_floor | PositiveTolerance,
+      final_hidden | PositiveTolerance,
+      logits | PositiveTolerance,
+      recurrent_state | PositiveTolerance,
+      control_divergence_floor | PositiveTolerance,
+      lora_gradient_agreement | PositiveTolerance,
+      lora_finite_difference | PositiveTolerance,
+    },
+    adapter_format | NonEmpty,
   },
   artifacts | Array ProfileArtifact,
 } in

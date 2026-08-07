@@ -52,6 +52,10 @@ let
       cargoRoot = "crates/repository-quality";
     }
     {
+      name = "model-target-consumer-generator";
+      cargoRoot = "pkgs/model-target-consumer-generator";
+    }
+    {
       name = "model-target-core";
       cargoRoot = "pkgs/model-target-core";
     }

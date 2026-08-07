@@ -12,7 +12,7 @@ let
   boundaryClosure = closureInfo { rootPaths = [ boundaryDevice ]; };
   ordinaryClosurePathCount = 68;
   boundaryClosurePathCount = 118;
-  expectedMetaliumPythonPath = "/nix/store/l9k0anq0z7zz81zcwy035jfwap9ga6rl-python3-3.13.13";
+  expectedMetaliumPythonPath = "/nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13";
   fixturePath = "${boundaryDevice}/share/rwkv-ttwkv7-boundary-device/ttwkv7-boundary.json";
   wrapper = "${boundaryDevice}/bin/wkv7-rwkv-boundary";
   planReceipt = "${boundaryDevice}/share/rwkv-ttwkv7-boundary-device/session/plan-receipt.json";
@@ -21,11 +21,11 @@ let
   expectedFixtureByteCount = 420072;
   expectedFixtureBlake3 = "731f44866c869300ca330f703f1adad4c3ae7ee62b832fa881a6bf4ea90211cd";
   expectedSelfTestBlake3 = "c1b6b14a04acb3aca238a2ae77854a22701d70da1ffcc2e9efee9f852048d6e8";
-  expectedPlanReceiptBlake3 = "8052a6303e02a0ae4e66768bbebe982b69e2a48e386264244a5fa917b1e8d44e";
-  expectedNotRunReceiptBlake3 = "0f025b794b270cb1cecb5376ff1bae0333fba27146680764246805f0c923c3fb";
+  expectedPlanReceiptBlake3 = "54901242619a36809d7190bb72d08cc6c6dcdf4c7d6d4c82f09302f397c7228b";
+  expectedNotRunReceiptBlake3 = "3b78be36bf16df6d4709a4a48a7e021a523a7e6992d1c2f9b1fd6bf540542f67";
   expectedPreflightReceiptBlake3 = "ff37d0a0f54d9c99c373d2815613acb9d02f1c6d230146755e2f6cbe34ec5e69";
   expectedRunnerBlake3 = "58c01b487e5cd419ff6185290919a40db2e550071c83143f0a9d7eaf2c27eecf";
-  expectedBoundaryCoreBlake3 = "e644934c561be74c852e6e223f8a25e2564e1cdeda165c2a7570efa378de8b20";
+  expectedBoundaryCoreBlake3 = "2503db4e230f3f6ae25902bc4ea3efa5ffcc0d491e65fb0bdb0e4d4b74bae330";
   expectedDecodeReaderBlake3 = "221a9e9cb987902e99e4e50bfe5dce2d9f44a5252720b5d3dcbd13fbadb85fca";
   expectedDecodeComputeBlake3 = "bbda1f84aa2fcef7a946de76e0a0a03202e068c822f54b80c9cab5f4e13e35d0";
   expectedWriterBlake3 = "80ecf2f848144aa1a693f6b3b854542d2fd752bed8c83d9cbce31bd16e261b74";
