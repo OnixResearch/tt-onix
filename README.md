@@ -74,13 +74,16 @@ It does not acquire a Tenstorrent device. See
 
 ## Onix packages
 
+The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
+See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
+
 On `x86_64-linux`, the flake also publishes:
 
 - `rwkv-lab` and `rwkv-layer-harness` for deterministic device-free RWKV-7 validation;
 - `rwkv7-p150x2-runtime` and `rwkv7-p150x2-evidence` for replicated full-model two-card validation;
 - `ttwkv7` plus bounded and persistent operator wrappers;
 - retained partial and passing ttWKV7 evidence validators;
-- `ttwkv7-owner-control`, `tt-vibethinker-bench`, and `ttsim`.
+- `ttwkv7-owner-control` and `tt-vibethinker-bench`.
 
 The focused checks include positive and negative fixtures and do not acquire a
 Tenstorrent device. The P150x2 runtime uses full-lockstep replication. It does not

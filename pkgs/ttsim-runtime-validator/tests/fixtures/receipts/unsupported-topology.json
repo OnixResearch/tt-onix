@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "simulated": true,
+  "simulator_version": "1.9.2",
+  "host_system": "x86_64-linux",
+  "topology": "blackhole-x2",
+  "dispatch_mode": "slow",
+  "workload": "ttnn-ones-add",
+  "timeout_seconds": 3600,
+  "status": "passed",
+  "classification": "passed",
+  "blocker": null,
+  "observations": {
+    "device_opened": true,
+    "firmware_compiled": true,
+    "representative_operations_completed": true,
+    "clean_close": true
+  },
+  "identities": {
+    "library": { "value": "library", "blake3": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "descriptor": { "value": "descriptor", "blake3": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "tt_metal": { "value": "tt-metal", "blake3": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  },
+  "claims": [],
+  "non_claims": [
+    "physical placement",
+    "hardware profiling",
+    "performance",
+    "thermals",
+    "device health",
+    "silicon success"
+  ]
+}

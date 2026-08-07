@@ -232,7 +232,7 @@
         pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-passed-evidence
           { };
       ttVibeThinkerBench = pkgs.callPackage ../pkgs/tt-vibethinker-bench { };
-      ttsim = pkgs.callPackage ../pkgs/ttsim { };
+      ttsim = pkgs.ttsim;
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
       rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
@@ -429,7 +429,7 @@
       apps = lib.optionalAttrs isSupportedSystem developmentApps;
 
       packages = lib.optionalAttrs isSupportedSystem {
-        inherit ttsim ttwkv7;
+        inherit ttwkv7;
         rwkv7-chat = rwkv7Chat;
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;

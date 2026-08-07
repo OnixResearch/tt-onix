@@ -49,6 +49,9 @@
               tt-system-tools
               tt-topology
               tt-umd
+              ttsim
+              ttsim-blackhole-smoke
+              ttsim-runtime-validator
               ;
             inherit (pkgs.python3Packages)
               pyluwen
@@ -56,6 +59,12 @@
               tt-tools-common
               ;
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
+          };
+
+          apps.ttsim-blackhole-smoke = {
+            type = "app";
+            program = "${pkgs.ttsim-blackhole-smoke}/bin/ttsim-blackhole-smoke";
+            meta.description = "Run the bounded Blackhole 1x1 TT-NN smoke on TTsim";
           };
 
           checks = {
@@ -71,7 +80,11 @@
               tt-system-tools
               tt-topology
               tt-umd
+              ttsim
+              ttsim-runtime-validator
               ;
+            ttsim-runtime-bundle = pkgs.ttsim-check;
+            ttsim-single-chip-smoke = pkgs.ttsim-smoke-check;
             inherit (pkgs.python3Packages)
               pyluwen
               tt-flash

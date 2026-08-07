@@ -89,6 +89,10 @@ let
       cargoRoot = "pkgs/training-platform/core";
     }
     {
+      name = "ttsim-runtime-validator";
+      cargoRoot = "pkgs/ttsim-runtime-validator";
+    }
+    {
       name = "tt-vibethinker-bench";
       cargoRoot = "pkgs/tt-vibethinker-bench";
     }
