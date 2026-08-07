@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_dual_p150a.graph]
 # Runs inside the pinned TT-XLA base image for the dual-replica full-model
 # graph. Same wheel-install policy as container-collective.sh, plus

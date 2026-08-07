@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_p150a_finetuning.compiler]
 # Runs inside the pinned TT-XLA base image. Installs the host-verified
 # runtime wheels from the read-only /wheels mount, then installs their

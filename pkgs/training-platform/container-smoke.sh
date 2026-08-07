@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.training_platform.launch]
 # Runs inside the pinned TT-XLA base image. Installs the hash-pinned PJRT
 # wheel and executes the bounded collective-free mesh smoke.

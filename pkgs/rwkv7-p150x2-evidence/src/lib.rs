@@ -64,6 +64,13 @@ const ASCII_ALERT_BYTE: u8 = 0x07;
 const ASCII_BACKSPACE_BYTE: u8 = 0x08;
 const ASCII_FORM_FEED_BYTE: u8 = 0x0c;
 const ASCII_VERTICAL_TAB_BYTE: u8 = 0x0b;
+// Generated from quality/policy.ncl. r[impl tenstorrent.quality.parser_robustness]
+const JSON_MAX_BYTES: usize = 1_048_576;
+const YAML_MAX_BYTES: usize = 8_388_608;
+const CSV_MAX_BYTES: usize = 8_388_608;
+const CSV_MAX_ROWS: usize = 100_000;
+const CSV_MAX_FIELDS: usize = 256;
+const VOCABULARY_MAX_BYTES: usize = 16_777_216;
 const PROFILER_MINIMUM_COLUMN_COUNT: usize = 12;
 const PROFILER_CARD_COLUMN: usize = 0;
 const PROFILER_CYCLE_COLUMN: usize = 5;
@@ -406,6 +413,8 @@ pub fn classify_attempt3(
     safety_bytes: &[u8],
     terminal_bytes: &[u8],
 ) -> Result<Attempt3ClassificationReceipt, String> {
+    require_bounded_bytes(safety_bytes, JSON_MAX_BYTES, "attempt-3 safety receipt")?;
+    require_bounded_bytes(terminal_bytes, JSON_MAX_BYTES, "attempt-3 terminal outcome")?;
     let safety: SafetyReceipt = serde_json::from_slice(safety_bytes)
         .map_err(|error| format!("invalid attempt-3 safety receipt: {error}"))?;
     let terminal: Attempt3TerminalOutcome = serde_json::from_slice(terminal_bytes)
@@ -511,6 +520,7 @@ pub fn classify_attempt3(
 }
 
 pub fn parse_reference(bytes: &[u8]) -> Result<ReferenceManifest, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, "reference manifest")?;
     let manifest: ReferenceManifest = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid reference manifest: {error}"))?;
     require(
@@ -596,8 +606,10 @@ pub fn expected_topology_identity() -> Result<TopologyIdentity, String> {
 
 pub fn runtime_topology_identity(receipt: &RuntimeReceipt) -> Result<TopologyIdentity, String> {
     let mesh_shape = convert_u32_values(&receipt.mesh.shape, "runtime mesh shape")?;
-    let physical_device_ids =
-        convert_u32_values(&receipt.mesh.physical_device_ids, "runtime physical device IDs")?;
+    let physical_device_ids = convert_u32_values(
+        &receipt.mesh.physical_device_ids,
+        "runtime physical device IDs",
+    )?;
     Ok(TopologyIdentity {
         id: receipt.mesh.id.clone(),
         mesh_shape,
@@ -628,6 +640,7 @@ fn convert_u32_values(values: &[usize], name: &str) -> Result<Vec<u32>, String> 
 
 // r[verify tenstorrent.rwkv7_p150x2.full_device_runtime.invalid_mesh]
 pub fn parse_runtime(bytes: &[u8]) -> Result<RuntimeReceipt, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, "runtime receipt")?;
     let receipt: RuntimeReceipt = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid runtime receipt: {error}"))?;
     require(
@@ -977,6 +990,7 @@ pub fn validate_initial_zero_state(
 }
 
 fn yaml_sequence(bytes: &[u8], label: &str) -> Result<Vec<YamlValue>, String> {
+    require_bounded_bytes(bytes, YAML_MAX_BYTES, label)?;
     let value: YamlValue =
         serde_yaml::from_slice(bytes).map_err(|error| format!("invalid {label} YAML: {error}"))?;
     value
@@ -1143,13 +1157,20 @@ pub fn parse_inspector(
 }
 
 pub fn parse_profiler(bytes: &[u8]) -> Result<Vec<ProfilerRow>, String> {
+    require_bounded_bytes(bytes, CSV_MAX_BYTES, "profiler CSV")?;
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
         .from_reader(bytes);
     let mut rows = Vec::new();
-    for record in reader.records() {
+    for (row_index, record) in reader.records().enumerate() {
+        if row_index >= CSV_MAX_ROWS {
+            return Err(format!("profiler CSV row count exceeds {CSV_MAX_ROWS}"));
+        }
         let record = record.map_err(|error| format!("invalid profiler CSV: {error}"))?;
+        if record.len() > CSV_MAX_FIELDS {
+            return Err(format!("profiler CSV field count exceeds {CSV_MAX_FIELDS}"));
+        }
         if record.len() < PROFILER_MINIMUM_COLUMN_COUNT {
             continue;
         }
@@ -1551,6 +1572,7 @@ struct BoundedTokenizer {
 
 impl BoundedTokenizer {
     fn parse(vocabulary: &[u8]) -> Result<Self, String> {
+        require_bounded_bytes(vocabulary, VOCABULARY_MAX_BYTES, "tokenizer vocabulary")?;
         require(
             blake3::hash(vocabulary).to_hex().as_str() == TOKENIZER_VOCAB_BLAKE3,
             "tokenizer vocabulary BLAKE3 mismatch",
@@ -1873,7 +1895,18 @@ fn parse_fixed_hex(
 }
 
 pub fn parse_json_value(bytes: &[u8], label: &str) -> Result<JsonValue, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, label)?;
     serde_json::from_slice(bytes).map_err(|error| format!("invalid {label} JSON: {error}"))
+}
+
+fn require_bounded_bytes(bytes: &[u8], maximum: usize, label: &str) -> Result<(), String> {
+    if bytes.len() > maximum {
+        return Err(format!(
+            "{label} byte count {} exceeds {maximum}",
+            bytes.len()
+        ));
+    }
+    Ok(())
 }
 
 fn require(condition: bool, message: &str) -> Result<(), String> {
@@ -2233,6 +2266,23 @@ mod tests {
         assert_eq!(rows.len(), TEST_ELEMENT_COUNT);
         assert_eq!(rows[0].runtime_id, TEST_PROFILER_RUNTIME_ID);
         assert!(parse_profiler(b"header only\n").is_err());
+    }
+
+    #[test]
+    fn parser_boundaries_reject_oversized_and_over_field_inputs() {
+        let oversized_json = vec![b' '; JSON_MAX_BYTES + 1];
+        assert!(parse_reference(&oversized_json).is_err());
+        assert!(parse_runtime(&oversized_json).is_err());
+        assert!(parse_json_value(&oversized_json, "fixture").is_err());
+
+        let oversized_yaml = vec![b' '; YAML_MAX_BYTES + 1];
+        assert!(yaml_sequence(&oversized_yaml, "fixture").is_err());
+
+        let oversized_vocabulary = vec![b' '; VOCABULARY_MAX_BYTES + 1];
+        assert!(BoundedTokenizer::parse(&oversized_vocabulary).is_err());
+
+        let over_field_row = vec!["field"; CSV_MAX_FIELDS + 1].join(",");
+        assert!(parse_profiler(over_field_row.as_bytes()).is_err());
     }
 
     #[test]

@@ -117,7 +117,9 @@ def autograd_gradients(
     gout: torch.Tensor,
 ) -> tuple[torch.Tensor, ...]:
     """Autograd gradients of the forward output dotted with gout."""
-    inputs = [tensor.detach().clone().requires_grad_(True) for tensor in (r, w, k, v, a, b)]
+    inputs = [
+        tensor.detach().clone().requires_grad_(True) for tensor in (r, w, k, v, a, b)
+    ]
     state_input = state.detach().clone()
     out, _ = wkv7_forward(*inputs, state_input)
     torch.autograd.backward(out, gout)

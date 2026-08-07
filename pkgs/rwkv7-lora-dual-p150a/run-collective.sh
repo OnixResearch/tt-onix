@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_dual_p150a.collectives]
 # Host-side orchestrator for the dual-P150A collective probe receipt.
 # Runs the focused mesh/all-reduce/barrier probe in the pinned container,

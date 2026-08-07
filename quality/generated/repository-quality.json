@@ -1,0 +1,132 @@
+{
+  "artifact_rules": [
+    {
+      "allowed_roots": [
+        ".",
+        "cairn",
+        "checks",
+        "crates",
+        "docs",
+        "flake-modules",
+        "model-targets",
+        "nixos",
+        "pkgs",
+        "quality"
+      ],
+      "blake3_required": false,
+      "class": "source",
+      "git_allowed": true,
+      "max_bytes": 1048576,
+      "private_content_allowed": false
+    },
+    {
+      "allowed_roots": [
+        "model-targets/generated",
+        "quality/generated"
+      ],
+      "blake3_required": true,
+      "class": "generated_source",
+      "git_allowed": true,
+      "max_bytes": 1048576,
+      "private_content_allowed": false
+    },
+    {
+      "allowed_roots": [
+        "pkgs"
+      ],
+      "blake3_required": true,
+      "class": "portable_evidence",
+      "git_allowed": true,
+      "max_bytes": 8388608,
+      "private_content_allowed": false
+    },
+    {
+      "allowed_roots": [
+        ".pi",
+        "generated"
+      ],
+      "blake3_required": false,
+      "class": "private_operational_log",
+      "git_allowed": false,
+      "max_bytes": 134217728,
+      "private_content_allowed": true
+    },
+    {
+      "allowed_roots": [
+        "pkgs"
+      ],
+      "blake3_required": true,
+      "class": "large_fixture",
+      "git_allowed": true,
+      "max_bytes": 8388608,
+      "private_content_allowed": false
+    },
+    {
+      "allowed_roots": [
+        ".pi",
+        "result",
+        "result-1"
+      ],
+      "blake3_required": true,
+      "class": "external_large_object",
+      "git_allowed": false,
+      "max_bytes": 17179869184,
+      "private_content_allowed": false
+    }
+  ],
+  "forbidden_device_commands": [
+    "tt-smi",
+    "tt-flash",
+    "tt-burnin",
+    "ttwkv7-owner-control"
+  ],
+  "forbidden_device_paths": [
+    "/dev/tenstorrent",
+    "/dev/hugepages-1G"
+  ],
+  "parser_limits": [
+    {
+      "family": "json",
+      "max_bytes": 1048576,
+      "max_depth": 64,
+      "max_fields": 4096,
+      "max_items": 100000
+    },
+    {
+      "family": "yaml",
+      "max_bytes": 8388608,
+      "max_depth": 64,
+      "max_fields": 4096,
+      "max_items": 100000
+    },
+    {
+      "family": "csv",
+      "max_bytes": 8388608,
+      "max_depth": 1,
+      "max_fields": 256,
+      "max_items": 100000
+    },
+    {
+      "family": "binary_frame",
+      "max_bytes": 16777216,
+      "max_depth": 1,
+      "max_fields": 256,
+      "max_items": 100000
+    },
+    {
+      "family": "vocabulary",
+      "max_bytes": 16777216,
+      "max_depth": 1,
+      "max_fields": 4,
+      "max_items": 100000
+    },
+    {
+      "family": "receipt",
+      "max_bytes": 2097152,
+      "max_depth": 64,
+      "max_fields": 4096,
+      "max_items": 100000
+    }
+  ],
+  "schema_version": 1
+}

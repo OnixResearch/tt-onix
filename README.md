@@ -60,6 +60,18 @@ A NixOS activation is still necessary for kernel modules, udev rules, system
 environment changes, and service changes. Use the full host closure as the
 final integration gate, not as the package inner loop.
 
+## Repository quality
+
+Run the complete device-free quality gate from the repository root:
+
+```sh
+nix run .#quality
+```
+
+The command uses pinned Rust, shell, Python, Nix, Nickel, and Cairn tools.
+It does not acquire a Tenstorrent device. See
+[`docs/repository-quality.md`](docs/repository-quality.md) for the parser and artifact workflows.
+
 ## Onix packages
 
 On `x86_64-linux`, the flake also publishes:

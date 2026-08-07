@@ -19,10 +19,11 @@
       modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
       rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
       rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
+      rwkvArchitectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
       rwkvTarget = modelTargets.mkModelTarget {
         profile = rwkvProfile;
         artifacts = rwkvArtifacts;
-        architectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
+        architectureAdapter = rwkvArchitectureAdapter;
         evidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
         topology = modelTargets.mkTopology rwkvProfile;
         builders = {
@@ -234,6 +235,66 @@
       ttsim = pkgs.callPackage ../pkgs/ttsim { };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
+      rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
+      repositoryQuality = import ../checks/repository-quality.nix {
+        inherit lib pkgs;
+        cairn = inputs.cairn.packages.${system}.cairn;
+        cairnPolicy = "${inputs.cairn}/cairn-policy/generated/cairn-policy.json";
+        evidenceEnvironment = {
+          MODEL_TARGET_NAME = rwkvProfile.target_name;
+          MODEL_TARGET_MODEL_ID = rwkvProfile.model.id;
+          MODEL_TARGET_REVISION = rwkvProfile.model.revision;
+          MODEL_TARGET_ARCHITECTURE_FAMILY = rwkvProfile.model.architecture_family;
+          MODEL_TARGET_STATE_KIND = rwkvProfile.state.kind;
+          MODEL_TARGET_PRECISION = rwkvProfile.model.precision;
+          MODEL_TARGET_ARCHITECTURE_ADAPTER = rwkvProfile.adapters.architecture;
+          MODEL_TARGET_EVIDENCE_ADAPTER = rwkvProfile.adapters.evidence;
+          MODEL_TARGET_ARTIFACT_BLAKE3_JSON = builtins.toJSON rwkvArtifactBlake3;
+          MODEL_TARGET_TOPOLOGY_ID = rwkvProfile.topology.id;
+          MODEL_TARGET_MESH_SHAPE_JSON = builtins.toJSON rwkvProfile.topology.mesh_shape;
+          MODEL_TARGET_PHYSICAL_DEVICE_IDS_JSON = builtins.toJSON rwkvProfile.topology.physical_device_ids;
+          MODEL_TARGET_REPLICATION = rwkvProfile.topology.replication;
+          MODEL_TARGET_REQUIRED_OPERATIONS_JSON = builtins.toJSON rwkvArchitectureAdapter.requiredOperations;
+          MODEL_TARGET_CHECKPOINT_BLAKE3 = rwkvArtifacts.checkpoint.blake3;
+          MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3 = rwkvArtifacts.tokenizer_vocabulary.blake3;
+        };
+      };
+      repositoryQualityAggregate =
+        pkgs.runCommand "tenstorrent-repository-quality"
+          {
+            qualityInputs = repositoryQuality.cargoChecks ++ [
+              repositoryQuality.artifactQuality
+              repositoryQuality.cairnQuality
+              repositoryQuality.negativeLanguageQuality
+              repositoryQuality.nixQuality
+              repositoryQuality.policyQuality
+              repositoryQuality.pythonQuality
+              repositoryQuality.shellQuality
+              migrationBoundaryCheck
+              modelTargetFactoryCheck
+              rwkvLayerHarness.passthru.frameworkParityCheck
+              trainingPlatform
+            ];
+          }
+          ''
+            set -euo pipefail
+            for quality_input in $qualityInputs; do
+              test -e "$quality_input"
+            done
+            if test -e /dev/tenstorrent; then
+              echo "device-free quality sandbox exposes /dev/tenstorrent" >&2
+              exit 1
+            fi
+            touch "$out"
+          '';
+      qualityRunner = pkgs.writeShellApplication {
+        name = "tenstorrent-quality";
+        runtimeInputs = [
+          pkgs.git
+          pkgs.nix
+        ];
+        text = lib.removePrefix "#!/usr/bin/env bash\n" (builtins.readFile ../checks/run-quality.sh);
+      };
 
       developmentAppSpecs = {
         ttwkv7 = {
@@ -260,6 +321,11 @@
           package = rwkv7Chat;
           executable = "rwkv7-chat";
           description = "Chat with RWKV-7 on the Tenstorrent card via llama.cpp Metalium";
+        };
+        quality = {
+          package = qualityRunner;
+          executable = "tenstorrent-quality";
+          description = "Run the repository-owned device-free quality gate";
         };
       };
       isSafeExecutableName =
@@ -381,6 +447,7 @@
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
+        repository-quality = repositoryQuality.repositoryQualityPackage;
       };
 
       checks = lib.optionalAttrs isSupportedSystem {
@@ -421,6 +488,14 @@
         tt-vibethinker-bench-package = ttVibeThinkerBench;
         ttsim-package = ttsim;
         ttwkv7-owner-control-package = ttwkv7OwnerControl;
+        repository-quality = repositoryQualityAggregate;
+        repository-quality-artifacts = repositoryQuality.artifactQuality;
+        repository-quality-cairn = repositoryQuality.cairnQuality;
+        repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;
+        repository-quality-nix = repositoryQuality.nixQuality;
+        repository-quality-policy = repositoryQuality.policyQuality;
+        repository-quality-python = repositoryQuality.pythonQuality;
+        repository-quality-shell = repositoryQuality.shellQuality;
       };
     };
 }

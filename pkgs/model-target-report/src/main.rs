@@ -13,6 +13,8 @@ const REPORT_ARGUMENT_COUNT: usize = 2;
 const SELF_TEST_ARGUMENT_COUNT: usize = 1;
 const MODE_INDEX: usize = 0;
 const INPUT_INDEX: usize = 1;
+// Generated from quality/policy.ncl. r[impl tenstorrent.quality.parser_robustness]
+const CANDIDATE_JSON_MAX_BYTES: u64 = 1_048_576;
 
 fn main() -> ExitCode {
     match run() {
@@ -37,12 +39,30 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(invalid_input("requires: report CANDIDATE.json").into());
     }
     let input = require_regular_file(&arguments[INPUT_INDEX])?;
-    let facts: CandidateFacts = serde_json::from_slice(&fs::read(input)?)
-        .map_err(|error| invalid_data(format!("invalid candidate facts: {error}")))?;
+    let metadata = fs::metadata(&input)?;
+    if metadata.len() > CANDIDATE_JSON_MAX_BYTES {
+        return Err(invalid_data(format!(
+            "candidate JSON byte count {} exceeds {CANDIDATE_JSON_MAX_BYTES}",
+            metadata.len()
+        ))
+        .into());
+    }
+    let facts = parse_candidate_facts(&fs::read(input)?)?;
     let report = evaluate_candidate(&facts);
     serde_json::to_writer_pretty(io::stdout().lock(), &report)?;
     println!();
     Ok(())
+}
+
+fn parse_candidate_facts(bytes: &[u8]) -> Result<CandidateFacts, io::Error> {
+    if bytes.len() as u64 > CANDIDATE_JSON_MAX_BYTES {
+        return Err(invalid_data(format!(
+            "candidate JSON byte count {} exceeds {CANDIDATE_JSON_MAX_BYTES}",
+            bytes.len()
+        )));
+    }
+    serde_json::from_slice(bytes)
+        .map_err(|error| invalid_data(format!("invalid candidate facts: {error}")))
 }
 
 fn require_regular_file(text: &str) -> Result<PathBuf, io::Error> {
@@ -97,12 +117,39 @@ fn invalid_data(message: impl Into<String>) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{REPORT_MODE, require_regular_file, run_self_test};
+    use super::{
+        CANDIDATE_JSON_MAX_BYTES, REPORT_MODE, parse_candidate_facts, require_regular_file,
+        run_self_test,
+    };
+
+    const VALID_CANDIDATE: &[u8] = br#"{
+        "candidate_name":"fixture",
+        "upstream_identity":null,
+        "revision":null,
+        "license":null,
+        "artifacts":null,
+        "tokenizer":null,
+        "state_kind":null,
+        "required_operators":null,
+        "memory_bounds":null,
+        "reference_authority":null,
+        "evidence_adapter":null,
+        "topology_compatibility":null
+    }"#;
 
     #[test]
     fn self_test_rejects_incomplete_candidate_facts() {
         run_self_test().expect("self-test must pass");
         assert_eq!(REPORT_MODE, "report");
+    }
+
+    #[test]
+    fn candidate_parser_accepts_bounded_input_and_rejects_invalid_input() {
+        let facts = parse_candidate_facts(VALID_CANDIDATE).expect("bounded candidate must parse");
+        assert_eq!(facts.candidate_name, "fixture");
+        assert!(parse_candidate_facts(b"{").is_err());
+        let oversized = vec![b' '; CANDIDATE_JSON_MAX_BYTES as usize + 1];
+        assert!(parse_candidate_facts(&oversized).is_err());
     }
 
     #[test]

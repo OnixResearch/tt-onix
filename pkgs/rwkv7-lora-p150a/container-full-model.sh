@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_p150a_finetuning.graph]
 # Runs inside the pinned TT-XLA base image for the full-model graph. Same
 # wheel-install policy as container-probe.sh, plus safetensors to read the

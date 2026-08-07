@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.training_platform.preflight]
 # r[impl tenstorrent.training_platform.launch]
 # r[impl tenstorrent.training_platform.evidence]

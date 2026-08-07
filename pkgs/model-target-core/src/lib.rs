@@ -149,7 +149,10 @@ pub fn validate_architecture_evidence(
         .collect::<Vec<_>>();
     require(
         missing.is_empty(),
-        &format!("architecture evidence lacks operations: {}", missing.join(", ")),
+        &format!(
+            "architecture evidence lacks operations: {}",
+            missing.join(", ")
+        ),
     )
 }
 
@@ -215,7 +218,11 @@ fn validate_topology_identity(
         expected.physical_device_ids == actual.physical_device_ids,
         "topology physical device identity mismatch",
     )?;
-    require_field("topology replication", &expected.replication, &actual.replication)
+    require_field(
+        "topology replication",
+        &expected.replication,
+        &actual.replication,
+    )
 }
 
 fn candidate_blockers(facts: &CandidateFacts) -> Vec<String> {

@@ -2,6 +2,10 @@
 result
 result-*
 
-# Ignore automatically generated direnv output
+# Ignore automatically generated local build and environment output.
 .direnv
+target/
 .pi/
+
+# Runtime inspector and watcher logs are private operational artifacts.
+/generated/

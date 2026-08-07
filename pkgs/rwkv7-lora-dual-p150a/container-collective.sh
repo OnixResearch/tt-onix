@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_dual_p150a.collectives]
 # Runs inside the pinned TT-XLA base image for the collective probe. Same
 # wheel-install policy as the single-card probe container.

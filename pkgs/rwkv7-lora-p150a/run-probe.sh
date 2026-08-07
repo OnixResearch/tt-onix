@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_p150a_finetuning.compiler]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
 # Host-side orchestrator for one focused single-device compile probe.

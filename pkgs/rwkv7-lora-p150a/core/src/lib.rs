@@ -11,6 +11,8 @@
 //! Later phases extend this crate with probe, placement, parity, optimizer,
 //! run, and evidence admission. Each phase keeps the same core/shell split.
 
+use std::cmp::Ordering;
+
 use serde_json::{Value, json};
 
 const SCHEMA_VERSION: u64 = 1;
@@ -208,9 +210,12 @@ fn string_field<'a>(value: &'a Value, key: &str) -> Result<&'a str, Rejection> {
 }
 
 fn positive_u64(value: &Value, key: &str) -> Result<u64, Rejection> {
-    let number = field(value, key)?
-        .as_u64()
-        .ok_or_else(|| Rejection::new("dynamic_shape", format!("field '{key}' is not a positive integer")))?;
+    let number = field(value, key)?.as_u64().ok_or_else(|| {
+        Rejection::new(
+            "dynamic_shape",
+            format!("field '{key}' is not a positive integer"),
+        )
+    })?;
     if number == 0 {
         return Err(Rejection::new(
             "dynamic_shape",
@@ -221,16 +226,19 @@ fn positive_u64(value: &Value, key: &str) -> Result<u64, Rejection> {
 }
 
 fn nonnegative_u64(value: &Value, key: &str) -> Result<u64, Rejection> {
-    field(value, key)?
-        .as_u64()
-        .ok_or_else(|| Rejection::new("malformed_field", format!("field '{key}' is not a non-negative integer")))
+    field(value, key)?.as_u64().ok_or_else(|| {
+        Rejection::new(
+            "malformed_field",
+            format!("field '{key}' is not a non-negative integer"),
+        )
+    })
 }
 
 fn positive_number(value: &Value, key: &str) -> Result<f64, Rejection> {
     let number = field(value, key)?
         .as_f64()
         .ok_or_else(|| Rejection::new("bad_limit", format!("field '{key}' is not a number")))?;
-    if !(number > 0.0) {
+    if number.partial_cmp(&0.0) != Some(Ordering::Greater) {
         return Err(Rejection::new(
             "bad_limit",
             format!("field '{key}' must be positive"),
@@ -280,14 +288,17 @@ fn require_equal_u64(
 }
 
 fn string_array<'a>(value: &'a Value, key: &str) -> Result<Vec<&'a str>, Rejection> {
-    let array = field(value, key)?
-        .as_array()
-        .ok_or_else(|| Rejection::new("malformed_field", format!("field '{key}' is not an array")))?;
+    let array = field(value, key)?.as_array().ok_or_else(|| {
+        Rejection::new("malformed_field", format!("field '{key}' is not an array"))
+    })?;
     array
         .iter()
         .map(|item| {
             item.as_str().ok_or_else(|| {
-                Rejection::new("malformed_field", format!("field '{key}' has a non-string entry"))
+                Rejection::new(
+                    "malformed_field",
+                    format!("field '{key}' has a non-string entry"),
+                )
             })
         })
         .collect()
@@ -399,10 +410,30 @@ fn check_tokenizer(tokenizer: &Value) -> Result<(), Rejection> {
 }
 
 fn check_device(device: &Value) -> Result<u64, Rejection> {
-    require_equal_u64(device, "physical_count", REQUIRED_PHYSICAL_COUNT, "device_mismatch")?;
-    require_equal_str(device, "architecture", REQUIRED_ARCHITECTURE, "device_mismatch")?;
-    require_equal_str(device, "board_class", REQUIRED_BOARD_CLASS, "device_mismatch")?;
-    require_equal_str(device, "device_root", REQUIRED_DEVICE_ROOT, "device_mismatch")?;
+    require_equal_u64(
+        device,
+        "physical_count",
+        REQUIRED_PHYSICAL_COUNT,
+        "device_mismatch",
+    )?;
+    require_equal_str(
+        device,
+        "architecture",
+        REQUIRED_ARCHITECTURE,
+        "device_mismatch",
+    )?;
+    require_equal_str(
+        device,
+        "board_class",
+        REQUIRED_BOARD_CLASS,
+        "device_mismatch",
+    )?;
+    require_equal_str(
+        device,
+        "device_root",
+        REQUIRED_DEVICE_ROOT,
+        "device_mismatch",
+    )?;
     require_equal_str(
         device,
         "container_device_isolation",
@@ -411,7 +442,12 @@ fn check_device(device: &Value) -> Result<u64, Rejection> {
     )?;
     let logical = field(device, "logical_mesh")?;
     require_equal_u64(logical, "rows", REQUIRED_LOGICAL_ROWS, "device_mismatch")?;
-    require_equal_u64(logical, "columns", REQUIRED_LOGICAL_COLUMNS, "device_mismatch")?;
+    require_equal_u64(
+        logical,
+        "columns",
+        REQUIRED_LOGICAL_COLUMNS,
+        "device_mismatch",
+    )?;
     let ordinal = nonnegative_u64(device, "selection_ordinal")?;
     if ordinal >= REQUIRED_PHYSICAL_COUNT {
         return Err(Rejection::new(
@@ -478,14 +514,23 @@ fn check_precision(precision: &Value) -> Result<(), Rejection> {
 
 fn check_tolerances(tolerances: &Value) -> Result<(), Rejection> {
     for role in REQUIRED_TOLERANCE_ROLES {
-        let entry = tolerances
-            .get(role)
-            .ok_or_else(|| Rejection::new("missing_tolerance", format!("tolerance role '{role}' is missing")))?;
+        let entry = tolerances.get(role).ok_or_else(|| {
+            Rejection::new(
+                "missing_tolerance",
+                format!("tolerance role '{role}' is missing"),
+            )
+        })?;
         positive_number(entry, "rtol").map_err(|_| {
-            Rejection::new("missing_tolerance", format!("tolerance role '{role}' has a bad rtol"))
+            Rejection::new(
+                "missing_tolerance",
+                format!("tolerance role '{role}' has a bad rtol"),
+            )
         })?;
         positive_number(entry, "atol").map_err(|_| {
-            Rejection::new("missing_tolerance", format!("tolerance role '{role}' has a bad atol"))
+            Rejection::new(
+                "missing_tolerance",
+                format!("tolerance role '{role}' has a bad atol"),
+            )
         })?;
     }
     Ok(())
@@ -527,7 +572,7 @@ fn check_lora(lora: &Value) -> Result<(), Rejection> {
         return Err(Rejection::new("bad_lora_plan", "target_roles is empty"));
     }
     roles.sort_unstable();
-    let admitted: Vec<&str> = ADMITTED_LORA_ROLES.iter().copied().collect();
+    let admitted: Vec<&str> = ADMITTED_LORA_ROLES.to_vec();
     if roles != admitted {
         return Err(Rejection::new(
             "bad_lora_plan",
@@ -538,7 +583,12 @@ fn check_lora(lora: &Value) -> Result<(), Rejection> {
 }
 
 fn check_optimizer(optimizer: &Value, static_shape: &Value) -> Result<(), Rejection> {
-    require_equal_str(optimizer, "kind", REQUIRED_OPTIMIZER_KIND, "optimizer_mismatch")?;
+    require_equal_str(
+        optimizer,
+        "kind",
+        REQUIRED_OPTIMIZER_KIND,
+        "optimizer_mismatch",
+    )?;
     positive_number(optimizer, "learning_rate")?;
     positive_number(optimizer, "clip_norm")?;
     require_equal_u64(
@@ -551,7 +601,12 @@ fn check_optimizer(optimizer: &Value, static_shape: &Value) -> Result<(), Reject
 }
 
 fn check_artifact_policy(policy: &Value) -> Result<(), Rejection> {
-    require_equal_str(policy, "format", REQUIRED_ADAPTER_FORMAT, "bad_artifact_policy")?;
+    require_equal_str(
+        policy,
+        "format",
+        REQUIRED_ADAPTER_FORMAT,
+        "bad_artifact_policy",
+    )?;
     let root = string_field(policy, "artifact_root")?;
     if !root.starts_with('/') || root.contains("..") {
         return Err(Rejection::new(
@@ -563,10 +618,20 @@ fn check_artifact_policy(policy: &Value) -> Result<(), Rejection> {
 }
 
 fn check_evidence_policy(policy: &Value) -> Result<(), Rejection> {
-    require_equal_str(policy, "hash_algorithm", REQUIRED_HASH_ALGORITHM, "bad_evidence_policy")?;
+    require_equal_str(
+        policy,
+        "hash_algorithm",
+        REQUIRED_HASH_ALGORITHM,
+        "bad_evidence_policy",
+    )?;
     let exclude = string_array(policy, "exclude")?;
     for entry in &exclude {
-        let known = ["credentials", "raw_logs", "serial_numbers", "absolute_private_paths"];
+        let known = [
+            "credentials",
+            "raw_logs",
+            "serial_numbers",
+            "absolute_private_paths",
+        ];
         if !known.contains(entry) {
             return Err(Rejection::new(
                 "bad_evidence_policy",
@@ -585,7 +650,12 @@ fn check_evidence_policy(policy: &Value) -> Result<(), Rejection> {
 /// Rust so the launcher never trusts configuration text alone.
 pub fn admit_profile(profile: &Value) -> Result<AdmittedProfile, Rejection> {
     reject_forbidden_keys(profile)?;
-    require_equal_u64(profile, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_u64(
+        profile,
+        "schema_version",
+        SCHEMA_VERSION,
+        "bad_schema_version",
+    )?;
     let profile_id = string_field(profile, "profile_id")?.to_string();
     if profile_id.is_empty() {
         return Err(Rejection::new("bad_profile_id", "profile_id is empty"));
@@ -606,8 +676,10 @@ pub fn admit_profile(profile: &Value) -> Result<AdmittedProfile, Rejection> {
     check_precision(field(profile, "precision")?)?;
 
     let compile_limits = field(profile, "compile_limits")?;
-    let probe_compile_timeout_seconds = positive_u64(compile_limits, "probe_compile_timeout_seconds")?;
-    let full_compile_timeout_seconds = positive_u64(compile_limits, "full_compile_timeout_seconds")?;
+    let probe_compile_timeout_seconds =
+        positive_u64(compile_limits, "probe_compile_timeout_seconds")?;
+    let full_compile_timeout_seconds =
+        positive_u64(compile_limits, "full_compile_timeout_seconds")?;
     let max_stablehlo_operations = positive_u64(compile_limits, "max_stablehlo_operations")?;
 
     let memory_limits = field(profile, "memory_limits")?;
@@ -665,9 +737,12 @@ pub fn cpu_authority_identity(profile: &Value) -> Result<String, Rejection> {
 }
 
 fn platform_stage_status(receipt: &Value, stage: &str) -> Result<String, Rejection> {
-    let stages = field(receipt, "stages")?
-        .as_array()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "platform receipt stages is not an array"))?;
+    let stages = field(receipt, "stages")?.as_array().ok_or_else(|| {
+        Rejection::new(
+            "malformed_receipt",
+            "platform receipt stages is not an array",
+        )
+    })?;
     for entry in stages {
         if entry.get("name").and_then(Value::as_str) == Some(stage) {
             return Ok(entry
@@ -705,7 +780,12 @@ pub fn admit_prerequisites(
         ));
     }
 
-    require_equal_str(platform_receipt, "kind", PLATFORM_RECEIPT_KIND, "stale_prerequisite")?;
+    require_equal_str(
+        platform_receipt,
+        "kind",
+        PLATFORM_RECEIPT_KIND,
+        "stale_prerequisite",
+    )?;
     for stage in PLATFORM_RECEIPT_STAGES {
         let status = platform_stage_status(platform_receipt, stage)?;
         if status != PLATFORM_PASS_STATUS {
@@ -751,8 +831,7 @@ pub fn admit_prerequisites(
         ));
     }
 
-    let observed_checkpoint =
-        string_field(field(cpu_receipt, "model_load")?, "checkpoint_blake3")?;
+    let observed_checkpoint = string_field(field(cpu_receipt, "model_load")?, "checkpoint_blake3")?;
     if observed_checkpoint != REQUIRED_CHECKPOINT_BLAKE3 {
         return Err(Rejection::new(
             "checkpoint_mismatch",
@@ -914,9 +993,9 @@ fn minimal_cpu_receipt() -> Value {
 }
 
 fn probe_stage_status(receipt: &Value, stage: &str) -> Result<String, Rejection> {
-    let stages = field(receipt, "stages")?
-        .as_array()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "probe receipt stages is not an array"))?;
+    let stages = field(receipt, "stages")?.as_array().ok_or_else(|| {
+        Rejection::new("malformed_receipt", "probe receipt stages is not an array")
+    })?;
     for entry in stages {
         if entry.get("name").and_then(Value::as_str) == Some(stage) {
             return Ok(entry
@@ -942,7 +1021,12 @@ pub fn admit_probe(receipt: &Value, profile: &Value) -> Result<ProbeAdmission, R
     reject_forbidden_keys(receipt)?;
     let admitted_profile = admit_profile(profile)?;
 
-    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_u64(
+        receipt,
+        "schema_version",
+        SCHEMA_VERSION,
+        "bad_schema_version",
+    )?;
     require_equal_str(receipt, "kind", PROBE_RECEIPT_KIND, "stale_probe_receipt")?;
     let probe = string_field(receipt, "probe")?.to_string();
     if !ADMITTED_PROBES.contains(&probe.as_str()) {
@@ -1013,23 +1097,27 @@ pub fn admit_probe(receipt: &Value, profile: &Value) -> Result<ProbeAdmission, R
             format!("probe ran on ordinal {ordinal}, profile selects {selection_ordinal}"),
         ));
     }
-    let visible_count = field(device, "visible_count")
-        .and_then(|value| {
-            value
-                .as_u64()
-                .ok_or_else(|| Rejection::new("malformed_receipt", "visible_count is not an integer"))
-        })?;
+    let visible_count = field(device, "visible_count").and_then(|value| {
+        value
+            .as_u64()
+            .ok_or_else(|| Rejection::new("malformed_receipt", "visible_count is not an integer"))
+    })?;
     let physical_count = nonnegative_u64(profile_device, "physical_count")?;
     if visible_count != physical_count {
         return Err(Rejection::new(
             "stale_probe_receipt",
-            format!("visible device count {visible_count} differs from physical count {physical_count}"),
+            format!(
+                "visible device count {visible_count} differs from physical count {physical_count}"
+            ),
         ));
     }
 
     let finite = bool_field(result, "finite")?;
     if !finite {
-        return Err(Rejection::new("nonfinite_values", "probe result reports nonfinite values"));
+        return Err(Rejection::new(
+            "nonfinite_values",
+            "probe result reports nonfinite values",
+        ));
     }
     let tolerances_satisfied = bool_field(result, "tolerances_satisfied")?;
     if !tolerances_satisfied {
@@ -1040,9 +1128,9 @@ pub fn admit_probe(receipt: &Value, profile: &Value) -> Result<ProbeAdmission, R
     }
 
     let hlo = field(result, "hlo")?;
-    let op_count = field(hlo, "stablehlo_op_count")?
-        .as_u64()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer"))?;
+    let op_count = field(hlo, "stablehlo_op_count")?.as_u64().ok_or_else(|| {
+        Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer")
+    })?;
     if op_count == 0 {
         return Err(Rejection::new(
             "host_fallback",
@@ -1107,9 +1195,9 @@ pub struct StepAdmission {
 }
 
 fn step_stage_status(receipt: &Value, stage: &str) -> Result<String, Rejection> {
-    let stages = field(receipt, "stages")?
-        .as_array()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "step receipt stages is not an array"))?;
+    let stages = field(receipt, "stages")?.as_array().ok_or_else(|| {
+        Rejection::new("malformed_receipt", "step receipt stages is not an array")
+    })?;
     for entry in stages {
         if entry.get("name").and_then(Value::as_str) == Some(stage) {
             return Ok(entry
@@ -1142,7 +1230,12 @@ pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmiss
     reject_forbidden_keys(receipt)?;
     let admitted_profile = admit_profile(profile)?;
 
-    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_u64(
+        receipt,
+        "schema_version",
+        SCHEMA_VERSION,
+        "bad_schema_version",
+    )?;
     require_equal_str(receipt, "kind", STEP_RECEIPT_KIND, "stale_step_receipt")?;
 
     let profile_identity = string_field(receipt, "profile_identity")?;
@@ -1191,12 +1284,16 @@ pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmiss
     if visible_count != physical_count {
         return Err(Rejection::new(
             "stale_step_receipt",
-            format!("visible device count {visible_count} differs from physical count {physical_count}"),
+            format!(
+                "visible device count {visible_count} differs from physical count {physical_count}"
+            ),
         ));
     }
     let op_count = field(placement, "stablehlo_op_count")?
         .as_u64()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer"))?;
+        .ok_or_else(|| {
+            Rejection::new("malformed_receipt", "stablehlo_op_count is not an integer")
+        })?;
     if op_count == 0 {
         return Err(Rejection::new(
             "host_fallback",
@@ -1217,7 +1314,10 @@ pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmiss
     let step = field(receipt, "step")?;
     let finite = bool_field(step, "finite")?;
     if !finite {
-        return Err(Rejection::new("nonfinite_values", "step outputs are nonfinite"));
+        return Err(Rejection::new(
+            "nonfinite_values",
+            "step outputs are nonfinite",
+        ));
     }
     let loss_dev = field(step, "loss_dev")?
         .as_f64()
@@ -1265,7 +1365,9 @@ pub fn admit_step_receipt(receipt: &Value, profile: &Value) -> Result<StepAdmiss
     }
     let delta_pass = field(step, "delta_pass_fraction")?
         .as_f64()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "delta_pass_fraction is not a number"))?;
+        .ok_or_else(|| {
+            Rejection::new("malformed_receipt", "delta_pass_fraction is not a number")
+        })?;
     if delta_pass < pass_fraction {
         return Err(Rejection::new(
             "tolerance_failure",
@@ -1302,7 +1404,12 @@ pub fn admit_run_receipt(receipt: &Value, profile: &Value) -> Result<RunAdmissio
     reject_forbidden_keys(receipt)?;
     let admitted_profile = admit_profile(profile)?;
 
-    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
+    require_equal_u64(
+        receipt,
+        "schema_version",
+        SCHEMA_VERSION,
+        "bad_schema_version",
+    )?;
     require_equal_str(receipt, "kind", RUN_RECEIPT_KIND, "stale_run_receipt")?;
 
     let profile_identity = string_field(receipt, "profile_identity")?;
@@ -1329,7 +1436,10 @@ pub fn admit_run_receipt(receipt: &Value, profile: &Value) -> Result<RunAdmissio
     let run = field(receipt, "run")?;
     let finite = bool_field(run, "finite")?;
     if !finite {
-        return Err(Rejection::new("nonfinite_values", "run produced a nonfinite value"));
+        return Err(Rejection::new(
+            "nonfinite_values",
+            "run produced a nonfinite value",
+        ));
     }
     let base_unchanged = bool_field(run, "base_unchanged")?;
     if !base_unchanged {
@@ -1359,7 +1469,11 @@ pub fn admit_run_receipt(receipt: &Value, profile: &Value) -> Result<RunAdmissio
         .as_f64()
         .ok_or_else(|| Rejection::new("malformed_receipt", "final_loss is not a number"))?;
     let improvement_ratio = positive_number(run_criteria, "loss_improvement_ratio")?;
-    if !(final_loss <= improvement_ratio * initial_loss) {
+    let loss_threshold = improvement_ratio * initial_loss;
+    if !matches!(
+        final_loss.partial_cmp(&loss_threshold),
+        Some(Ordering::Less | Ordering::Equal)
+    ) {
         return Err(Rejection::new(
             "loss_criterion",
             format!(
@@ -1392,12 +1506,25 @@ pub struct CheckpointAdmission {
 ///
 /// The adapter save/load round trip must be byte-identical, and the resumed
 /// result must match the uninterrupted run within the named loss tolerance.
-pub fn admit_checkpoint_receipt(receipt: &Value, profile: &Value) -> Result<CheckpointAdmission, Rejection> {
+pub fn admit_checkpoint_receipt(
+    receipt: &Value,
+    profile: &Value,
+) -> Result<CheckpointAdmission, Rejection> {
     reject_forbidden_keys(receipt)?;
     let admitted_profile = admit_profile(profile)?;
 
-    require_equal_u64(receipt, "schema_version", SCHEMA_VERSION, "bad_schema_version")?;
-    require_equal_str(receipt, "kind", CHECKPOINT_RECEIPT_KIND, "stale_checkpoint_receipt")?;
+    require_equal_u64(
+        receipt,
+        "schema_version",
+        SCHEMA_VERSION,
+        "bad_schema_version",
+    )?;
+    require_equal_str(
+        receipt,
+        "kind",
+        CHECKPOINT_RECEIPT_KIND,
+        "stale_checkpoint_receipt",
+    )?;
 
     let profile_identity = string_field(receipt, "profile_identity")?;
     if profile_identity != admitted_profile.identity_blake3 {
@@ -1423,7 +1550,9 @@ pub fn admit_checkpoint_receipt(receipt: &Value, profile: &Value) -> Result<Chec
     let checkpoint = field(receipt, "checkpoint")?;
     let adapter_load_max_diff = field(checkpoint, "adapter_load_max_diff")?
         .as_f64()
-        .ok_or_else(|| Rejection::new("malformed_receipt", "adapter_load_max_diff is not a number"))?;
+        .ok_or_else(|| {
+            Rejection::new("malformed_receipt", "adapter_load_max_diff is not a number")
+        })?;
     if adapter_load_max_diff > MAX_ADAPTER_LOAD_DIFF {
         return Err(Rejection::new(
             "adapter_load_drift",
@@ -1462,7 +1591,10 @@ pub fn self_test() -> Result<String, Rejection> {
     let first = admit_profile(&profile)?;
     let second = admit_profile(&profile)?;
     if first != second {
-        return Err(Rejection::new("self_test", "profile admission is not deterministic"));
+        return Err(Rejection::new(
+            "self_test",
+            "profile admission is not deterministic",
+        ));
     }
 
     // Negative: zero sequence length fails as a dynamic shape.
@@ -1699,7 +1831,10 @@ pub fn self_test() -> Result<String, Rejection> {
     let first_probe = admit_probe(&probe_receipt, &profile)?;
     let second_probe = admit_probe(&probe_receipt, &profile)?;
     if first_probe != second_probe {
-        return Err(Rejection::new("self_test", "probe admission is not deterministic"));
+        return Err(Rejection::new(
+            "self_test",
+            "probe admission is not deterministic",
+        ));
     }
 
     // Negative: host execution fails as forbidden fallback.
@@ -1777,7 +1912,10 @@ pub fn self_test() -> Result<String, Rejection> {
     let first_step = admit_step_receipt(&step_receipt, &profile)?;
     let second_step = admit_step_receipt(&step_receipt, &profile)?;
     if first_step != second_step {
-        return Err(Rejection::new("self_test", "step admission is not deterministic"));
+        return Err(Rejection::new(
+            "self_test",
+            "step admission is not deterministic",
+        ));
     }
 
     // Negative: a stale step profile identity blocks admission.
@@ -1841,7 +1979,10 @@ pub fn self_test() -> Result<String, Rejection> {
     let first_run = admit_run_receipt(&run_receipt, &profile)?;
     let second_run = admit_run_receipt(&run_receipt, &profile)?;
     if first_run != second_run {
-        return Err(Rejection::new("self_test", "run admission is not deterministic"));
+        return Err(Rejection::new(
+            "self_test",
+            "run admission is not deterministic",
+        ));
     }
 
     // Negative: a base tensor mutation fails the run.
@@ -1891,7 +2032,10 @@ pub fn self_test() -> Result<String, Rejection> {
     let first_ckpt = admit_checkpoint_receipt(&checkpoint_receipt, &profile)?;
     let second_ckpt = admit_checkpoint_receipt(&checkpoint_receipt, &profile)?;
     if first_ckpt != second_ckpt {
-        return Err(Rejection::new("self_test", "checkpoint admission is not deterministic"));
+        return Err(Rejection::new(
+            "self_test",
+            "checkpoint admission is not deterministic",
+        ));
     }
 
     // Negative: adapter load drift fails.

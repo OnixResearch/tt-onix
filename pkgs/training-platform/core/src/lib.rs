@@ -156,15 +156,13 @@ fn require_string<'a>(
         .ok_or_else(|| Rejection::new("missing_field", format!("{what}.{field} must be a string")))
 }
 
-fn require_u64(
-    object: &Map<String, Value>,
-    field: &str,
-    what: &str,
-) -> Result<u64, Rejection> {
-    object
-        .get(field)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| Rejection::new("missing_field", format!("{what}.{field} must be an unsigned integer")))
+fn require_u64(object: &Map<String, Value>, field: &str, what: &str) -> Result<u64, Rejection> {
+    object.get(field).and_then(Value::as_u64).ok_or_else(|| {
+        Rejection::new(
+            "missing_field",
+            format!("{what}.{field} must be an unsigned integer"),
+        )
+    })
 }
 
 fn reject_unknown_fields(
@@ -185,7 +183,10 @@ fn reject_unknown_fields(
 
 fn check_exact_version(version: &str, what: &str) -> Result<(), Rejection> {
     if version.is_empty() {
-        return Err(Rejection::new("mutable_identity", format!("{what} version is empty")));
+        return Err(Rejection::new(
+            "mutable_identity",
+            format!("{what} version is empty"),
+        ));
     }
     if version == MUTABLE_TAG
         || version.contains('>')
@@ -293,16 +294,18 @@ pub fn admit_bundle(manifest: &Value) -> Result<AdmittedBundle, Rejection> {
 
     for source_name in ["tt_xla_source", "tt_blacksmith_source"] {
         let source = require_object(
-            root.get(source_name)
-                .ok_or_else(|| Rejection::new("missing_field", format!("manifest.{source_name} missing")))?,
+            root.get(source_name).ok_or_else(|| {
+                Rejection::new("missing_field", format!("manifest.{source_name} missing"))
+            })?,
             source_name,
         )?;
         let revision = require_string(source, "revision", source_name)?;
         check_git_revision(revision, source_name)?;
     }
     let blacksmith = require_object(
-        root.get("tt_blacksmith_source")
-            .ok_or_else(|| Rejection::new("missing_field", "manifest.tt_blacksmith_source missing"))?,
+        root.get("tt_blacksmith_source").ok_or_else(|| {
+            Rejection::new("missing_field", "manifest.tt_blacksmith_source missing")
+        })?,
         "manifest.tt_blacksmith_source",
     )?;
     let blacksmith_revision =
@@ -310,21 +313,29 @@ pub fn admit_bundle(manifest: &Value) -> Result<AdmittedBundle, Rejection> {
 
     for wheel_name in ["pytorch", "pytorch_xla"] {
         let wheel = require_object(
-            root.get(wheel_name)
-                .ok_or_else(|| Rejection::new("missing_field", format!("manifest.{wheel_name} missing")))?,
+            root.get(wheel_name).ok_or_else(|| {
+                Rejection::new("missing_field", format!("manifest.{wheel_name} missing"))
+            })?,
             wheel_name,
         )?;
         check_exact_version(require_string(wheel, "version", wheel_name)?, wheel_name)?;
-        check_hash_hex(require_string(wheel, "wheel_sha256", wheel_name)?, wheel_name)?;
+        check_hash_hex(
+            require_string(wheel, "wheel_sha256", wheel_name)?,
+            wheel_name,
+        )?;
     }
 
     for package_name in ["jax", "jaxlib", "transformers"] {
         let package = require_object(
-            root.get(package_name)
-                .ok_or_else(|| Rejection::new("missing_field", format!("manifest.{package_name} missing")))?,
+            root.get(package_name).ok_or_else(|| {
+                Rejection::new("missing_field", format!("manifest.{package_name} missing"))
+            })?,
             package_name,
         )?;
-        check_exact_version(require_string(package, "version", package_name)?, package_name)?;
+        check_exact_version(
+            require_string(package, "version", package_name)?,
+            package_name,
+        )?;
     }
 
     let driver = require_object(
@@ -339,7 +350,8 @@ pub fn admit_bundle(manifest: &Value) -> Result<AdmittedBundle, Rejection> {
             .ok_or_else(|| Rejection::new("missing_field", "manifest.firmware missing"))?,
         "manifest.firmware",
     )?;
-    let firmware_floor = require_string(firmware, "floor_version", "manifest.firmware")?.to_string();
+    let firmware_floor =
+        require_string(firmware, "floor_version", "manifest.firmware")?.to_string();
     check_exact_version(&firmware_floor, "firmware.floor_version")?;
 
     let identity = blake3_hex(&canonical_json(manifest));
@@ -425,7 +437,9 @@ pub fn validate_config(
     if rows != REQUIRED_MESH_ROWS || columns != REQUIRED_MESH_COLUMNS {
         return Err(Rejection::new(
             "unsupported_combination",
-            format!("config.mesh shape {rows}x{columns} is not {REQUIRED_MESH_ROWS}x{REQUIRED_MESH_COLUMNS}"),
+            format!(
+                "config.mesh shape {rows}x{columns} is not {REQUIRED_MESH_ROWS}x{REQUIRED_MESH_COLUMNS}"
+            ),
         ));
     }
     let descriptor_relative_path =
@@ -597,7 +611,12 @@ pub fn admit_preflight_snapshot(
     let devices = root
         .get("devices")
         .and_then(Value::as_array)
-        .ok_or_else(|| Rejection::new("missing_field", "preflight_snapshot.devices must be an array"))?;
+        .ok_or_else(|| {
+            Rejection::new(
+                "missing_field",
+                "preflight_snapshot.devices must be an array",
+            )
+        })?;
     if devices.len() as u64 != REQUIRED_DEVICE_COUNT {
         return Err(Rejection::new(
             "device_count",
@@ -622,14 +641,17 @@ pub fn admit_preflight_snapshot(
         let dram_ok = device
             .get("dram_status")
             .and_then(Value::as_bool)
-            .ok_or_else(|| Rejection::new("missing_field", "devices[].dram_status must be a bool"))?;
+            .ok_or_else(|| {
+                Rejection::new("missing_field", "devices[].dram_status must be a bool")
+            })?;
         if !dram_ok {
             return Err(Rejection::new(
                 "unhealthy_device",
                 format!("device {index} reports failed DRAM status"),
             ));
         }
-        let bundle_version = require_string(device, "fw_bundle_version", "preflight_snapshot.devices[]")?;
+        let bundle_version =
+            require_string(device, "fw_bundle_version", "preflight_snapshot.devices[]")?;
         if compare_versions(bundle_version, &bundle.firmware_floor) == std::cmp::Ordering::Less {
             return Err(Rejection::new(
                 "old_firmware",
@@ -649,19 +671,24 @@ pub fn admit_preflight_snapshot(
             }
             _ => {}
         }
-        board_ids.push(require_string(device, "board_id", "preflight_snapshot.devices[]")?.to_string());
+        board_ids
+            .push(require_string(device, "board_id", "preflight_snapshot.devices[]")?.to_string());
     }
 
     let hugepages = require_object(
-        root.get("hugepages")
-            .ok_or_else(|| Rejection::new("missing_field", "preflight_snapshot.hugepages missing"))?,
+        root.get("hugepages").ok_or_else(|| {
+            Rejection::new("missing_field", "preflight_snapshot.hugepages missing")
+        })?,
         "preflight_snapshot.hugepages",
     )?;
     let mount = require_string(hugepages, "mount", "preflight_snapshot.hugepages")?;
     if mount != config.hugepage_mount {
         return Err(Rejection::new(
             "hugepage_mismatch",
-            format!("hugepage mount {mount} does not match configured {}", config.hugepage_mount),
+            format!(
+                "hugepage mount {mount} does not match configured {}",
+                config.hugepage_mount
+            ),
         ));
     }
     let free_pages = require_u64(hugepages, "free_pages", "preflight_snapshot.hugepages")?;
@@ -676,8 +703,9 @@ pub fn admit_preflight_snapshot(
     }
 
     let ownership = require_object(
-        root.get("ownership")
-            .ok_or_else(|| Rejection::new("missing_field", "preflight_snapshot.ownership missing"))?,
+        root.get("ownership").ok_or_else(|| {
+            Rejection::new("missing_field", "preflight_snapshot.ownership missing")
+        })?,
         "preflight_snapshot.ownership",
     )?;
     let devices_free = ownership
@@ -702,7 +730,9 @@ pub fn admit_preflight_snapshot(
 /// Compare two dotted numeric versions component by component.
 pub fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
     let mut left_parts = left.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
-    let mut right_parts = right.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
+    let mut right_parts = right
+        .split('.')
+        .map(|part| part.parse::<u64>().unwrap_or(0));
     loop {
         match (left_parts.next(), right_parts.next()) {
             (None, None) => return std::cmp::Ordering::Equal,
@@ -815,9 +845,12 @@ pub fn validate_hardware_receipt(
         ));
     }
     for (name, hash) in artifacts {
-        let hash = hash
-            .as_str()
-            .ok_or_else(|| Rejection::new("invalid_artifact", format!("artifact {name} hash is not a string")))?;
+        let hash = hash.as_str().ok_or_else(|| {
+            Rejection::new(
+                "invalid_artifact",
+                format!("artifact {name} hash is not a string"),
+            )
+        })?;
         check_hash_hex(hash, "receipt.artifacts")?;
     }
 
@@ -850,7 +883,9 @@ fn reject_unsafe_fields(value: &Value, path: &str) -> Result<(), Rejection> {
                     if lowered.contains(forbidden) {
                         return Err(Rejection::new(
                             "unsafe_field",
-                            format!("receipt field {path}.{key} is excluded from portable receipts"),
+                            format!(
+                                "receipt field {path}.{key} is excluded from portable receipts"
+                            ),
                         ));
                     }
                 }
@@ -865,7 +900,10 @@ fn reject_unsafe_fields(value: &Value, path: &str) -> Result<(), Rejection> {
             Ok(())
         }
         Value::String(text) => {
-            if text.starts_with("/home/") || text.starts_with("/root") || text.starts_with("/Users/") {
+            if text.starts_with("/home/")
+                || text.starts_with("/root")
+                || text.starts_with("/Users/")
+            {
                 return Err(Rejection::new(
                     "unsafe_field",
                     format!("receipt value at {path} is an absolute private path"),
@@ -971,7 +1009,8 @@ mod tests {
 
     fn admitted() -> (AdmittedBundle, ValidatedConfig) {
         let bundle = admit_bundle(&valid_manifest()).expect("valid manifest admits");
-        let config = validate_config(&valid_config(), &bundle.bundle_id).expect("valid config admits");
+        let config =
+            validate_config(&valid_config(), &bundle.bundle_id).expect("valid config admits");
         (bundle, config)
     }
 
@@ -1060,7 +1099,8 @@ mod tests {
         let bundle = admit_bundle(&valid_manifest()).expect("admits");
         let mut config = valid_config();
         config["devices"]["device_root"] = json!("dev/tenstorrent");
-        let error = validate_config(&config, &bundle.bundle_id).expect_err("relative path must fail");
+        let error =
+            validate_config(&config, &bundle.bundle_id).expect_err("relative path must fail");
         assert_eq!(error.code, "invalid_path");
     }
 
@@ -1070,7 +1110,8 @@ mod tests {
         let bundle = admit_bundle(&valid_manifest()).expect("admits");
         let mut config = valid_config();
         config["bundle_id"] = json!("tt-xla-training-1999-01-01");
-        let error = validate_config(&config, &bundle.bundle_id).expect_err("stale bundle must fail");
+        let error =
+            validate_config(&config, &bundle.bundle_id).expect_err("stale bundle must fail");
         assert_eq!(error.code, "bundle_mismatch");
     }
 
@@ -1099,8 +1140,8 @@ mod tests {
     #[test]
     fn valid_preflight_snapshot_admits() {
         let (bundle, config) = admitted();
-        let facts = admit_preflight_snapshot(&valid_snapshot(), &bundle, &config)
-            .expect("snapshot admits");
+        let facts =
+            admit_preflight_snapshot(&valid_snapshot(), &bundle, &config).expect("snapshot admits");
         assert_eq!(facts.device_board_ids.len(), 2);
         assert_eq!(facts.firmware_bundle, "18.8.0.0");
     }
@@ -1184,7 +1225,11 @@ mod tests {
         assert_eq!(error.code, "driver_mismatch");
     }
 
-    fn valid_receipt(bundle: &AdmittedBundle, config: &ValidatedConfig, plan: &LaunchPlan) -> Value {
+    fn valid_receipt(
+        bundle: &AdmittedBundle,
+        config: &ValidatedConfig,
+        plan: &LaunchPlan,
+    ) -> Value {
         json!({
             "schema_version": 1,
             "kind": "dual_p150a_platform_smoke",
@@ -1356,9 +1401,21 @@ mod tests {
 
     #[test]
     fn version_comparison_orders_components() {
-        assert_eq!(compare_versions("18.8.0.0", "18.8.0.0"), std::cmp::Ordering::Equal);
-        assert_eq!(compare_versions("18.9.0.0", "18.8.0.0"), std::cmp::Ordering::Greater);
-        assert_eq!(compare_versions("17.10.0.0", "18.8.0.0"), std::cmp::Ordering::Less);
-        assert_eq!(compare_versions("18.8", "18.8.0.0"), std::cmp::Ordering::Equal);
+        assert_eq!(
+            compare_versions("18.8.0.0", "18.8.0.0"),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            compare_versions("18.9.0.0", "18.8.0.0"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("17.10.0.0", "18.8.0.0"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("18.8", "18.8.0.0"),
+            std::cmp::Ordering::Equal
+        );
     }
 }

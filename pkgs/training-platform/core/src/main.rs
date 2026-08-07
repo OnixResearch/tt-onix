@@ -100,7 +100,9 @@ fn main() -> ExitCode {
         }
         "launch-plan" => {
             let [manifest_path, config_path, descriptor_host_path] = rest else {
-                eprintln!("usage: launch-plan <manifest.json> <config.json> <descriptor_host_path>");
+                eprintln!(
+                    "usage: launch-plan <manifest.json> <config.json> <descriptor_host_path>"
+                );
                 return ExitCode::from(2);
             };
             match plan_from_files(manifest_path, config_path, descriptor_host_path) {
@@ -144,7 +146,13 @@ fn main() -> ExitCode {
             }
         }
         "validate-receipt" => {
-            let [receipt_path, manifest_path, config_path, descriptor_host_path] = rest else {
+            let [
+                receipt_path,
+                manifest_path,
+                config_path,
+                descriptor_host_path,
+            ] = rest
+            else {
                 eprintln!(
                     "usage: validate-receipt <receipt.json> <manifest.json> <config.json> <descriptor_host_path>"
                 );
@@ -198,15 +206,22 @@ fn admitted_from_files(
     ),
     Rejection,
 > {
-    let manifest_text = std::fs::read_to_string(manifest_path)
-        .map_err(|source| Rejection::new("io", format!("failed to read {manifest_path}: {source}")))?;
-    let manifest: Value = serde_json::from_str(&manifest_text)
-        .map_err(|source| Rejection::new("parse", format!("failed to parse {manifest_path}: {source}")))?;
+    let manifest_text = std::fs::read_to_string(manifest_path).map_err(|source| {
+        Rejection::new("io", format!("failed to read {manifest_path}: {source}"))
+    })?;
+    let manifest: Value = serde_json::from_str(&manifest_text).map_err(|source| {
+        Rejection::new(
+            "parse",
+            format!("failed to parse {manifest_path}: {source}"),
+        )
+    })?;
     let bundle = admit_bundle(&manifest)?;
-    let config_text = std::fs::read_to_string(config_path)
-        .map_err(|source| Rejection::new("io", format!("failed to read {config_path}: {source}")))?;
-    let config: Value = serde_json::from_str(&config_text)
-        .map_err(|source| Rejection::new("parse", format!("failed to parse {config_path}: {source}")))?;
+    let config_text = std::fs::read_to_string(config_path).map_err(|source| {
+        Rejection::new("io", format!("failed to read {config_path}: {source}"))
+    })?;
+    let config: Value = serde_json::from_str(&config_text).map_err(|source| {
+        Rejection::new("parse", format!("failed to parse {config_path}: {source}"))
+    })?;
     let validated = validate_config(&config, &bundle.bundle_id)?;
     Ok((bundle, validated))
 }

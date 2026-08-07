@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_dual_p150a.graph]
 # r[impl tenstorrent.rwkv7_dual_p150a.sharding]
 # r[impl tenstorrent.rwkv7_dual_p150a.parity]
@@ -49,10 +50,10 @@ done
 [ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
   && [ -n "$CHECKPOINT" ] && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
-DTYPE_ARG=""
+DTYPE_ARGS=()
 if [ -n "$DTYPE" ]; then
   case "$DTYPE" in
-    bf16|fp32) DTYPE_ARG="--dtype $DTYPE" ;;
+    bf16|fp32) DTYPE_ARGS=(--dtype "$DTYPE") ;;
     *) usage ;;
   esac
 fi
@@ -80,7 +81,6 @@ mkdir -p "$EVIDENCE_ROOT"
 "$CORE" admit-profile "$PROFILE" > "$EVIDENCE_ROOT/profile-admission.json"
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
 TIMEOUT_SECONDS=$("$JQ" -r '.full_compile_timeout_seconds' "$EVIDENCE_ROOT/profile-admission.json")
-REPLICAS=$("$JQ" -r '.replicas' "$EVIDENCE_ROOT/profile-admission.json")
 GLOBAL_BATCH=$("$JQ" -r '.global_batch' "$EVIDENCE_ROOT/profile-admission.json")
 SEQUENCE_LENGTH=$("$JQ" -r '.sequence_length' "$EVIDENCE_ROOT/profile-admission.json")
 
@@ -305,7 +305,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   bash /container-dual-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode $MODE $DTYPE_ARG \
+    --mode "$MODE" "${DTYPE_ARGS[@]}" \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
 set -e

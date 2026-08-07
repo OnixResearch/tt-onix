@@ -5,14 +5,14 @@ use model_target_core::{
 use rwkv7_p150x2_evidence::{
     COMPLETE_STATE_ELEMENT_COUNT, CONTROL_DIVERGENCE_FLOOR, ClassificationReceipt,
     EXPECTED_CARD_COUNT, FINAL_HIDDEN_TOLERANCE, HIDDEN_ELEMENT_COUNT, LOGIT_ELEMENT_COUNT,
-    LOGIT_TOLERANCE, MODEL_BLAKE3, ReferenceManifest, ReferenceStep,
-    RuntimeReceipt, RuntimeStep, SCHEMA_VERSION, STATE_TOLERANCE, SafetyReceipt, TensorComparison,
-    attribute_required_stages, compare_complete_tensor, decode_device_bf16,
-    decode_generated_tokens, expected_target_identity, expected_topology_identity,
-    max_abs_difference, parse_inspector, parse_profiler, parse_reference, parse_runtime,
-    required_architecture_operations, runtime_target_identity, runtime_topology_identity,
-    validate_artifact_bytes, validate_initial_zero_state, validate_operation_inventory,
-    validate_relative_artifact_path, validate_runtime_against_reference, validate_safety,
+    LOGIT_TOLERANCE, MODEL_BLAKE3, ReferenceManifest, ReferenceStep, RuntimeReceipt, RuntimeStep,
+    SCHEMA_VERSION, STATE_TOLERANCE, SafetyReceipt, TensorComparison, attribute_required_stages,
+    compare_complete_tensor, decode_device_bf16, decode_generated_tokens, expected_target_identity,
+    expected_topology_identity, max_abs_difference, parse_inspector, parse_profiler,
+    parse_reference, parse_runtime, required_architecture_operations, runtime_target_identity,
+    runtime_topology_identity, validate_artifact_bytes, validate_initial_zero_state,
+    validate_operation_inventory, validate_relative_artifact_path,
+    validate_runtime_against_reference, validate_safety,
 };
 use serde::Serialize;
 use std::error::Error;
@@ -132,9 +132,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let expected_target = expected_target_identity().map_err(invalid_data)?;
     let expected_topology = expected_topology_identity().map_err(invalid_data)?;
-    let process_attempt_count = u32::try_from(safety.process.invocation_count).map_err(|error| {
-        invalid_data(format!("process attempt count overflows u32: {error}"))
-    })?;
+    let process_attempt_count = u32::try_from(safety.process.invocation_count)
+        .map_err(|error| invalid_data(format!("process attempt count overflows u32: {error}")))?;
     let common_evidence = CommonEvidenceEnvelope {
         target: runtime_target_identity(&runtime),
         topology: runtime_topology_identity(&runtime).map_err(invalid_data)?,

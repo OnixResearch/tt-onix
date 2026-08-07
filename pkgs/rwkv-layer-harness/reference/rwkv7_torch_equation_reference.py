@@ -2,7 +2,7 @@
 """Pinned CPU PyTorch equation comparison for the RWKV-7 reference harness."""
 
 # Validation diagnostics stay local to each fail-closed branch for auditability.
-# ruff: noqa: EM101, EM102, TRY003, TRY004
+# ruff: noqa: TRY004
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from typing import Any
 
 import blake3
 import torch
-import torch.nn.functional as functional
 from safetensors.torch import load_file
+from torch.nn import functional
 
 SCHEMA_VERSION = 1
 MODEL_ID = "RWKV/RWKV7-Goose-World2.8-0.1B-HF"

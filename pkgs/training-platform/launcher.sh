@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.training_platform.launch]
 # Nix-owned launcher for the admitted TT-XLA runtime image. Fails closed on
 # ambient runtime overrides and launches only the digest-pinned image.

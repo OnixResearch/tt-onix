@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # r[impl tenstorrent.rwkv7_p150a_finetuning.device]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.placement]
 # r[impl tenstorrent.rwkv7_p150a_finetuning.parity]
@@ -49,10 +50,10 @@ done
 [ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
   && [ -n "$CHECKPOINT" ] && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
-DTYPE_ARG=""
+DTYPE_ARGS=()
 if [ -n "$DTYPE" ]; then
   case "$DTYPE" in
-    bf16|fp32) DTYPE_ARG="--dtype $DTYPE" ;;
+    bf16|fp32) DTYPE_ARGS=(--dtype "$DTYPE") ;;
     *) usage ;;
   esac
 fi
@@ -252,7 +253,7 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   bash /container-full-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode $MODE $DTYPE_ARG \
+    --mode "$MODE" "${DTYPE_ARGS[@]}" \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
 set -e
