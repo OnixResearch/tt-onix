@@ -35,8 +35,11 @@
             ];
           };
 
-          treefmt.programs = {
-            nixfmt.enable = true;
+          treefmt = {
+            programs.nixfmt.enable = true;
+            settings.formatter.nixfmt.excludes = [
+              "quality/fixtures/language/nix/malformed.nix"
+            ];
           };
 
           packages = {
