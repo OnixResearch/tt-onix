@@ -98,6 +98,14 @@ Five concurrent control samples kept exact tokens on both cards. A complete stri
 
 The speedup was `0.8175606977848389`, and the p99 change was `3.4918677732695094`. The B4-versus-B2 workload still does not prove saturated scaling.
 
+The bounded scheduler now supports at most two waves. The saturated profile gives one-card mode two B4 waves. Two-card mode runs one B4 wave per card.
+
+`fixtures/physical-throughput-saturated-admitted/` retains the admitted result. One-card throughput was `52.25896285041297` tokens/s. Two-card throughput was `109.66330232771391` tokens/s.
+
+The speedup was `2.0984592182132698`. Scaling efficiency was `1.0492296091066349`, and the p99 change was `-0.053870298117255126`.
+
+All profiler and timed token streams matched the pinned FP32 CPU reference. The result passes both physical admission bounds.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary

@@ -111,6 +111,7 @@ struct WorkerExecution {
 
 struct WorkerProcess {
     card_id: usize,
+    wave_index: usize,
     root: PathBuf,
     output_path: PathBuf,
     child: std::process::Child,
@@ -121,6 +122,7 @@ struct WorkerLaunchRequest<'a> {
     run_root: &'a Path,
     run_id: &'a str,
     card_id: usize,
+    wave_index: usize,
     card_ids: &'a [usize],
     workload: &'a BenchmarkWorkload,
     profile: &'a ThroughputProfile,
@@ -234,13 +236,12 @@ fn validate_workload(
             profile.workload.request_count
         ));
     }
-    if workload.requests.len() > profile.scheduler.per_card_slot_count {
-        return Err(format!(
-            "workload has {} requests; one-card active capacity is {}",
-            workload.requests.len(),
-            profile.scheduler.per_card_slot_count
-        ));
-    }
+    deterministic_slot_assignments(
+        workload.requests.len(),
+        &ONE_CARD_IDS,
+        profile.scheduler.per_card_slot_count,
+    )
+    .map_err(|error| format!("workload exceeds bounded one-card waves: {error}"))?;
     if workload.requests.len() < TWO_CARD_IDS.len() {
         return Err("workload needs at least one independent request per card".to_owned());
     }
@@ -272,6 +273,7 @@ fn validate_workload(
 fn worker_request(
     run_id: &str,
     card_id: usize,
+    wave_index: usize,
     card_ids: &[usize],
     workload: &BenchmarkWorkload,
     profile: &ThroughputProfile,
@@ -284,7 +286,7 @@ fn worker_request(
     .map_err(|error| error.to_string())?;
     let requests = assignments
         .into_iter()
-        .filter(|assignment| assignment.card_id == card_id)
+        .filter(|assignment| assignment.card_id == card_id && assignment.wave_index == wave_index)
         .map(|assignment| {
             let request = &workload.requests[assignment.request_index];
             WorkerRequestEntry {
@@ -302,7 +304,7 @@ fn worker_request(
     }
     Ok(WorkerRequest {
         schema_version: SCHEMA_VERSION,
-        run_id: format!("{run_id}-card-{card_id}"),
+        run_id: format!("{run_id}-wave-{wave_index}-card-{card_id}"),
         requests,
     })
 }
@@ -313,12 +315,15 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         run_root,
         run_id,
         card_id,
+        wave_index,
         card_ids,
         workload,
         profile,
         collect_profiler,
     } = request;
-    let worker_root = run_root.join(format!("card-{card_id}"));
+    let worker_root = run_root
+        .join(format!("wave-{wave_index}"))
+        .join(format!("card-{card_id}"));
     fs::create_dir_all(worker_root.join("profiler"))
         .map_err(|error| format!("cannot create worker root: {error}"))?;
     fs::create_dir_all(worker_root.join("logs"))
@@ -327,7 +332,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
     let output_path = worker_root.join("receipt.json");
     write_new_json(
         &request_path,
-        &worker_request(run_id, card_id, card_ids, workload, profile)?,
+        &worker_request(run_id, card_id, wave_index, card_ids, workload, profile)?,
     )?;
     let stdout = File::create(worker_root.join("stdout.log"))
         .map_err(|error| format!("cannot create worker stdout: {error}"))?;
@@ -362,6 +367,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         .map_err(|error| format!("cannot launch card {card_id} worker: {error}"))?;
     Ok(WorkerProcess {
         card_id,
+        wave_index,
         root: worker_root,
         output_path,
         child,
@@ -566,46 +572,68 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
     let run_id = format!("{topology}-{sample_index}");
     let run_root = root.join(&run_id);
     fs::create_dir(&run_root).map_err(|error| format!("cannot create run root: {error}"))?;
-    let mut workers = card_ids
+    let assignments = deterministic_slot_assignments(
+        workload.requests.len(),
+        card_ids,
+        profile.scheduler.per_card_slot_count,
+    )
+    .map_err(|error| error.to_string())?;
+    let maximum_wave_index = assignments
         .iter()
-        .map(|card_id| {
-            launch_worker(WorkerLaunchRequest {
-                runtime,
-                run_root: &run_root,
-                run_id: &run_id,
-                card_id: *card_id,
-                card_ids,
-                workload,
-                profile,
-                collect_profiler,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for worker in &mut workers {
-        let status = worker
-            .child
-            .wait()
-            .map_err(|error| format!("cannot wait for card {}: {error}", worker.card_id))?;
-        if !status.success() {
-            return Err(format!(
-                "card {} worker failed with {status}; see {}",
-                worker.card_id,
-                worker.root.display()
-            ));
-        }
-    }
+        .map(|assignment| assignment.wave_index)
+        .max()
+        .ok_or_else(|| "scheduler returned no wave assignments".to_owned())?;
     let mut elapsed_seconds = 0.0_f64;
     let mut requests = Vec::new();
-    for worker in &workers {
-        let receipt: WorkerReceipt = read_json(&worker.output_path)?;
-        validate_worker(worker, &receipt, workload, profile, collect_profiler)?;
-        elapsed_seconds = elapsed_seconds.max(receipt.elapsed_seconds);
-        requests.extend(
-            receipt
-                .requests
-                .into_iter()
-                .map(|request| request.measurement),
-        );
+    for wave_index in 0..=maximum_wave_index {
+        let active_cards = assignments
+            .iter()
+            .filter(|assignment| assignment.wave_index == wave_index)
+            .map(|assignment| assignment.card_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut workers = card_ids
+            .iter()
+            .filter(|card_id| active_cards.contains(card_id))
+            .map(|card_id| {
+                launch_worker(WorkerLaunchRequest {
+                    runtime,
+                    run_root: &run_root,
+                    run_id: &run_id,
+                    card_id: *card_id,
+                    wave_index,
+                    card_ids,
+                    workload,
+                    profile,
+                    collect_profiler,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for worker in &mut workers {
+            let status = worker
+                .child
+                .wait()
+                .map_err(|error| format!("cannot wait for card {}: {error}", worker.card_id))?;
+            if !status.success() {
+                return Err(format!(
+                    "card {} wave {} worker failed with {status}; see {}",
+                    worker.card_id,
+                    worker.wave_index,
+                    worker.root.display()
+                ));
+            }
+        }
+        let mut wave_elapsed_seconds = 0.0_f64;
+        for worker in &workers {
+            let receipt: WorkerReceipt = read_json(&worker.output_path)?;
+            validate_worker(worker, &receipt, workload, profile, collect_profiler)?;
+            wave_elapsed_seconds = wave_elapsed_seconds.max(receipt.elapsed_seconds);
+            requests.extend(receipt.requests.into_iter().map(|request| {
+                let mut measurement = request.measurement;
+                measurement.wave_index = worker.wave_index;
+                measurement
+            }));
+        }
+        elapsed_seconds += wave_elapsed_seconds;
     }
     requests.sort_by(|left, right| left.request_id.cmp(&right.request_id));
     Ok(ThroughputRun {

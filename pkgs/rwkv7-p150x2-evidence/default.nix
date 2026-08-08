@@ -55,10 +55,14 @@ rustPlatform.buildRustPackage {
     mkdir -p "$out/share/model-target" "$out/share/rwkv7-p150x2-throughput"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp throughput-contracts.ncl throughput-profile.ncl \
+      throughput-saturated-profile.ncl \
       fixtures/throughput-workload.json \
+      fixtures/throughput-saturated-workload.json \
       "$out/share/rwkv7-p150x2-throughput/"
     nickel export --format json throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-profile.json"
+    nickel export --format json throughput-saturated-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     substitute run-simulator-smoke.sh \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \

@@ -18,6 +18,7 @@ const PERCENTILE_P99: f64 = 0.99;
 const FRACTION_DENOMINATOR: f64 = 1.0;
 const FLOAT_COMPARISON_TOLERANCE: f64 = 0.000_000_001;
 const MINIMUM_SAMPLE_COUNT: usize = 3;
+const MAXIMUM_SCHEDULER_WAVE_COUNT: usize = 2;
 const EXPECTED_ONE_CARD_DEVICE_ID: usize = 0;
 const EXPECTED_TWO_CARD_DEVICE_IDS: [usize; TWO_CARD_DEVICE_COUNT] = [0, 1];
 const EXPECTED_SCHEDULER_MODE: &str = "deterministic_continuous_batching";
@@ -165,6 +166,8 @@ pub struct RequestMeasurement {
     pub request_id: String,
     pub card_id: usize,
     pub state_slot: usize,
+    #[serde(default)]
+    pub wave_index: usize,
     pub token_count: usize,
     pub latency_seconds: f64,
 }
@@ -210,6 +213,7 @@ pub struct SlotAssignment {
     pub request_index: usize,
     pub card_id: usize,
     pub state_slot: usize,
+    pub wave_index: usize,
 }
 
 pub fn deterministic_slot_assignments(
@@ -230,7 +234,7 @@ pub fn deterministic_slot_assignments(
             "scheduler card IDs must be unique",
         ));
     }
-    let capacity = card_ids
+    let active_capacity = card_ids
         .len()
         .checked_mul(per_card_slot_count)
         .ok_or_else(|| {
@@ -239,10 +243,18 @@ pub fn deterministic_slot_assignments(
                 "scheduler capacity does not fit in usize",
             )
         })?;
-    if request_count > capacity {
+    let total_capacity = active_capacity
+        .checked_mul(MAXIMUM_SCHEDULER_WAVE_COUNT)
+        .ok_or_else(|| {
+            Rejection::new(
+                "scheduler_capacity_overflow",
+                "scheduler wave capacity does not fit in usize",
+            )
+        })?;
+    if request_count > total_capacity {
         return Err(Rejection::new(
             "scheduler_capacity_exceeded",
-            format!("request count is {request_count}, active capacity is {capacity}"),
+            format!("request count is {request_count}, bounded wave capacity is {total_capacity}"),
         ));
     }
     let mut card_loads = vec![0usize; card_ids.len()];
@@ -253,12 +265,14 @@ pub fn deterministic_slot_assignments(
             .iter()
             .position(|load| *load == minimum_load)
             .expect("minimum card load exists");
-        let state_slot = card_loads[card_index];
-        assert!(state_slot < per_card_slot_count);
+        let state_slot = card_loads[card_index] % per_card_slot_count;
+        let wave_index = card_loads[card_index] / per_card_slot_count;
+        assert!(wave_index < MAXIMUM_SCHEDULER_WAVE_COUNT);
         assignments.push(SlotAssignment {
             request_index,
             card_id: card_ids[card_index],
             state_slot,
+            wave_index,
         });
         card_loads[card_index] += 1;
     }
@@ -324,15 +338,19 @@ fn validate_profile(profile: &ThroughputProfile) -> Result<(), Rejection> {
             ),
         ));
     }
+    let bounded_one_card_capacity = profile
+        .scheduler
+        .per_card_slot_count
+        .saturating_mul(MAXIMUM_SCHEDULER_WAVE_COUNT);
     if profile.workload.request_count < TWO_CARD_DEVICE_COUNT
-        || profile.workload.request_count > profile.scheduler.per_card_slot_count
+        || profile.workload.request_count > bounded_one_card_capacity
         || profile.workload.short_prompt_token_count == 0
         || profile.workload.long_prompt_token_count <= profile.workload.short_prompt_token_count
         || profile.workload.generated_token_count == 0
     {
         return Err(Rejection::new(
             "invalid_workload_profile",
-            "workload must fit one card and name positive short, long, and generation bounds",
+            "workload must fit bounded one-card waves and name positive short, long, and generation bounds",
         ));
     }
     if profile.scheduler.mode != EXPECTED_SCHEDULER_MODE
@@ -508,12 +526,23 @@ fn validate_request_workload(
                 ),
             ));
         }
-        if !live_state_slots.insert((request.card_id, request.state_slot)) {
+        if request.wave_index >= MAXIMUM_SCHEDULER_WAVE_COUNT {
+            return Err(Rejection::new(
+                "wave_index_out_of_range",
+                format!(
+                    "request '{}' uses wave {}, maximum is {}",
+                    request.request_id,
+                    request.wave_index,
+                    MAXIMUM_SCHEDULER_WAVE_COUNT.saturating_sub(1)
+                ),
+            ));
+        }
+        if !live_state_slots.insert((request.card_id, request.wave_index, request.state_slot)) {
             return Err(Rejection::new(
                 "live_state_slot_reuse",
                 format!(
-                    "run '{}' assigns more than one live request to card {} slot {}",
-                    run.run_id, request.card_id, request.state_slot
+                    "run '{}' assigns more than one live request to card {} wave {} slot {}",
+                    run.run_id, request.card_id, request.wave_index, request.state_slot
                 ),
             ));
         }
@@ -896,6 +925,7 @@ mod tests {
                 } else {
                     index
                 },
+                wave_index: 0,
                 token_count: TOKEN_COUNT,
                 latency_seconds,
             })
@@ -993,31 +1023,52 @@ mod tests {
                 SlotAssignment {
                     request_index: 0,
                     card_id: 0,
-                    state_slot: 0
+                    state_slot: 0,
+                    wave_index: 0
                 },
                 SlotAssignment {
                     request_index: 1,
                     card_id: 1,
-                    state_slot: 0
+                    state_slot: 0,
+                    wave_index: 0
                 },
                 SlotAssignment {
                     request_index: 2,
                     card_id: 0,
-                    state_slot: 1
+                    state_slot: 1,
+                    wave_index: 0
                 },
                 SlotAssignment {
                     request_index: 3,
                     card_id: 1,
-                    state_slot: 1
+                    state_slot: 1,
+                    wave_index: 0
                 },
             ]
         );
     }
 
     #[test]
+    fn scheduler_reuses_slots_only_in_the_next_wave() {
+        let request_count = REQUEST_COUNT * MAXIMUM_SCHEDULER_WAVE_COUNT;
+        let assignments = deterministic_slot_assignments(request_count, &[0], REQUEST_COUNT)
+            .expect("bounded waves must fit");
+        assert_eq!(assignments[0].wave_index, 0);
+        assert_eq!(assignments[0].state_slot, 0);
+        assert_eq!(assignments[REQUEST_COUNT].wave_index, 1);
+        assert_eq!(assignments[REQUEST_COUNT].state_slot, 0);
+        assert_eq!(assignments[request_count - 1].wave_index, 1);
+        assert_eq!(assignments[request_count - 1].state_slot, REQUEST_COUNT - 1);
+    }
+
+    #[test]
     fn scheduler_rejects_capacity_overflow() {
-        let rejection = deterministic_slot_assignments(REQUEST_COUNT + 1, &[0, 1], 2)
-            .expect_err("must reject overflow");
+        let rejection = deterministic_slot_assignments(
+            (REQUEST_COUNT * MAXIMUM_SCHEDULER_WAVE_COUNT) + 1,
+            &[0, 1],
+            2,
+        )
+        .expect_err("must reject overflow");
         assert_eq!(rejection.code, "scheduler_capacity_exceeded");
     }
 
@@ -1058,6 +1109,15 @@ mod tests {
         raw.one_card_runs[0].requests[1].state_slot = 0;
         let rejection = summarize_throughput(&raw, &profile).expect_err("must reject live reuse");
         assert_eq!(rejection.code, "live_state_slot_reuse");
+    }
+
+    #[test]
+    fn rejects_a_wave_outside_the_scheduler_bound() {
+        let profile = profile();
+        let mut raw = raw(&profile);
+        raw.one_card_runs[0].requests[0].wave_index = MAXIMUM_SCHEDULER_WAVE_COUNT;
+        let rejection = summarize_throughput(&raw, &profile).expect_err("must reject wave");
+        assert_eq!(rejection.code, "wave_index_out_of_range");
     }
 
     #[test]
