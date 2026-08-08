@@ -627,11 +627,18 @@ public:
   }
 
   void set_stage(std::string stage) {
+    if (!operation_recording_enabled_) {
+      return;
+    }
     stage_ = sanitize_stage(std::move(stage));
   }
 
   void set_profiler_flush_enabled(bool enabled) {
     profiler_flush_enabled_ = enabled;
+  }
+
+  void set_operation_recording_enabled(bool enabled) {
+    operation_recording_enabled_ = enabled;
   }
 
   void flush_profiler(std::string stage) {
@@ -661,11 +668,13 @@ public:
     require(ttnn::distributed::get_device_tensors(tensor).size() ==
                 expected_device_count_,
             "TT-NN operation did not preserve the selected device shards");
-    ++operation_counts_[std::string(operation)];
-    ++stage_operation_counts_[stage_][std::string(operation)];
-    operation_events_.push_back(
-        OperationEvent{static_cast<std::uint64_t>(operation_events_.size()),
-                       stage_, std::string(operation)});
+    if (operation_recording_enabled_) {
+      ++operation_counts_[std::string(operation)];
+      ++stage_operation_counts_[stage_][std::string(operation)];
+      operation_events_.push_back(
+          OperationEvent{static_cast<std::uint64_t>(operation_events_.size()),
+                         stage_, std::string(operation)});
+    }
     return tensor;
   }
 
@@ -769,6 +778,7 @@ private:
   std::shared_ptr<MeshDevice> mesh_;
   std::unique_ptr<TensorToMesh> mapper_;
   bool profiler_flush_enabled_ = true;
+  bool operation_recording_enabled_ = true;
   std::string stage_ = "initialization";
   std::map<std::string, std::uint64_t> operation_counts_;
   std::map<std::string, std::map<std::string, std::uint64_t>>
@@ -926,16 +936,20 @@ ModelState zero_model_state(DeviceContext &context) {
   return ModelState{std::move(layers)};
 }
 
-ModelState zero_fast_model_state(DeviceContext &context) {
+ModelState zero_fast_model_state(DeviceContext &context,
+                                 std::uint32_t batch_size) {
+  require(batch_size > 0U && batch_size <= kFastPerCardSlotCount,
+          "fast state batch size is outside the card-local range");
   context.set_stage("fast-state-zero-initialization");
   std::vector<LayerState> layers;
   layers.reserve(kLayerCount);
   for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
        ++layer_index) {
     layers.push_back(LayerState{
-        context.zeros({1U, 1U, 1U, kHiddenSize}),
-        context.zeros({1U, 1U, 1U, kHiddenSize}),
-        context.zeros_fp32({1U, kHeadCount, kHeadSize, kHeadSize})});
+        context.zeros({1U, 1U, batch_size, kHiddenSize}),
+        context.zeros({1U, 1U, batch_size, kHiddenSize}),
+        context.zeros_fp32(
+            {batch_size, kHeadCount, kHeadSize, kHeadSize})});
   }
   return ModelState{std::move(layers)};
 }
@@ -1051,13 +1065,14 @@ Tensor mixed(DeviceContext &context, const Tensor &input,
 }
 
 Tensor normalize_heads(DeviceContext &context, const Tensor &input) {
-  const Tensor rows =
-      op_reshape(context, input, {1U, kHeadCount, 1U, kHeadSize});
+  const std::uint32_t batch_size = input.logical_shape()[-2];
+  const Tensor rows = op_reshape(
+      context, input, {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor norm = op_maximum_scalar(
       context, op_sqrt(context, op_sum_last(context, op_square(context, rows))),
       kNormalizationFloor);
   return op_reshape(context, op_divide(context, rows, norm),
-                    {1U, 1U, 1U, kHiddenSize});
+                    {1U, 1U, batch_size, kHiddenSize});
 }
 
 struct TimePreparation {
@@ -1146,6 +1161,7 @@ struct WkvOutput {
 WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
                    const TimePreparation &preparation) {
   const bool fp32_state = state.dtype() == ttnn::DataType::FLOAT32;
+  const std::uint32_t batch_size = state.logical_shape()[0];
   const auto state_dtype = [&](const Tensor &tensor) {
     return fp32_state
                ? op_typecast(context, tensor, ttnn::DataType::FLOAT32,
@@ -1154,7 +1170,7 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
   };
   const auto row = [&](const Tensor &tensor) {
     return op_reshape(context, state_dtype(tensor),
-                      {1U, kHeadCount, 1U, kHeadSize});
+                      {batch_size, kHeadCount, 1U, kHeadSize});
   };
   const auto column = [&](const Tensor &tensor) {
     return op_transpose(context, row(tensor), kMatrixRowDimension,
@@ -1176,43 +1192,48 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
                               "typecast-recurrence-output-bf16")
                  : output_column;
   const Tensor raw_output = op_reshape(
-      context, output_for_hidden, {1U, 1U, 1U, kHiddenSize});
+      context, output_for_hidden, {1U, 1U, batch_size, kHiddenSize});
   return WkvOutput{next_state, raw_output};
 }
 
 Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
                         const TimePreparation &preparation,
                         const Tensor &raw_output) {
-  const Tensor rows =
-      op_reshape(context, raw_output, {1U, kHeadCount, 1U, kHeadSize});
+  const std::uint32_t batch_size = raw_output.logical_shape()[-2];
+  const Tensor rows = op_reshape(
+      context, raw_output, {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor normalized_rows =
       op_layer_norm(context, rows, kGroupNormEpsilon);
   const Tensor normalized =
       op_add(context,
              op_multiply(context,
                          op_reshape(context, normalized_rows,
-                                    {1U, 1U, 1U, kHiddenSize}),
+                                    {1U, 1U, batch_size, kHiddenSize}),
                          weights.at("group_norm_weight")),
              weights.at("group_norm_bias"));
-  const Tensor r_rows =
-      op_reshape(context, preparation.r, {1U, kHeadCount, 1U, kHeadSize});
-  const Tensor k_rows =
-      op_reshape(context, preparation.k, {1U, kHeadCount, 1U, kHeadSize});
+  const Tensor r_rows = op_reshape(
+      context, preparation.r, {batch_size, kHeadCount, 1U, kHeadSize});
+  const Tensor k_rows = op_reshape(
+      context, preparation.k, {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor rk_rows =
       op_reshape(context, weights.at("r_k"), {1U, kHeadCount, 1U, kHeadSize});
   const Tensor scalar = op_sum_last(
       context,
       op_multiply(context, op_multiply(context, r_rows, k_rows), rk_rows));
-  const Tensor v_rows =
-      op_reshape(context, preparation.v, {1U, kHeadCount, 1U, kHeadSize});
+  const Tensor v_rows = op_reshape(
+      context, preparation.v, {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor corrected_rows = op_multiply(
       context,
       op_add(context,
-             op_reshape(context, normalized, {1U, kHeadCount, 1U, kHeadSize}),
+             op_reshape(context, normalized,
+                        {batch_size, kHeadCount, 1U, kHeadSize}),
              op_multiply(context, scalar, v_rows)),
-      op_reshape(context, preparation.gate, {1U, kHeadCount, 1U, kHeadSize}));
+      op_reshape(context, preparation.gate,
+                 {batch_size, kHeadCount, 1U, kHeadSize}));
   return op_matmul(
-      context, op_reshape(context, corrected_rows, {1U, 1U, 1U, kHiddenSize}),
+      context,
+      op_reshape(context, corrected_rows,
+                 {1U, 1U, batch_size, kHiddenSize}),
       weights.at("output_projection"));
 }
 
@@ -1306,20 +1327,26 @@ read_u32_shards(DeviceContext &context, const Tensor &input) {
   return {first[kFirstIndex], second[kFirstIndex]};
 }
 
-std::uint32_t read_single_u32(DeviceContext &context, const Tensor &input) {
+std::vector<std::uint32_t>
+read_fast_u32(DeviceContext &context, const Tensor &input,
+              std::size_t batch_size) {
+  require(batch_size > 0U && batch_size <= kFastPerCardSlotCount,
+          "fast UINT32 readback batch size is outside the card-local range");
   context.set_stage("fast-selection/readback-u32");
   const Tensor host = ttnn::from_device(input, true);
   const std::vector<Tensor> shards =
       ttnn::distributed::get_device_tensors(host);
   require(shards.size() == 1U,
           "fast UINT32 readback did not contain one card shard");
-  const std::vector<std::uint32_t> values =
+  std::vector<std::uint32_t> values =
       shards[kFirstIndex].to_vector<std::uint32_t>();
-  require(values.size() == 1U,
-          "fast device argmax did not return one value");
-  require(values[kFirstIndex] < kVocabularySize,
-          "fast device argmax selected an invalid token ID");
-  return values[kFirstIndex];
+  require(values.size() == batch_size,
+          "fast device argmax did not return one value per batch row");
+  for (const std::uint32_t value : values) {
+    require(value < kVocabularySize,
+            "fast device argmax selected an invalid token ID");
+  }
+  return values;
 }
 
 std::vector<std::uint8_t> bf16_bytes(const std::vector<bfloat16> &values) {
@@ -1578,11 +1605,17 @@ struct FastWorkerArguments {
 
 struct FastSlot {
   const FastRequest *request;
-  ModelState state;
   std::size_t prompt_index;
   std::vector<std::uint32_t> generated_tokens;
   std::uint64_t processed_token_count;
   std::chrono::steady_clock::time_point started_at;
+};
+
+struct FastBatchStepPlan {
+  std::vector<std::uint32_t> input_tokens;
+  std::vector<bool> consumes_prompt;
+  std::vector<bool> selection_required;
+  bool any_selection_required;
 };
 
 FastWorkerArguments
@@ -1667,21 +1700,103 @@ FastWorkerRequest read_fast_worker_request(
   return request;
 }
 
-std::uint32_t advance_token_fast(DeviceContext &context,
-                                 const ModelWeights &weights,
-                                 ModelState &state,
-                                 std::uint32_t input_token,
-                                 std::string_view request_id,
-                                 std::uint64_t step_index) {
-  const std::string step_name = "fast-" + std::string(request_id) + "-step-" +
-                                std::to_string(step_index);
+FastBatchStepPlan
+plan_fast_batch_step(const std::vector<FastSlot> &slots,
+                     const std::vector<bool> &completed) {
+  require(!slots.empty() && slots.size() <= kFastPerCardSlotCount,
+          "fast batch planner slot count is outside the card-local range");
+  require(completed.size() == slots.size(),
+          "fast batch planner completion count differs from slot count");
+  FastBatchStepPlan plan{{}, {}, {}, false};
+  plan.input_tokens.reserve(slots.size());
+  plan.consumes_prompt.reserve(slots.size());
+  plan.selection_required.reserve(slots.size());
+  for (std::size_t index = 0U; index < slots.size(); ++index) {
+    const FastSlot &slot = slots[index];
+    require(slot.request != nullptr, "fast batch planner found an empty slot");
+    if (completed[index]) {
+      plan.input_tokens.push_back(kGenerationEosToken);
+      plan.consumes_prompt.push_back(false);
+      plan.selection_required.push_back(false);
+      continue;
+    }
+    if (slot.prompt_index < slot.request->prompt_tokens.size()) {
+      plan.input_tokens.push_back(
+          slot.request->prompt_tokens[slot.prompt_index]);
+      plan.consumes_prompt.push_back(true);
+      const bool final_prompt_token =
+          slot.prompt_index + 1U == slot.request->prompt_tokens.size();
+      plan.selection_required.push_back(final_prompt_token);
+      plan.any_selection_required |= final_prompt_token;
+      continue;
+    }
+    require(!slot.generated_tokens.empty(),
+            "fast batch planner has no generated token to continue");
+    plan.input_tokens.push_back(slot.generated_tokens.back());
+    plan.consumes_prompt.push_back(false);
+    plan.selection_required.push_back(true);
+    plan.any_selection_required = true;
+  }
+  return plan;
+}
+
+void apply_fast_batch_step(
+    std::vector<FastSlot> &slots, std::vector<bool> &completed,
+    const FastBatchStepPlan &plan,
+    const std::optional<std::vector<std::uint32_t>> &selected_tokens) {
+  require(completed.size() == slots.size() &&
+              plan.input_tokens.size() == slots.size() &&
+              plan.consumes_prompt.size() == slots.size() &&
+              plan.selection_required.size() == slots.size(),
+          "fast batch step shape differs from slot count");
+  require(selected_tokens.has_value() == plan.any_selection_required,
+          "fast batch selection result does not match the plan");
+  if (selected_tokens.has_value()) {
+    require(selected_tokens->size() == slots.size(),
+            "fast batch selection count differs from slot count");
+  }
+  for (std::size_t index = 0U; index < slots.size(); ++index) {
+    if (completed[index]) {
+      continue;
+    }
+    FastSlot &slot = slots[index];
+    require(slot.request != nullptr, "fast batch step found an empty slot");
+    if (plan.consumes_prompt[index]) {
+      ++slot.prompt_index;
+    }
+    ++slot.processed_token_count;
+    if (plan.selection_required[index]) {
+      slot.generated_tokens.push_back((*selected_tokens)[index]);
+    }
+    completed[index] =
+        slot.generated_tokens.size() >= slot.request->max_new_tokens;
+  }
+}
+
+std::optional<std::vector<std::uint32_t>>
+advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
+                    ModelState &state,
+                    const std::vector<std::uint32_t> &input_tokens,
+                    bool select_tokens, std::uint64_t step_index) {
+  require(!input_tokens.empty() &&
+              input_tokens.size() <= kFastPerCardSlotCount,
+          "fast model batch size is outside the card-local range");
+  require(state.layers.size() == kLayerCount,
+          "fast model state has the wrong layer count");
+  const auto batch_size = static_cast<std::uint32_t>(input_tokens.size());
+  require(state.layers[kFirstIndex].matrix.logical_shape()[0] == batch_size,
+          "fast model state batch size differs from token batch size");
+  const std::string step_name =
+      "fast-batch-step-" + std::to_string(step_index);
   context.set_stage(step_name + "/embedding");
-  const Tensor token = context.uint32_tensor({input_token}, {1U, 1U});
+  const Tensor token =
+      context.uint32_tensor(input_tokens, {batch_size, 1U});
   Tensor hidden =
       context.checked(ttnn::embedding(token, weights.embeddings, std::nullopt,
                                       ttnn::Layout::TILE),
                       "embedding");
-  hidden = op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
+  hidden =
+      op_reshape(context, hidden, {1U, 1U, batch_size, kHiddenSize});
   std::optional<Tensor> value_anchor;
   for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
        ++layer_index) {
@@ -1693,6 +1808,9 @@ std::uint32_t advance_token_fast(DeviceContext &context,
   }
   require(value_anchor.has_value(),
           "fast full model did not establish the token-local value anchor");
+  if (!select_tokens) {
+    return std::nullopt;
+  }
   context.set_stage(step_name + "/final-normalization");
   const Tensor final_hidden =
       op_layer_norm(context, hidden, weights.final_norm_weight,
@@ -1704,30 +1822,7 @@ std::uint32_t advance_token_fast(DeviceContext &context,
   context.set_stage(step_name + "/greedy-selection");
   const Tensor selected = context.checked(
       ttnn::argmax(logits_row_major, kLastDimension, true), "argmax");
-  return read_single_u32(context, selected);
-}
-
-bool advance_fast_slot(DeviceContext &context, const ModelWeights &weights,
-                       FastSlot &slot) {
-  require(slot.request != nullptr, "fast slot has no request");
-  std::uint32_t input_token = 0U;
-  if (slot.prompt_index < slot.request->prompt_tokens.size()) {
-    input_token = slot.request->prompt_tokens[slot.prompt_index];
-    ++slot.prompt_index;
-  } else {
-    require(!slot.generated_tokens.empty(),
-            "fast slot has no generated token to continue");
-    input_token = slot.generated_tokens.back();
-  }
-  const std::uint32_t selected =
-      advance_token_fast(context, weights, slot.state, input_token,
-                         slot.request->request_id,
-                         slot.processed_token_count);
-  ++slot.processed_token_count;
-  if (slot.prompt_index == slot.request->prompt_tokens.size()) {
-    slot.generated_tokens.push_back(selected);
-  }
-  return slot.generated_tokens.size() >= slot.request->max_new_tokens;
+  return read_fast_u32(context, selected, input_tokens.size());
 }
 
 void write_json(const std::filesystem::path &path, const Json &value) {
@@ -1769,7 +1864,7 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
   DeviceContext context(kPhysicalDeviceZero);
   context.set_profiler_flush_enabled(false);
   const ModelWeights weights = load_model(context, checkpoint);
-  ModelState state = zero_fast_model_state(context);
+  ModelState state = zero_fast_model_state(context, 1U);
   require(state.layers[kFirstIndex].matrix.dtype() == ttnn::DataType::FLOAT32,
           "simulator smoke recurrent matrix is not FP32");
   for (std::uint32_t step = 0U; step < kMinimumGeneratedTokens; ++step) {
@@ -1818,14 +1913,22 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const CheckpointIndex checkpoint(checkpoint_file);
   DeviceContext context(arguments.physical_device_id);
   context.set_profiler_flush_enabled(false);
+  context.set_operation_recording_enabled(false);
   const ModelWeights weights = load_model(context, checkpoint);
+  const auto batch_size =
+      static_cast<std::uint32_t>(request.requests.size());
 
-  ModelState warmup_state = zero_fast_model_state(context);
-  std::uint32_t warmup_token = kGenerationEosToken;
+  ModelState warmup_state = zero_fast_model_state(context, batch_size);
+  std::vector<std::uint32_t> warmup_tokens(
+      request.requests.size(), kGenerationEosToken);
   for (std::uint32_t index = 0U; index < kFastWarmupTokenCount; ++index) {
-    warmup_token = advance_token_fast(context, weights, warmup_state,
-                                      warmup_token, "warmup", index);
+    const auto selected = advance_tokens_fast(
+        context, weights, warmup_state, warmup_tokens, true, index);
+    require(selected.has_value(),
+            "fast worker warmup did not select tokens");
+    warmup_tokens = *selected;
   }
+  ModelState state = zero_fast_model_state(context, batch_size);
   const std::size_t cache_after_warmup = context.program_cache_entries();
   require(cache_after_warmup > 0U,
           "fast worker warmup did not populate the program cache");
@@ -1833,8 +1936,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   std::vector<FastSlot> slots;
   slots.reserve(request.requests.size());
   for (const FastRequest &current : request.requests) {
-    slots.push_back(FastSlot{&current, zero_fast_model_state(context), 0U, {},
-                             0U, {}});
+    slots.push_back(FastSlot{&current, 0U, {}, 0U, {}});
   }
   std::vector<bool> completed(slots.size(), false);
   Json request_metrics = Json::array();
@@ -1843,17 +1945,22 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     slot.started_at = timed_start;
   }
   std::size_t completed_count = 0U;
+  std::uint64_t batch_step_count = 0U;
   while (completed_count < slots.size()) {
+    const std::vector<bool> completed_before = completed;
+    const FastBatchStepPlan plan = plan_fast_batch_step(slots, completed);
+    const auto selected = advance_tokens_fast(
+        context, weights, state, plan.input_tokens,
+        plan.any_selection_required, batch_step_count);
+    apply_fast_batch_step(slots, completed, plan, selected);
+    ++batch_step_count;
+    const auto completed_at = std::chrono::steady_clock::now();
     for (std::size_t slot_index = 0U; slot_index < slots.size();
          ++slot_index) {
-      if (completed[slot_index]) {
+      if (completed_before[slot_index] || !completed[slot_index]) {
         continue;
       }
       FastSlot &slot = slots[slot_index];
-      if (!advance_fast_slot(context, weights, slot)) {
-        continue;
-      }
-      const auto completed_at = std::chrono::steady_clock::now();
       const double latency_seconds =
           std::chrono::duration<double>(completed_at - slot.started_at).count();
       require(std::isfinite(latency_seconds) && latency_seconds > 0.0,
@@ -1865,7 +1972,6 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
                {"token_count", slot.processed_token_count},
                {"latency_seconds", latency_seconds},
                {"generated_token_ids", slot.generated_tokens}});
-      completed[slot_index] = true;
       ++completed_count;
     }
   }
@@ -2226,6 +2332,78 @@ void run_self_test() {
         },
         "TT_METAL_DPRINT_CORES must be unset");
   }
+
+  constexpr std::uint32_t kFirstPromptToken = 10U;
+  constexpr std::uint32_t kSecondPromptToken = 11U;
+  constexpr std::uint32_t kThirdPromptToken = 12U;
+  constexpr std::uint32_t kFirstSelectedToken = 20U;
+  constexpr std::uint32_t kSecondSelectedToken = 21U;
+  constexpr std::uint32_t kFirstFinalToken = 30U;
+  constexpr std::uint32_t kSecondFinalToken = 31U;
+  const FastRequest first_fast_request{
+      "first", {kFirstPromptToken, kSecondPromptToken},
+      kMinimumGeneratedTokens, kFirstIndex};
+  const FastRequest second_fast_request{
+      "second",
+      {kFirstPromptToken, kSecondPromptToken, kThirdPromptToken},
+      kMinimumGeneratedTokens, kSecondIndex};
+  std::vector<FastSlot> fast_slots{
+      FastSlot{&first_fast_request, 0U, {}, 0U, {}},
+      FastSlot{&second_fast_request, 0U, {}, 0U, {}}};
+  std::vector<bool> fast_completed(fast_slots.size(), false);
+  const FastBatchStepPlan initial_plan =
+      plan_fast_batch_step(fast_slots, fast_completed);
+  require(initial_plan.input_tokens ==
+              std::vector<std::uint32_t>{kFirstPromptToken,
+                                         kFirstPromptToken} &&
+              !initial_plan.any_selection_required,
+          "positive fast batch planner self-test changed initial prompt plan");
+
+  fast_slots[kFirstIndex].prompt_index = 1U;
+  fast_slots[kSecondIndex].prompt_index = 2U;
+  const FastBatchStepPlan final_prompt_plan =
+      plan_fast_batch_step(fast_slots, fast_completed);
+  require(final_prompt_plan.any_selection_required &&
+              final_prompt_plan.selection_required ==
+                  std::vector<bool>{true, true},
+          "positive fast batch planner self-test omitted final prompt heads");
+  apply_fast_batch_step(
+      fast_slots, fast_completed, final_prompt_plan,
+      std::vector<std::uint32_t>{kFirstSelectedToken,
+                                 kSecondSelectedToken});
+  require(fast_slots[kFirstIndex].generated_tokens ==
+              std::vector<std::uint32_t>{kFirstSelectedToken} &&
+              fast_slots[kSecondIndex].generated_tokens ==
+                  std::vector<std::uint32_t>{kSecondSelectedToken} &&
+              !fast_completed[kFirstIndex] && !fast_completed[kSecondIndex],
+          "positive fast batch step self-test changed first selections");
+  const FastBatchStepPlan generation_plan =
+      plan_fast_batch_step(fast_slots, fast_completed);
+  require(generation_plan.input_tokens ==
+              std::vector<std::uint32_t>{kFirstSelectedToken,
+                                         kSecondSelectedToken} &&
+              generation_plan.any_selection_required,
+          "positive fast batch planner self-test changed generation plan");
+  apply_fast_batch_step(
+      fast_slots, fast_completed, generation_plan,
+      std::vector<std::uint32_t>{kFirstFinalToken, kSecondFinalToken});
+  require(fast_completed[kFirstIndex] && fast_completed[kSecondIndex],
+          "positive fast batch step self-test did not complete requests");
+
+  expect_operation_failure(
+      [&fast_slots]() {
+        static_cast<void>(
+            plan_fast_batch_step(fast_slots, std::vector<bool>{false}));
+      },
+      "completion count differs from slot count");
+  expect_operation_failure(
+      [&fast_slots]() {
+        std::vector<bool> incomplete(fast_slots.size(), false);
+        const FastBatchStepPlan plan =
+            plan_fast_batch_step(fast_slots, incomplete);
+        apply_fast_batch_step(fast_slots, incomplete, plan, std::nullopt);
+      },
+      "selection result does not match the plan");
 
   const std::vector<bfloat16> input = {
       std::bit_cast<bfloat16>(kSelfTestBitOne),

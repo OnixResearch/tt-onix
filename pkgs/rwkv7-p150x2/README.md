@@ -12,7 +12,11 @@ Do not use evidence-mode elapsed time as an inference-throughput result.
 
 `--fast-worker` opens one exact physical card as a `1x1` mesh. Each worker loads one complete model replica. The benchmark launcher runs card 0 and card 1 workers at the same time. Requests do not cross cards.
 
-The worker keeps each request's WKV recurrent matrix in a card-local FP32 device tensor. It keeps token-shift state on the device. It uses deterministic, bounded state slots.
+The worker keeps one static batch per card. Each batch row has independent FP32 WKV state and token-shift state. The worker uses deterministic, bounded state slots.
+
+The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
+
+The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
 
 The timed region contains warmed prompt and decode operations. It excludes:
 
@@ -22,7 +26,7 @@ The timed region contains warmed prompt and decode operations. It excludes:
 - receipt construction; and
 - artifact writes.
 
-The worker reads only the selected token needed for autoregressive continuation. It flushes the device profiler after timing.
+The worker flushes the device profiler after timing.
 
 ## Simulator smoke
 

@@ -52,6 +52,26 @@ A bounded streaming reduction of the first physical one-card profiler CSV paired
 
 The largest observed steady-state surface is therefore Tensix compute execution, not host readback or receipt work. Dropped profiler markers prevent a complete operation-level ranking. This evidence does not justify a custom fused kernel.
 
+## Runtime batching investigation
+
+A source audit found three fast-path defects:
+
+- The scheduler advanced each request separately. It did not execute a card-local batch.
+- Every prompt token executed final normalization and the full vocabulary head.
+- Every selected token caused a blocking host read before the next device step.
+
+`fixtures/physical-throughput-batched-candidate/` retains the first fixed-batch aggregate receipt. The candidate kept exact FP32 token parity. It measured `49.88481963465173` tokens/s on one card. This is `134.31522506679903%` above the retained admitted one-card result.
+
+The same candidate measured `50.67726546622957` tokens/s on two cards. This is `31.102088878594714%` above the retained admitted two-card result.
+
+The candidate did not pass scaling admission. Its speedup was `1.0158855106098728`, and its p99 change was `0.25554955976220295`.
+
+The four-request workload now fills one four-row batch on one card. The two-card run gives each card only two rows. Therefore, this workload does not measure saturated scaling after batching.
+
+Do not weaken the scaling gate to admit this result. A new scaling workload must saturate each card without exceeding four live state slots.
+
+Selected-token readback remains a measured optimization target. A device-resident continuation change requires a new simulator check and an idle physical owner window.
+
 ## Admission boundary
 
 Only `rwkv7-p150x2-throughput-benchmark` can produce candidate physical scaling evidence. `rwkv7-p150x2-throughput` recomputes the metrics and rejects:
