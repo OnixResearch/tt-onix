@@ -12,6 +12,12 @@
 //! run, and evidence admission. Each phase keeps the same core/shell split.
 
 mod generated_model_target_identity;
+mod measurement;
+
+pub use measurement::{
+    Distribution, MeasurementAdmission, MeasurementProfile, admit_measurement_profile,
+    admit_measurement_receipt, bind_machine_facts, summarize_measurement,
+};
 
 use std::cmp::Ordering;
 

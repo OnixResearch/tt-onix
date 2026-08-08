@@ -27,6 +27,7 @@ LOSS_IGNORE_INDEX = M.LOSS_IGNORE_INDEX
 ROLES = list(M.LORA_ROLE_TO_ATTR.keys())
 SELECTED_ORDINAL = 0
 HLO_OP_PATTERN = re.compile(r"stablehlo\.([a-z_0-9]+)")
+NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
 def emit(status, **extra):
@@ -69,6 +70,7 @@ def main():
             "debug",
             "isolate",
             "receipt",
+            "measurement",
             "multistep",
             "checkpoint",
         ],
@@ -144,6 +146,85 @@ def main():
             torch.nn.init.zeros_(module.lora_B)
     dev_model = dev_model.to(dtype).to(device)
     dev_model.train()
+
+    if args.mode == "measurement":
+        repeat_count = profile["measurement_profile"]["repeat_count"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+        trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
+        trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
+        dev_input_ids = input_ids.to(device)
+        dev_labels = labels.to(device)
+
+        def device_step():
+            dev_optimizer.zero_grad()
+            _logits, loss = compute_loss(dev_model, dev_input_ids, dev_labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
+            dev_optimizer.step()
+            torch_xla.sync(wait=True)
+            return float(loss.detach().to("cpu").item())
+
+        def cpu_step():
+            cpu_optimizer.zero_grad()
+            _logits, loss = compute_loss(cpu_model, input_ids, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
+            cpu_optimizer.step()
+            return float(loss.detach().item())
+
+        host_start_nanoseconds = int(os.environ["MEASUREMENT_HOST_START_NS"])
+        compile_started_nanoseconds = time.time_ns()
+        compile_started = time.monotonic()
+        device_step()
+        compile_seconds = time.monotonic() - compile_started
+        runs = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            loss = device_step()
+            runs.append({"time_seconds": time.monotonic() - step_started, "loss": loss})
+        cpu_step()
+        cpu_step_seconds = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            cpu_step()
+            cpu_step_seconds.append(time.monotonic() - step_started)
+
+        launch_seconds = (
+            compile_started_nanoseconds - host_start_nanoseconds
+        ) / NANOSECONDS_PER_SECOND
+        measured_step_seconds = sum(run["time_seconds"] for run in runs)
+        checkpoint_seconds = 0.0
+        teardown_seconds = 0.0
+        end_to_end_seconds = (
+            launch_seconds
+            + compile_seconds
+            + measured_step_seconds
+            + checkpoint_seconds
+            + teardown_seconds
+        )
+        emit(
+            "pass",
+            mode="measurement",
+            device_count=len(supported),
+            stage_times_seconds={
+                "launch": launch_seconds,
+                "compile": compile_seconds,
+                "step": measured_step_seconds,
+                "checkpoint": checkpoint_seconds,
+                "teardown": teardown_seconds,
+                "end_to_end": end_to_end_seconds,
+            },
+            cpu_step_seconds=sum(cpu_step_seconds) / len(cpu_step_seconds),
+            cpu_runs=cpu_step_seconds,
+            runs=runs,
+        )
+        return
 
     if args.mode == "debug":
         # Localize the first non-finite activation by hooking each block and

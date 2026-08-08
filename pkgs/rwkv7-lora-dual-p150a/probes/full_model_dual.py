@@ -33,6 +33,7 @@ ROLES = list(M.LORA_ROLE_TO_ATTR.keys())
 HLO_OP_PATTERN = re.compile(r"stablehlo\.([a-z_0-9]+)")
 ALL_REDUCE_PATTERN = re.compile(r"all_reduce")
 REPLICATED_SPEC = "{replicated}"
+NANOSECONDS_PER_SECOND = 1_000_000_000
 
 # Multichip environment from the pinned TT-Blacksmith device manager: the
 # TT backend compiles SPMD through the shardy round trip with explicit
@@ -122,7 +123,9 @@ def main():
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument(
-        "--mode", default="receipt", choices=["receipt", "multistep", "checkpoint"]
+        "--mode",
+        default="receipt",
+        choices=["receipt", "measurement", "multistep", "checkpoint"],
     )
     parser.add_argument(
         "--dtype",
@@ -230,6 +233,83 @@ def main():
         return sharded_ids, sharded_labels
 
     dev_input_ids, dev_labels = shard_batch(input_ids, labels)
+
+    if args.mode == "measurement":
+        repeat_count = profile["measurement_profile"]["repeat_count"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+        trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
+        trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
+
+        def device_step():
+            dev_optimizer.zero_grad()
+            _logits, loss = compute_global_loss(dev_model, dev_input_ids, dev_labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
+            xm.optimizer_step(dev_optimizer, barrier=True)
+            torch_xla.sync(wait=True)
+            return float(loss.detach().to("cpu").item())
+
+        def cpu_step():
+            cpu_optimizer.zero_grad()
+            _logits, loss = compute_global_loss(cpu_model, input_ids, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
+            cpu_optimizer.step()
+            return float(loss.detach().item())
+
+        host_start_nanoseconds = int(os.environ["MEASUREMENT_HOST_START_NS"])
+        compile_started_nanoseconds = time.time_ns()
+        compile_started = time.monotonic()
+        device_step()
+        compile_seconds = time.monotonic() - compile_started
+        runs = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            loss = device_step()
+            runs.append({"time_seconds": time.monotonic() - step_started, "loss": loss})
+        cpu_step()
+        cpu_step_seconds = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            cpu_step()
+            cpu_step_seconds.append(time.monotonic() - step_started)
+
+        launch_seconds = (
+            compile_started_nanoseconds - host_start_nanoseconds
+        ) / NANOSECONDS_PER_SECOND
+        measured_step_seconds = sum(run["time_seconds"] for run in runs)
+        checkpoint_seconds = 0.0
+        teardown_seconds = 0.0
+        end_to_end_seconds = (
+            launch_seconds
+            + compile_seconds
+            + measured_step_seconds
+            + checkpoint_seconds
+            + teardown_seconds
+        )
+        emit(
+            "pass",
+            mode="measurement",
+            device_count=device_count,
+            stage_times_seconds={
+                "launch": launch_seconds,
+                "compile": compile_seconds,
+                "step": measured_step_seconds,
+                "checkpoint": checkpoint_seconds,
+                "teardown": teardown_seconds,
+                "end_to_end": end_to_end_seconds,
+            },
+            cpu_step_seconds=sum(cpu_step_seconds) / len(cpu_step_seconds),
+            cpu_runs=cpu_step_seconds,
+            runs=runs,
+        )
+        return
 
     def adapter_snapshot(model):
         return {

@@ -14,6 +14,10 @@ const USAGE_ERROR: u8 = 2;
 fn usage() -> String {
     "usage: rwkv7-lora-p150a-core self-test\n\
      usage: rwkv7-lora-p150a-core admit-profile PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core admit-measurement-profile PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core bind-machine-facts VALUES_JSON\n\
+     usage: rwkv7-lora-p150a-core summarize-measurement RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-p150a-core admit-measurement RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-probe RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-p150a-core admit-run RECEIPT_JSON PROFILE_JSON\n\
@@ -98,6 +102,96 @@ fn run() -> Result<u8, String> {
             match rwkv7_lora_p150a_core::self_test() {
                 Ok(line) => {
                     println!("{line}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-measurement-profile" => {
+            if args.len() != 2 {
+                return Err(usage());
+            }
+            let profile = read_json(&args[1])?;
+            match rwkv7_lora_p150a_core::admit_measurement_profile(&profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "profile_id": admission.profile_id,
+                        "repeat_count": admission.repeat_count,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "bind-machine-facts" => {
+            if args.len() != 2 {
+                return Err(usage());
+            }
+            let values = read_json(&args[1])?;
+            match rwkv7_lora_p150a_core::bind_machine_facts(&values) {
+                Ok(facts) => {
+                    println!("{facts}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-measurement" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_p150a_core::summarize_measurement(&raw, &profile) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-measurement" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_p150a_core::admit_measurement_receipt(&receipt, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "measurement_profile_id": admission.measurement_profile_id,
+                        "repeats": admission.repeats,
+                        "speedup_ratio": admission.speedup_ratio,
+                        "time_seconds": {
+                            "mean": admission.time_seconds.mean,
+                            "p50": admission.time_seconds.p50,
+                            "p99": admission.time_seconds.p99,
+                            "standard_deviation": admission.time_seconds.standard_deviation,
+                        },
+                        "loss": {
+                            "mean": admission.loss.mean,
+                            "p50": admission.loss.p50,
+                            "p99": admission.loss.p99,
+                            "standard_deviation": admission.loss.standard_deviation,
+                        },
+                    });
+                    println!("{body}");
                     Ok(SUCCESS)
                 }
                 Err(rejection) => {

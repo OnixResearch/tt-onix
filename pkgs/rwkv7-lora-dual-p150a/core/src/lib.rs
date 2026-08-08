@@ -12,6 +12,8 @@
 
 mod generated_model_target_identity;
 
+pub use rwkv7_lora_p150a_core::{Distribution, MeasurementAdmission, MeasurementProfile};
+
 use serde_json::{Value, json};
 
 const SCHEMA_VERSION: u64 = 1;
@@ -272,6 +274,30 @@ pub fn blake3_identity(value: &Value) -> String {
     blake3::hash(&serde_json::to_vec(value).expect("canonical JSON serialization")).to_hex()
         [..HEX_HASH_LEN]
         .to_string()
+}
+
+fn shared_measurement_rejection(rejection: rwkv7_lora_p150a_core::Rejection) -> Rejection {
+    Rejection::new(rejection.code, rejection.detail)
+}
+
+pub fn bind_machine_facts(values: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::bind_machine_facts(values).map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_measurement(raw: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_measurement(raw, profile).map_err(shared_measurement_rejection)
+}
+
+pub fn admit_measurement_receipt(
+    receipt: &Value,
+    profile: &Value,
+) -> Result<MeasurementAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_measurement_receipt(receipt, profile)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_measurement_profile(profile: &Value) -> Result<MeasurementProfile, Rejection> {
+    rwkv7_lora_p150a_core::admit_measurement_profile(profile).map_err(shared_measurement_rejection)
 }
 
 fn is_hash_hex(value: &str) -> bool {

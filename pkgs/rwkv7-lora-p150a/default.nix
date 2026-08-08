@@ -51,6 +51,15 @@ let
     nickel export --format json profile.ncl > "$out"
   '';
 
+  measurementProfileJson =
+    runCommand "rwkv7-lora-p150a-measurement-profile.json" { nativeBuildInputs = [ nickel ]; }
+      ''
+        cp -r ${packageSource} "$PWD/repository"
+        chmod -R u+w "$PWD/repository"
+        cd "$PWD/repository/pkgs/rwkv7-lora-p150a"
+        nickel export --format json measurement-profile.ncl > "$out"
+      '';
+
   wheelsJson = runCommand "rwkv7-lora-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
     cp -r ${packageSource} "$PWD/repository"
     chmod -R u+w "$PWD/repository"
@@ -89,6 +98,8 @@ let
       --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
       --subst-var-by b3sum "${b3sum}/bin/b3sum" \
       --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by date "${coreutils}/bin/date" \
+      --subst-var-by mv "${coreutils}/bin/mv" \
       --subst-var-by probe_py "${./probes/full_model_probe.py}" \
       --subst-var-by model_dir "${./model}" \
       --subst-var-by install_deps_py "${./probes/install_deps.py}" \
@@ -105,6 +116,7 @@ let
     ln -s ${probeRunner} "$out/bin/rwkv7-lora-p150a-probe"
     ln -s ${fullStepRunner} "$out/bin/rwkv7-lora-p150a-full-step"
     ln -s ${profileJson} "$out/share/rwkv7-lora-p150a/profile.json"
+    ln -s ${measurementProfileJson} "$out/share/rwkv7-lora-p150a/measurement-profile.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-p150a/wheels.json"
     echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
@@ -128,7 +140,12 @@ runCommand "rwkv7-lora-p150a-check"
     PLATFORM_RECEIPT = "${platformEvidenceReceipt}";
     CPU_RECEIPT = "${cpuReference}/receipt.json";
     passthru = {
-      inherit core tools profileJson;
+      inherit
+        core
+        tools
+        profileJson
+        measurementProfileJson
+        ;
     };
   }
   ''
@@ -146,6 +163,22 @@ runCommand "rwkv7-lora-p150a-check"
     test "$first_identity" = "$second_identity"
     grep -F '"profile_id": "rwkv7-lora-p150a-single"' profile-first.json
     grep -F '"bundle_id": "tt-xla-training-2026-08-04"' profile-first.json
+    nickel export --format json measurement-profile.ncl >measurement-profile-first.json
+    nickel export --format json measurement-profile.ncl >measurement-profile-second.json
+    cmp measurement-profile-first.json measurement-profile-second.json
+    grep -F '"profile_id": "rwkv7-lora-p150a-single-measurement"' measurement-profile-first.json
+    grep -F '"parity_profile_id": "rwkv7-lora-p150a-single"' measurement-profile-first.json
+    "$CORE" admit-measurement-profile measurement-profile-first.json \
+      >measurement-profile-admission.json
+    grep -F '"repeat_count":5' measurement-profile-admission.json
+    jq '.tolerances.loss.rtol = 99.0' measurement-profile-first.json \
+      >measurement-profile-relaxed.json
+    if "$CORE" admit-measurement-profile measurement-profile-relaxed.json \
+      > /dev/null 2> rejected.log; then
+      echo "measurement profile relaxed parity" >&2
+      exit 1
+    fi
+    grep -F "parity_profile_mismatch" rejected.log
 
     # Negative Nickel fixtures must fail with contract violations.
     # Nickel splits the blame message across stdout and stderr, so the
@@ -167,6 +200,95 @@ runCommand "rwkv7-lora-p150a-check"
     "$CORE" admit-profile profile-first.json >profile-admission.json
     grep -F '"status":"admitted"' profile-admission.json
     grep -F '"identity_blake3":' profile-admission.json
+
+    # r[verify tenstorrent.harness.measurement_profile.valid]
+    # r[verify tenstorrent.harness.stage_breakdown.valid]
+    # r[verify tenstorrent.harness.speedup_ratio.valid]
+    # r[verify tenstorrent.harness.machine_facts.valid]
+    # r[verify tenstorrent.harness.repeat_stats.valid]
+    cat >machine-fact-values.json <<'FACTS'
+    {
+      "board_identity": "p150a:device-0",
+      "firmware_version": "18.8.0.0",
+      "mesh_descriptor_identity": "single-device-1x1",
+      "pcie_link": "gen4-x16",
+      "power_state": "performance"
+    }
+    FACTS
+    "$CORE" bind-machine-facts machine-fact-values.json >machine-facts.json
+    cpu_baseline_identity=$(printf '%s' 'single-cpu-baseline' | b3sum | cut -d' ' -f1)
+    jq -n \
+      --arg cpu_baseline_identity "$cpu_baseline_identity" \
+      --slurpfile machine_facts machine-facts.json \
+      '{
+        stage_times_seconds: {
+          launch: 1.0,
+          compile: 2.0,
+          step: 5.0,
+          checkpoint: 0.0,
+          teardown: 1.0,
+          end_to_end: 9.0
+        },
+        cpu_baseline: {
+          identity_blake3: $cpu_baseline_identity,
+          step_seconds: 10.0
+        },
+        machine_facts: $machine_facts[0],
+        runs: [
+          {time_seconds: 1.0, loss: 5.0},
+          {time_seconds: 1.1, loss: 4.9},
+          {time_seconds: 0.9, loss: 4.8},
+          {time_seconds: 1.0, loss: 4.7},
+          {time_seconds: 1.0, loss: 4.6}
+        ]
+      }' >measurement-raw.json
+    "$CORE" summarize-measurement measurement-raw.json measurement-profile-first.json >measurement-receipt.json
+    "$CORE" summarize-measurement measurement-raw.json measurement-profile-first.json >measurement-receipt-again.json
+    cmp measurement-receipt.json measurement-receipt-again.json
+    "$CORE" admit-measurement measurement-receipt.json measurement-profile-first.json >measurement-admission.json
+    grep -F '"status":"admitted"' measurement-admission.json
+    grep -F '"repeats":5' measurement-admission.json
+
+    # r[verify tenstorrent.harness.measurement_profile.scope]
+    # r[verify tenstorrent.harness.stage_breakdown.invalid]
+    # r[verify tenstorrent.harness.speedup_ratio.invalid]
+    # r[verify tenstorrent.harness.machine_facts.invalid]
+    # r[verify tenstorrent.harness.repeat_stats.invalid]
+    jq '.stage_times_seconds.compile = -1' measurement-raw.json >measurement-negative-stage.json
+    if "$CORE" summarize-measurement measurement-negative-stage.json measurement-profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "negative measurement stage was admitted" >&2
+      exit 1
+    fi
+    grep -F "invalid_metric" rejected.log
+    jq '.cpu_baseline.identity_blake3 = "missing"' measurement-raw.json >measurement-missing-cpu.json
+    if "$CORE" summarize-measurement measurement-missing-cpu.json measurement-profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "measurement without CPU baseline was admitted" >&2
+      exit 1
+    fi
+    grep -F "missing_cpu_baseline" rejected.log
+    jq 'del(.machine_facts.pcie_link)' measurement-raw.json >measurement-missing-fact.json
+    if "$CORE" summarize-measurement measurement-missing-fact.json measurement-profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "measurement without PCIe fact was admitted" >&2
+      exit 1
+    fi
+    grep -F "unexpected_measurement_field" rejected.log
+    jq '.runs = .runs[0:2]' measurement-raw.json >measurement-low-repeat.json
+    if "$CORE" summarize-measurement measurement-low-repeat.json measurement-profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "measurement with too few repeats was admitted" >&2
+      exit 1
+    fi
+    grep -F "repeat_count_mismatch" rejected.log
+    jq '.runs[0].time_seconds = "NaN"' measurement-raw.json >measurement-nonfinite.json
+    if "$CORE" summarize-measurement measurement-nonfinite.json measurement-profile-first.json \
+      > /dev/null 2> rejected.log; then
+      echo "measurement with a non-finite metric was admitted" >&2
+      exit 1
+    fi
+    grep -F "invalid_metric" rejected.log
 
     # The current hardware receipt must re-validate against the package-owned
     # authority before prerequisite-admission logic can bind it.

@@ -12,8 +12,8 @@ result matches the single-device CPU global-batch reference, a bounded
 multi-step run improves loss with equal replicas, and one canonical adapter
 checkpoint saves, loads, and resumes both replicas.
 
-It does not prove speedup, scaling efficiency, long-run stability, useful
-generalization, or support for other models.
+The checked-in receipts do not prove speedup or scaling efficiency. They also
+do not prove long-run stability, useful generalization, or other models.
 
 ## What this establishes
 
@@ -60,6 +60,33 @@ identities with BLAKE3 and is re-validated by the device-free check.
 - The runtime wheels (pjrt-plugin-tt, torch, torch-xla, tt_lang) are cached
   locally with sha256 identities matching the platform manifest.
 
+## Measurement profile
+
+The profile `rwkv7-lora-dual-p150a-measurement` keeps all parity tolerances
+unchanged. It records five dual-replica steps after one compile step. The
+receipt reports launch, compile, step, checkpoint, teardown, and end-to-end
+wall time.
+
+The receipt also reports mean, p50, p99, and standard deviation for step time
+and loss. The speedup ratio uses the CPU global-batch step from the same
+process. Each receipt binds both board classes, firmware, PCIe links, power
+state, and mesh identity with BLAKE3.
+
+Create a machine-fact values file before a hardware measurement:
+
+```json
+{
+  "board_identity": "p150a:device-0,p150a:device-1",
+  "firmware_version": "<firmware-version>",
+  "mesh_descriptor_identity": "p150_x2:1x2",
+  "pcie_link": "<device-links>",
+  "power_state": "<power-state>"
+}
+```
+
+Do not put serial numbers in this file. The runner fails before device access
+when a required fact is absent.
+
 ## Commands
 
 Device-free validation (no hardware):
@@ -89,10 +116,13 @@ Dual step, bounded run, and checkpoint (hardware):
   --profile "$TOOLS/share/rwkv7-lora-dual-p150a/profile.json" \
   --checkpoint <pinned-checkpoint.safetensors> \
   --evidence-root <evidence-dir> \
-  --mode receipt           # or: multistep, checkpoint
+  --mode receipt           # or: measurement, multistep, checkpoint
 ```
 
 - `receipt`: one dual-replica placement + parity step receipt.
+- `measurement`: five measured dual-replica steps and a bound CPU ratio. Use
+  `--profile "$TOOLS/share/rwkv7-lora-dual-p150a/measurement-profile.json"`.
+  Add `--machine-facts <machine-fact-values.json>`.
 - `multistep`: bounded multi-step run. Requires `--parity-receipt` pointing
   at a passing `receipt`-mode receipt; the runner admits it before launch
   and binds its identity.
@@ -100,8 +130,8 @@ Dual step, bounded run, and checkpoint (hardware):
   Safetensors artifact.
 
 Run the modes in order: collective probe first, then `receipt`, then
-`multistep --parity-receipt <receipt evidence>/receipt.json`, then
-`checkpoint`. Each runner uses the package-owned training-platform authority
+`measurement`, then `multistep --parity-receipt <receipt evidence>/receipt.json`,
+then `checkpoint`. Each runner uses the package-owned training-platform authority
 and offline wheelhouse. It does not accept replacement platform files or
 wheel sources. Each run writes a BLAKE3-bound receipt to the evidence root and
 validates it with the admission core before it counts as evidence.
@@ -199,7 +229,8 @@ adapter tensor BLAKE3.
 
 A passing receipt does NOT establish:
 
-- Speedup over one P150A or over the CPU reference.
+- Speedup from a parity, run, or checkpoint receipt. Only a passing physical
+  `measurement` receipt can report the named CPU ratio.
 - Scaling efficiency to more devices.
 - Long-run stability or thermal endurance.
 - Useful generalization or production fine-tuning quality.

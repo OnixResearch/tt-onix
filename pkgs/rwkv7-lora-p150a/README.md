@@ -7,8 +7,8 @@ This package proves the smallest complete accelerator claim: one admitted SFT
 batch, full loss, adapter gradients, and one optimizer step on one logical
 P150A device, plus a bounded multi-step run and adapter save/load/resume.
 
-It does not prove two-card scaling, long-context support, useful
-generalization, or speedup over the CPU reference.
+It does not prove two-card scaling, long-context support, or useful
+generalization. The checked-in parity receipts do not prove speedup.
 
 ## What this establishes
 
@@ -82,6 +82,33 @@ Other runtime facts learned during bring-up, all encoded in the probes:
 - The runtime wheels (pjrt-plugin-tt, torch, torch-xla, tt_lang) are cached
   locally with sha256 identities matching the platform manifest.
 
+## Measurement profile
+
+The profile `rwkv7-lora-p150a-single-measurement` keeps all parity
+tolerances unchanged. It records five measured steps after one compile step.
+The receipt reports launch, compile, step, checkpoint, teardown, and
+end-to-end wall time.
+
+The receipt also reports mean, p50, p99, and standard deviation for step time
+and loss. The speedup ratio uses a CPU step from the same process and batch.
+Each receipt binds the board class, firmware, PCIe link, power state, and mesh
+identity with BLAKE3.
+
+Create a machine-fact values file before a hardware measurement:
+
+```json
+{
+  "board_identity": "p150a:device-0",
+  "firmware_version": "<firmware-version>",
+  "mesh_descriptor_identity": "single-device-1x1",
+  "pcie_link": "<generation-and-width>",
+  "power_state": "<power-state>"
+}
+```
+
+Do not put a serial number in this file. The runner fails before device access
+when a required fact is absent.
+
 ## Commands
 
 Device-free validation (no hardware):
@@ -114,10 +141,13 @@ Full-model step, bounded run, and checkpoint (hardware):
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
   --checkpoint <pinned-checkpoint.safetensors> \
   --evidence-root <evidence-dir> \
-  --mode receipt          # or: multistep, checkpoint
+  --mode receipt          # or: measurement, multistep, checkpoint
 ```
 
 - `receipt`: one-step placement + parity receipt.
+- `measurement`: five measured steps and a bound CPU speedup ratio. Use
+  `--profile "$TOOLS/share/rwkv7-lora-p150a/measurement-profile.json"`.
+  Add `--machine-facts <machine-fact-values.json>`.
 - `multistep`: bounded multi-step run with loss-improvement criterion.
 - `checkpoint`: adapter save/load/resume receipt and the Safetensors artifact.
 
@@ -155,4 +185,5 @@ A passing receipt does NOT establish:
 - Dual-card scaling, model parallelism, or data parallelism.
 - Useful generalization or production fine-tuning quality.
 - Long-context support or other RWKV model sizes.
-- Speedup over the CPU reference.
+- Speedup over the CPU reference from a parity, run, or checkpoint receipt.
+  Only a passing physical `measurement` receipt can report the named ratio.

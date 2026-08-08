@@ -193,6 +193,40 @@ let OptimizerC = {
   clip_norm | PositiveC,
 } in
 
+let minimum_measurement_repeats = 3 in
+let measurement_metrics = ["stage_time_seconds", "loss"] in
+let measurement_machine_facts = [
+  "board_identity",
+  "firmware_version",
+  "mesh_descriptor_identity",
+  "pcie_link",
+  "power_state",
+] in
+let measurement_profile_fields = [
+  "profile_id",
+  "parity_profile_id",
+  "repeat_count",
+  "metric_set",
+  "machine_fact_set",
+] in
+let measurement_profile_field_count = std.array.length measurement_profile_fields in
+let MeasurementProfileC = std.contract.from_predicate (fun value =>
+  std.is_record value
+  && std.array.length (std.record.fields value) == measurement_profile_field_count
+  && std.array.all
+    (fun field => std.array.elem field measurement_profile_fields)
+    (std.record.fields value)
+  && std.is_string value.profile_id
+  && std.string.length value.profile_id > 0
+  && std.is_string value.parity_profile_id
+  && std.string.length value.parity_profile_id > 0
+  && std.is_number value.repeat_count
+  && std.number.is_integer value.repeat_count
+  && value.repeat_count >= minimum_measurement_repeats
+  && value.metric_set == measurement_metrics
+  && value.machine_fact_set == measurement_machine_facts
+) in
+
 let ArtifactPolicyC = {
   format | std.contract.from_predicate (fun value => value == admitted_adapter_format),
   artifact_root | AbsolutePathC,
@@ -327,6 +361,7 @@ let profile_fields = [
 {
   Profile = ProfileC,
   ProfileClosed = ClosedRecordC profile_fields,
+  MeasurementProfile = MeasurementProfileC,
   Wheels = WheelsC,
   WheelsClosed = ClosedRecordC wheels_fields,
   HashHex = HashHexC,
