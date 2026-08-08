@@ -24,6 +24,7 @@ rustPlatform.buildRustPackage {
   sourceRoot = "source/rwkv7-p150x2-evidence";
   cargoLock.lockFile = ./Cargo.lock;
 
+  MODEL_TARGET_PROFILE_BLAKE3 = profile.profile_identity;
   MODEL_TARGET_NAME = profile.target_name;
   MODEL_TARGET_MODEL_ID = profile.model.id;
   MODEL_TARGET_REVISION = profile.model.revision;
@@ -43,6 +44,11 @@ rustPlatform.buildRustPackage {
   RWKV7_TOKENIZER_VOCABULARY = artifacts.tokenizer_vocabulary.path;
   RWKV7_DEVICE_RUNTIME = deviceRuntime;
 
+  postInstall = ''
+    mkdir -p "$out/share/model-target"
+    echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
+  '';
+
   doCheck = true;
   doInstallCheck = true;
   installCheckPhase = ''
@@ -55,6 +61,7 @@ rustPlatform.buildRustPackage {
   passthru = {
     inherit deviceRuntime profile;
     targetIdentity = {
+      profileBlake3 = profile.profile_identity;
       targetName = profile.target_name;
       modelId = profile.model.id;
       revision = profile.model.revision;

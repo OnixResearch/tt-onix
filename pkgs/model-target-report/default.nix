@@ -1,6 +1,7 @@
 {
   lib,
   rustPlatform,
+  targetProfile,
 }:
 let
   packageSource = lib.fileset.toSource {
@@ -21,11 +22,16 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ./Cargo.lock;
 
   postInstall = ''
-    mkdir -p "$out/share/model-target-report"
+    mkdir -p "$out/share/model-target-report" "$out/share/model-target"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp ${./fixtures/complete-synthetic-candidate.json} \
       "$out/share/model-target-report/complete-synthetic-candidate.json"
     cp ${./fixtures/qwen3.6-unreviewed.json} \
       "$out/share/model-target-report/qwen3.6-unreviewed.json"
+    cp ${./fixtures/qwen3.6-reviewed.json} \
+      "$out/share/model-target-report/qwen3.6-reviewed.json"
+    cp ${./receipts/qwen3.6-candidate-verdict.json} \
+      "$out/share/model-target-report/qwen3.6-candidate-verdict.json"
   '';
 
   doCheck = true;
@@ -42,6 +48,20 @@ rustPlatform.buildRustPackage {
     grep -F '"simulator_change_eligible": true' complete.json
     grep -F '"runnable_output_exposed": false' complete.json
 
+    # r[verify tenstorrent.model_targets.qwen3_6_candidate_report.complete]
+    # r[verify tenstorrent.model_targets.qwen3_6_candidate_report.machine_facts]
+    "$out/bin/model-target-report" report \
+      "$out/share/model-target-report/qwen3.6-reviewed.json" \
+      >reviewed.json
+    cmp reviewed.json "$out/share/model-target-report/qwen3.6-candidate-verdict.json"
+    grep -F '"status": "eligible"' reviewed.json
+    grep -F '"simulator_change_eligible": true' reviewed.json
+    grep -F '"runnable_output_exposed": false' reviewed.json
+    grep -F 'Qwen bring-up tt-metal base' reviewed.json
+    grep -F 'custom ttl Gated DeltaNet kernels' reviewed.json
+    grep -F 'metadata-only scope excludes the 26 checkpoint shards' reviewed.json
+
+    # r[verify tenstorrent.model_targets.qwen3_6_candidate_report.incomplete]
     "$out/bin/model-target-report" report \
       "$out/share/model-target-report/qwen3.6-unreviewed.json" \
       >unsupported.json
@@ -50,7 +70,8 @@ rustPlatform.buildRustPackage {
     grep -F '"runnable_output_exposed": false' unsupported.json
     grep -F 'missing reviewed candidate fact: upstream_identity' unsupported.json
 
-    if "$out/bin/model-target-report" report /dev/null >invalid.log 2>&1; then
+    printf '{' >malformed-candidate.json
+    if "$out/bin/model-target-report" report malformed-candidate.json >invalid.log 2>&1; then
       echo "candidate report accepted malformed JSON" >&2
       exit 1
     fi

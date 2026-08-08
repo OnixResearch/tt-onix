@@ -47,6 +47,7 @@ def sharding_specs(tensors):
     spec getter in this wheel; TT-Blacksmith uses the same binding.
     """
     import torch_xla
+
     return [torch_xla._XLAC._get_xla_sharding_spec(t) or "" for t in tensors]
 
 
@@ -72,7 +73,9 @@ def main():
 
     device_count = xr.global_runtime_device_count()
     if device_count != expected_devices:
-        emit("fail", detail=f"expected {expected_devices} TT devices, saw {device_count}")
+        emit(
+            "fail", detail=f"expected {expected_devices} TT devices, saw {device_count}"
+        )
         sys.exit(1)
 
     mesh = xs.Mesh(np.arange(device_count), (device_count,), (axis_name,))
@@ -157,8 +160,10 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as error:
+    # This process boundary converts every framework error into a terminal diagnostic.
+    except Exception as error:  # noqa: BLE001
         import traceback
+
         traceback.print_exc()
         emit("fail", detail=f"{type(error).__name__}: {error}")
         sys.exit(1)

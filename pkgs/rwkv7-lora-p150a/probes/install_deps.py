@@ -41,7 +41,14 @@ def main() -> int:
                 continue
             # Reduce to the package specifier (name plus version constraint).
             spec = text.split(";")[0].strip()
-            key = spec.split("<")[0].split(">")[0].split("=")[0].split("!")[0].split("[")[0]
+            key = (
+                spec
+                .split("<")[0]
+                .split(">")[0]
+                .split("=")[0]
+                .split("!")[0]
+                .split("[")[0]
+            )
             key = normalize_name(key)
             if key in IDENTITY_DISTS:
                 continue

@@ -8,8 +8,7 @@ const CLOSED_TERMINAL_STATE: &str = "closed";
 const MINIMUM_CALL_COUNT: u32 = 1;
 const KIBIBYTE_BYTES: u64 = 1024;
 const MAXIMUM_RECEIPT_KIBIBYTES: u64 = 2048;
-pub const MAXIMUM_PERSISTENT_RECEIPT_BYTES: u64 =
-    MAXIMUM_RECEIPT_KIBIBYTES * KIBIBYTE_BYTES;
+pub const MAXIMUM_PERSISTENT_RECEIPT_BYTES: u64 = MAXIMUM_RECEIPT_KIBIBYTES * KIBIBYTE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PersistentReceiptExpectations {
@@ -111,7 +110,11 @@ fn validate_host_receipt(
     receipt: &PersistentHostReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("host schema_version", receipt.schema_version, RECEIPT_SCHEMA_VERSION)?;
+    require_u32(
+        "host schema_version",
+        receipt.schema_version,
+        RECEIPT_SCHEMA_VERSION,
+    )?;
     require_text("host target", &receipt.target, HOST_RECEIPT_TARGET)?;
     require_u32(
         "host physical_wkv_call_count",
@@ -146,7 +149,11 @@ fn validate_core_receipt(
     receipt: &PersistentCoreReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("core schema_version", receipt.schema_version, RECEIPT_SCHEMA_VERSION)?;
+    require_u32(
+        "core schema_version",
+        receipt.schema_version,
+        RECEIPT_SCHEMA_VERSION,
+    )?;
     require_text("core target", &receipt.target, CORE_RECEIPT_TARGET)?;
     require_u32(
         "core physical_wkv_call_count",
@@ -164,7 +171,11 @@ fn validate_session_receipt(
     receipt: &PersistentSessionReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("core.session.call_count", receipt.call_count, expectations.call_count)?;
+    require_u32(
+        "core.session.call_count",
+        receipt.call_count,
+        expectations.call_count,
+    )?;
     require_u32(
         "core.session.same_layer_state_continuity_count",
         receipt.same_layer_state_continuity_count,
@@ -322,7 +333,9 @@ mod tests {
             json!(WRONG_CONTINUITY_COUNT);
         let continuity_error =
             validate_value(&continuity_receipt).expect_err("wrong continuity count must fail");
-        assert!(continuity_error.contains("core.session.same_layer_state_continuity_count mismatch"));
+        assert!(
+            continuity_error.contains("core.session.same_layer_state_continuity_count mismatch")
+        );
 
         let mut terminal_receipt = valid_receipt();
         terminal_receipt["terminal_state"] = json!("open");

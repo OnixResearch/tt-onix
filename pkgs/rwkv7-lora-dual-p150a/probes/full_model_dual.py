@@ -85,9 +85,12 @@ def compute_global_loss(model, input_ids, labels):
     """
     logits = model(input_ids)
     token_loss = torch.nn.functional.cross_entropy(
-        logits.reshape(-1, logits.size(-1)), labels.reshape(-1),
-        ignore_index=LOSS_IGNORE_INDEX, reduction="none")
-    active = (labels.reshape(-1) != LOSS_IGNORE_INDEX)
+        logits.reshape(-1, logits.size(-1)),
+        labels.reshape(-1),
+        ignore_index=LOSS_IGNORE_INDEX,
+        reduction="none",
+    )
+    active = labels.reshape(-1) != LOSS_IGNORE_INDEX
     active_count = active.sum()
     loss = (token_loss * active).sum() / active_count
     return logits, loss
@@ -100,6 +103,7 @@ def sharding_specs(tensors):
     spec getter in this wheel; TT-Blacksmith uses the same binding.
     """
     import torch_xla
+
     return [torch_xla._XLAC._get_xla_sharding_spec(t) or "" for t in tensors]
 
 
@@ -108,17 +112,23 @@ def adapter_specs(model, trainable_names):
 
 
 def all_replicated(model, trainable_names):
-    return all(spec == REPLICATED_SPEC for spec in adapter_specs(model, trainable_names))
+    return all(
+        spec == REPLICATED_SPEC for spec in adapter_specs(model, trainable_names)
+    )
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--mode", default="receipt",
-                        choices=["receipt", "multistep", "checkpoint"])
-    parser.add_argument("--dtype", default="",
-                        help="override model dtype: bf16 or fp32 (default: profile)")
+    parser.add_argument(
+        "--mode", default="receipt", choices=["receipt", "multistep", "checkpoint"]
+    )
+    parser.add_argument(
+        "--dtype",
+        default="",
+        help="override model dtype: bf16 or fp32 (default: profile)",
+    )
     args = parser.parse_args()
     with open(args.profile, encoding="utf-8") as handle:
         profile = json.load(handle)
@@ -133,9 +143,14 @@ def main():
     elif args.dtype == "bf16":
         dtype = torch.bfloat16
     else:
-        dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+        dtype = (
+            torch.bfloat16
+            if profile["precision"]["model_dtype"] == "bf16"
+            else torch.float32
+        )
 
     from safetensors.torch import load_file
+
     state_dict = {k: v.to(torch.float32) for k, v in load_file(args.checkpoint).items()}
 
     generator = torch.Generator().manual_seed(profile["seed"])
@@ -167,7 +182,7 @@ def main():
     # CPU forward only here. The CPU backward must run AFTER the device
     # backward: this runtime's autograd engine trips a device-index assert if
     # a CPU backward initializes the engine before an XLA backward.
-    cpu_logits, cpu_loss = compute_global_loss(cpu_model, input_ids, labels)
+    _cpu_logits, _cpu_loss = compute_global_loss(cpu_model, input_ids, labels)
 
     # ---- Dual-replica device run ----
     import numpy as np
@@ -182,7 +197,9 @@ def main():
     device_count = xr.global_runtime_device_count()
     expected_devices = profile["device"]["physical_count"]
     if device_count != expected_devices:
-        emit("fail", detail=f"expected {expected_devices} TT devices, saw {device_count}")
+        emit(
+            "fail", detail=f"expected {expected_devices} TT devices, saw {device_count}"
+        )
         sys.exit(1)
 
     axis_name = profile["data_axis"]["name"]
@@ -215,12 +232,16 @@ def main():
     dev_input_ids, dev_labels = shard_batch(input_ids, labels)
 
     def adapter_snapshot(model):
-        return {n: model.get_parameter(n).detach().to("cpu").float().clone()
-                for n in trainable_names}
+        return {
+            n: model.get_parameter(n).detach().to("cpu").float().clone()
+            for n in trainable_names
+        }
 
     def capture_grads(model):
-        return {n: model.get_parameter(n).grad.detach().to("cpu").float().clone()
-                for n in trainable_names}
+        return {
+            n: model.get_parameter(n).grad.detach().to("cpu").float().clone()
+            for n in trainable_names
+        }
 
     def spmd_step_hlo(loss_tensor, model):
         grad_tensors = [model.get_parameter(n).grad for n in trainable_names]
@@ -228,6 +249,7 @@ def main():
 
     def placement_export():
         from torch_xla.stablehlo import exported_program_to_stablehlo
+
         export_module = M.RWKV7ForCausalLM(M.GOOSE_0P1B_CONFIG)
         export_module.load_state_dict(state_dict, strict=True)
         export_module.eval()
@@ -240,11 +262,14 @@ def main():
 
         # Device step first (backward ordering rule).
         trainable_set = set(trainable_names)
-        dev_base_before = {n: p.detach().to("cpu").float().clone()
-                           for n, p in dev_model.named_parameters()
-                           if n not in trainable_set}
-        dev_optimizer = torch.optim.AdamW(trainable_params_dev, lr=lr,
-                                          weight_decay=0.0, capturable=True)
+        dev_base_before = {
+            n: p.detach().to("cpu").float().clone()
+            for n, p in dev_model.named_parameters()
+            if n not in trainable_set
+        }
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
         t0 = time.monotonic()
         dev_before = adapter_snapshot(dev_model)
         dev_logits, dev_loss = compute_global_loss(dev_model, dev_input_ids, dev_labels)
@@ -263,19 +288,23 @@ def main():
         xm.optimizer_step(dev_optimizer, barrier=True)
         torch_xla.sync(wait=True)
         dev_after = adapter_snapshot(dev_model)
-        dev_base_after = {n: p.detach().to("cpu").float().clone()
-                          for n, p in dev_model.named_parameters()
-                          if n not in trainable_set}
+        dev_base_after = {
+            n: p.detach().to("cpu").float().clone()
+            for n, p in dev_model.named_parameters()
+            if n not in trainable_set
+        }
         base_unchanged = all(
-            torch.equal(dev_base_before[n], dev_base_after[n]) for n in dev_base_before)
+            torch.equal(dev_base_before[n], dev_base_after[n]) for n in dev_base_before
+        )
         dev_seconds = time.monotonic() - t0
 
         # CPU reference step after the device backward, over the identical
         # global batch.
-        cpu_optimizer = torch.optim.AdamW(trainable_params_cpu, lr=lr,
-                                          weight_decay=0.0, capturable=False)
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
         cpu_before = adapter_snapshot(cpu_model)
-        cpu_logits2, cpu_loss2 = compute_global_loss(cpu_model, input_ids, labels)
+        _cpu_logits2, cpu_loss2 = compute_global_loss(cpu_model, input_ids, labels)
         cpu_loss2.backward()
         cpu_clip = torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
         cpu_grads = capture_grads(cpu_model)
@@ -301,12 +330,16 @@ def main():
                 total += cpu_t.numel()
             return good / total if total else 0.0
 
-        grad_pass = pass_fraction([dev_grads[n] for n in trainable_names],
-                                  [cpu_grads[n] for n in trainable_names],
-                                  "adapter_gradient")
-        delta_pass = pass_fraction([dev_after[n] - dev_before[n] for n in trainable_names],
-                                   [cpu_after[n] - cpu_before[n] for n in trainable_names],
-                                   "adapter_delta")
+        grad_pass = pass_fraction(
+            [dev_grads[n] for n in trainable_names],
+            [cpu_grads[n] for n in trainable_names],
+            "adapter_gradient",
+        )
+        delta_pass = pass_fraction(
+            [dev_after[n] - dev_before[n] for n in trainable_names],
+            [cpu_after[n] - cpu_before[n] for n in trainable_names],
+            "adapter_delta",
+        )
 
         loss_dev = abs(float(dev_loss.to("cpu").item()) - float(cpu_loss2.item()))
         clip_dev = abs(float(dev_clip.to("cpu").item()) - float(cpu_clip.item()))
@@ -326,41 +359,73 @@ def main():
         grad_ok = grad_pass >= pass_fraction_threshold
         delta_ok = delta_pass >= pass_fraction_threshold
 
-        replicas_verified = params_replicated and grads_reduced and delta_pass >= pass_fraction_threshold
+        replicas_verified = (
+            params_replicated
+            and grads_reduced
+            and delta_pass >= pass_fraction_threshold
+        )
 
-        emit("pass", mode="receipt", device_count=device_count,
-             placement={"stablehlo_op_count": op_count,
-                        "input_spec": input_spec,
-                        "device": "TT",
-                        "mesh": {"rows": 1, "columns": device_count},
-                        "visible_count": device_count},
-             shard_observation={
-                 "replicas": [
-                     {"ordinal": 0, "sample_ids": ["sample-0"],
-                      "active_tokens": int(profile["static_shape"]["sequence_length"])},
-                     {"ordinal": 1, "sample_ids": ["sample-1"],
-                      "active_tokens": int(profile["static_shape"]["sequence_length"])},
-                 ],
-             },
-             optimizer={"gradient_op": "mean", "placement": "TT",
-                        "reduce_before_clip": True,
-                        "base_unchanged": base_unchanged,
-                        "grads_replicated": grads_replicated},
-             replicas={"equality": "exact", "mechanism": "spmd_replicated",
-                       "verified": replicas_verified},
-             step={"seconds": dev_seconds,
-                   "loss": float(dev_loss.to("cpu").item()),
-                   "reference_loss": float(cpu_loss2.item()),
-                   "loss_dev": loss_dev,
-                   "clip_norm": float(dev_clip.to("cpu").item()),
-                   "reference_clip_norm": float(cpu_clip.item()),
-                   "clip_dev": clip_dev,
-                   "grad_pass_fraction": grad_pass,
-                   "delta_pass_fraction": delta_pass,
-                   "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item())},
-             parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
-                     "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,
-                     "all_ok": loss_ok and clip_ok and grad_ok and delta_ok})
+        emit(
+            "pass",
+            mode="receipt",
+            device_count=device_count,
+            placement={
+                "stablehlo_op_count": op_count,
+                "input_spec": input_spec,
+                "device": "TT",
+                "mesh": {"rows": 1, "columns": device_count},
+                "visible_count": device_count,
+            },
+            shard_observation={
+                "replicas": [
+                    {
+                        "ordinal": 0,
+                        "sample_ids": ["sample-0"],
+                        "active_tokens": int(
+                            profile["static_shape"]["sequence_length"]
+                        ),
+                    },
+                    {
+                        "ordinal": 1,
+                        "sample_ids": ["sample-1"],
+                        "active_tokens": int(
+                            profile["static_shape"]["sequence_length"]
+                        ),
+                    },
+                ],
+            },
+            optimizer={
+                "gradient_op": "mean",
+                "placement": "TT",
+                "reduce_before_clip": True,
+                "base_unchanged": base_unchanged,
+                "grads_replicated": grads_replicated,
+            },
+            replicas={
+                "equality": "exact",
+                "mechanism": "spmd_replicated",
+                "verified": replicas_verified,
+            },
+            step={
+                "seconds": dev_seconds,
+                "loss": float(dev_loss.to("cpu").item()),
+                "reference_loss": float(cpu_loss2.item()),
+                "loss_dev": loss_dev,
+                "clip_norm": float(dev_clip.to("cpu").item()),
+                "reference_clip_norm": float(cpu_clip.item()),
+                "clip_dev": clip_dev,
+                "grad_pass_fraction": grad_pass,
+                "delta_pass_fraction": delta_pass,
+                "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
+            },
+            parity={
+                "loss_ok": loss_ok,
+                "clip_ok": clip_ok,
+                "gradients_ok": grad_ok,
+                "adapter_delta_ok": delta_ok,
+                "all_ok": loss_ok and clip_ok and grad_ok and delta_ok,
+            },
+        )
         return
 
     if args.mode == "multistep":
@@ -370,8 +435,11 @@ def main():
         trainable_set = set(trainable_names)
 
         def base_snapshot(model):
-            return {n: p.detach().to("cpu").float().clone()
-                    for n, p in model.named_parameters() if n not in trainable_set}
+            return {
+                n: p.detach().to("cpu").float().clone()
+                for n, p in model.named_parameters()
+                if n not in trainable_set
+            }
 
         # Periodic global batch so the model can reliably reduce loss in a
         # bounded number of steps.
@@ -381,16 +449,20 @@ def main():
         vocab = profile["model"]["vocabulary_size"]
         period = 8
         base_tokens = torch.randint(
-            0, vocab, (period,),
-            generator=torch.Generator().manual_seed(profile["seed"]))
+            0,
+            vocab,
+            (period,),
+            generator=torch.Generator().manual_seed(profile["seed"]),
+        )
         row = base_tokens.repeat(tokens // period + 1)[:tokens]
         ms_input_ids = row.unsqueeze(0).repeat(samples, 1)
         ms_labels = ms_input_ids.clone()
         ms_dev_ids, ms_dev_labels = shard_batch(ms_input_ids, ms_labels)
 
         trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
-        dev_optimizer = torch.optim.AdamW(trainable_params_dev, lr=lr,
-                                          weight_decay=0.0, capturable=True)
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
         dev_base_before = base_snapshot(dev_model)
         tokens_per_replica = tokens * static_shape["micro_batch"]
         dev_losses = []
@@ -399,65 +471,80 @@ def main():
         t0 = time.monotonic()
         for step in range(steps):
             dev_optimizer.zero_grad()
-            logits, loss = compute_global_loss(dev_model, ms_dev_ids, ms_dev_labels)
+            _logits, loss = compute_global_loss(dev_model, ms_dev_ids, ms_dev_labels)
             loss.backward()
             torch_xla.sync(wait=True)
             torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
             xm.optimizer_step(dev_optimizer, barrier=True)
             torch_xla.sync(wait=True)
             gradient_reductions += 1
-            replica_boundaries.append(
-                {"step": step, "equal": all_replicated(dev_model, trainable_names)})
+            replica_boundaries.append({
+                "step": step,
+                "equal": all_replicated(dev_model, trainable_names),
+            })
             dev_losses.append(float(loss.detach().to("cpu").item()))
         dev_base_after = base_snapshot(dev_model)
         dev_seconds = time.monotonic() - t0
 
         base_changed = any(
             not torch.equal(dev_base_before[n], dev_base_after[n])
-            for n in dev_base_before)
+            for n in dev_base_before
+        )
 
         # CPU reference run after the device run over the identical batches.
         trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
-        cpu_optimizer = torch.optim.AdamW(trainable_params_cpu, lr=lr,
-                                          weight_decay=0.0, capturable=False)
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
         cpu_losses = []
         for _ in range(steps):
             cpu_optimizer.zero_grad()
-            logits, loss = compute_global_loss(cpu_model, ms_input_ids, ms_labels)
+            _logits, loss = compute_global_loss(cpu_model, ms_input_ids, ms_labels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
             cpu_optimizer.step()
             cpu_losses.append(float(loss.detach().to("cpu").item()))
 
         finite = all(
-            all(math.isfinite(v) for v in losses) for losses in [dev_losses, cpu_losses])
+            all(math.isfinite(v) for v in losses) for losses in [dev_losses, cpu_losses]
+        )
         improved = dev_losses[-1] <= improvement_ratio * dev_losses[0]
 
-        emit("pass", mode="multistep", device_count=device_count,
-             seconds=dev_seconds,
-             steps=steps,
-             losses=dev_losses,
-             cpu_losses=cpu_losses,
-             initial_loss=dev_losses[0],
-             final_loss=dev_losses[-1],
-             cpu_final_loss=cpu_losses[-1],
-             finite=finite,
-             base_unchanged=(not base_changed),
-             improved=improved,
-             improvement_ratio=improvement_ratio,
-             gradient_reductions=gradient_reductions,
-             per_device=[
-                 {"ordinal": 0, "steps": steps,
-                  "active_tokens": tokens_per_replica * steps},
-                 {"ordinal": 1, "steps": steps,
-                  "active_tokens": tokens_per_replica * steps},
-             ],
-             replica_boundaries=replica_boundaries)
+        emit(
+            "pass",
+            mode="multistep",
+            device_count=device_count,
+            seconds=dev_seconds,
+            steps=steps,
+            losses=dev_losses,
+            cpu_losses=cpu_losses,
+            initial_loss=dev_losses[0],
+            final_loss=dev_losses[-1],
+            cpu_final_loss=cpu_losses[-1],
+            finite=finite,
+            base_unchanged=(not base_changed),
+            improved=improved,
+            improvement_ratio=improvement_ratio,
+            gradient_reductions=gradient_reductions,
+            per_device=[
+                {
+                    "ordinal": 0,
+                    "steps": steps,
+                    "active_tokens": tokens_per_replica * steps,
+                },
+                {
+                    "ordinal": 1,
+                    "steps": steps,
+                    "active_tokens": tokens_per_replica * steps,
+                },
+            ],
+            replica_boundaries=replica_boundaries,
+        )
         return
 
     if args.mode == "checkpoint":
-        from safetensors.torch import save_file as st_save_file
         from safetensors.torch import load_file as st_load_file
+        from safetensors.torch import save_file as st_save_file
 
         save_path = "/evidence/adapter.safetensors"
         trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
@@ -465,15 +552,17 @@ def main():
         def adapter_snapshot_dtype(model):
             # Preserve the model dtype so the safetensors round trip is
             # byte-identical.
-            return {n: model.get_parameter(n).detach().to("cpu").clone()
-                    for n in trainable_names}
+            return {
+                n: model.get_parameter(n).detach().to("cpu").clone()
+                for n in trainable_names
+            }
 
         def run_n_steps(model, optimizer, ids, lbls, count):
             params = [model.get_parameter(n) for n in trainable_names]
             last = None
             for _ in range(count):
                 optimizer.zero_grad()
-                logits, loss = compute_global_loss(model, ids, lbls)
+                _logits, loss = compute_global_loss(model, ids, lbls)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(params, clip_norm)
                 xm.optimizer_step(optimizer, barrier=True)
@@ -486,8 +575,9 @@ def main():
 
         # Model A: train pre_steps, verify replica equality, save one
         # canonical adapter and the optimizer state, then continue.
-        opt_a = torch.optim.AdamW(trainable_params_dev, lr=lr,
-                                  weight_decay=0.0, capturable=True)
+        opt_a = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
         run_n_steps(dev_model, opt_a, dev_input_ids, dev_labels, pre_steps)
         equality_before_save = all_replicated(dev_model, trainable_names)
         saved_adapters = adapter_snapshot_dtype(dev_model)
@@ -512,7 +602,10 @@ def main():
                 raise RuntimeError(f"saved adapter is missing '{n}'")
             load_diff = max(
                 load_diff,
-                float((loaded[n].float() - saved_adapters[n].float()).abs().max().item()))
+                float(
+                    (loaded[n].float() - saved_adapters[n].float()).abs().max().item()
+                ),
+            )
             target = resumed_model.get_parameter(n)
             with torch.no_grad():
                 target.copy_(loaded[n].to(target.dtype).to(target.device))
@@ -520,29 +613,41 @@ def main():
         post_load_equality = all_replicated(resumed_model, trainable_names)
         opt_c = torch.optim.AdamW(
             [resumed_model.get_parameter(n) for n in trainable_names],
-            lr=lr, weight_decay=0.0, capturable=True)
+            lr=lr,
+            weight_decay=0.0,
+            capturable=True,
+        )
         opt_c.load_state_dict(torch.load(opt_state_path))
-        final_c = run_n_steps(resumed_model, opt_c, dev_input_ids, dev_labels, post_steps)
+        final_c = run_n_steps(
+            resumed_model, opt_c, dev_input_ids, dev_labels, post_steps
+        )
 
         resume_dev = abs(final_c - final_a)
-        emit("pass", mode="checkpoint", device_count=device_count,
-             pre_steps=pre_steps, post_steps=post_steps,
-             replica_equality_before_save=equality_before_save,
-             canonical_single_artifact=True,
-             adapter_load_max_diff=load_diff,
-             replicas_loaded=device_count,
-             post_load_replica_equality=post_load_equality,
-             final_loss_interrupted=final_a,
-             final_loss_resumed=final_c,
-             resume_loss_dev=resume_dev)
+        emit(
+            "pass",
+            mode="checkpoint",
+            device_count=device_count,
+            pre_steps=pre_steps,
+            post_steps=post_steps,
+            replica_equality_before_save=equality_before_save,
+            canonical_single_artifact=True,
+            adapter_load_max_diff=load_diff,
+            replicas_loaded=device_count,
+            post_load_replica_equality=post_load_equality,
+            final_loss_interrupted=final_a,
+            final_loss_resumed=final_c,
+            resume_loss_dev=resume_dev,
+        )
         return
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as error:
+    # This process boundary converts every framework error into a terminal diagnostic.
+    except Exception as error:  # noqa: BLE001
         import traceback
+
         traceback.print_exc()
         emit("fail", detail=f"{type(error).__name__}: {error}")
         sys.exit(1)

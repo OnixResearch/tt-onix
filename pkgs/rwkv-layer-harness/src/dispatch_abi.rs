@@ -2,6 +2,8 @@ use super::*;
 use serde::Serialize;
 
 const DISPATCH_SCHEMA_VERSION: u32 = 1;
+// Generated from quality/policy.ncl. r[impl tenstorrent.quality.parser_robustness]
+const BINARY_FRAME_MAX_BYTES: usize = 16_777_216;
 const DISPATCH_TARGET: &str = "rwkv_ttwkv7_dispatch_abi";
 const MAGIC_WIDTH: usize = 8;
 const REQUEST_MAGIC: [u8; MAGIC_WIDTH] = *b"RKW7REQ1";
@@ -678,6 +680,7 @@ fn encode_request(request: &DispatchRequest) -> Result<Vec<u8>, String> {
 }
 
 fn decode_request(bytes: &[u8]) -> Result<DispatchRequest, String> {
+    require_bounded_frame(bytes, "request")?;
     let mut cursor = FrameCursor::new(bytes);
     let magic = cursor.take::<MAGIC_WIDTH>("request magic")?;
     if magic != REQUEST_MAGIC {
@@ -732,6 +735,7 @@ fn encode_response(response: &DispatchResponse) -> Result<Vec<u8>, String> {
 }
 
 fn decode_response(bytes: &[u8]) -> Result<DispatchResponse, String> {
+    require_bounded_frame(bytes, "response")?;
     let mut cursor = FrameCursor::new(bytes);
     let magic = cursor.take::<MAGIC_WIDTH>("response magic")?;
     if magic != RESPONSE_MAGIC {
@@ -929,6 +933,16 @@ fn push_bf16_values(bytes: &mut Vec<u8>, values: &[f32], name: &str) -> Result<(
     require_finite(values, name)?;
     for value in values {
         bytes.extend_from_slice(&bf16::from_f32(*value).to_bits().to_le_bytes());
+    }
+    Ok(())
+}
+
+fn require_bounded_frame(bytes: &[u8], label: &str) -> Result<(), String> {
+    if bytes.len() > BINARY_FRAME_MAX_BYTES {
+        return Err(format!(
+            "{label} frame byte count {} exceeds {BINARY_FRAME_MAX_BYTES}",
+            bytes.len()
+        ));
     }
     Ok(())
 }
@@ -1244,6 +1258,8 @@ mod tests {
         non_finite[REQUEST_PAYLOAD_OFFSET..REQUEST_PAYLOAD_OFFSET + BF16_WIDTH]
             .copy_from_slice(&bf16::NAN.to_bits().to_le_bytes());
         assert!(decode_request(&non_finite).is_err());
+        let oversized = vec![0_u8; BINARY_FRAME_MAX_BYTES + 1];
+        assert!(decode_request(&oversized).is_err());
     }
 
     #[test]

@@ -53,7 +53,7 @@ def _step(x, t):
 
 def wkv7_forward(r, w, k, v, a, b, state):
     """Paper-matched naive WKV7 forward over a bounded static sequence."""
-    batch, time_steps, heads, width = r.shape
+    _, time_steps, _, _ = r.shape
     wactivated = (-(w.exp())).exp()
     outputs = []
     current = state
@@ -112,9 +112,13 @@ class LoraProjectionModule(torch.nn.Module):
         super().__init__()
         self.base = torch.nn.Linear(hidden, hidden, bias=False, dtype=dtype)
         with torch.no_grad():
-            self.base.weight.copy_(torch.randn(hidden, hidden, generator=generator) * 0.02)
+            self.base.weight.copy_(
+                torch.randn(hidden, hidden, generator=generator) * 0.02
+            )
         self.base.weight.requires_grad_(False)
-        self.lora_a = torch.nn.Parameter(torch.randn(rank, hidden, generator=generator) * 0.02)
+        self.lora_a = torch.nn.Parameter(
+            torch.randn(rank, hidden, generator=generator) * 0.02
+        )
         self.lora_b = torch.nn.Parameter(torch.zeros(hidden, rank, dtype=dtype))
 
     def forward(self, value):
@@ -191,7 +195,9 @@ def compute_deviation(device_tensor, cpu_tensor):
     moved = device_tensor.detach().to("cpu").to(torch.float32)
     reference = cpu_tensor.detach().to(torch.float32)
     if moved.shape != reference.shape:
-        raise RuntimeError(f"shape mismatch: {tuple(moved.shape)} vs {tuple(reference.shape)}")
+        raise RuntimeError(
+            f"shape mismatch: {tuple(moved.shape)} vs {tuple(reference.shape)}"
+        )
     if not torch.isfinite(moved).all():
         raise RuntimeError("device tensor contains a nonfinite value")
     difference = moved - reference
@@ -201,7 +207,9 @@ def compute_deviation(device_tensor, cpu_tensor):
     flat_moved = moved.reshape(-1)
     flat_reference = reference.reshape(-1)
     if flat_moved.numel() > 1 and flat_moved.std() > 0 and flat_reference.std() > 0:
-        pcc = float(torch.corrcoef(torch.stack([flat_moved, flat_reference]))[0, 1].item())
+        pcc = float(
+            torch.corrcoef(torch.stack([flat_moved, flat_reference]))[0, 1].item()
+        )
     else:
         pcc = 1.0
     return {
@@ -223,7 +231,11 @@ def run_wkv7_forward(args):
 
     profile = args.profile
     shape = profile["probe"][args.shape_kind]
-    dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+    dtype = (
+        torch.bfloat16
+        if profile["precision"]["model_dtype"] == "bf16"
+        else torch.float32
+    )
     tolerance = profile["tolerances"]["wkv7_output"]
     state_tolerance = profile["tolerances"]["wkv7_state"]
 
@@ -275,7 +287,11 @@ def run_wkv7_backward(args):
 
     profile = args.profile
     shape = profile["probe"][args.shape_kind]
-    dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+    dtype = (
+        torch.bfloat16
+        if profile["precision"]["model_dtype"] == "bf16"
+        else torch.float32
+    )
     tolerance = profile["tolerances"]["adapter_gradient"]
 
     generator = torch.Generator().manual_seed(SEED)
@@ -298,7 +314,8 @@ def run_wkv7_backward(args):
     # probe.
     compile_start = time.monotonic()
     device_leaves = [
-        tensor.to(device).to(dtype).requires_grad_(True) for tensor in cpu_inputs.values()
+        tensor.to(device).to(dtype).requires_grad_(True)
+        for tensor in cpu_inputs.values()
     ]
     device_loss = module(*device_leaves)
     device_loss.backward()
@@ -307,24 +324,25 @@ def run_wkv7_backward(args):
 
     # Materialize device results before the CPU reference backward runs.
     device_gradients = {}
-    for name, leaf in zip(cpu_inputs.keys(), device_leaves):
+    for name, leaf in zip(cpu_inputs, device_leaves):
         if leaf.grad is None:
             raise RuntimeError(f"input '{name}' received no gradient")
         device_gradients[name] = leaf.grad.detach().to("cpu").to(torch.float32)
     device_loss_cpu = device_loss.detach().to("cpu").to(torch.float32)
 
     # CPU reference gradients from identical seeded inputs.
-    cpu_leaves = [tensor.detach().clone().requires_grad_(True) for tensor in cpu_inputs.values()]
+    cpu_leaves = [
+        tensor.detach().clone().requires_grad_(True) for tensor in cpu_inputs.values()
+    ]
     cpu_loss = Wkv7BackwardModule()(*cpu_leaves)
     cpu_loss.backward()
     cpu_gradients = {
-        name: leaf.grad.detach().clone()
-        for name, leaf in zip(cpu_inputs.keys(), cpu_leaves)
+        name: leaf.grad.detach().clone() for name, leaf in zip(cpu_inputs, cpu_leaves)
     }
 
     deviations = {
         name: compute_deviation(device_gradients[name], cpu_gradients[name])
-        for name in cpu_inputs.keys()
+        for name in cpu_inputs
     }
     result = {
         "device": {
@@ -363,7 +381,11 @@ def run_training_ops(args):
     grad_tolerance = profile["tolerances"]["adapter_gradient"]
     loss_tolerance = profile["tolerances"]["loss"]
     delta_tolerance = profile["tolerances"]["adapter_delta"]
-    dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+    dtype = (
+        torch.bfloat16
+        if profile["precision"]["model_dtype"] == "bf16"
+        else torch.float32
+    )
 
     # Build every input once on CPU so the device and reference runs consume
     # identical values.
@@ -405,7 +427,9 @@ def run_training_ops(args):
     grad_src_dev = grad_src_cpu.to(device).to(dtype)
     (param_dev * grad_src_dev).sum().backward()
     clipped_norm_dev = torch.nn.utils.clip_grad_norm_([param_dev], clip_norm)
-    optimizer_dev = torch.optim.AdamW([param_dev], lr=learning_rate, weight_decay=0.0, capturable=True)
+    optimizer_dev = torch.optim.AdamW(
+        [param_dev], lr=learning_rate, weight_decay=0.0, capturable=True
+    )
     optimizer_dev.step()
     torch_xla.sync(wait=True)
 
@@ -436,11 +460,18 @@ def run_training_ops(args):
     optimizer_ref.step()
 
     deviations = {
-        "lora_a_grad": compute_deviation(device_results["lora_a_grad"], lora_a_ref.grad),
-        "lora_b_grad": compute_deviation(device_results["lora_b_grad"], lora_b_ref.grad),
-        "logits_grad": compute_deviation(device_results["logits_grad"], logits_ref.grad),
+        "lora_a_grad": compute_deviation(
+            device_results["lora_a_grad"], lora_a_ref.grad
+        ),
+        "lora_b_grad": compute_deviation(
+            device_results["lora_b_grad"], lora_b_ref.grad
+        ),
+        "logits_grad": compute_deviation(
+            device_results["logits_grad"], logits_ref.grad
+        ),
         "param_delta": compute_deviation(
-            device_results["param_after"] - param_init_cpu, param_ref.detach() - param_init_cpu
+            device_results["param_after"] - param_init_cpu,
+            param_ref.detach() - param_init_cpu,
         ),
     }
     result = {
@@ -464,7 +495,8 @@ def run_training_ops(args):
             and check_tolerance(deviations["logits_grad"], grad_tolerance)
             and check_tolerance(deviations["param_delta"], delta_tolerance)
             and check_tolerance(
-                compute_deviation(device_results["loss"], loss_ref.detach()), loss_tolerance
+                compute_deviation(device_results["loss"], loss_ref.detach()),
+                loss_tolerance,
             )
         ),
         "finite": True,
@@ -488,7 +520,9 @@ def run_probe(args):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--probe", required=True)
-    parser.add_argument("--shape-kind", default="focused", choices=["focused", "representative"])
+    parser.add_argument(
+        "--shape-kind", default="focused", choices=["focused", "representative"]
+    )
     parser.add_argument("--profile", required=True)
     parser.add_argument("--hlo", required=True)
     args = parser.parse_args()
@@ -498,7 +532,8 @@ def main() -> int:
         result = run_probe(args)
         emit("pass", args.probe, **result)
         return 0
-    except Exception as error:
+    # This process boundary converts every framework error into a terminal diagnostic.
+    except Exception as error:  # noqa: BLE001
         tb = traceback.format_exc()
         print(tb, file=sys.stderr)
         emit(

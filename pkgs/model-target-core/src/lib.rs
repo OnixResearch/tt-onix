@@ -71,6 +71,18 @@ pub struct CandidateFacts {
     pub reference_authority: Option<String>,
     pub evidence_adapter: Option<String>,
     pub topology_compatibility: Option<String>,
+    pub simulator_audit: Option<SimulatorEligibilityAudit>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SimulatorEligibilityAudit {
+    pub ttsim_version: String,
+    pub runtime: String,
+    pub required_operator_inventory_complete: bool,
+    pub package_matched: bool,
+    pub bounded_path_available: bool,
+    pub not_run_reasons: Vec<String>,
+    pub blockers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -86,6 +98,7 @@ pub struct CandidateReport {
     pub status: CandidateStatus,
     pub simulator_change_eligible: bool,
     pub runnable_output_exposed: bool,
+    pub not_run_reasons: Vec<String>,
     pub blockers: Vec<String>,
 }
 
@@ -149,7 +162,10 @@ pub fn validate_architecture_evidence(
         .collect::<Vec<_>>();
     require(
         missing.is_empty(),
-        &format!("architecture evidence lacks operations: {}", missing.join(", ")),
+        &format!(
+            "architecture evidence lacks operations: {}",
+            missing.join(", ")
+        ),
     )
 }
 
@@ -168,6 +184,11 @@ pub fn evaluate_candidate(facts: &CandidateFacts) -> CandidateReport {
         status,
         simulator_change_eligible,
         runnable_output_exposed: false,
+        not_run_reasons: facts
+            .simulator_audit
+            .as_ref()
+            .map(|audit| audit.not_run_reasons.clone())
+            .unwrap_or_default(),
         blockers,
     }
 }
@@ -215,7 +236,11 @@ fn validate_topology_identity(
         expected.physical_device_ids == actual.physical_device_ids,
         "topology physical device identity mismatch",
     )?;
-    require_field("topology replication", &expected.replication, &actual.replication)
+    require_field(
+        "topology replication",
+        &expected.replication,
+        &actual.replication,
+    )
 }
 
 fn candidate_blockers(facts: &CandidateFacts) -> Vec<String> {
@@ -232,7 +257,7 @@ fn candidate_blockers(facts: &CandidateFacts) -> Vec<String> {
         facts.evidence_adapter.as_deref(),
         facts.topology_compatibility.as_deref(),
     ];
-    CANDIDATE_FACT_NAMES
+    let mut blockers = CANDIDATE_FACT_NAMES
         .iter()
         .zip(values)
         .filter_map(|(name, value)| {
@@ -242,7 +267,42 @@ fn candidate_blockers(facts: &CandidateFacts) -> Vec<String> {
                 Some(format!("missing reviewed candidate fact: {name}"))
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    match &facts.simulator_audit {
+        None => blockers.push("missing simulator eligibility audit".to_owned()),
+        Some(audit) => blockers.extend(simulator_audit_blockers(audit)),
+    }
+    blockers
+}
+
+fn simulator_audit_blockers(audit: &SimulatorEligibilityAudit) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if audit.ttsim_version.trim().is_empty() {
+        blockers.push("simulator eligibility audit lacks a TTsim version".to_owned());
+    }
+    if audit.runtime.trim().is_empty() {
+        blockers.push("simulator eligibility audit lacks a runtime".to_owned());
+    }
+    if !audit.required_operator_inventory_complete {
+        blockers.push("simulator eligibility audit lacks a complete operator inventory".to_owned());
+    }
+    if !audit.package_matched && audit.not_run_reasons.is_empty() {
+        blockers.push(
+            "simulator eligibility audit must explain the package-matched runtime entry condition"
+                .to_owned(),
+        );
+    }
+    if !audit.bounded_path_available && audit.blockers.is_empty() {
+        blockers.push("simulator eligibility audit lacks a bounded path".to_owned());
+    }
+    blockers.extend(
+        audit
+            .blockers
+            .iter()
+            .map(|blocker| format!("simulator audit blocker: {}", blocker.trim()))
+            .filter(|blocker| blocker != "simulator audit blocker: "),
+    );
+    blockers
 }
 
 fn require_field(name: &str, expected: &str, actual: &str) -> Result<(), String> {
@@ -320,6 +380,15 @@ mod tests {
             reference_authority: value.map(str::to_owned),
             evidence_adapter: value.map(str::to_owned),
             topology_compatibility: value.map(str::to_owned),
+            simulator_audit: value.map(|_| super::SimulatorEligibilityAudit {
+                ttsim_version: "fixture".to_owned(),
+                runtime: "fixture".to_owned(),
+                required_operator_inventory_complete: true,
+                package_matched: true,
+                bounded_path_available: true,
+                not_run_reasons: Vec::new(),
+                blockers: Vec::new(),
+            }),
         }
     }
 
@@ -384,6 +453,31 @@ mod tests {
         assert_eq!(report.status, CandidateStatus::Unsupported);
         assert!(!report.simulator_change_eligible);
         assert!(!report.runnable_output_exposed);
-        assert_eq!(report.blockers.len(), super::CANDIDATE_FACT_NAMES.len());
+        assert_eq!(report.blockers.len(), super::CANDIDATE_FACT_NAMES.len() + 1);
+        assert!(
+            report
+                .blockers
+                .contains(&"missing simulator eligibility audit".to_owned())
+        );
+    }
+
+    #[test]
+    fn reviewed_simulator_blocker_keeps_candidate_unsupported() {
+        let mut facts = candidate(Some("reviewed"));
+        let audit = facts
+            .simulator_audit
+            .as_mut()
+            .expect("complete candidate must include an audit");
+        audit.package_matched = false;
+        audit.bounded_path_available = false;
+        audit.not_run_reasons = vec!["package mismatch".to_owned()];
+        audit.blockers = vec!["unsupported operation".to_owned()];
+        let report = evaluate_candidate(&facts);
+        assert_eq!(report.status, CandidateStatus::Unsupported);
+        assert!(!report.simulator_change_eligible);
+        assert_eq!(
+            report.blockers,
+            vec!["simulator audit blocker: unsupported operation".to_owned()]
+        );
     }
 }

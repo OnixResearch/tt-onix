@@ -1,0 +1,6 @@
+{
+  "exit_code": 124,
+  "timed_out": true,
+  "stdout": "",
+  "stderr": "named timeout reached"
+}

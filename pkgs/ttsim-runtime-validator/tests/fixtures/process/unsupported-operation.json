@@ -1,0 +1,6 @@
+{
+  "exit_code": 1,
+  "timed_out": false,
+  "stdout": "",
+  "stderr": "UnsupportedFunctionality: instruction is not implemented"
+}

@@ -1,4 +1,5 @@
 mod dispatch_abi;
+mod generated_model_target_identity;
 mod observed_layer;
 
 pub use dispatch_abi::{
@@ -23,16 +24,20 @@ use safetensors::{Dtype, SafeTensors, tensor::TensorView};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const HIDDEN_SIZE: usize = 768;
-pub const HEAD_SIZE: usize = 64;
-pub const HEAD_COUNT: usize = HIDDEN_SIZE / HEAD_SIZE;
-pub const INTERMEDIATE_SIZE: usize = 3072;
+pub use generated_model_target_identity::{
+    ADDED_TOKENS_BLAKE3, ADDED_TOKENS_SHA256_SRI, GENERATION_CONFIG_BLAKE3,
+    GENERATION_CONFIG_SHA256_SRI, HEAD_COUNT, HEAD_SIZE, HIDDEN_SIZE, INTERMEDIATE_SIZE,
+    MODEL_BLAKE3, MODEL_BYTE_COUNT, MODEL_CONFIG_BLAKE3, MODEL_CONFIG_SHA256_SRI, MODEL_ID,
+    MODEL_LAYER_COUNT, MODEL_REVISION, MODEL_SHA256_SRI, PROFILE_BLAKE3, SPECIAL_TOKENS_MAP_BLAKE3,
+    SPECIAL_TOKENS_MAP_SHA256_SRI, STATE_CARRY_DIVERGENCE_FLOOR, TOKENIZER_CONFIG_BLAKE3,
+    TOKENIZER_CONFIG_SHA256_SRI, TOKENIZER_IMPLEMENTATION_BLAKE3,
+    TOKENIZER_IMPLEMENTATION_SHA256_SRI, TOKENIZER_VOCAB_BLAKE3, TOKENIZER_VOCAB_SHA256_SRI,
+    VOCABULARY_SIZE,
+};
 pub const DECAY_RANK: usize = 64;
 pub const A_RANK: usize = 64;
 pub const GATE_RANK: usize = 128;
 pub const VALUE_RANK: usize = 32;
-pub const MODEL_LAYER_COUNT: usize = 12;
-pub const VOCABULARY_SIZE: usize = 65536;
 pub const MODEL_CONFIG_BOS_TOKEN_ID: usize = 1;
 pub const MODEL_CONFIG_EOS_TOKEN_ID: usize = 2;
 pub const TOKENIZER_BOS_TOKEN_ID: usize = 0;
@@ -49,37 +54,8 @@ pub const PROMPT_MAX_NEW_TOKEN_COUNT: usize = 4;
 const FULL_DEVICE_MIN_GENERATED_TOKEN_COUNT: usize = 2;
 pub const TTWKV7_BOUNDARY_INPUT_COUNT: usize = 6;
 pub const TTWKV7_BOUNDARY_ARTIFACT_COUNT: usize = 9;
-pub const MODEL_REVISION: &str = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-pub const MODEL_SHA256_SRI: &str = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
-pub const MODEL_BLAKE3: &str = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
-pub const MODEL_BYTE_COUNT: u64 = 382_111_072;
-pub const ORACLE_TOLERANCE: f32 = 1.0e-5;
-pub const REPLAY_TOLERANCE: f32 = 1.0e-5;
-pub const STATE_CARRY_DIVERGENCE_FLOOR: f32 = 1.0e-4;
-pub const TOKENIZER_VOCAB_SHA256_SRI: &str = "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=";
-pub const TOKENIZER_CONFIG_SHA256_SRI: &str = "sha256-TgOqD11rGkAGoNnp8HDwFBjnNKsXx8SPKDM1lta9Xik=";
-pub const ADDED_TOKENS_SHA256_SRI: &str = "sha256-o0nK5s2qaAz2/A0pKbFvKp7bQ+twJ7LjRLHKgGOFT7k=";
-pub const TOKENIZER_IMPLEMENTATION_SHA256_SRI: &str =
-    "sha256-qspeag9W0EPKFlTp3K+Qb888DgO1FyhjrXUGDoaFoQ4=";
-pub const SPECIAL_TOKENS_MAP_SHA256_SRI: &str =
-    "sha256-H1EppN7ADOM+XFzScmyVKyKkeCcyHu08UY1DXUpkYBU=";
-pub const MODEL_CONFIG_SHA256_SRI: &str = "sha256-VcFZ/IlA4WVXpCsE8K7QN0TxdiIcwSY3aUqx9+EMTG8=";
-pub const GENERATION_CONFIG_SHA256_SRI: &str =
-    "sha256-2milZURvylpqKvSzCIkS6VOWX7+m6WgBmhTXVj1Y2Tc=";
-pub const TOKENIZER_VOCAB_BLAKE3: &str =
-    "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2";
-pub const TOKENIZER_CONFIG_BLAKE3: &str =
-    "b2411eb362aefa260493811c9414e8da589a19d6cec44e8456953507e293755e";
-pub const ADDED_TOKENS_BLAKE3: &str =
-    "02893c22a1e92502fdd31ba4d57b6e574692023505be7ba82d68d1e3142ff02f";
-pub const TOKENIZER_IMPLEMENTATION_BLAKE3: &str =
-    "0a2a88e97b455858e03bbbc83bb0228d8f36c2731fcb91cd94f05e2930e2aa24";
-pub const SPECIAL_TOKENS_MAP_BLAKE3: &str =
-    "751ae3ea4b59073218a85facbee1536739b0aa26d5d5670e11ef6815e5bac870";
-pub const MODEL_CONFIG_BLAKE3: &str =
-    "113edfd55813d327ae7e37987ee9c5ed123c69fa809670b3a0bcc07fd1e9295d";
-pub const GENERATION_CONFIG_BLAKE3: &str =
-    "2288838a56ea704a85691828bbc7f0ab2934c949b13a4d8f3af1b13d955ac2fa";
+pub const ORACLE_TOLERANCE: f32 = generated_model_target_identity::HARNESS_ORACLE_TOLERANCE;
+pub const REPLAY_TOLERANCE: f32 = generated_model_target_identity::HARNESS_REPLAY_TOLERANCE;
 const LAYER_NORM_EPSILON: f32 = 1.0e-5;
 const NORMALIZATION_FLOOR: f32 = 1.0e-12;
 const NEGATIVE_INVERSE_SQRT_E: f32 = -0.606_530_67;
@@ -148,8 +124,7 @@ const REFERENCE_CONTROL_TOKEN_IDS: &[usize] = &[1, 2, 256];
 const REFERENCE_BYTE_PROMPT_TOKEN_IDS: &[usize] = &[24_281, 59, 3_880, 261, 5_585, 41_693, 59];
 const REFERENCE_WRAPPER_PROMPT_TOKEN_IDS: &[usize] =
     &[0, 24_281, 59, 3_880, 65_530, 5_585, 41_693, 59];
-const ARITHMETIC_PRECISION: &str = "cpu_fp32_from_bf16";
-const MODEL_ID: &str = "RWKV/RWKV7-Goose-World2.8-0.1B-HF";
+const ARITHMETIC_PRECISION: &str = generated_model_target_identity::RUNTIME_ARITHMETIC_PRECISION;
 const NON_CLAIMS: [&str; 7] = [
     "No full-model logits are established.",
     "No generated token is established.",

@@ -201,281 +201,281 @@ runCommand "training-platform-check"
     };
   }
   ''
-    set -euo pipefail
-    cp -r ${./.} "$PWD/source"
-    chmod -R u+w "$PWD/source"
-    cd "$PWD/source"
+        set -euo pipefail
+        cp -r ${./.} "$PWD/source"
+        chmod -R u+w "$PWD/source"
+        cd "$PWD/source"
 
-    # Positive configuration admission: exports are deterministic.
-    nickel export --format json manifest.ncl > manifest-first.json
-    nickel export --format json manifest.ncl > manifest-second.json
-    cmp manifest-first.json manifest-second.json
-    nickel export --format json platform.ncl > platform-first.json
-    nickel export --format json platform.ncl > platform-second.json
-    cmp platform-first.json platform-second.json
-    grep -F '"bundle_id": "tt-xla-training-2026-08-04"' manifest-first.json
-    grep -F '"name": "p150_x2"' platform-first.json
+        # Positive configuration admission: exports are deterministic.
+        nickel export --format json manifest.ncl > manifest-first.json
+        nickel export --format json manifest.ncl > manifest-second.json
+        cmp manifest-first.json manifest-second.json
+        nickel export --format json platform.ncl > platform-first.json
+        nickel export --format json platform.ncl > platform-second.json
+        cmp platform-first.json platform-second.json
+        grep -F '"bundle_id": "tt-xla-training-2026-08-04"' manifest-first.json
+        grep -F '"name": "p150_x2"' platform-first.json
 
-    # Negative Nickel fixtures must fail with contract violations.
-    for fixture in fixtures/invalid-*.ncl; do
-      if nickel export --format json "$fixture" > /dev/null 2> fixture.log; then
-        echo "negative fixture exported: $fixture" >&2
-        exit 1
-      fi
-      grep -F "contract" fixture.log
-    done
+        # Negative Nickel fixtures must fail with contract violations.
+        for fixture in fixtures/invalid-*.ncl; do
+          if nickel export --format json "$fixture" > /dev/null 2> fixture.log; then
+            echo "negative fixture exported: $fixture" >&2
+            exit 1
+          fi
+          grep -F "contract" fixture.log
+        done
 
-    # Positive core and package-owned authority admission.
-    "$CORE" self-test | grep -F "self-test: PASS"
-    "$CORE" admit-bundle manifest-first.json > bundle.json
-    grep -F '"status":"admitted"' bundle.json
-    "$CORE" validate-config platform-first.json manifest-first.json > validated.json
-    grep -F '"status":"admitted"' validated.json
-    "$CORE" authorized-launch-plan ${authorityJson} > plan.json
-    grep -F '"status":"admitted"' plan.json
-    grep -F '"runtime_authority_identity":"' plan.json
-    grep -F 'ghcr.io/tenstorrent/tt-xla/tt-xla-base-ubuntu-24-04@sha256:8dcad76548126bb33c13ce554192cb9f27612fa3766b7c7e7ae6f591f2ab6503' \
-      plan.json
-    grep -F '${wheelhouse}' plan.json
-    grep -F 'PYTHONPATH' plan.json
+        # Positive core and package-owned authority admission.
+        "$CORE" self-test | grep -F "self-test: PASS"
+        "$CORE" admit-bundle manifest-first.json > bundle.json
+        grep -F '"status":"admitted"' bundle.json
+        "$CORE" validate-config platform-first.json manifest-first.json > validated.json
+        grep -F '"status":"admitted"' validated.json
+        "$CORE" authorized-launch-plan ${authorityJson} > plan.json
+        grep -F '"status":"admitted"' plan.json
+        grep -F '"runtime_authority_identity":"' plan.json
+        grep -F 'ghcr.io/tenstorrent/tt-xla/tt-xla-base-ubuntu-24-04@sha256:8dcad76548126bb33c13ce554192cb9f27612fa3766b7c7e7ae6f591f2ab6503' \
+          plan.json
+        grep -F '${wheelhouse}' plan.json
+        grep -F 'PYTHONPATH' plan.json
 
-    # The ownership probe accepts empty KMD PID files and rejects busy or
-    # unverifiable devices before Docker starts.
-    ownership_fixture="$PWD/ownership-fixture"
-    mkdir -p \
-      "$ownership_fixture/devices" \
-      "$ownership_fixture/proc/0" \
-      "$ownership_fixture/proc/1"
-    touch \
-      "$ownership_fixture/devices/0" \
-      "$ownership_fixture/devices/1" \
-      "$ownership_fixture/proc/0/pids" \
-      "$ownership_fixture/proc/1/pids" \
-      "$ownership_fixture/hugepages"
-    cat > "$ownership_fixture/fuser-free" <<'EOF'
-#!/usr/bin/env bash
-exit 1
-EOF
-    chmod +x "$ownership_fixture/fuser-free"
-    ${ownershipProbe} \
-      "$ownership_fixture/devices" \
-      "$ownership_fixture/proc" \
-      "$ownership_fixture/fuser-free" \
-      "$ownership_fixture/hugepages"
+        # The ownership probe accepts empty KMD PID files and rejects busy or
+        # unverifiable devices before Docker starts.
+        ownership_fixture="$PWD/ownership-fixture"
+        mkdir -p \
+          "$ownership_fixture/devices" \
+          "$ownership_fixture/proc/0" \
+          "$ownership_fixture/proc/1"
+        touch \
+          "$ownership_fixture/devices/0" \
+          "$ownership_fixture/devices/1" \
+          "$ownership_fixture/proc/0/pids" \
+          "$ownership_fixture/proc/1/pids" \
+          "$ownership_fixture/hugepages"
+        cat > "$ownership_fixture/fuser-free" <<'EOF'
+    #!/usr/bin/env bash
+    exit 1
+    EOF
+        chmod +x "$ownership_fixture/fuser-free"
+        ${ownershipProbe} \
+          "$ownership_fixture/devices" \
+          "$ownership_fixture/proc" \
+          "$ownership_fixture/fuser-free" \
+          "$ownership_fixture/hugepages"
 
-    busy_fixture_pid=1234
-    printf '%s\n' "$busy_fixture_pid" > "$ownership_fixture/proc/1/pids"
-    if ${ownershipProbe} \
-      "$ownership_fixture/devices" \
-      "$ownership_fixture/proc" \
-      "$ownership_fixture/fuser-free" \
-      "$ownership_fixture/hugepages"; then
-      echo "ownership probe accepted a KMD-reported device owner" >&2
-      exit 1
-    fi
-    : > "$ownership_fixture/proc/1/pids"
-    rm "$ownership_fixture/proc/1/pids"
-    if ${ownershipProbe} \
-      "$ownership_fixture/devices" \
-      "$ownership_fixture/proc" \
-      "$ownership_fixture/fuser-free" \
-      "$ownership_fixture/hugepages"; then
-      echo "ownership probe accepted a missing KMD PID file" >&2
-      exit 1
-    fi
+        busy_fixture_pid=1234
+        printf '%s\n' "$busy_fixture_pid" > "$ownership_fixture/proc/1/pids"
+        if ${ownershipProbe} \
+          "$ownership_fixture/devices" \
+          "$ownership_fixture/proc" \
+          "$ownership_fixture/fuser-free" \
+          "$ownership_fixture/hugepages"; then
+          echo "ownership probe accepted a KMD-reported device owner" >&2
+          exit 1
+        fi
+        : > "$ownership_fixture/proc/1/pids"
+        rm "$ownership_fixture/proc/1/pids"
+        if ${ownershipProbe} \
+          "$ownership_fixture/devices" \
+          "$ownership_fixture/proc" \
+          "$ownership_fixture/fuser-free" \
+          "$ownership_fixture/hugepages"; then
+          echo "ownership probe accepted a missing KMD PID file" >&2
+          exit 1
+        fi
 
-    # Positive preflight admission excludes stable board identities.
-    "$CORE" admit-authorized-preflight fixtures/positive/preflight-snapshot.json \
-      ${authorityJson} > preflight.json
-    grep -F '"status":"admitted"' preflight.json
-    grep -F '"device_count":2' preflight.json
-    if grep -F 'board_id' preflight.json; then
-      echo "portable preflight admission contains a board identity" >&2
-      exit 1
-    fi
+        # Positive preflight admission excludes stable board identities.
+        "$CORE" admit-authorized-preflight fixtures/positive/preflight-snapshot.json \
+          ${authorityJson} > preflight.json
+        grep -F '"status":"admitted"' preflight.json
+        grep -F '"device_count":2' preflight.json
+        if grep -F 'board_id' preflight.json; then
+          echo "portable preflight admission contains a board identity" >&2
+          exit 1
+        fi
 
-    # The complete runtime closure resolves without an index.
-    pip install --dry-run --ignore-installed --break-system-packages --no-index --no-deps \
-      --find-links ${wheelhouse} --require-hashes \
-      --requirement ${wheelhouse}/requirements.lock >offline-install.log
-    grep -F 'Would install' offline-install.log
-    if grep -E 'https?://|Looking in indexes' offline-install.log; then
-      echo "offline install attempted network resolution" >&2
-      exit 1
-    fi
+        # The complete runtime closure resolves without an index.
+        pip install --dry-run --ignore-installed --break-system-packages --no-index --no-deps \
+          --find-links ${wheelhouse} --require-hashes \
+          --requirement ${wheelhouse}/requirements.lock >offline-install.log
+        grep -F 'Would install' offline-install.log
+        if grep -E 'https?://|Looking in indexes' offline-install.log; then
+          echo "offline install attempted network resolution" >&2
+          exit 1
+        fi
 
-    # Runtime container scripts contain no package-index or Pip-upgrade path.
-    if grep -E 'extra-index-url|--upgrade pip|pip download|https?://' \
-      container-smoke.sh \
-      ${../rwkv7-lora-p150a/container-probe.sh} \
-      ${../rwkv7-lora-p150a/container-full-model.sh} \
-      ${../rwkv7-lora-dual-p150a/container-collective.sh} \
-      ${../rwkv7-lora-dual-p150a/container-dual-model.sh}; then
-      echo "hardware container script retains a network package path" >&2
-      exit 1
-    fi
+        # Runtime container scripts contain no package-index or Pip-upgrade path.
+        if grep -E 'extra-index-url|--upgrade pip|pip download|https?://' \
+          container-smoke.sh \
+          ${../rwkv7-lora-p150a/container-probe.sh} \
+          ${../rwkv7-lora-p150a/container-full-model.sh} \
+          ${../rwkv7-lora-dual-p150a/container-collective.sh} \
+          ${../rwkv7-lora-dual-p150a/container-dual-model.sh}; then
+          echo "hardware container script retains a network package path" >&2
+          exit 1
+        fi
 
-    # Negative preflight fixtures must fail with stable codes.
-    check_rejected() {
-      fixture="$1"; code="$2"
-      if "$CORE" admit-preflight "$fixture" manifest-first.json platform-first.json \
-        > /dev/null 2> rejected.log; then
-        echo "negative preflight fixture admitted: $fixture" >&2
-        exit 1
-      fi
-      grep -F "$code" rejected.log
-    }
-    check_rejected fixtures/negative/snapshot-one-device.json "device_count"
-    check_rejected fixtures/negative/snapshot-busy-device.json "busy_device"
-    check_rejected fixtures/negative/snapshot-old-firmware.json "old_firmware"
-    check_rejected fixtures/negative/snapshot-no-hugepages.json "missing_hugepages"
-    check_rejected fixtures/negative/snapshot-wrong-board.json "wrong_architecture"
-    check_rejected fixtures/negative/snapshot-driver-mismatch.json "driver_mismatch"
-    check_rejected fixtures/negative/snapshot-duplicate-device.json "duplicate_device"
+        # Negative preflight fixtures must fail with stable codes.
+        check_rejected() {
+          fixture="$1"; code="$2"
+          if "$CORE" admit-preflight "$fixture" manifest-first.json platform-first.json \
+            > /dev/null 2> rejected.log; then
+            echo "negative preflight fixture admitted: $fixture" >&2
+            exit 1
+          fi
+          grep -F "$code" rejected.log
+        }
+        check_rejected fixtures/negative/snapshot-one-device.json "device_count"
+        check_rejected fixtures/negative/snapshot-busy-device.json "busy_device"
+        check_rejected fixtures/negative/snapshot-old-firmware.json "old_firmware"
+        check_rejected fixtures/negative/snapshot-no-hugepages.json "missing_hugepages"
+        check_rejected fixtures/negative/snapshot-wrong-board.json "wrong_architecture"
+        check_rejected fixtures/negative/snapshot-driver-mismatch.json "driver_mismatch"
+        check_rejected fixtures/negative/snapshot-duplicate-device.json "duplicate_device"
 
-    # Positive receipt admission built from live identities.
-    BUNDLE_ID=$(jq -r '.identity_blake3' bundle.json)
-    CONFIG_ID=$(jq -r '.identity_blake3' validated.json)
-    PLAN_ID=$(jq -r '.identity_blake3' plan.json)
-    jq -n \
-      --arg bundle "$BUNDLE_ID" --arg config "$CONFIG_ID" --arg plan "$PLAN_ID" \
-      '{
-        schema_version: 1,
-        kind: "dual_p150a_platform_smoke",
-        bundle_identity: $bundle,
-        config_identity: $config,
-        launch_plan_identity: $plan,
-        stages: [
+        # Positive receipt admission built from live identities.
+        BUNDLE_ID=$(jq -r '.identity_blake3' bundle.json)
+        CONFIG_ID=$(jq -r '.identity_blake3' validated.json)
+        PLAN_ID=$(jq -r '.identity_blake3' plan.json)
+        jq -n \
+          --arg bundle "$BUNDLE_ID" --arg config "$CONFIG_ID" --arg plan "$PLAN_ID" \
+          '{
+            schema_version: 1,
+            kind: "dual_p150a_platform_smoke",
+            bundle_identity: $bundle,
+            config_identity: $config,
+            launch_plan_identity: $plan,
+            stages: [
+              {name: "health_before", status: "pass"},
+              {name: "preflight", status: "pass"},
+              {name: "mesh_open", status: "pass"},
+              {name: "smoke_execute", status: "pass"},
+              {name: "mesh_close", status: "pass"},
+              {name: "restore", status: "pass"},
+              {name: "health_after", status: "pass"}
+            ],
+            artifacts: {smoke_output: "2c6f51c4f3e2a5f6d7a7e38fdde0b63f0e2be3d4566f6c0c38139cb2c46d2ab5"},
+            non_claims: [
+              "no training correctness claim",
+              "no gradient parity claim",
+              "no convergence claim",
+              "no speedup claim",
+              "no thermal endurance claim"
+            ]
+          }' > receipt-valid.json
+        "$CORE" validate-terminal-receipt receipt-valid.json ${authorityJson} \
+          > receipt-admission.json
+        grep -F '"outcome":"success"' receipt-admission.json
+
+        # A complete failure receipt validates but cannot satisfy success admission.
+        jq '.stages = [
           {name: "health_before", status: "pass"},
-          {name: "preflight", status: "pass"},
-          {name: "mesh_open", status: "pass"},
-          {name: "smoke_execute", status: "pass"},
-          {name: "mesh_close", status: "pass"},
-          {name: "restore", status: "pass"},
-          {name: "health_after", status: "pass"}
-        ],
-        artifacts: {smoke_output: "2c6f51c4f3e2a5f6d7a7e38fdde0b63f0e2be3d4566f6c0c38139cb2c46d2ab5"},
-        non_claims: [
-          "no training correctness claim",
-          "no gradient parity claim",
-          "no convergence claim",
-          "no speedup claim",
-          "no thermal endurance claim"
-        ]
-      }' > receipt-valid.json
-    "$CORE" validate-terminal-receipt receipt-valid.json ${authorityJson} \
-      > receipt-admission.json
-    grep -F '"outcome":"success"' receipt-admission.json
+          {name: "preflight", status: "fail"},
+          {name: "mesh_open", status: "not_observed"},
+          {name: "smoke_execute", status: "not_observed"},
+          {name: "mesh_close", status: "not_observed"},
+          {name: "restore", status: "not_observed"},
+          {name: "health_after", status: "not_observed"}
+        ] | .artifacts = {}' receipt-valid.json > receipt-failure.json
+        "$CORE" validate-terminal-receipt receipt-failure.json ${authorityJson} \
+          > receipt-failure-admission.json
+        grep -F '"outcome":"failure"' receipt-failure-admission.json
 
-    # A complete failure receipt validates but cannot satisfy success admission.
-    jq '.stages = [
-      {name: "health_before", status: "pass"},
-      {name: "preflight", status: "fail"},
-      {name: "mesh_open", status: "not_observed"},
-      {name: "smoke_execute", status: "not_observed"},
-      {name: "mesh_close", status: "not_observed"},
-      {name: "restore", status: "not_observed"},
-      {name: "health_after", status: "not_observed"}
-    ] | .artifacts = {}' receipt-valid.json > receipt-failure.json
-    "$CORE" validate-terminal-receipt receipt-failure.json ${authorityJson} \
-      > receipt-failure-admission.json
-    grep -F '"outcome":"failure"' receipt-failure-admission.json
+        # Negative receipt fixtures must fail with stable codes.
+        jq '.bundle_identity = "0000000000000000000000000000000000000000000000000000000000000000"' \
+          receipt-valid.json > receipt-stale.json
+        if "$CORE" validate-terminal-receipt receipt-stale.json ${authorityJson} \
+          > /dev/null 2> rejected.log; then
+          echo "stale receipt identity admitted" >&2
+          exit 1
+        fi
+        grep -F "stale_identity" rejected.log
 
-    # Negative receipt fixtures must fail with stable codes.
-    jq '.bundle_identity = "0000000000000000000000000000000000000000000000000000000000000000"' \
-      receipt-valid.json > receipt-stale.json
-    if "$CORE" validate-terminal-receipt receipt-stale.json ${authorityJson} \
-      > /dev/null 2> rejected.log; then
-      echo "stale receipt identity admitted" >&2
-      exit 1
-    fi
-    grep -F "stale_identity" rejected.log
+        jq '.stages = [{name: "health_before", status: "pass"}]' \
+          receipt-valid.json > receipt-missing-stage.json
+        if "$CORE" validate-terminal-receipt receipt-missing-stage.json ${authorityJson} \
+          > /dev/null 2> rejected.log; then
+          echo "receipt with missing stages admitted" >&2
+          exit 1
+        fi
+        grep -F "missing_stage" rejected.log
 
-    jq '.stages = [{name: "health_before", status: "pass"}]' \
-      receipt-valid.json > receipt-missing-stage.json
-    if "$CORE" validate-terminal-receipt receipt-missing-stage.json ${authorityJson} \
-      > /dev/null 2> rejected.log; then
-      echo "receipt with missing stages admitted" >&2
-      exit 1
-    fi
-    grep -F "missing_stage" rejected.log
+        jq '.artifacts.device_serial_number = "2c6f51c4f3e2a5f6d7a7e38fdde0b63f0e2be3d4566f6c0c38139cb2c46d2ab5"' \
+          receipt-valid.json > receipt-serial.json
+        if "$CORE" validate-terminal-receipt receipt-serial.json ${authorityJson} \
+          > /dev/null 2> rejected.log; then
+          echo "receipt with serial number admitted" >&2
+          exit 1
+        fi
+        grep -F "unsafe_field" rejected.log
 
-    jq '.artifacts.device_serial_number = "2c6f51c4f3e2a5f6d7a7e38fdde0b63f0e2be3d4566f6c0c38139cb2c46d2ab5"' \
-      receipt-valid.json > receipt-serial.json
-    if "$CORE" validate-terminal-receipt receipt-serial.json ${authorityJson} \
-      > /dev/null 2> rejected.log; then
-      echo "receipt with serial number admitted" >&2
-      exit 1
-    fi
-    grep -F "unsafe_field" rejected.log
+        jq '.non_claims = ["no speedup claim"]' receipt-valid.json > receipt-overclaim.json
+        if "$CORE" validate-terminal-receipt receipt-overclaim.json ${authorityJson} \
+          > /dev/null 2> rejected.log; then
+          echo "overclaiming receipt admitted" >&2
+          exit 1
+        fi
+        grep -F "overclaiming" rejected.log
 
-    jq '.non_claims = ["no speedup claim"]' receipt-valid.json > receipt-overclaim.json
-    if "$CORE" validate-terminal-receipt receipt-overclaim.json ${authorityJson} \
-      > /dev/null 2> rejected.log; then
-      echo "overclaiming receipt admitted" >&2
-      exit 1
-    fi
-    grep -F "overclaiming" rejected.log
+        # Current hardware evidence validates under the package-owned authority.
+        "$CORE" validate-terminal-receipt \
+          evidence/2026-08-08-dual-p150a-smoke/receipt.json ${authorityJson} \
+          > current-hardware-admission.json
+        grep -F '"outcome":"success"' current-hardware-admission.json
+        for artifact in evidence/2026-08-08-dual-p150a-smoke/*.json; do
+          "$CORE" validate-portable-artifact "$artifact" > /dev/null
+        done
+        test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/preflight-admission.json | cut -d' ' -f1)" = \
+          "$(jq -r '.artifacts["preflight-admission.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
+        test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/workload-summary.json | cut -d' ' -f1)" = \
+          "$(jq -r '.artifacts["workload-summary.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
 
-    # Current hardware evidence validates under the package-owned authority.
-    "$CORE" validate-terminal-receipt \
-      evidence/2026-08-08-dual-p150a-smoke/receipt.json ${authorityJson} \
-      > current-hardware-admission.json
-    grep -F '"outcome":"success"' current-hardware-admission.json
-    for artifact in evidence/2026-08-08-dual-p150a-smoke/*.json; do
-      "$CORE" validate-portable-artifact "$artifact" > /dev/null
-    done
-    test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/preflight-admission.json | cut -d' ' -f1)" = \
-      "$(jq -r '.artifacts["preflight-admission.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
-    test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/workload-summary.json | cut -d' ' -f1)" = \
-      "$(jq -r '.artifacts["workload-summary.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
+        # Historical evidence is retained only as a sanitized disclosure. It
+        # cannot satisfy current platform admission after the driver correction.
+        grep -F '"status": "superseded"' \
+          evidence/2026-08-04-dual-p150a-smoke/receipt.json
+        if "$CORE" validate-terminal-receipt \
+          evidence/2026-08-04-dual-p150a-smoke/receipt.json ${authorityJson} \
+          > /dev/null 2> rejected.log; then
+          echo "superseded historical receipt was admitted" >&2
+          exit 1
+        fi
+        grep -F 'unknown_field' rejected.log
+        for artifact in evidence/2026-08-04-dual-p150a-smoke/*.json; do
+          "$CORE" validate-portable-artifact "$artifact" > /dev/null
+        done
+        jq -n '{board_id: "0000040331921011"}' > unsafe-artifact.json
+        if "$CORE" validate-portable-artifact unsafe-artifact.json \
+          > /dev/null 2> rejected.log; then
+          echo "portable artifact admitted a stable board identity" >&2
+          exit 1
+        fi
+        grep -F 'unsafe_field' rejected.log
 
-    # Historical evidence is retained only as a sanitized disclosure. It
-    # cannot satisfy current platform admission after the driver correction.
-    grep -F '"status": "superseded"' \
-      evidence/2026-08-04-dual-p150a-smoke/receipt.json
-    if "$CORE" validate-terminal-receipt \
-      evidence/2026-08-04-dual-p150a-smoke/receipt.json ${authorityJson} \
-      > /dev/null 2> rejected.log; then
-      echo "superseded historical receipt was admitted" >&2
-      exit 1
-    fi
-    grep -F 'unknown_field' rejected.log
-    for artifact in evidence/2026-08-04-dual-p150a-smoke/*.json; do
-      "$CORE" validate-portable-artifact "$artifact" > /dev/null
-    done
-    jq -n '{board_id: "0000040331921011"}' > unsafe-artifact.json
-    if "$CORE" validate-portable-artifact unsafe-artifact.json \
-      > /dev/null 2> rejected.log; then
-      echo "portable artifact admitted a stable board identity" >&2
-      exit 1
-    fi
-    grep -F 'unsafe_field' rejected.log
+        # Production launchers carry only package-owned platform authority.
+        grep -F '${authorityJson}' ${launcher}
+        grep -F 'authorized-launch-plan' ${launcher}
+        grep -F 'validate-portable-artifact "$artifact"' ${launcher}
+        grep -F '2> "$PRIVATE_ROOT/preflight-error.log"' ${launcher}
+        grep -F 'if ! mkdir "$EVIDENCE_ROOT"' ${launcher}
+        grep -F '/proc/driver/tenstorrent' ${launcher}
+        grep -F '${ownershipProbe}' ${launcher}
+        if grep -E -- '--manifest|--config|--descriptor|--wheels-dir' ${launcher}; then
+          echo "production launcher accepts caller-controlled platform authority" >&2
+          exit 1
+        fi
 
-    # Production launchers carry only package-owned platform authority.
-    grep -F '${authorityJson}' ${launcher}
-    grep -F 'authorized-launch-plan' ${launcher}
-    grep -F 'validate-portable-artifact "$artifact"' ${launcher}
-    grep -F '2> "$PRIVATE_ROOT/preflight-error.log"' ${launcher}
-    grep -F 'if ! mkdir "$EVIDENCE_ROOT"' ${launcher}
-    grep -F '/proc/driver/tenstorrent' ${launcher}
-    grep -F '${ownershipProbe}' ${launcher}
-    if grep -E -- '--manifest|--config|--descriptor|--wheels-dir' ${launcher}; then
-      echo "production launcher accepts caller-controlled platform authority" >&2
-      exit 1
-    fi
+        if ${launcher} --evidence-root "$PWD/outside-authority" -- true \
+          > /dev/null 2> rejected.log; then
+          echo "production launcher accepted an unapproved evidence root" >&2
+          exit 1
+        fi
+        grep -F 'evidence root is outside package authority' rejected.log
 
-    if ${launcher} --evidence-root "$PWD/outside-authority" -- true \
-      > /dev/null 2> rejected.log; then
-      echo "production launcher accepted an unapproved evidence root" >&2
-      exit 1
-    fi
-    grep -F 'evidence root is outside package authority' rejected.log
-
-    mkdir -p "$out"
-    cp manifest-first.json "$out/manifest.json"
-    cp platform-first.json "$out/platform.json"
-    cp plan.json "$out/launch-plan.json"
-    cp preflight.json "$out/preflight-admission.json"
-    cp receipt-valid.json "$out/receipt-valid.json"
+        mkdir -p "$out"
+        cp manifest-first.json "$out/manifest.json"
+        cp platform-first.json "$out/platform.json"
+        cp plan.json "$out/launch-plan.json"
+        cp preflight.json "$out/preflight-admission.json"
+        cp receipt-valid.json "$out/receipt-valid.json"
   ''

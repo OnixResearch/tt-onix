@@ -152,6 +152,20 @@ Check DeepWiki claims against the primary references because its indexed revisio
 Keep the existing package pins unless the task requires a pin update.
 Record a mismatch when the paper, source, and local implementation differ.
 
+### RWKV ecosystem references
+
+Use these resources to find current RWKV projects and implementation examples.
+
+- Use the [recently updated RWKV repository search](https://github.com/search?o=desc&q=rwkv&s=updated&type=Repositories) for project discovery.
+- Use the [RWKV Wiki](https://wiki.rwkv.com) for community documentation about architectures, models, terminology, and tools.
+- Use [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) as a desktop runner and OpenAI-compatible service reference.
+- Use [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) as a parameter-efficient fine-tuning reference.
+- Use [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) as a Rust and Vulkan inference-server reference.
+
+Treat these resources as ecosystem and implementation leads.
+Check architecture claims against the RWKV paper and `RWKV-LM` source.
+Do not update a package pin only because an ecosystem resource changed.
+
 ### llama.cpp Metalium upstream reference
 
 Treat <https://github.com/marty1885/llama.cpp> as the upstream source for the local `llama-cpp-metalium` package.

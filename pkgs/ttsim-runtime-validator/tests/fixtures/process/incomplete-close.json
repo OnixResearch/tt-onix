@@ -1,0 +1,6 @@
+{
+  "exit_code": 0,
+  "timed_out": false,
+  "stdout": "TTSIM_OBSERVATION {\"event\": \"device_opened\"}\nTTSIM_OBSERVATION {\"event\": \"firmware_compiled\"}\nTTSIM_OBSERVATION {\"event\": \"representative_operations_completed\"}\n",
+  "stderr": ""
+}

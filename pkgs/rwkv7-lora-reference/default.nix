@@ -5,6 +5,7 @@
   runCommand,
   model,
   modelBlake3,
+  targetProfile,
 }:
 let
   pythonEnvironment = python3.withPackages (packages: [
@@ -12,7 +13,13 @@ let
     packages.safetensors
     packages.torch
   ]);
-  source = ./.;
+  source = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ./.
+      ../../model-targets
+    ];
+  };
 in
 runCommand "rwkv7-lora-reference-check"
   {
@@ -27,13 +34,13 @@ runCommand "rwkv7-lora-reference-check"
     set -euo pipefail
     cp -r ${source} "$PWD/source"
     chmod -R u+w "$PWD/source"
-    cd "$PWD/source"
+    cd "$PWD/source/pkgs/rwkv7-lora-reference"
 
     # Configuration admission: valid runner exports deterministically.
     nickel export --format json runner.ncl >runner-first.json
     nickel export --format json runner.ncl >runner-second.json
     cmp runner-first.json runner-second.json
-    grep -F '"model_id": "RWKV/RWKV7-Goose-World2.8-0.1B-HF"' runner-first.json
+    grep -F '"model_id": "${targetProfile.model.id}"' runner-first.json
 
     # Negative configuration with an empty LoRA target set must fail.
     if nickel export --format json fixtures/invalid-config-empty-targets.ncl \
@@ -52,7 +59,9 @@ runCommand "rwkv7-lora-reference-check"
     grep -F '"fp32_from_bf16_finite": true' receipt.json
     grep -F 'No Tenstorrent execution is established.' receipt.json
 
-    mkdir -p "$out"
+    mkdir -p "$out/share/model-target"
+    echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
+    grep -F '"profile_blake3": "${targetProfile.profile_identity}"' receipt.json
     cp receipt.json "$out/receipt.json"
     cp runner-first.json "$out/runner.json"
     cp README.md "$out/README.md"

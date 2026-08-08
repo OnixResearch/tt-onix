@@ -24,7 +24,8 @@ fn usage() -> String {
 }
 
 fn read_json(path: &str) -> Result<Value, String> {
-    let text = std::fs::read_to_string(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("cannot read {path}: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("cannot parse {path}: {error}"))
 }
 
@@ -230,7 +231,8 @@ fn run() -> Result<u8, String> {
             }
         }
         "admit-prerequisites" => {
-            let parsed = parse_prerequisite_args(&args[1..]).map_err(|error| format!("{error}\n{}", usage()))?;
+            let parsed = parse_prerequisite_args(&args[1..])
+                .map_err(|error| format!("{error}\n{}", usage()))?;
             let profile = read_json(&parsed.profile)?;
             let platform_admission = read_json(&parsed.platform_admission)?;
             let platform_receipt = read_json(&parsed.platform_receipt)?;

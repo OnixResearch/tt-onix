@@ -16,13 +16,16 @@
         config.allowUnfreePredicate = package: lib.getName package == "ttwkv7";
       };
       rwkvLab = pkgs.callPackage ../pkgs/rwkv-lab { };
+      modelTargetConsumerGenerator = pkgs.callPackage ../pkgs/model-target-consumer-generator { };
       modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
       rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
+      qwenCandidateProfile = modelTargets.getProfile "qwen3-6-35b-a3b-p150x1-candidate";
       rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
+      rwkvArchitectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
       rwkvTarget = modelTargets.mkModelTarget {
         profile = rwkvProfile;
         artifacts = rwkvArtifacts;
-        architectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
+        architectureAdapter = rwkvArchitectureAdapter;
         evidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
         topology = modelTargets.mkTopology rwkvProfile;
         builders = {
@@ -34,9 +37,14 @@
               deviceRuntime = context.runtime;
             };
           command =
-            _context:
-            pkgs.runCommand "rwkv7-p150x2-command" { }
-              "mkdir -p $out/bin; ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command $out/bin/rwkv7-p150x2-command";
+            context:
+            pkgs.runCommand "rwkv7-p150x2-command" { } ''
+              mkdir -p "$out/bin" "$out/share/model-target"
+              ln -s ${rwkv7P150x2Evidence}/bin/rwkv7-p150x2-command \
+                "$out/bin/rwkv7-p150x2-command"
+              echo '${context.profile.profile_identity}' \
+                >"$out/share/model-target/profile-blake3"
+            '';
           sourceBoundary = _context: rwkv7P150x2SourceCheck;
           closure = _context: rwkv7P150x2ProductionClosure;
         };
@@ -45,10 +53,13 @@
         targetProfile = rwkvProfile;
         targetArtifacts = rwkvArtifacts;
       };
-      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report { };
+      modelTargetReport = pkgs.callPackage ../pkgs/model-target-report {
+        targetProfile = qwenCandidateProfile;
+      };
       rwkv7LoraReference = pkgs.callPackage ../pkgs/rwkv7-lora-reference {
         model = rwkvArtifacts.checkpoint.path;
         modelBlake3 = rwkvArtifacts.checkpoint.blake3;
+        targetProfile = rwkvProfile;
       };
       # r[impl tenstorrent.training_platform.verification]
       trainingPlatform = pkgs.callPackage ../pkgs/training-platform { };
@@ -56,12 +67,16 @@
       # r[impl tenstorrent.rwkv7_p150a_finetuning.authority]
       rwkv7LoraP150a = pkgs.callPackage ../pkgs/rwkv7-lora-p150a {
         inherit trainingPlatform;
+        targetProfile = rwkvProfile;
+        platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
       # r[impl tenstorrent.rwkv7_dual_p150a.configuration]
       # r[impl tenstorrent.rwkv7_dual_p150a.authority]
       rwkv7LoraDualP150a = pkgs.callPackage ../pkgs/rwkv7-lora-dual-p150a {
         inherit trainingPlatform rwkv7LoraP150a;
+        targetProfile = rwkvProfile;
+        platformEvidenceReceipt = ../pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/receipt.json;
         cpuReference = rwkv7LoraReference;
       };
       # r[verify tenstorrent.training_platform.configuration.valid]
@@ -159,7 +174,7 @@
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
         inherit (pkgs) nickel;
-        modelTargets = modelTargets;
+        inherit modelTargetConsumerGenerator modelTargets;
       };
       rwkv7P150x2Runtime = rwkvTarget.runtime;
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
@@ -196,6 +211,14 @@
             grep -F '!environment.dprint_cores.has_value()' "$runtime_source"
             grep -F 'remove_environment(WATCHER_ENVIRONMENT)' "$command_source"
             grep -F 'remove_environment(DPRINT_CORES_ENVIRONMENT)' "$command_source"
+
+            for output in \
+              ${rwkv7P150x2Runtime} \
+              ${rwkvTarget.command} \
+              ${rwkv7P150x2Evidence}; do
+              grep -Fx '${rwkvProfile.profile_identity}' \
+                "$output/share/model-target/profile-blake3"
+            done
 
             if grep -E 'torch|pytorch|cpu-dispatch|test_only_cpu_server|std::system|popen|fork\(' \
               "$runtime_source"; then
@@ -284,8 +307,70 @@
         pkgs.callPackage ../pkgs/rwkv-ttwkv7-persistent-passed-evidence
           { };
       ttVibeThinkerBench = pkgs.callPackage ../pkgs/tt-vibethinker-bench { };
-      ttsim = pkgs.callPackage ../pkgs/ttsim { };
+      ttsim = pkgs.ttsim;
+      rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
+      rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
+      repositoryQuality = import ../checks/repository-quality.nix {
+        inherit lib pkgs;
+        cairn = inputs.cairn.packages.${system}.cairn;
+        cairnPolicy = "${inputs.cairn}/cairn-policy/generated/cairn-policy.json";
+        evidenceEnvironment = {
+          MODEL_TARGET_PROFILE_BLAKE3 = rwkvProfile.profile_identity;
+          MODEL_TARGET_NAME = rwkvProfile.target_name;
+          MODEL_TARGET_MODEL_ID = rwkvProfile.model.id;
+          MODEL_TARGET_REVISION = rwkvProfile.model.revision;
+          MODEL_TARGET_ARCHITECTURE_FAMILY = rwkvProfile.model.architecture_family;
+          MODEL_TARGET_STATE_KIND = rwkvProfile.state.kind;
+          MODEL_TARGET_PRECISION = rwkvProfile.model.precision;
+          MODEL_TARGET_ARCHITECTURE_ADAPTER = rwkvProfile.adapters.architecture;
+          MODEL_TARGET_EVIDENCE_ADAPTER = rwkvProfile.adapters.evidence;
+          MODEL_TARGET_ARTIFACT_BLAKE3_JSON = builtins.toJSON rwkvArtifactBlake3;
+          MODEL_TARGET_TOPOLOGY_ID = rwkvProfile.topology.id;
+          MODEL_TARGET_MESH_SHAPE_JSON = builtins.toJSON rwkvProfile.topology.mesh_shape;
+          MODEL_TARGET_PHYSICAL_DEVICE_IDS_JSON = builtins.toJSON rwkvProfile.topology.physical_device_ids;
+          MODEL_TARGET_REPLICATION = rwkvProfile.topology.replication;
+          MODEL_TARGET_REQUIRED_OPERATIONS_JSON = builtins.toJSON rwkvArchitectureAdapter.requiredOperations;
+          MODEL_TARGET_CHECKPOINT_BLAKE3 = rwkvArtifacts.checkpoint.blake3;
+          MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3 = rwkvArtifacts.tokenizer_vocabulary.blake3;
+        };
+      };
+      repositoryQualityAggregate =
+        pkgs.runCommand "tenstorrent-repository-quality"
+          {
+            qualityInputs = repositoryQuality.cargoChecks ++ [
+              repositoryQuality.artifactQuality
+              repositoryQuality.cairnQuality
+              repositoryQuality.negativeLanguageQuality
+              repositoryQuality.nixQuality
+              repositoryQuality.policyQuality
+              repositoryQuality.pythonQuality
+              repositoryQuality.shellQuality
+              migrationBoundaryCheck
+              modelTargetFactoryCheck
+              rwkvLayerHarness.passthru.frameworkParityCheck
+              trainingPlatform
+            ];
+          }
+          ''
+            set -euo pipefail
+            for quality_input in $qualityInputs; do
+              test -e "$quality_input"
+            done
+            if test -e /dev/tenstorrent; then
+              echo "device-free quality sandbox exposes /dev/tenstorrent" >&2
+              exit 1
+            fi
+            touch "$out"
+          '';
+      qualityRunner = pkgs.writeShellApplication {
+        name = "tenstorrent-quality";
+        runtimeInputs = [
+          pkgs.git
+          pkgs.nix
+        ];
+        text = lib.removePrefix "#!/usr/bin/env bash\n" (builtins.readFile ../checks/run-quality.sh);
+      };
 
       developmentAppSpecs = {
         ttwkv7 = {
@@ -317,6 +402,16 @@
           package = trainingPlatform.tools;
           executable = "training-platform-smoke";
           description = "Run the reviewed bounded dual-P150A smoke";
+        };
+        rwkv7-chat = {
+          package = rwkv7Chat;
+          executable = "rwkv7-chat";
+          description = "Chat with RWKV-7 on the Tenstorrent card via llama.cpp Metalium";
+        };
+        quality = {
+          package = qualityRunner;
+          executable = "tenstorrent-quality";
+          description = "Run the repository-owned device-free quality gate";
         };
       };
       isSafeExecutableName =
@@ -447,11 +542,13 @@
       };
 
       packages = lib.optionalAttrs isSupportedSystem {
-        inherit ttsim ttwkv7;
+        inherit ttwkv7;
+        rwkv7-chat = rwkv7Chat;
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
         training-platform-core = trainingPlatform.core;
@@ -464,11 +561,13 @@
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
+        repository-quality = repositoryQuality.repositoryQualityPackage;
       };
 
       checks = lib.optionalAttrs isSupportedSystem {
         development-interface = developmentInterfaceCheck;
         migration-boundary = migrationBoundaryCheck;
+        model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-profile-factory = modelTargetFactoryCheck;
         model-target-candidate-report = modelTargetReport;
         rwkv7-lora-reference = rwkv7LoraReference;
@@ -504,6 +603,14 @@
         tt-vibethinker-bench-package = ttVibeThinkerBench;
         ttsim-package = ttsim;
         ttwkv7-owner-control-package = ttwkv7OwnerControl;
+        repository-quality = repositoryQualityAggregate;
+        repository-quality-artifacts = repositoryQuality.artifactQuality;
+        repository-quality-cairn = repositoryQuality.cairnQuality;
+        repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;
+        repository-quality-nix = repositoryQuality.nixQuality;
+        repository-quality-policy = repositoryQuality.policyQuality;
+        repository-quality-python = repositoryQuality.pythonQuality;
+        repository-quality-shell = repositoryQuality.shellQuality;
       };
     };
 }

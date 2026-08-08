@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "model-targets/generated/consumer-identities.h",
+      "class": "generated_source",
+      "byte_count": 14013,
+      "blake3": "d4503feb735da5c34f2063b2d9bf63df0dfaca8f021b078c817268db524073e4"
+    },
+    {
+      "path": "model-targets/generated/consumer-identities.nix",
+      "class": "generated_source",
+      "byte_count": 11017,
+      "blake3": "e1002f3d90ab72b61acec6b7e2d744ce6842f8839dba8e80ec40bbbb08d0e9f7"
+    },
+    {
+      "path": "model-targets/generated/consumer-identities.rs",
+      "class": "generated_source",
+      "byte_count": 16041,
+      "blake3": "10e23c6f571fe4b6db7217bfdad8ab0170feb1e52008bff6e909f05fc1a457af"
+    },
+    {
+      "path": "model-targets/generated/consumer_identities.py",
+      "class": "generated_source",
+      "byte_count": 13438,
+      "blake3": "a718d128372fbfcf0bb7e9d3a3cc7bf69bb5dac1186eba7bd04f60e44237f4e8"
+    },
+    {
+      "path": "model-targets/generated/profiles.json",
+      "class": "generated_source",
+      "byte_count": 14393,
+      "blake3": "88ad86c4d1ca4b879686a78638ddb7ebdbc771717274072b4f9862fc59216aa6"
+    },
+    {
+      "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
+      "class": "large_fixture",
+      "byte_count": 4981056,
+      "blake3": "0469e5603660f8a06e2c6d4cc0ac6af48b57a413c02fd243708ad4084940cf47"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-collective-probe/collective-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 167,
+      "blake3": "e560acff4c34dc33c9533bf442650862ae09de71c4b54bc10ce0f89f2ff69110"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-collective-probe/collective-result.json",
+      "class": "portable_evidence",
+      "byte_count": 533,
+      "blake3": "88545c71b25ae2953119b4bd6ddf61dab6db3bc246e7dd1d873fc4ddf4e4130a"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-collective-probe/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1857,
+      "blake3": "98b559d8e68d866323f9d53b24db5b186fea4d98cabd07e655898b4a45225d30"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-checkpoint/adapter.safetensors",
+      "class": "portable_evidence",
+      "byte_count": 677816,
+      "blake3": "a8833a734996b217607c796339d45f88ca5aeec41f5aed6ae9202e558916bce4"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-checkpoint/checkpoint-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 157,
+      "blake3": "09631eff775d81d1146271e42f0cec726e2bcac4b72384dc684b7f7673c8ec8b"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-checkpoint/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1480,
+      "blake3": "74041f94744951ecb1b6cfdca351adaaf97dbda7d6ca72e350174dbb81b7cbe6"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-multistep/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2884,
+      "blake3": "f7ef47aed14c3a556c175f44b6ecfbaae063456125c35f53adb6b86cb6d38f03"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-multistep/run-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 157,
+      "blake3": "b347a8a28267cef3ec405c47f21063c2b79083d11e3b160716b63c91a206ba52"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-multistep/step-result.json",
+      "class": "portable_evidence",
+      "byte_count": 935,
+      "blake3": "16afdf8080a04eb15d1ef1177e3d1b1401c741de0e7292ceec99a3dcace545dd"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-step/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2497,
+      "blake3": "b38b5abb9a66f6e711a6bca89676c5f16420e8bf8883181d00c577fd2f783abf"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-step/step-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 232,
+      "blake3": "ad61e955a87e2eae619de5cd4a81b2c21cbd7af2a29b1d09f208accb7a11911d"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-dual-p150a/evidence/2026-08-05-dual-step/step-result.json",
+      "class": "portable_evidence",
+      "byte_count": 1017,
+      "blake3": "94a46ff66480d45aa6bde2bbcb706b4f5b1126fc92f2740465e0270f5e3fadd7"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-training-ops/probe-result.json",
+      "class": "portable_evidence",
+      "byte_count": 1241,
+      "blake3": "b7248f0dae0921ae93198c07979d906b6f78a68c4cf45dfedcfa7938dc3fbc5b"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-training-ops/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2853,
+      "blake3": "9a1949b54f106a2ede8ec243a2060a397f0e2657b65bb10079541dde9299ea76"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-backward-focused/probe-result.json",
+      "class": "portable_evidence",
+      "byte_count": 1663,
+      "blake3": "9e3a0cbc6d97594dc0c2c1d64e1d726434888701dab907dbd14182a53d4b7913"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-backward-focused/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3427,
+      "blake3": "4319b3f611458e7f08f282fcecaa2bf3c5b2603bb6929c78ba87decd625d3038"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-backward-representative/probe-result.json",
+      "class": "portable_evidence",
+      "byte_count": 1668,
+      "blake3": "183f0211f459c812bf5257c349dd9830a53d1a66b8d316c37f0c1a3e45d4fe7c"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-backward-representative/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3439,
+      "blake3": "8e8347bac9a55710feebd5befb4c79f4803548c892af7d3e969b6db75b65e37e"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-forward-focused/probe-result.json",
+      "class": "portable_evidence",
+      "byte_count": 840,
+      "blake3": "986270f90fb7269e789f41fba4ce2dc0ab4b74d7c38755af720861991e0735b1"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-forward-focused/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2339,
+      "blake3": "d6f2316fe3f8adfdb8276aad3ee56815f5200596cd33d71e99e1a459e242767d"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-forward-representative/probe-result.json",
+      "class": "portable_evidence",
+      "byte_count": 853,
+      "blake3": "1bdcd751fdb66b06d6402b948c70de2c3979cc0778502ac8defecf6d76018818"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-04-wkv7-forward-representative/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2359,
+      "blake3": "db4ff44c42289a502e40426641cffb2c76f5d28a5a8574ce6d445f46c6d1f3bb"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-checkpoint-resume/adapter.safetensors",
+      "class": "portable_evidence",
+      "byte_count": 677816,
+      "blake3": "0c1140082a525630eabfab3503d27cabc8a6d610590f4be5d44b4c9f05834aff"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-checkpoint-resume/checkpoint-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 157,
+      "blake3": "8f4ef60740d64cd9170c714563d02baf94099c04d1288a6d7ad3cd6b4fda8d3f"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-checkpoint-resume/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1235,
+      "blake3": "555804d07b9082b20214c58f4610d74b0a25b453464c39a186194791ba378014"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-full-model-step/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1707,
+      "blake3": "c1e9aaea7a6132b62e3249c698bdd1b9f6a2739175a212b754cde9551c2382de"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-full-model-step/step-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 233,
+      "blake3": "68d017193b40ad3ccc53eb33c230109684d696c874e94474d3dd79e93ff6b215"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-multistep-run/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1545,
+      "blake3": "7eebf9174345a8c4f2fc72ab1d8614f99b1735c7496e4472e0bc077fbaa1b2ab"
+    },
+    {
+      "path": "pkgs/rwkv7-lora-p150a/evidence/2026-08-05-multistep-run/run-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 157,
+      "blake3": "b216b7df52845c41cbaeeb9bcd7df57dd30d9b39dc3def25ebf048f3e1178f78"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/preflight-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 252,
+      "blake3": "1518337f4b2fcbc41843d1d3e8e91886c0b7ff4231c5503020aaf6ef7483ebb4"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/preflight-snapshot.json",
+      "class": "portable_evidence",
+      "byte_count": 331,
+      "blake3": "8ebea586417f3101652be30fbe3514e5f1edb9eb57cd4f7672d0b9059e7e550a"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 725,
+      "blake3": "4d094341caeb8c5ec41e2009fbdebb61b7fc6b6eacbb5156d06baecbb207942e"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-04-dual-p150a-smoke/smoke-output.json",
+      "class": "portable_evidence",
+      "byte_count": 293,
+      "blake3": "d94ac1ac60127c03c89da9637460d99a07d2a5bbf750c5c04778698f6c498f7b"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/preflight-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 190,
+      "blake3": "c4fced14756f79f425b37ca1363c325318ada9706b0a204c6b8774549ba4108a"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/receipt-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 52,
+      "blake3": "44b23ece7e51f6024da434a49a3270e27d047df82d3da6b694ba4adddc93e49e"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1201,
+      "blake3": "f35c0d28a1ddde814c3e99fc51e96ac1b039b0e2b6b1a6cc898030b0dfdc204c"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/workload-summary.json",
+      "class": "portable_evidence",
+      "byte_count": 50,
+      "blake3": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"
+    },
+    {
+      "path": "quality/generated/repository-quality.json",
+      "class": "generated_source",
+      "byte_count": 2736,
+      "blake3": "c5b558c25c9f290c83e8734b4b62e1a4c3e9d55832f609dcfb6beb63ab95e3b9"
+    }
+  ]
+}

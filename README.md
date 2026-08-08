@@ -55,6 +55,12 @@ nix run .#training-platform-core -- self-test
 Each command rebuilds only the affected derivations. Nix reuses the unchanged
 host binaries, kernels, and dependencies from the store.
 
+See [Model target consumer identities](docs/model-target-consumer-identities.md)
+for the canonical profile edit, regeneration, and freshness workflow.
+
+See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
+metadata-only profile, bounded simulator verdict, and explicit non-claims.
+
 Build a stable result link when you need to inspect or run several commands:
 
 ```sh
@@ -74,7 +80,22 @@ A NixOS activation is still necessary for kernel modules, udev rules, system
 environment changes, and service changes. Use the full host closure as the
 final integration gate, not as the package inner loop.
 
+## Repository quality
+
+Run the complete device-free quality gate from the repository root:
+
+```sh
+nix run .#quality
+```
+
+The command uses pinned Rust, shell, Python, Nix, Nickel, and Cairn tools.
+It does not acquire a Tenstorrent device. See
+[`docs/repository-quality.md`](docs/repository-quality.md) for the parser and artifact workflows.
+
 ## Onix packages
+
+The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
+See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
 
 On `x86_64-linux`, the flake also publishes:
 
@@ -82,7 +103,7 @@ On `x86_64-linux`, the flake also publishes:
 - `rwkv7-p150x2-runtime` and `rwkv7-p150x2-evidence` for replicated full-model two-card validation;
 - `ttwkv7` plus bounded and persistent operator wrappers;
 - retained partial and passing ttWKV7 evidence validators;
-- `ttwkv7-owner-control`, `tt-vibethinker-bench`, and `ttsim`.
+- `ttwkv7-owner-control` and `tt-vibethinker-bench`.
 
 The focused checks include positive and negative fixtures and do not acquire a
 Tenstorrent device. The P150x2 runtime uses full-lockstep replication. It does not
@@ -126,3 +147,11 @@ boundary and non-claims.
 - [tenstorrent/tt-flash](https://github.com/tenstorrent/tt-flash) — firmware update and compatibility-check source.
 - [tenstorrent/tt-burnin](https://github.com/tenstorrent/tt-burnin) — hardware stress and validation source.
 - [tenstorrent/tt-system-tools](https://github.com/tenstorrent/tt-system-tools) — incident collection and `tt-oops` source.
+
+### RWKV ecosystem resources
+
+- [Recently updated RWKV repositories](https://github.com/search?o=desc&q=rwkv&s=updated&type=Repositories) — GitHub discovery search for current RWKV projects.
+- [RWKV Wiki](https://wiki.rwkv.com) — community documentation for RWKV architectures, models, terminology, and tools.
+- [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) — desktop runner, model manager, and OpenAI-compatible RWKV service.
+- [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) — parameter-efficient fine-tuning reference for RWKV models.
+- [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) — Rust and Vulkan RWKV inference server with an OpenAI-compatible API.

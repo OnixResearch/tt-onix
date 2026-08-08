@@ -17,6 +17,11 @@ final: prev: {
   tt-system-tools = final.callPackage ./pkgs/tt-system-tools { };
   tt-topology = final.callPackage ./pkgs/tt-topology { };
   tt-umd = final.callPackage ./pkgs/tt-umd { };
+  ttsim = final.callPackage ./pkgs/ttsim { };
+  ttsim-check = final.callPackage ./pkgs/ttsim/check.nix { };
+  ttsim-runtime-validator = final.callPackage ./pkgs/ttsim-runtime-validator { };
+  ttsim-blackhole-smoke = final.callPackage ./pkgs/ttsim/smoke.nix { };
+  ttsim-smoke-check = final.callPackage ./pkgs/ttsim/smoke-check.nix { };
 
   pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
     (pyfinal: pyprev: {

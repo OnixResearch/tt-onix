@@ -4,6 +4,7 @@
     systems.url = "github:nix-systems/default-linux";
     flake-parts.url = "github:hercules-ci/flake-parts";
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    cairn.url = "github:OnixResearch/cairn/837d730799faffe6a088cfd6dc49e08c7e0f1822";
   };
 
   outputs =
@@ -51,6 +52,9 @@
               tt-system-tools
               tt-topology
               tt-umd
+              ttsim
+              ttsim-blackhole-smoke
+              ttsim-runtime-validator
               ;
             inherit (pkgs.python3Packages)
               pyluwen
@@ -58,6 +62,12 @@
               tt-tools-common
               ;
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
+          };
+
+          apps.ttsim-blackhole-smoke = {
+            type = "app";
+            program = "${pkgs.ttsim-blackhole-smoke}/bin/ttsim-blackhole-smoke";
+            meta.description = "Run the bounded Blackhole 1x1 TT-NN smoke on TTsim";
           };
 
           checks = {
@@ -73,7 +83,11 @@
               tt-system-tools
               tt-topology
               tt-umd
+              ttsim
+              ttsim-runtime-validator
               ;
+            ttsim-runtime-bundle = pkgs.ttsim-check;
+            ttsim-single-chip-smoke = pkgs.ttsim-smoke-check;
             inherit (pkgs.python3Packages)
               pyluwen
               tt-flash

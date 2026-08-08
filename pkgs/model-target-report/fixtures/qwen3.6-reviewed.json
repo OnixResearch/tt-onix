@@ -1,0 +1,27 @@
+{
+  "candidate_name": "qwen3-6-35b-a3b-p150x1-candidate",
+  "upstream_identity": "Knight-Ops/tt-metal qwen3_6_a3b-bringup@37743f58d443be1eaf70ed10eb37b5377dc56b70 subtree models/demos/qwen3_6_a3b BLAKE3 4f4b267a13b29b55ce74a6182c2e1182dfaa7496c0ae6da8f889a0ea3ed5b87e",
+  "revision": "Qwen/Qwen3.6-35B-A3B@995ad96eacd98c81ed38be0c5b274b04031597b0",
+  "license": "Apache-2.0 pinned by LICENSE metadata",
+  "artifacts": "nine pinned metadata artifacts; 26 checkpoint shards and all weight bytes are excluded",
+  "tokenizer": "tokenizer.json, tokenizer_config.json, vocab.json, merges.txt, and chat_template.jinja are pinned",
+  "state_kind": "hybrid_kv_recurrent: 10 full-attention KV caches and 30 Gated DeltaNet recurrent matrices with causal-convolution history",
+  "required_operators": "complete source inventory includes TT-NN tensor movement, elementwise, normalization, matmul, SDPA, cache, sparse MoE, sampling, trace, and custom ttl Gated DeltaNet operations",
+  "memory_bounds": "71,903,645,408 checkpoint bytes in 26 shards; upstream estimates about 17.5 GB with BFP4 experts for one 32 GB P150; candidate uses a 512-token cache bound and fetches metadata only",
+  "reference_authority": "pinned Knight-Ops equations source plus pinned Hugging Face metadata; Qwen3.6 uses Qwen3.5 architecture names",
+  "evidence_adapter": "qwen3-6-candidate-evidence-v1; device-free and non-runnable",
+  "topology_compatibility": "single Blackhole P150 1x1 candidate; firmware floor 19.5.0 is an upstream machine fact, not local evidence",
+  "simulator_audit": {
+    "ttsim_version": "1.9.2",
+    "runtime": "libttsim_bh.so",
+    "required_operator_inventory_complete": true,
+    "package_matched": false,
+    "bounded_path_available": true,
+    "not_run_reasons": [
+      "Qwen bring-up tt-metal base 3218270556c5ff58eba1e68d112d09a11b37dc0e does not match the repository package",
+      "custom ttl Gated DeltaNet kernels lack package-matched TTsim evidence",
+      "metadata-only scope excludes the 26 checkpoint shards"
+    ],
+    "blockers": []
+  }
+}

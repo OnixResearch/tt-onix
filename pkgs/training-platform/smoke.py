@@ -14,9 +14,8 @@ def emit(status: str, stage: str, **extra) -> None:
 
 
 def main(current_stage: list) -> int:
-    import numpy as np
-
     import jax
+    import numpy as np
 
     # The upstream multichip example disables the shardy partitioner; the
     # default partitioner path fails on this PJRT plugin version.
@@ -79,6 +78,7 @@ if __name__ == "__main__":
     current_stage = ["mesh_open"]
     try:
         sys.exit(main(current_stage))
-    except Exception as error:
+    # This process boundary converts every framework error into a terminal receipt.
+    except Exception as error:  # noqa: BLE001
         emit("fail", current_stage[0], detail=f"{type(error).__name__}: {error}")
         sys.exit(1)

@@ -10,5 +10,6 @@
   "memory_bounds": null,
   "reference_authority": null,
   "evidence_adapter": null,
-  "topology_compatibility": null
+  "topology_compatibility": null,
+  "simulator_audit": null
 }

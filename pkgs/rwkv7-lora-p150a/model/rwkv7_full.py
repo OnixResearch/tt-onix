@@ -22,12 +22,9 @@ an XLA device (bf16), which is what makes CPU<->device parity possible.
 
 from __future__ import annotations
 
-import math
-from typing import Optional
-
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 LOG_SQRT_TWO_PI_MINUS_HALF = -0.6065306597126334  # log of the decay scale used by fla
 LOSS_IGNORE_INDEX = -100
@@ -41,7 +38,7 @@ def naive_wkv7_forward(r, w, k, v, a, b, state):
     reads because the basic-indexing select backward is broken on this
     runtime (see probes/wkv7_probe.py).
     """
-    batch, time_steps, heads, width = r.shape
+    _, time_steps, _, _ = r.shape
     # fla accumulates the recurrent state in fp32 even for bf16 inputs.
     # Doing the recurrence in the input dtype overflows on the real model,
     # so upcast here and downcast the outputs on return.
@@ -134,7 +131,9 @@ class PreciseGroupNorm(nn.Module):
 class LoRA(nn.Module):
     """fla-compatible low-rank block: Linear -> act -> Linear."""
 
-    def __init__(self, input_dim, output_dim, low_rank_dim, bias=True, activation="tanh"):
+    def __init__(
+        self, input_dim, output_dim, low_rank_dim, bias=True, activation="tanh"
+    ):
         super().__init__()
         if activation is None:
             act = nn.Identity()
@@ -155,8 +154,17 @@ class LoRA(nn.Module):
 
 
 class RWKV7Attention(nn.Module):
-    def __init__(self, hidden_size, head_dim, decay_low_rank_dim, gate_low_rank_dim,
-                 a_low_rank_dim, v_low_rank_dim, norm_eps, layer_idx):
+    def __init__(
+        self,
+        hidden_size,
+        head_dim,
+        decay_low_rank_dim,
+        gate_low_rank_dim,
+        a_low_rank_dim,
+        v_low_rank_dim,
+        norm_eps,
+        layer_idx,
+    ):
         super().__init__()
         self.hidden_size = hidden_size
         self.head_dim = head_dim
@@ -181,16 +189,27 @@ class RWKV7Attention(nn.Module):
         self.v_proj = nn.Linear(hidden_size, self.value_dim, bias=False)
         self.o_proj = nn.Linear(self.value_dim, hidden_size, bias=False)
 
-        self.w_lora = LoRA(hidden_size, hidden_size, decay_low_rank_dim, activation="tanh")
+        self.w_lora = LoRA(
+            hidden_size, hidden_size, decay_low_rank_dim, activation="tanh"
+        )
         if layer_idx != 0:
-            self.v_lora = LoRA(hidden_size, self.value_dim, v_low_rank_dim, activation=None)
+            self.v_lora = LoRA(
+                hidden_size, self.value_dim, v_low_rank_dim, activation=None
+            )
         self.a_lora = LoRA(hidden_size, hidden_size, a_low_rank_dim, activation=None)
-        self.g_lora = LoRA(hidden_size, self.value_dim, gate_low_rank_dim,
-                           activation="sigmoid", bias=False)
+        self.g_lora = LoRA(
+            hidden_size,
+            self.value_dim,
+            gate_low_rank_dim,
+            activation="sigmoid",
+            bias=False,
+        )
 
         self.g_norm = PreciseGroupNorm(
-            num_groups=self.num_heads, num_channels=self.value_dim,
-            eps=head_dim * norm_eps, affine=True,
+            num_groups=self.num_heads,
+            num_channels=self.value_dim,
+            eps=head_dim * norm_eps,
+            affine=True,
         )
 
     def forward(self, hidden_states, v_first):
@@ -220,7 +239,9 @@ class RWKV7Attention(nn.Module):
         # F.normalize's eps underflows to zero in bf16, so a tiny-norm row
         # divides by ~0 and produces Inf. fla upcasts its l2 norm to fp32;
         # match that here.
-        kk = F.normalize((k * self.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0).to(k.dtype)
+        kk = F.normalize(
+            (k * self.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0
+        ).to(k.dtype)
         # k = k * (1 + (a - 1) * k_a)  (fused_k_rwkv7)
         a_sig_hd = a_sig.view(batch, seq_len, H, D)
         k = k.addcmul(k * (a_sig - 1), self.k_a)
@@ -232,12 +253,19 @@ class RWKV7Attention(nn.Module):
         a_naive4 = -kk
         b_naive4 = kk * a_sig_hd
 
-        state0 = torch.zeros(batch, H, D, self.head_v_dim, dtype=hidden_states.dtype,
-                             device=hidden_states.device)
+        state0 = torch.zeros(
+            batch,
+            H,
+            D,
+            self.head_v_dim,
+            dtype=hidden_states.dtype,
+            device=hidden_states.device,
+        )
         o, _ = naive_wkv7_forward(r4, w_naive4, k4, v4, a_naive4, b_naive4, state0)
 
         o = self.g_norm(o.reshape(batch * seq_len, H * self.head_v_dim)).view(
-            batch, seq_len, self.value_dim)
+            batch, seq_len, self.value_dim
+        )
 
         # gate_output_correction: (o + ((r*k*r_k).sum * v)) * g
         r_k_b = self.r_k.unsqueeze(0).unsqueeze(0)
@@ -284,7 +312,9 @@ def attention_intermediates(attn, hidden_states):
     out["a_sig"] = a_sig
     out["g"] = g
     H, D = attn.num_heads, attn.head_dim
-    kk = F.normalize((k * attn.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0).to(k.dtype)
+    kk = F.normalize(
+        (k * attn.k_k).view(batch, seq_len, H, D).float(), dim=-1, p=2.0
+    ).to(k.dtype)
     out["kk"] = kk
     a_sig_hd = a_sig.view(batch, seq_len, H, D)
     k_post = k.addcmul(k * (a_sig - 1), attn.k_a)
@@ -298,13 +328,22 @@ def attention_intermediates(attn, hidden_states):
     out["w_naive"] = w_naive4
     out["a_naive"] = a_naive4
     out["b_naive"] = b_naive4
-    state0 = torch.zeros(batch, H, D, attn.head_v_dim,
-                         dtype=hidden_states.dtype, device=hidden_states.device)
-    o, final_state = naive_wkv7_forward(r4, w_naive4, k4, v4, a_naive4, b_naive4, state0)
+    state0 = torch.zeros(
+        batch,
+        H,
+        D,
+        attn.head_v_dim,
+        dtype=hidden_states.dtype,
+        device=hidden_states.device,
+    )
+    o, final_state = naive_wkv7_forward(
+        r4, w_naive4, k4, v4, a_naive4, b_naive4, state0
+    )
     out["wkv_o"] = o
     out["wkv_state"] = final_state
     o_norm = attn.g_norm(o.reshape(batch * seq_len, H * attn.head_v_dim)).view(
-        batch, seq_len, attn.value_dim)
+        batch, seq_len, attn.value_dim
+    )
     out["o_norm"] = o_norm
     r_k_b = attn.r_k.unsqueeze(0).unsqueeze(0)
     correction_scalar = (r4 * k4 * r_k_b).sum(-1, keepdim=True)
@@ -335,22 +374,43 @@ class RWKV7FeedForward(nn.Module):
 
 
 class RWKV7Block(nn.Module):
-    def __init__(self, hidden_size, head_dim, decay_low_rank_dim, gate_low_rank_dim,
-                 a_low_rank_dim, v_low_rank_dim, intermediate_size, norm_eps,
-                 norm_first, layer_idx):
+    def __init__(
+        self,
+        hidden_size,
+        head_dim,
+        decay_low_rank_dim,
+        gate_low_rank_dim,
+        a_low_rank_dim,
+        v_low_rank_dim,
+        intermediate_size,
+        norm_eps,
+        norm_first,
+        layer_idx,
+    ):
         super().__init__()
         self.norm_first = norm_first
         if norm_first and layer_idx == 0:
             self.pre_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
         self.attn_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
-        self.attn = RWKV7Attention(hidden_size, head_dim, decay_low_rank_dim,
-                                   gate_low_rank_dim, a_low_rank_dim, v_low_rank_dim,
-                                   norm_eps, layer_idx)
+        self.attn = RWKV7Attention(
+            hidden_size,
+            head_dim,
+            decay_low_rank_dim,
+            gate_low_rank_dim,
+            a_low_rank_dim,
+            v_low_rank_dim,
+            norm_eps,
+            layer_idx,
+        )
         self.ffn_norm = PreciseLayerNorm(hidden_size, bias=True, eps=norm_eps)
         self.ffn = RWKV7FeedForward(hidden_size, intermediate_size)
 
     def forward(self, hidden_states, v_first):
-        residual = self.pre_norm(hidden_states) if (self.norm_first and hasattr(self, "pre_norm")) else hidden_states
+        residual = (
+            self.pre_norm(hidden_states)
+            if (self.norm_first and hasattr(self, "pre_norm"))
+            else hidden_states
+        )
         h = self.attn_norm(residual)
         attn_out, v_first = self.attn(h, v_first)
         h = residual + attn_out
@@ -367,14 +427,22 @@ class RWKV7Model(nn.Module):
         self.embeddings = nn.Embedding(config["vocab_size"], config["hidden_size"])
         self.layers = nn.ModuleList([
             RWKV7Block(
-                config["hidden_size"], config["head_dim"], config["decay_low_rank_dim"],
-                config["gate_low_rank_dim"], config["a_low_rank_dim"],
-                config["v_low_rank_dim"], config["intermediate_size"],
-                config["norm_eps"], config["norm_first"], i,
+                config["hidden_size"],
+                config["head_dim"],
+                config["decay_low_rank_dim"],
+                config["gate_low_rank_dim"],
+                config["a_low_rank_dim"],
+                config["v_low_rank_dim"],
+                config["intermediate_size"],
+                config["norm_eps"],
+                config["norm_first"],
+                i,
             )
             for i in range(config["num_hidden_layers"])
         ])
-        self.norm = PreciseLayerNorm(config["hidden_size"], bias=True, eps=config["norm_eps"])
+        self.norm = PreciseLayerNorm(
+            config["hidden_size"], bias=True, eps=config["norm_eps"]
+        )
 
     def forward(self, input_ids):
         h = self.embeddings(input_ids)
@@ -389,7 +457,9 @@ class RWKV7ForCausalLM(nn.Module):
         super().__init__()
         self.config = config
         self.model = RWKV7Model(config)
-        self.lm_head = nn.Linear(config["hidden_size"], config["vocab_size"], bias=False)
+        self.lm_head = nn.Linear(
+            config["hidden_size"], config["vocab_size"], bias=False
+        )
 
     def forward(self, input_ids):
         hidden = self.model(input_ids)
