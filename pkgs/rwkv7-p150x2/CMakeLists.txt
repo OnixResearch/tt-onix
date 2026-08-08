@@ -7,7 +7,7 @@ find_package(TT-NN REQUIRED)
 find_package(nlohmann_json REQUIRED)
 pkg_check_modules(BLAKE3 REQUIRED IMPORTED_TARGET libblake3)
 
-foreach(required_path IN ITEMS RWKV7_CHECKPOINT_PATH RWKV7_MESH_DESCRIPTOR_PATH RWKV7_METALIUM_ROOT)
+foreach(required_path IN ITEMS RWKV7_CHECKPOINT_PATH RWKV7_MESH_DESCRIPTOR_PATH RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH RWKV7_METALIUM_ROOT)
   if(NOT DEFINED ${required_path})
     message(FATAL_ERROR "${required_path} is required")
   endif()

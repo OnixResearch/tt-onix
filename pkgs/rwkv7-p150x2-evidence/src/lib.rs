@@ -1,4 +1,5 @@
 mod generated_model_target_identity;
+pub mod throughput;
 
 use half::bf16;
 use model_target_core::{TargetIdentity, TopologyIdentity};

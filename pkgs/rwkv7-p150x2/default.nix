@@ -23,6 +23,7 @@ let
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
   metaliumRoot = "${tt-metal}/libexec/tt-metalium";
   meshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_x2_mesh_graph_descriptor.textproto";
+  singleCardMeshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto";
 in
 stdenv.mkDerivation {
   pname = "rwkv7-p150x2-runtime";
@@ -52,6 +53,7 @@ stdenv.mkDerivation {
   cmakeFlags = [
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
+    (lib.cmakeFeature "RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH" singleCardMeshDescriptor)
     (lib.cmakeFeature "RWKV7_METALIUM_ROOT" metaliumRoot)
     (lib.cmakeFeature "RWKV7_TARGET_NAME" profile.target_name)
     (lib.cmakeFeature "RWKV7_MODEL_ID" profile.model.id)
@@ -94,6 +96,7 @@ stdenv.mkDerivation {
     inherit
       artifactBlake3
       meshDescriptor
+      singleCardMeshDescriptor
       model
       profile
       ;

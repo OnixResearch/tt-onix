@@ -199,10 +199,23 @@
             set -eu
             runtime_source=${../pkgs/rwkv7-p150x2/src/main.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
+            throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
+            benchmark_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-throughput-benchmark.rs}
 
-            grep -F 'MeshShape{kMeshRows, kMeshColumns}' "$runtime_source"
+            grep -F 'MeshShape{kMeshRows, mesh_columns}' "$runtime_source"
+            grep -F 'DeviceContext(int physical_device_id)' "$runtime_source"
             grep -F 'physical_device_ids' "$runtime_source"
             grep -F 'replicate_tensor_to_mesh_mapper' "$runtime_source"
+            grep -F 'zero_fast_model_state' "$runtime_source"
+            grep -F 'ttnn::DataType::FLOAT32' "$runtime_source"
+            grep -F 'set_profiler_flush_enabled(false)' "$runtime_source"
+            grep -F 'simulated_single_card_layer_state_carry' "$runtime_source"
+            grep -F 'deterministic_slot_assignments' "$throughput_source"
+            grep -F 'minimum_dual_card_speedup' "$throughput_source"
+            grep -F 'maximum_p99_latency_regression_fraction' "$throughput_source"
+            grep -F 'TT_METAL_PROFILER_MID_RUN_DUMP' "$benchmark_source"
+            grep -F '.env_remove("TT_METAL_WATCHER")' "$benchmark_source"
+            grep -F '.env_remove("TT_METAL_DPRINT_CORES")' "$benchmark_source"
             grep -F 'ttnn::embedding' "$runtime_source"
             grep -F 'ttnn::matmul' "$runtime_source"
             grep -F 'ttnn::argmax' "$runtime_source"

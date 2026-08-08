@@ -9,6 +9,7 @@
 #include <ttnn/distributed/api.hpp>
 #include <ttnn/distributed/distributed_tensor.hpp>
 #include <ttnn/operations/core/core.hpp>
+#include <ttnn/operations/copy/typecast/typecast.hpp>
 #include <ttnn/operations/data_movement/transpose/transpose.hpp>
 #include <ttnn/operations/data_movement/untilize/untilize.hpp>
 #include <ttnn/operations/eltwise/binary/binary.hpp>
@@ -26,6 +27,7 @@
 #include <array>
 #include <bit>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -108,6 +110,11 @@ constexpr std::string_view kEvidenceAdapter = RWKV7_PINNED_EVIDENCE_ADAPTER;
 constexpr std::string_view kTopologyId = RWKV7_PINNED_TOPOLOGY_ID;
 constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kSelfTestArgument = "--self-test";
+constexpr std::string_view kFastWorkerArgument = "--fast-worker";
+constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
+constexpr std::string_view kFastDeviceArgument = "--device";
+constexpr std::string_view kFastRequestsArgument = "--requests";
+constexpr std::string_view kFastOutputArgument = "--output";
 constexpr std::string_view kTokensArgument = "--tokens";
 constexpr std::string_view kMaxNewArgument = "--max-new";
 constexpr std::string_view kEvidenceRootArgument = "--evidence-root";
@@ -121,6 +128,19 @@ constexpr std::string_view kProfilerCsvRelativePath =
     "profiler/.logs/profile_log_device.csv";
 constexpr std::size_t kSelfTestArgumentCount = 2U;
 constexpr std::size_t kRuntimeArgumentCount = 7U;
+constexpr std::size_t kFastWorkerArgumentCount = 8U;
+constexpr std::size_t kSimulatorSmokeArgumentCount = 4U;
+constexpr std::size_t kSimulatorOutputNameIndex = 2U;
+constexpr std::size_t kSimulatorOutputValueIndex = 3U;
+constexpr std::size_t kFastDeviceNameIndex = 2U;
+constexpr std::size_t kFastDeviceValueIndex = 3U;
+constexpr std::size_t kFastRequestsNameIndex = 4U;
+constexpr std::size_t kFastRequestsValueIndex = 5U;
+constexpr std::size_t kFastOutputNameIndex = 6U;
+constexpr std::size_t kFastOutputValueIndex = 7U;
+constexpr std::size_t kFastPerCardSlotCount = 4U;
+constexpr std::uint32_t kFastWarmupTokenCount = 4U;
+constexpr std::uint32_t kFastMaximumGeneratedTokens = 64U;
 constexpr std::size_t kProgramArgumentIndex = 0U;
 constexpr std::size_t kModeArgumentIndex = 1U;
 constexpr std::size_t kTokensValueIndex = 2U;
@@ -516,6 +536,8 @@ struct ProfilerRange {
   std::uint64_t end_byte;
 };
 
+Json map_to_json(const std::map<std::string, std::uint64_t> &values);
+
 std::string sanitize_stage(std::string stage) {
   for (char &character : stage) {
     if (character == '/' || character == ' ' || character == ':') {
@@ -528,35 +550,58 @@ std::string sanitize_stage(std::string stage) {
 // r[impl tenstorrent.rwkv7_p150x2.full_device_runtime]
 class DeviceContext {
 public:
-  DeviceContext() {
+  DeviceContext()
+      : DeviceContext({kPhysicalDeviceZero, kPhysicalDeviceOne}) {
+    require(expected_device_count_ == kExpectedDeviceCount,
+            "evidence context must open both physical cards");
+  }
+
+  explicit DeviceContext(int physical_device_id)
+      : DeviceContext(std::vector<int>{physical_device_id}) {
+    require(physical_device_id == kPhysicalDeviceZero ||
+                physical_device_id == kPhysicalDeviceOne,
+            "fast worker device must be physical device 0 or 1");
+  }
+
+  explicit DeviceContext(std::vector<int> physical_device_ids)
+      : physical_device_ids_(std::move(physical_device_ids)),
+        expected_device_count_(physical_device_ids_.size()) {
+    require(!physical_device_ids_.empty(),
+            "device context must select at least one physical card");
+    require(expected_device_count_ <= kExpectedDeviceCount,
+            "device context selected too many physical cards");
     const char *const descriptor = std::getenv("TT_MESH_GRAPH_DESC_PATH");
     require(descriptor != nullptr, "TT_MESH_GRAPH_DESC_PATH is required");
-    require(
-        std::string_view(descriptor) == RWKV7_PINNED_MESH_DESCRIPTOR_PATH,
-        "TT_MESH_GRAPH_DESC_PATH does not match the pinned P150x2 descriptor");
+    const bool simulator_selected = std::getenv("TT_METAL_SIMULATOR") != nullptr;
+    const std::string_view expected_descriptor =
+        simulator_selected ? RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH
+                           : RWKV7_PINNED_MESH_DESCRIPTOR_PATH;
+    require(std::string_view(descriptor) == expected_descriptor,
+            "TT_MESH_GRAPH_DESC_PATH does not match the selected pinned descriptor");
     const char *const metalium_home = std::getenv("TT_METAL_HOME");
     require(metalium_home != nullptr, "TT_METAL_HOME is required");
     require(std::string_view(metalium_home) == RWKV7_PINNED_METALIUM_ROOT,
             "TT_METAL_HOME does not match the pinned runtime");
-    const std::vector<int> physical_device_ids = {kPhysicalDeviceZero,
-                                                  kPhysicalDeviceOne};
+    const std::uint32_t mesh_columns =
+        static_cast<std::uint32_t>(expected_device_count_);
     mesh_ = ttnn::distributed::open_mesh_device(
-        ttnn::distributed::MeshShape{kMeshRows, kMeshColumns},
+        ttnn::distributed::MeshShape{kMeshRows, mesh_columns},
         DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1U,
-        tt::tt_metal::DispatchCoreConfig{}, std::nullopt, physical_device_ids);
-    require(mesh_ != nullptr, "failed to open the pinned P150x2 mesh");
-    require(mesh_->num_devices() == kExpectedDeviceCount,
-            "opened mesh does not contain exactly two devices");
+        tt::tt_metal::DispatchCoreConfig{}, std::nullopt,
+        physical_device_ids_);
+    require(mesh_ != nullptr, "failed to open the selected P150 mesh");
+    require(mesh_->num_devices() == expected_device_count_,
+            "opened mesh does not contain the selected device count");
     require(mesh_->shape() ==
-                ttnn::distributed::MeshShape{kMeshRows, kMeshColumns},
-            "opened mesh shape is not 1x2");
+                ttnn::distributed::MeshShape{kMeshRows, mesh_columns},
+            "opened mesh shape does not match the selected cards");
     const auto device_ids = mesh_->get_device_ids();
-    require(device_ids.size() == kExpectedDeviceCount,
-            "opened mesh did not report two physical IDs");
-    require(static_cast<int>(device_ids[kFirstIndex]) == kPhysicalDeviceZero,
-            "first mesh device is not physical device 0");
-    require(static_cast<int>(device_ids[kSecondIndex]) == kPhysicalDeviceOne,
-            "second mesh device is not physical device 1");
+    require(device_ids.size() == expected_device_count_,
+            "opened mesh reported the wrong number of physical IDs");
+    for (std::size_t index = 0U; index < device_ids.size(); ++index) {
+      require(static_cast<int>(device_ids[index]) == physical_device_ids_[index],
+              "opened mesh physical ID order differs from the selection");
+    }
     mesh_->enable_program_cache();
     const char *const profiler_root = std::getenv("TT_METAL_PROFILER_DIR");
     require(profiler_root != nullptr, "TT_METAL_PROFILER_DIR is required");
@@ -585,7 +630,14 @@ public:
     stage_ = sanitize_stage(std::move(stage));
   }
 
+  void set_profiler_flush_enabled(bool enabled) {
+    profiler_flush_enabled_ = enabled;
+  }
+
   void flush_profiler(std::string stage) {
+    if (!profiler_flush_enabled_) {
+      return;
+    }
     require(mesh_ != nullptr, "cannot flush profiler without an open mesh");
     // The mesh-level read drains the profiler thread pool (wait_for_thread_pool)
     // before returning, so the processed device CSV exists synchronously. A
@@ -607,8 +659,8 @@ public:
     require(tensor.device() == mesh_.get(),
             "TT-NN operation returned a tensor on the wrong mesh");
     require(ttnn::distributed::get_device_tensors(tensor).size() ==
-                kExpectedDeviceCount,
-            "TT-NN operation did not preserve two device shards");
+                expected_device_count_,
+            "TT-NN operation did not preserve the selected device shards");
     ++operation_counts_[std::string(operation)];
     ++stage_operation_counts_[stage_][std::string(operation)];
     operation_events_.push_back(
@@ -641,6 +693,25 @@ public:
         "host-to-device-bf16");
   }
 
+  Tensor float32_tensor(std::vector<float> values,
+                        const std::vector<std::uint32_t> &shape,
+                        ttnn::Layout target_layout) {
+    const std::size_t expected =
+        checked_element_count(shape, "host FLOAT32 tensor");
+    require(values.size() == expected,
+            "host FLOAT32 tensor size does not match its shape");
+    const ttnn::TensorSpec spec(
+        make_shape(shape),
+        tt::tt_metal::TensorLayout(
+            ttnn::DataType::FLOAT32,
+            tt::tt_metal::PageConfig(target_layout),
+            tt::tt_metal::MemoryConfig{}));
+    Tensor host = Tensor::from_vector(std::move(values), spec);
+    return checked(
+        ttnn::distributed::distribute_tensor(host, *mapper_, std::ref(*mesh_)),
+        "host-to-device-fp32");
+  }
+
   Tensor uint32_tensor(std::vector<std::uint32_t> values,
                        const std::vector<std::uint32_t> &shape) {
     const std::size_t expected =
@@ -666,6 +737,13 @@ public:
         shape, ttnn::Layout::TILE);
   }
 
+  Tensor zeros_fp32(const std::vector<std::uint32_t> &shape) {
+    return float32_tensor(
+        std::vector<float>(checked_element_count(shape, "FP32 zero tensor"),
+                           0.0F),
+        shape, ttnn::Layout::TILE);
+  }
+
   [[nodiscard]] const std::map<std::string, std::uint64_t> &
   operation_counts() const {
     return operation_counts_;
@@ -686,8 +764,11 @@ public:
   }
 
 private:
+  std::vector<int> physical_device_ids_;
+  std::size_t expected_device_count_;
   std::shared_ptr<MeshDevice> mesh_;
   std::unique_ptr<TensorToMesh> mapper_;
+  bool profiler_flush_enabled_ = true;
   std::string stage_ = "initialization";
   std::map<std::string, std::uint64_t> operation_counts_;
   std::map<std::string, std::map<std::string, std::uint64_t>>
@@ -845,9 +926,28 @@ ModelState zero_model_state(DeviceContext &context) {
   return ModelState{std::move(layers)};
 }
 
+ModelState zero_fast_model_state(DeviceContext &context) {
+  context.set_stage("fast-state-zero-initialization");
+  std::vector<LayerState> layers;
+  layers.reserve(kLayerCount);
+  for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    layers.push_back(LayerState{
+        context.zeros({1U, 1U, 1U, kHiddenSize}),
+        context.zeros({1U, 1U, 1U, kHiddenSize}),
+        context.zeros_fp32({1U, kHeadCount, kHeadSize, kHeadSize})});
+  }
+  return ModelState{std::move(layers)};
+}
+
 Tensor op_reshape(DeviceContext &context, const Tensor &input,
                   const std::vector<std::uint32_t> &shape) {
   return context.checked(ttnn::reshape(input, make_shape(shape)), "reshape");
+}
+
+Tensor op_typecast(DeviceContext &context, const Tensor &input,
+                   ttnn::DataType dtype, std::string_view operation) {
+  return context.checked(ttnn::typecast(input, dtype), operation);
 }
 
 Tensor op_transpose(DeviceContext &context, const Tensor &input, int first,
@@ -1045,8 +1145,16 @@ struct WkvOutput {
 
 WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
                    const TimePreparation &preparation) {
+  const bool fp32_state = state.dtype() == ttnn::DataType::FLOAT32;
+  const auto state_dtype = [&](const Tensor &tensor) {
+    return fp32_state
+               ? op_typecast(context, tensor, ttnn::DataType::FLOAT32,
+                             "typecast-recurrence-fp32")
+               : tensor;
+  };
   const auto row = [&](const Tensor &tensor) {
-    return op_reshape(context, tensor, {1U, kHeadCount, 1U, kHeadSize});
+    return op_reshape(context, state_dtype(tensor),
+                      {1U, kHeadCount, 1U, kHeadSize});
   };
   const auto column = [&](const Tensor &tensor) {
     return op_transpose(context, row(tensor), kMatrixRowDimension,
@@ -1062,8 +1170,13 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
       op_add(context, op_add(context, decay, rank_update), outer);
   const Tensor output_column =
       op_matmul(context, next_state, column(preparation.r));
-  const Tensor raw_output =
-      op_reshape(context, output_column, {1U, 1U, 1U, kHiddenSize});
+  const Tensor output_for_hidden =
+      fp32_state ? op_typecast(context, output_column,
+                              ttnn::DataType::BFLOAT16,
+                              "typecast-recurrence-output-bf16")
+                 : output_column;
+  const Tensor raw_output = op_reshape(
+      context, output_for_hidden, {1U, 1U, 1U, kHiddenSize});
   return WkvOutput{next_state, raw_output};
 }
 
@@ -1191,6 +1304,22 @@ read_u32_shards(DeviceContext &context, const Tensor &input) {
   require(first.size() == 1U && second.size() == 1U,
           "device argmax did not return one value per card");
   return {first[kFirstIndex], second[kFirstIndex]};
+}
+
+std::uint32_t read_single_u32(DeviceContext &context, const Tensor &input) {
+  context.set_stage("fast-selection/readback-u32");
+  const Tensor host = ttnn::from_device(input, true);
+  const std::vector<Tensor> shards =
+      ttnn::distributed::get_device_tensors(host);
+  require(shards.size() == 1U,
+          "fast UINT32 readback did not contain one card shard");
+  const std::vector<std::uint32_t> values =
+      shards[kFirstIndex].to_vector<std::uint32_t>();
+  require(values.size() == 1U,
+          "fast device argmax did not return one value");
+  require(values[kFirstIndex] < kVocabularySize,
+          "fast device argmax selected an invalid token ID");
+  return values[kFirstIndex];
 }
 
 std::vector<std::uint8_t> bf16_bytes(const std::vector<bfloat16> &values) {
@@ -1429,12 +1558,350 @@ Json run_controls(DeviceContext &context, const ModelWeights &weights,
               {"transposed", transposed_result.receipt}};
 }
 
+struct FastRequest {
+  std::string request_id;
+  std::vector<std::uint32_t> prompt_tokens;
+  std::uint32_t max_new_tokens;
+  std::size_t state_slot;
+};
+
+struct FastWorkerRequest {
+  std::string run_id;
+  std::vector<FastRequest> requests;
+};
+
+struct FastWorkerArguments {
+  int physical_device_id;
+  std::filesystem::path requests_path;
+  std::filesystem::path output_path;
+};
+
+struct FastSlot {
+  const FastRequest *request;
+  ModelState state;
+  std::size_t prompt_index;
+  std::vector<std::uint32_t> generated_tokens;
+  std::uint64_t processed_token_count;
+  std::chrono::steady_clock::time_point started_at;
+};
+
+FastWorkerArguments
+parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
+  require(arguments.size() == kFastWorkerArgumentCount,
+          "fast worker invocation has the wrong argument count");
+  require(arguments[kModeArgumentIndex] == kFastWorkerArgument,
+          "fast worker invocation must start with --fast-worker");
+  require(arguments[kFastDeviceNameIndex] == kFastDeviceArgument,
+          "fast worker invocation must place --device first");
+  require(arguments[kFastRequestsNameIndex] == kFastRequestsArgument,
+          "fast worker invocation must place --requests second");
+  require(arguments[kFastOutputNameIndex] == kFastOutputArgument,
+          "fast worker invocation must place --output last");
+  const std::uint32_t device_id =
+      parse_u32(arguments[kFastDeviceValueIndex], "fast worker device");
+  require(device_id <= static_cast<std::uint32_t>(kPhysicalDeviceOne),
+          "fast worker device must be physical device 0 or 1");
+  const std::filesystem::path requests_path(
+      arguments[kFastRequestsValueIndex]);
+  const std::filesystem::path output_path(arguments[kFastOutputValueIndex]);
+  require(requests_path.is_absolute() && output_path.is_absolute(),
+          "fast worker request and output paths must be absolute");
+  require(std::filesystem::is_regular_file(requests_path),
+          "fast worker request path is not a regular file");
+  require(!std::filesystem::exists(output_path),
+          "fast worker output path already exists");
+  require(!output_path.string().starts_with("/nix/store/"),
+          "fast worker output must be outside the Nix store");
+  return FastWorkerArguments{static_cast<int>(device_id), requests_path,
+                             output_path};
+}
+
+FastWorkerRequest read_fast_worker_request(
+    const std::filesystem::path &path) {
+  std::ifstream input(path);
+  require(input.good(), "failed to open fast worker request");
+  const Json document = Json::parse(input);
+  require(document.is_object() && document.size() == 3U,
+          "fast worker request must contain exactly three fields");
+  require(document.at("schema_version").get<std::uint32_t>() ==
+              kSchemaVersion,
+          "fast worker request schema mismatch");
+  FastWorkerRequest request{document.at("run_id").get<std::string>(), {}};
+  require(!request.run_id.empty(), "fast worker run ID must not be empty");
+  const Json &raw_requests = document.at("requests");
+  require(raw_requests.is_array() && !raw_requests.empty(),
+          "fast worker request list must not be empty");
+  require(raw_requests.size() <= kFastPerCardSlotCount,
+          "fast worker request list exceeds card-local state slots");
+  std::map<std::string, bool> request_ids;
+  std::array<bool, kFastPerCardSlotCount> used_slots{};
+  for (const Json &raw : raw_requests) {
+    require(raw.is_object() && raw.size() == 4U,
+            "fast request must contain exactly four fields");
+    FastRequest current{
+        raw.at("request_id").get<std::string>(),
+        raw.at("prompt_token_ids").get<std::vector<std::uint32_t>>(),
+        raw.at("max_new_tokens").get<std::uint32_t>(),
+        raw.at("state_slot").get<std::size_t>()};
+    require(!current.request_id.empty(),
+            "fast request ID must not be empty");
+    require(request_ids.emplace(current.request_id, true).second,
+            "fast request IDs must be unique");
+    require(!current.prompt_tokens.empty() &&
+                current.prompt_tokens.size() <= kMaximumPromptTokens,
+            "fast request prompt length is outside the package bounds");
+    for (const std::uint32_t token : current.prompt_tokens) {
+      require(token < kVocabularySize,
+              "fast request prompt token exceeds the vocabulary");
+    }
+    require(current.max_new_tokens > 0U &&
+                current.max_new_tokens <= kFastMaximumGeneratedTokens,
+            "fast request generation count is outside the package bounds");
+    require(current.state_slot < kFastPerCardSlotCount,
+            "fast request state slot is outside the card-local range");
+    require(!used_slots[current.state_slot],
+            "fast worker received duplicate active state slots");
+    used_slots[current.state_slot] = true;
+    request.requests.push_back(std::move(current));
+  }
+  return request;
+}
+
+std::uint32_t advance_token_fast(DeviceContext &context,
+                                 const ModelWeights &weights,
+                                 ModelState &state,
+                                 std::uint32_t input_token,
+                                 std::string_view request_id,
+                                 std::uint64_t step_index) {
+  const std::string step_name = "fast-" + std::string(request_id) + "-step-" +
+                                std::to_string(step_index);
+  context.set_stage(step_name + "/embedding");
+  const Tensor token = context.uint32_tensor({input_token}, {1U, 1U});
+  Tensor hidden =
+      context.checked(ttnn::embedding(token, weights.embeddings, std::nullopt,
+                                      ttnn::Layout::TILE),
+                      "embedding");
+  hidden = op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
+  std::optional<Tensor> value_anchor;
+  for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const std::string stage_prefix =
+        step_name + "/layer-" + std::to_string(layer_index);
+    hidden = execute_layer(context, weights.layers[layer_index], hidden,
+                           state.layers[layer_index], value_anchor,
+                           stage_prefix);
+  }
+  require(value_anchor.has_value(),
+          "fast full model did not establish the token-local value anchor");
+  context.set_stage(step_name + "/final-normalization");
+  const Tensor final_hidden =
+      op_layer_norm(context, hidden, weights.final_norm_weight,
+                    weights.final_norm_bias, kLayerNormEpsilon);
+  context.set_stage(step_name + "/language-model-head");
+  const Tensor logits = op_matmul(context, final_hidden, weights.head);
+  const Tensor logits_row_major =
+      context.checked(ttnn::untilize(logits), "untilize-logits");
+  context.set_stage(step_name + "/greedy-selection");
+  const Tensor selected = context.checked(
+      ttnn::argmax(logits_row_major, kLastDimension, true), "argmax");
+  return read_single_u32(context, selected);
+}
+
+bool advance_fast_slot(DeviceContext &context, const ModelWeights &weights,
+                       FastSlot &slot) {
+  require(slot.request != nullptr, "fast slot has no request");
+  std::uint32_t input_token = 0U;
+  if (slot.prompt_index < slot.request->prompt_tokens.size()) {
+    input_token = slot.request->prompt_tokens[slot.prompt_index];
+    ++slot.prompt_index;
+  } else {
+    require(!slot.generated_tokens.empty(),
+            "fast slot has no generated token to continue");
+    input_token = slot.generated_tokens.back();
+  }
+  const std::uint32_t selected =
+      advance_token_fast(context, weights, slot.state, input_token,
+                         slot.request->request_id,
+                         slot.processed_token_count);
+  ++slot.processed_token_count;
+  if (slot.prompt_index == slot.request->prompt_tokens.size()) {
+    slot.generated_tokens.push_back(selected);
+  }
+  return slot.generated_tokens.size() >= slot.request->max_new_tokens;
+}
+
 void write_json(const std::filesystem::path &path, const Json &value) {
   std::ofstream output(path, std::ios::trunc);
   require(output.good(), "failed to create runtime receipt");
   output << value.dump(2) << '\n';
   output.flush();
   require(output.good(), "failed to write runtime receipt");
+}
+
+void select_single_card_mesh_descriptor() {
+  const int status =
+      setenv("TT_MESH_GRAPH_DESC_PATH",
+             RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH, 1);
+  require(status == 0,
+          "failed to select the pinned single-card mesh descriptor");
+}
+
+std::filesystem::path parse_simulator_smoke_output(
+    const std::vector<std::string> &arguments) {
+  require(arguments.size() == kSimulatorSmokeArgumentCount,
+          "simulator smoke invocation has the wrong argument count");
+  require(arguments[kModeArgumentIndex] == kSimulatorSmokeArgument,
+          "simulator smoke invocation must start with --simulator-smoke");
+  require(arguments[kSimulatorOutputNameIndex] == kFastOutputArgument,
+          "simulator smoke invocation must place --output last");
+  const std::filesystem::path output(arguments[kSimulatorOutputValueIndex]);
+  require(output.is_absolute() &&
+              !output.string().starts_with("/nix/store/") &&
+              !std::filesystem::exists(output),
+          "simulator smoke output must be a new absolute non-store path");
+  return output;
+}
+
+void run_simulator_smoke(const std::filesystem::path &output_path) {
+  select_single_card_mesh_descriptor();
+  const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
+  const CheckpointIndex checkpoint(checkpoint_file);
+  DeviceContext context(kPhysicalDeviceZero);
+  context.set_profiler_flush_enabled(false);
+  const ModelWeights weights = load_model(context, checkpoint);
+  ModelState state = zero_fast_model_state(context);
+  require(state.layers[kFirstIndex].matrix.dtype() == ttnn::DataType::FLOAT32,
+          "simulator smoke recurrent matrix is not FP32");
+  for (std::uint32_t step = 0U; step < kMinimumGeneratedTokens; ++step) {
+    context.set_stage("simulator-smoke/embedding");
+    const Tensor token = context.uint32_tensor({kGenerationEosToken}, {1U, 1U});
+    Tensor hidden = context.checked(
+        ttnn::embedding(token, weights.embeddings, std::nullopt,
+                        ttnn::Layout::TILE),
+        "embedding");
+    hidden = op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
+    std::optional<Tensor> value_anchor;
+    static_cast<void>(execute_layer(
+        context, weights.layers[kFirstIndex], hidden,
+        state.layers[kFirstIndex], value_anchor,
+        "simulator-smoke/layer-0/step-" + std::to_string(step)));
+    require(value_anchor.has_value(),
+            "simulator smoke layer did not establish its value anchor");
+  }
+  require(!context.operation_counts().empty(),
+          "simulator smoke executed no TT-NN operations");
+  const Json receipt{
+      {"schema_version", kSchemaVersion},
+      {"outcome", "simulated_single_card_layer_state_carry"},
+      {"simulated", true},
+      {"physical_hardware", false},
+      {"architecture", "blackhole"},
+      {"mesh_shape", {kMeshRows, kMeshRows}},
+      {"selection_ordinal", kPhysicalDeviceZero},
+      {"layer_count_executed", 1U},
+      {"recurrent_steps", kMinimumGeneratedTokens},
+      {"recurrent_matrix_residency", "device_fp32"},
+      {"performance_claim", false},
+      {"operation_counts", map_to_json(context.operation_counts())}};
+  write_json(output_path, receipt);
+  std::cout << output_path << '\n';
+}
+
+void run_fast_worker(const FastWorkerArguments &arguments) {
+  const char *const profiler_value = std::getenv("TT_METAL_DEVICE_PROFILER");
+  const bool profiler_attributed =
+      profiler_value != nullptr &&
+      std::string_view(profiler_value) == kEnabledEnvironmentValue;
+  const FastWorkerRequest request =
+      read_fast_worker_request(arguments.requests_path);
+  const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
+  const CheckpointIndex checkpoint(checkpoint_file);
+  DeviceContext context(arguments.physical_device_id);
+  context.set_profiler_flush_enabled(false);
+  const ModelWeights weights = load_model(context, checkpoint);
+
+  ModelState warmup_state = zero_fast_model_state(context);
+  std::uint32_t warmup_token = kGenerationEosToken;
+  for (std::uint32_t index = 0U; index < kFastWarmupTokenCount; ++index) {
+    warmup_token = advance_token_fast(context, weights, warmup_state,
+                                      warmup_token, "warmup", index);
+  }
+  const std::size_t cache_after_warmup = context.program_cache_entries();
+  require(cache_after_warmup > 0U,
+          "fast worker warmup did not populate the program cache");
+
+  std::vector<FastSlot> slots;
+  slots.reserve(request.requests.size());
+  for (const FastRequest &current : request.requests) {
+    slots.push_back(FastSlot{&current, zero_fast_model_state(context), 0U, {},
+                             0U, {}});
+  }
+  std::vector<bool> completed(slots.size(), false);
+  Json request_metrics = Json::array();
+  const auto timed_start = std::chrono::steady_clock::now();
+  for (FastSlot &slot : slots) {
+    slot.started_at = timed_start;
+  }
+  std::size_t completed_count = 0U;
+  while (completed_count < slots.size()) {
+    for (std::size_t slot_index = 0U; slot_index < slots.size();
+         ++slot_index) {
+      if (completed[slot_index]) {
+        continue;
+      }
+      FastSlot &slot = slots[slot_index];
+      if (!advance_fast_slot(context, weights, slot)) {
+        continue;
+      }
+      const auto completed_at = std::chrono::steady_clock::now();
+      const double latency_seconds =
+          std::chrono::duration<double>(completed_at - slot.started_at).count();
+      require(std::isfinite(latency_seconds) && latency_seconds > 0.0,
+              "fast request latency is not finite and positive");
+      request_metrics.push_back(
+          Json{{"request_id", slot.request->request_id},
+               {"card_id", arguments.physical_device_id},
+               {"state_slot", slot.request->state_slot},
+               {"token_count", slot.processed_token_count},
+               {"latency_seconds", latency_seconds},
+               {"generated_token_ids", slot.generated_tokens}});
+      completed[slot_index] = true;
+      ++completed_count;
+    }
+  }
+  const auto timed_end = std::chrono::steady_clock::now();
+  const double elapsed_seconds =
+      std::chrono::duration<double>(timed_end - timed_start).count();
+  require(std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0,
+          "fast worker elapsed time is not finite and positive");
+  require(context.program_cache_entries() == cache_after_warmup,
+          "fast worker compiled a new program during timed decode");
+
+  context.set_profiler_flush_enabled(profiler_attributed);
+  context.flush_profiler("fast-worker-post-timing-attribution");
+  const Json receipt{
+      {"schema_version", kSchemaVersion},
+      {"run_id", request.run_id},
+      {"physical_device_ids", {arguments.physical_device_id}},
+      {"physical_hardware", true},
+      {"profiler_attributed", profiler_attributed},
+      {"elapsed_seconds", elapsed_seconds},
+      {"requests", std::move(request_metrics)},
+      {"execution",
+       {{"scheduler_mode", "deterministic_continuous_batching"},
+        {"scheduler_tie_break", "least_loaded_card_then_lowest_card_then_lowest_slot"},
+        {"replica_mode", "independent_card_replica"},
+        {"recurrent_state_residency", "device_fp32"},
+        {"timed_region", "decode_only"},
+        {"warmup_token_count", kFastWarmupTokenCount},
+        {"program_cache_stable", true},
+        {"dynamic_token_and_state_bindings_validated", true},
+        {"state_readback_during_timing", false},
+        {"profiler_flush_during_timing", false},
+        {"control_replay_during_timing", false},
+        {"artifact_writes_during_timing", false}}}};
+  write_json(arguments.output_path, receipt);
+  std::cout << arguments.output_path << '\n';
 }
 
 struct EvidenceEnvironment {
@@ -1804,6 +2271,16 @@ int main(int argc, char **argv) {
     if (arguments.size() == kSelfTestArgumentCount &&
         arguments[kModeArgumentIndex] == kSelfTestArgument) {
       run_self_test();
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kFastWorkerArgumentCount &&
+        arguments[kModeArgumentIndex] == kFastWorkerArgument) {
+      run_fast_worker(parse_fast_worker_arguments(arguments));
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] == kSimulatorSmokeArgument) {
+      run_simulator_smoke(parse_simulator_smoke_output(arguments));
       return EXIT_SUCCESS;
     }
     const RuntimeRequest request = parse_runtime_request(arguments);
