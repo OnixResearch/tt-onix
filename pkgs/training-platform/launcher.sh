@@ -12,6 +12,7 @@ DOCKER=@docker@
 TTSMI=@ttsmi@
 FUSER=@fuser@
 B3SUM=@b3sum@
+OWNERSHIP_PROBE=@ownership_probe@
 AUTHORITY=@authority@
 
 usage() {
@@ -39,6 +40,7 @@ esac
 PLAN=$($CORE authorized-launch-plan "$AUTHORITY")
 IMAGE=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.image')
 DEVICE_ROOT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.devices[0]')
+DEVICE_PROCFS_ROOT=/proc/driver/tenstorrent
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[0].host')
 DESCRIPTOR=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].host')
 DESCRIPTOR_CONTAINER=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].container')
@@ -158,16 +160,12 @@ done
 CURRENT_STAGE=preflight
 DRIVER_VERSION=$("$JQ" -r '.host_info.Driver' "$PRIVATE_ROOT/health-before.json" | sed 's/^TT-KMD //')
 FREE_HUGEPAGES=$(cat /sys/kernel/mm/hugepages/hugepages-1048576kB/free_hugepages)
-DEVICES_FREE=true
-if "$FUSER" "$HUGEPAGE_MOUNT" >/dev/null 2>&1; then
+if "$OWNERSHIP_PROBE" \
+  "$DEVICE_ROOT" "$DEVICE_PROCFS_ROOT" "$FUSER" "$HUGEPAGE_MOUNT"; then
+  DEVICES_FREE=true
+else
   DEVICES_FREE=false
 fi
-for device_node in "$DEVICE_ROOT"/[0-9]*; do
-  [ -e "$device_node" ] || continue
-  if "$FUSER" "$device_node" >/dev/null 2>&1; then
-    DEVICES_FREE=false
-  fi
-done
 
 "$JQ" -n \
   --arg driver_version "$DRIVER_VERSION" \

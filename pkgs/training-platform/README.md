@@ -105,9 +105,11 @@ If the smoke fails before `mesh_open`, no mesh state changed. Read the failed
 receipt and the private raw log directory.
 
 If the smoke fails inside the container, the container is removed by
-`--rm`. Check that no process owns `/dev/tenstorrent/0` or
-`/dev/tenstorrent/1` before you retry (`fuser /dev/tenstorrent/0`). The
-orchestrator runs the same check in its `restore` stage.
+`--rm`. Before you retry, inspect `/proc/driver/tenstorrent/0/pids` and
+`/proc/driver/tenstorrent/1/pids`. Stop each listed owner. The preflight
+fails closed when either KMD PID file is missing or contains an owner. It
+also uses `fuser` as a second ownership check. The `restore` stage repeats
+the `fuser` check after the container exits.
 
 If firmware or driver admission fails, do not flash firmware from this
 package. Record the blocker and follow the Tenstorrent firmware update

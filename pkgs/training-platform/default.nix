@@ -122,6 +122,12 @@ let
           }' ${policyJson} > "$out"
       '';
 
+  ownershipProbe = runCommand "training-platform-ownership-probe" { } ''
+    cp ${./ownership-probe.sh} "$out"
+    chmod +x "$out"
+    patchShebangs "$out"
+  '';
+
   launcher = runCommand "training-platform-launcher" { } ''
     substitute ${./launcher.sh} "$out" \
       --subst-var-by core "${core}" \
@@ -130,6 +136,7 @@ let
       --subst-var-by ttsmi "${tt-smi}/bin/tt-smi" \
       --subst-var-by b3sum "${b3sum}/bin/b3sum" \
       --subst-var-by fuser "${psmisc}/bin/fuser" \
+      --subst-var-by ownership_probe "${ownershipProbe}" \
       --subst-var-by authority "${authorityJson}" \
       --subst-var-by smoke_py "${./smoke.py}" \
       --subst-var-by container_smoke "${containerSmoke}"
@@ -169,6 +176,7 @@ runCommand "training-platform-check"
     nativeBuildInputs = [
       nickel
       jq
+      b3sum
       coreutils
       gnugrep
       gnused
@@ -187,6 +195,7 @@ runCommand "training-platform-check"
         descriptorPath
         ttBlacksmithSource
         launcher
+        ownershipProbe
         smoke
         ;
     };
@@ -229,6 +238,51 @@ runCommand "training-platform-check"
       plan.json
     grep -F '${wheelhouse}' plan.json
     grep -F 'PYTHONPATH' plan.json
+
+    # The ownership probe accepts empty KMD PID files and rejects busy or
+    # unverifiable devices before Docker starts.
+    ownership_fixture="$PWD/ownership-fixture"
+    mkdir -p \
+      "$ownership_fixture/devices" \
+      "$ownership_fixture/proc/0" \
+      "$ownership_fixture/proc/1"
+    touch \
+      "$ownership_fixture/devices/0" \
+      "$ownership_fixture/devices/1" \
+      "$ownership_fixture/proc/0/pids" \
+      "$ownership_fixture/proc/1/pids" \
+      "$ownership_fixture/hugepages"
+    cat > "$ownership_fixture/fuser-free" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+    chmod +x "$ownership_fixture/fuser-free"
+    ${ownershipProbe} \
+      "$ownership_fixture/devices" \
+      "$ownership_fixture/proc" \
+      "$ownership_fixture/fuser-free" \
+      "$ownership_fixture/hugepages"
+
+    busy_fixture_pid=1234
+    printf '%s\n' "$busy_fixture_pid" > "$ownership_fixture/proc/1/pids"
+    if ${ownershipProbe} \
+      "$ownership_fixture/devices" \
+      "$ownership_fixture/proc" \
+      "$ownership_fixture/fuser-free" \
+      "$ownership_fixture/hugepages"; then
+      echo "ownership probe accepted a KMD-reported device owner" >&2
+      exit 1
+    fi
+    : > "$ownership_fixture/proc/1/pids"
+    rm "$ownership_fixture/proc/1/pids"
+    if ${ownershipProbe} \
+      "$ownership_fixture/devices" \
+      "$ownership_fixture/proc" \
+      "$ownership_fixture/fuser-free" \
+      "$ownership_fixture/hugepages"; then
+      echo "ownership probe accepted a missing KMD PID file" >&2
+      exit 1
+    fi
 
     # Positive preflight admission excludes stable board identities.
     "$CORE" admit-authorized-preflight fixtures/positive/preflight-snapshot.json \
@@ -363,6 +417,19 @@ runCommand "training-platform-check"
     fi
     grep -F "overclaiming" rejected.log
 
+    # Current hardware evidence validates under the package-owned authority.
+    "$CORE" validate-terminal-receipt \
+      evidence/2026-08-08-dual-p150a-smoke/receipt.json ${authorityJson} \
+      > current-hardware-admission.json
+    grep -F '"outcome":"success"' current-hardware-admission.json
+    for artifact in evidence/2026-08-08-dual-p150a-smoke/*.json; do
+      "$CORE" validate-portable-artifact "$artifact" > /dev/null
+    done
+    test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/preflight-admission.json | cut -d' ' -f1)" = \
+      "$(jq -r '.artifacts["preflight-admission.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
+    test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/workload-summary.json | cut -d' ' -f1)" = \
+      "$(jq -r '.artifacts["workload-summary.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
+
     # Historical evidence is retained only as a sanitized disclosure. It
     # cannot satisfy current platform admission after the driver correction.
     grep -F '"status": "superseded"' \
@@ -391,6 +458,8 @@ runCommand "training-platform-check"
     grep -F 'validate-portable-artifact "$artifact"' ${launcher}
     grep -F '2> "$PRIVATE_ROOT/preflight-error.log"' ${launcher}
     grep -F 'if ! mkdir "$EVIDENCE_ROOT"' ${launcher}
+    grep -F '/proc/driver/tenstorrent' ${launcher}
+    grep -F '${ownershipProbe}' ${launcher}
     if grep -E -- '--manifest|--config|--descriptor|--wheels-dir' ${launcher}; then
       echo "production launcher accepts caller-controlled platform authority" >&2
       exit 1

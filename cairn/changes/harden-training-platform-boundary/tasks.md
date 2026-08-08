@@ -28,11 +28,14 @@
 - [x] [parallel] V2 Add negative fixtures for arbitrary manifests, invalid nested configuration, network access, duplicate devices, private artifact content, missing stages, and stale receipts. r[tenstorrent.training_platform.verification]
 - [x] [serial] D1 Update operator documentation with the exact host profile, offline closure, private-log location, failure receipt rules, and non-claims. r[tenstorrent.training_platform.verification]
 - [x] [depends:tenstorrent.training_platform.verification] V3 Run Rust tests, ShellCheck, NixOS evaluation, focused Nix checks, Cairn validation, and all change gates. r[tenstorrent.training_platform.verification]
-- [ ] [depends:tenstorrent.training_platform.verification] V4 Run one bounded dual-P150A smoke and admit the sanitized replacement receipt. r[tenstorrent.training_platform.verification]
+- [x] [depends:tenstorrent.training_platform.verification] V4 Run one bounded dual-P150A smoke and admit the sanitized replacement receipt. r[tenstorrent.training_platform.verification]
 
-V4 remains pending. A bounded 2026-08-06 hardware attempt passed health
-capture and failed closed during preflight. The host driver is TT-KMD
-`2.10.1-pre`; the reviewed authority requires `2.10.0`. Docker did not start.
+V4 passed on 2026-08-08 with TT-KMD `2.10.0` and firmware `18.8.0.0`.
+The preflight admitted two P150A devices and the `p150_x2` mesh. All seven
+receipt stages passed. The checked-in replacement contains only sanitized
+portable artifacts. A failed preliminary run exposed a `fuser` visibility
+gap for root-owned processes. The final launcher also checks the KMD procfs
+PID files and fails closed before Docker when an owner exists.
 
 ## Verification Coverage
 
