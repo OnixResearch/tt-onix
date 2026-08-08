@@ -82,6 +82,16 @@ Selected-token readback remains a measured optimization target. B1 performs a bl
 
 This candidate has no profiler attribution or pinned FP32 CPU-reference comparison. It cannot satisfy physical scaling admission.
 
+## Device-continuation investigation
+
+`fixtures/physical-b1-decode-candidate/device-continuation-investigation.md` records a reverted device-resident token experiment. All B1 token streams stayed deterministic.
+
+An alternating five-pair A/B test did not prove a sustained gain. Aggregate throughput changed by `-7.325042354322009%`. Mean throughput changed by `0.11850828141355407%`, while median throughput improved by `14.030194778215389%`.
+
+Dual profiler validation also failed exact card 0 token parity. The previously validated package reproduced this failure before and after a board reset. Unprofiled isolated and concurrent workers kept exact tokens.
+
+The experiment was reverted. Current evidence does not justify replacing blocking readback.
+
 ## Admission boundary
 
 Only `rwkv7-p150x2-throughput-benchmark` can produce candidate physical scaling evidence. `rwkv7-p150x2-throughput` recomputes the metrics and rejects:
