@@ -82,6 +82,7 @@ constexpr std::uint32_t kMeshColumns = 2U;
 constexpr std::size_t kExpectedDeviceCount = 2U;
 constexpr int kPhysicalDeviceZero = 0;
 constexpr int kPhysicalDeviceOne = 1;
+constexpr int kFilteredLogicalDevice = 0;
 constexpr int kLastDimension = 3;
 constexpr int kMatrixRowDimension = 2;
 constexpr int kMatrixColumnDimension = 3;
@@ -547,6 +548,15 @@ std::string sanitize_stage(std::string stage) {
   return stage;
 }
 
+std::string_view mesh_descriptor_for_device_count(std::size_t device_count) {
+  require(device_count > 0U && device_count <= kExpectedDeviceCount,
+          "mesh descriptor device count is outside the supported range");
+  if (device_count == 1U) {
+    return RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH;
+  }
+  return RWKV7_PINNED_MESH_DESCRIPTOR_PATH;
+}
+
 // r[impl tenstorrent.rwkv7_p150x2.full_device_runtime]
 class DeviceContext {
 public:
@@ -572,10 +582,8 @@ public:
             "device context selected too many physical cards");
     const char *const descriptor = std::getenv("TT_MESH_GRAPH_DESC_PATH");
     require(descriptor != nullptr, "TT_MESH_GRAPH_DESC_PATH is required");
-    const bool simulator_selected = std::getenv("TT_METAL_SIMULATOR") != nullptr;
     const std::string_view expected_descriptor =
-        simulator_selected ? RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH
-                           : RWKV7_PINNED_MESH_DESCRIPTOR_PATH;
+        mesh_descriptor_for_device_count(expected_device_count_);
     require(std::string_view(descriptor) == expected_descriptor,
             "TT_MESH_GRAPH_DESC_PATH does not match the selected pinned descriptor");
     const char *const metalium_home = std::getenv("TT_METAL_HOME");
@@ -1833,12 +1841,27 @@ void write_json(const std::filesystem::path &path, const Json &value) {
   require(output.good(), "failed to write runtime receipt");
 }
 
-void select_single_card_mesh_descriptor() {
-  const int status =
+std::string_view visible_device_value(int physical_device_id) {
+  if (physical_device_id == kPhysicalDeviceZero) {
+    return "0";
+  }
+  if (physical_device_id == kPhysicalDeviceOne) {
+    return "1";
+  }
+  fail("visible device must be physical device 0 or 1");
+}
+
+void select_single_card_device(int physical_device_id) {
+  const int descriptor_status =
       setenv("TT_MESH_GRAPH_DESC_PATH",
              RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH, 1);
-  require(status == 0,
+  require(descriptor_status == 0,
           "failed to select the pinned single-card mesh descriptor");
+  const std::string_view visible_device =
+      visible_device_value(physical_device_id);
+  const int visibility_status =
+      setenv("TT_VISIBLE_DEVICES", visible_device.data(), 1);
+  require(visibility_status == 0, "failed to select the physical card");
 }
 
 std::filesystem::path parse_simulator_smoke_output(
@@ -1858,7 +1881,7 @@ std::filesystem::path parse_simulator_smoke_output(
 }
 
 void run_simulator_smoke(const std::filesystem::path &output_path) {
-  select_single_card_mesh_descriptor();
+  select_single_card_device(kPhysicalDeviceZero);
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
   DeviceContext context(kPhysicalDeviceZero);
@@ -1903,6 +1926,7 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
 }
 
 void run_fast_worker(const FastWorkerArguments &arguments) {
+  select_single_card_device(arguments.physical_device_id);
   const char *const profiler_value = std::getenv("TT_METAL_DEVICE_PROFILER");
   const bool profiler_attributed =
       profiler_value != nullptr &&
@@ -1911,7 +1935,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       read_fast_worker_request(arguments.requests_path);
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
-  DeviceContext context(arguments.physical_device_id);
+  DeviceContext context(kFilteredLogicalDevice);
   context.set_profiler_flush_enabled(false);
   context.set_operation_recording_enabled(false);
   const ModelWeights weights = load_model(context, checkpoint);
@@ -1989,6 +2013,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"schema_version", kSchemaVersion},
       {"run_id", request.run_id},
       {"physical_device_ids", {arguments.physical_device_id}},
+      {"visible_physical_device_ids", {arguments.physical_device_id}},
+      {"logical_device_ids", {kFilteredLogicalDevice}},
       {"physical_hardware", true},
       {"profiler_attributed", profiler_attributed},
       {"elapsed_seconds", elapsed_seconds},
@@ -2272,6 +2298,33 @@ void run_self_test() {
           "positive request parser self-test changed token IDs");
   require(request.max_new_tokens == kMinimumGeneratedTokens,
           "positive request parser self-test changed generation bound");
+  require(mesh_descriptor_for_device_count(1U) ==
+              RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH,
+          "single-card descriptor selection changed");
+  require(mesh_descriptor_for_device_count(kExpectedDeviceCount) ==
+              RWKV7_PINNED_MESH_DESCRIPTOR_PATH,
+          "dual-card descriptor selection changed");
+  require(visible_device_value(kPhysicalDeviceZero) == "0",
+          "card 0 visibility changed");
+  require(visible_device_value(kPhysicalDeviceOne) == "1",
+          "card 1 visibility changed");
+  expect_operation_failure(
+      []() { static_cast<void>(mesh_descriptor_for_device_count(0U)); },
+      "outside the supported range");
+  expect_operation_failure(
+      []() {
+        static_cast<void>(
+            mesh_descriptor_for_device_count(kExpectedDeviceCount + 1U));
+      },
+      "outside the supported range");
+  expect_operation_failure(
+      []() { static_cast<void>(visible_device_value(-1)); },
+      "physical device 0 or 1");
+  expect_operation_failure(
+      []() {
+        static_cast<void>(visible_device_value(kPhysicalDeviceOne + 1));
+      },
+      "physical device 0 or 1");
 
   std::vector<std::string> malformed = valid;
   malformed[kTokensValueIndex] = "1,";

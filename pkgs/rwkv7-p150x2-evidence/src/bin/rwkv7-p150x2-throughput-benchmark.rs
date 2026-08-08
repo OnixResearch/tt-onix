@@ -28,6 +28,7 @@ const OUTPUT_ARGUMENT_INDEX: usize = 2;
 const SCHEMA_VERSION: u32 = 1;
 const ONE_CARD_IDS: [usize; 1] = [0];
 const TWO_CARD_IDS: [usize; 2] = [0, 1];
+const FILTERED_WORKER_LOGICAL_CARD_ID: usize = 0;
 const PROFILER_RELATIVE_PATH: &str = "profiler/.logs/profile_log_device.csv";
 const PROFILER_SUMMARY_FILENAME: &str = "profiler-attribution.csv";
 const PROFILER_HEADER_LINE_COUNT: usize = 2;
@@ -74,6 +75,8 @@ struct WorkerReceipt {
     schema_version: u32,
     run_id: String,
     physical_device_ids: Vec<usize>,
+    visible_physical_device_ids: Vec<usize>,
+    logical_device_ids: Vec<usize>,
     physical_hardware: bool,
     profiler_attributed: bool,
     elapsed_seconds: f64,
@@ -387,6 +390,10 @@ fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usiz
     Ok(Some(card_id))
 }
 
+fn profiler_binding_matches(logical_card_id: usize, physical_card_id: usize) -> bool {
+    logical_card_id == FILTERED_WORKER_LOGICAL_CARD_ID && TWO_CARD_IDS.contains(&physical_card_id)
+}
+
 fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
     let profiler_path = worker.root.join(PROFILER_RELATIVE_PATH);
     let profiler = File::open(&profiler_path)
@@ -417,10 +424,11 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
             .ok_or_else(|| "profiler byte count overflowed".to_owned())?;
         hasher.update(&line);
         if let Some(card_id) = profiler_card_from_line(&line, line_index)? {
-            if card_id != worker.card_id {
+            if !profiler_binding_matches(card_id, worker.card_id) {
                 return Err(format!(
-                    "profiler line {} attributes card {card_id}, expected {}",
+                    "profiler line {} attributes logical card {card_id}, expected filtered logical card {} for physical card {}",
                     line_index + 1,
+                    FILTERED_WORKER_LOGICAL_CARD_ID,
                     worker.card_id
                 ));
             }
@@ -434,14 +442,15 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
     }
     if data_row_count == 0 {
         return Err(format!(
-            "profiler has no physical-card rows for card {}",
+            "profiler has no logical-card rows for physical card {}",
             worker.card_id
         ));
     }
     let summary_path = worker.root.join(PROFILER_SUMMARY_FILENAME);
     let summary = format!(
-        "card_id,raw_blake3,raw_byte_count,data_row_count,raw_csv_retained\n{},{},{},{},false\n",
+        "physical_card_id,logical_card_id,raw_blake3,raw_byte_count,data_row_count,raw_csv_retained\n{},{},{},{},{},false\n",
         worker.card_id,
+        FILTERED_WORKER_LOGICAL_CARD_ID,
         hasher.finalize().to_hex(),
         raw_byte_count,
         data_row_count
@@ -478,6 +487,8 @@ fn validate_worker(
     if receipt.schema_version != SCHEMA_VERSION
         || receipt.run_id.is_empty()
         || receipt.physical_device_ids != vec![worker.card_id]
+        || receipt.visible_physical_device_ids != vec![worker.card_id]
+        || receipt.logical_device_ids != vec![FILTERED_WORKER_LOGICAL_CARD_ID]
         || !receipt.physical_hardware
         || receipt.profiler_attributed != collect_profiler
         || !receipt.elapsed_seconds.is_finite()
@@ -764,7 +775,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn profiler_card_parser_accepts_a_physical_data_row() {
+    fn profiler_card_parser_accepts_a_logical_data_row() {
         let row = b"1,1,2,BRISC,52564,14597231684249\n";
         assert_eq!(
             profiler_card_from_line(row, PROFILER_HEADER_LINE_COUNT),
@@ -778,6 +789,23 @@ mod tests {
         assert!(
             profiler_card_from_line(b"missing separator\n", PROFILER_HEADER_LINE_COUNT).is_err()
         );
+    }
+
+    #[test]
+    fn profiler_binding_accepts_filtered_workers_and_rejects_other_ids() {
+        assert!(profiler_binding_matches(
+            FILTERED_WORKER_LOGICAL_CARD_ID,
+            ONE_CARD_IDS[0]
+        ));
+        assert!(profiler_binding_matches(
+            FILTERED_WORKER_LOGICAL_CARD_ID,
+            TWO_CARD_IDS[1]
+        ));
+        assert!(!profiler_binding_matches(1, ONE_CARD_IDS[0]));
+        assert!(!profiler_binding_matches(
+            FILTERED_WORKER_LOGICAL_CARD_ID,
+            TWO_CARD_IDS.len()
+        ));
     }
 
     #[test]

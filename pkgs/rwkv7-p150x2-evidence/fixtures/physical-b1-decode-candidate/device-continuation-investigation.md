@@ -20,9 +20,15 @@ Further isolation changed the dual-worker diagnosis. Card 0 kept exact tokens wh
 
 Concurrent independent workers could corrupt card 0, with or without profiling. Some concurrent runs passed, so the failure is timing-dependent. The previously validated package reproduced the same failure.
 
-Board resets and a three-second settle interval did not reliably restore parity. This is a physical multi-process concurrency blocker, not a proven profiler-only defect.
+Board resets and a three-second settle interval did not reliably restore parity. The cause was missing process isolation, not a profiler-only defect.
 
-The experiment was reverted. Do not claim a device-continuation gain until dual-worker parity and machine-time stability return.
+Each worker used the dual-card descriptor. Both UMD processes therefore discovered and opened both physical cards.
+
+A later fix filtered each process with `TT_VISIBLE_DEVICES`. Each process now uses the single-card P150 descriptor and opens logical device 0.
+
+Five concurrent control samples and one complete strict benchmark kept exact tokens. This resolves the dual-worker parity blocker.
+
+The continuation experiment remains reverted. Do not claim a device-continuation gain without a stable throughput improvement.
 
 Raw B1 A/B receipts remain under `/var/tmp/rwkv7-p150x2-b1-alternating-ab-20260808-2200/` on the measurement host.
 

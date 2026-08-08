@@ -88,11 +88,17 @@ This candidate has no profiler attribution or pinned FP32 CPU-reference comparis
 
 An alternating five-pair A/B test did not prove a sustained gain. Aggregate throughput changed by `-7.325042354322009%`. Mean throughput changed by `0.11850828141355407%`, while median throughput improved by `14.030194778215389%`.
 
-Further isolation found a timing-dependent physical concurrency failure. Card 0 kept exact tokens alone, and card 1 kept exact tokens. Concurrent independent workers could corrupt card 0 with or without profiling.
+Further isolation found a physical process-isolation defect. Each single-card worker used the dual-card descriptor, so both UMD processes discovered and opened both cards.
 
-The previously validated package reproduced the failure. Board resets and a three-second settle interval did not reliably restore parity.
+Each worker now selects its card with `TT_VISIBLE_DEVICES`. It uses the single-card P150 descriptor and opens filtered logical device 0.
 
-The experiment was reverted. Current evidence does not justify replacing blocking readback or changing the benchmark launcher.
+Five concurrent control samples kept exact tokens on both cards. A complete strict benchmark also passed profiler attribution and exact FP32 token parity.
+
+`fixtures/physical-throughput-filtered-workers-candidate/` retains that rejected result. One-card throughput was `51.61843281609733` tokens/s. Two-card throughput was `42.20120195168836` tokens/s.
+
+The speedup was `0.8175606977848389`, and the p99 change was `3.4918677732695094`. The B4-versus-B2 workload still does not prove saturated scaling.
+
+The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary
 

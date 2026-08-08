@@ -12,6 +12,8 @@ Do not use evidence-mode elapsed time as an inference-throughput result.
 
 `--fast-worker` opens one exact physical card as a `1x1` mesh. Each worker loads one complete model replica. The benchmark launcher runs card 0 and card 1 workers at the same time. Requests do not cross cards.
 
+Each worker sets `TT_VISIBLE_DEVICES` to its physical card. It uses the pinned single-card P150 descriptor and opens filtered logical device 0. This isolation prevents one worker from reconfiguring the other card.
+
 The worker keeps one static batch per card. Each batch row has independent FP32 WKV state and token-shift state. The worker uses deterministic, bounded state slots.
 
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
