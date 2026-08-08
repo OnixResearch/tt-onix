@@ -109,6 +109,22 @@ Create a machine-fact values file before a hardware measurement:
 Do not put a serial number in this file. The runner fails before device access
 when a required fact is absent.
 
+## Utilization and bottleneck evidence
+
+Measurement mode also requires `--device-telemetry <profiler-telemetry.json>`.
+Convert the package-matched TT-Metal operation report into the closed telemetry
+schema in `fixtures/device-telemetry.json`. Do not estimate missing fields.
+
+The telemetry names the source columns for math busy, NoC idle, and operation
+latency. It records peak and capacity bytes for L1 and DRAM on each logical
+device. The operation list must exactly match the latency table. Each operation
+contains all observed latency samples. The core computes mean and p99 latency.
+
+The runner writes `utilization-receipt.json` and
+`utilization-admission.json`. Their BLAKE3 identities bind the measurement,
+telemetry, memory table, and complete operation table. A single-device receipt
+cannot make a scaling claim.
+
 ## Commands
 
 Device-free validation (no hardware):
@@ -147,7 +163,8 @@ Full-model step, bounded run, and checkpoint (hardware):
 - `receipt`: one-step placement + parity receipt.
 - `measurement`: five measured steps and a bound CPU speedup ratio. Use
   `--profile "$TOOLS/share/rwkv7-lora-p150a/measurement-profile.json"`.
-  Add `--machine-facts <machine-fact-values.json>`.
+  Add `--machine-facts <machine-fact-values.json>` and
+  `--device-telemetry <profiler-telemetry.json>`.
 - `multistep`: bounded multi-step run with loss-improvement criterion.
 - `checkpoint`: adapter save/load/resume receipt and the Safetensors artifact.
 
@@ -187,3 +204,5 @@ A passing receipt does NOT establish:
 - Long-context support or other RWKV model sizes.
 - Speedup over the CPU reference from a parity, run, or checkpoint receipt.
   Only a passing physical `measurement` receipt can report the named ratio.
+- Sustained utilization, thermal endurance, or power efficiency. The
+  utilization receipt covers only its bound measured run.

@@ -18,6 +18,8 @@ fn usage() -> String {
      usage: rwkv7-lora-dual-p150a-core bind-machine-facts VALUES_JSON\n\
      usage: rwkv7-lora-dual-p150a-core summarize-measurement RAW_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-measurement RECEIPT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core summarize-utilization RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-utilization RECEIPT_JSON RAW_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core plan-shards PROFILE_JSON BATCH_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-collective RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
@@ -212,6 +214,50 @@ fn run() -> Result<u8, String> {
                             "p99": admission.loss.p99,
                             "standard_deviation": admission.loss.standard_deviation,
                         },
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-utilization" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::summarize_utilization(&raw, &profile) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-utilization" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let raw = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::admit_utilization_receipt(&receipt, &raw, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "device_count": admission.device_count,
+                        "operation_count": admission.operation_count,
+                        "math_busy_fraction": admission.math_busy_fraction,
+                        "noc_idle_fraction": admission.noc_idle_fraction,
+                        "scaling_efficiency": admission.scaling_efficiency,
                     });
                     println!("{body}");
                     Ok(SUCCESS)

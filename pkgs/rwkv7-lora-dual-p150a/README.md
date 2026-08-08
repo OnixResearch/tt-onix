@@ -87,6 +87,28 @@ Create a machine-fact values file before a hardware measurement:
 Do not put serial numbers in this file. The runner fails before device access
 when a required fact is absent.
 
+## Utilization and bottleneck evidence
+
+Measurement mode also requires `--device-telemetry <profiler-telemetry.json>`.
+Convert the package-matched TT-Metal operation report into the closed telemetry
+schema in `fixtures/device-telemetry.json`. Do not estimate missing fields.
+
+The telemetry names the source columns for math busy, NoC idle, and operation
+latency. It records peak and capacity bytes for L1 and DRAM on each logical
+device. The operation list must exactly match the latency table. Each operation
+contains all observed latency samples. The core computes mean and p99 latency.
+
+A dual measurement also requires the passing one-device measurement profile
+and receipt. Use `--single-measurement-profile` and
+`--single-measurement-receipt`. The core verifies both receipts and checks that
+repeat policy, metric policy, micro-batch, and sequence length match. It then
+reports one-device and two-device step time, the ideal two-device line, and the
+scaling-efficiency ratio.
+
+The runner writes `utilization-receipt.json` and
+`utilization-admission.json`. Their BLAKE3 identities bind both measurements,
+the telemetry, memory table, complete operation table, and scaling result.
+
 ## Commands
 
 Device-free validation (no hardware):
@@ -122,7 +144,10 @@ Dual step, bounded run, and checkpoint (hardware):
 - `receipt`: one dual-replica placement + parity step receipt.
 - `measurement`: five measured dual-replica steps and a bound CPU ratio. Use
   `--profile "$TOOLS/share/rwkv7-lora-dual-p150a/measurement-profile.json"`.
-  Add `--machine-facts <machine-fact-values.json>`.
+  Add `--machine-facts <machine-fact-values.json>`,
+  `--device-telemetry <profiler-telemetry.json>`,
+  `--single-measurement-profile <single-measurement-profile.json>`, and
+  `--single-measurement-receipt <single-measurement-receipt.json>`.
 - `multistep`: bounded multi-step run. Requires `--parity-receipt` pointing
   at a passing `receipt`-mode receipt; the runner admits it before launch
   and binds its identity.
@@ -231,7 +256,8 @@ A passing receipt does NOT establish:
 
 - Speedup from a parity, run, or checkpoint receipt. Only a passing physical
   `measurement` receipt can report the named CPU ratio.
-- Scaling efficiency to more devices.
-- Long-run stability or thermal endurance.
+- Scaling efficiency to more than the bound two-device comparison.
+- Long-run stability, thermal endurance, or power efficiency. The utilization
+  receipt covers only its bound measured run.
 - Useful generalization or production fine-tuning quality.
 - Support for other RWKV models or sizes.

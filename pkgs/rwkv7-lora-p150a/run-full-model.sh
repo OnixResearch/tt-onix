@@ -26,7 +26,7 @@ WHEELS_DIR=@platform_wheelhouse@
 NANOSECONDS_PER_SECOND=1000000000
 
 usage() {
-  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--machine-facts PATH]" >&2
+  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--machine-facts PATH] [--device-telemetry PATH]" >&2
   exit 2
 }
 
@@ -36,6 +36,7 @@ EVIDENCE_ROOT=""
 DTYPE=""
 MODE="receipt"
 MACHINE_FACTS=""
+DEVICE_TELEMETRY=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -44,6 +45,7 @@ while [ "$#" -gt 0 ]; do
     --dtype) DTYPE="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
     --machine-facts) MACHINE_FACTS="$2"; shift 2 ;;
+    --device-telemetry) DEVICE_TELEMETRY="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -60,14 +62,17 @@ case "$MODE" in
   receipt|measurement|multistep|checkpoint) ;;
   *) usage ;;
 esac
-if [ "$MODE" = "measurement" ] && [ -z "$MACHINE_FACTS" ]; then
-  echo "rwkv7-lora-p150a-full-step: measurement mode requires --machine-facts" >&2
+if [ "$MODE" = "measurement" ] && { [ -z "$MACHINE_FACTS" ] || [ -z "$DEVICE_TELEMETRY" ]; }; then
+  echo "rwkv7-lora-p150a-full-step: measurement mode requires --machine-facts and --device-telemetry" >&2
   usage
 fi
 
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 if [ -n "$MACHINE_FACTS" ]; then
   MACHINE_FACTS=$(readlink -f "$MACHINE_FACTS")
+fi
+if [ -n "$DEVICE_TELEMETRY" ]; then
+  DEVICE_TELEMETRY=$(readlink -f "$DEVICE_TELEMETRY")
 fi
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
@@ -173,6 +178,19 @@ finish_receipt() {
         > "$EVIDENCE_ROOT/receipt.json"
       "$CORE" admit-measurement "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
         > "$EVIDENCE_ROOT/measurement-admission.json"
+      "$JQ" -n \
+        --slurpfile measurement_receipt "$EVIDENCE_ROOT/receipt.json" \
+        --slurpfile telemetry "$DEVICE_TELEMETRY" \
+        '{
+          measurement_receipt: $measurement_receipt[0],
+          telemetry: $telemetry[0],
+          scaling_baseline: null
+        }' > "$EVIDENCE_ROOT/utilization-raw.json"
+      "$CORE" summarize-utilization "$EVIDENCE_ROOT/utilization-raw.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/utilization-receipt.json"
+      "$CORE" admit-utilization "$EVIDENCE_ROOT/utilization-receipt.json" \
+        "$EVIDENCE_ROOT/utilization-raw.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/utilization-admission.json"
     fi
   elif [ "$MODE" = "multistep" ]; then
     local run

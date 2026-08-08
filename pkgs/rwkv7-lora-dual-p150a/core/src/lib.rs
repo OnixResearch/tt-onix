@@ -12,7 +12,9 @@
 
 mod generated_model_target_identity;
 
-pub use rwkv7_lora_p150a_core::{Distribution, MeasurementAdmission, MeasurementProfile};
+pub use rwkv7_lora_p150a_core::{
+    Distribution, MeasurementAdmission, MeasurementProfile, UtilizationAdmission,
+};
 
 use serde_json::{Value, json};
 
@@ -298,6 +300,19 @@ pub fn admit_measurement_receipt(
 
 pub fn admit_measurement_profile(profile: &Value) -> Result<MeasurementProfile, Rejection> {
     rwkv7_lora_p150a_core::admit_measurement_profile(profile).map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_utilization(raw: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_utilization(raw, profile).map_err(shared_measurement_rejection)
+}
+
+pub fn admit_utilization_receipt(
+    receipt: &Value,
+    raw: &Value,
+    profile: &Value,
+) -> Result<UtilizationAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_utilization_receipt(receipt, raw, profile)
+        .map_err(shared_measurement_rejection)
 }
 
 fn is_hash_hex(value: &str) -> bool {

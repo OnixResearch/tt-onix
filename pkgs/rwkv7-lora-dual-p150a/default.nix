@@ -56,6 +56,7 @@ let
   platformWheelhouse = trainingPlatform.passthru.wheelhouse;
 
   singleProfileJson = rwkv7LoraP150a.passthru.profileJson;
+  singleMeasurementProfileJson = rwkv7LoraP150a.passthru.measurementProfileJson;
   singleStepReceipt = ../rwkv7-lora-p150a/evidence/2026-08-05-full-model-step/receipt.json;
   singleRunReceipt = ../rwkv7-lora-p150a/evidence/2026-08-05-multistep-run/receipt.json;
   singleCheckpointReceipt = ../rwkv7-lora-p150a/evidence/2026-08-05-checkpoint-resume/receipt.json;
@@ -157,6 +158,7 @@ runCommand "rwkv7-lora-dual-p150a-check"
     PLATFORM_RECEIPT = "${platformEvidenceReceipt}";
     CPU_RECEIPT = "${cpuReference}/receipt.json";
     SINGLE_PROFILE = "${singleProfileJson}";
+    SINGLE_MEASUREMENT_PROFILE = "${singleMeasurementProfileJson}";
     SINGLE_STEP_RECEIPT = "${singleStepReceipt}";
     SINGLE_RUN_RECEIPT = "${singleRunReceipt}";
     SINGLE_CHECKPOINT_RECEIPT = "${singleCheckpointReceipt}";
@@ -266,6 +268,75 @@ runCommand "rwkv7-lora-dual-p150a-check"
     "$CORE" admit-measurement measurement-receipt.json measurement-profile-first.json >measurement-admission.json
     grep -F '"status":"admitted"' measurement-admission.json
     grep -F '"repeats":5' measurement-admission.json
+
+    # Build a compatible one-device measurement from the same harness profile.
+    cp "$SINGLE_MEASUREMENT_PROFILE" single-measurement-profile.json
+    single_cpu_baseline_identity=$(printf '%s' 'scaling-single-cpu-baseline' | b3sum | cut -d' ' -f1)
+    jq -n \
+      --arg cpu_baseline_identity "$single_cpu_baseline_identity" \
+      --slurpfile machine_facts machine-facts.json \
+      '{
+        stage_times_seconds: {
+          launch: 1.0,
+          compile: 2.0,
+          step: 5.0,
+          checkpoint: 0.0,
+          teardown: 1.0,
+          end_to_end: 9.0
+        },
+        cpu_baseline: {
+          identity_blake3: $cpu_baseline_identity,
+          step_seconds: 10.0
+        },
+        machine_facts: $machine_facts[0],
+        runs: [
+          {time_seconds: 1.0, loss: 5.0},
+          {time_seconds: 1.0, loss: 4.9},
+          {time_seconds: 1.0, loss: 4.8},
+          {time_seconds: 1.0, loss: 4.7},
+          {time_seconds: 1.0, loss: 4.6}
+        ]
+      }' >single-measurement-raw.json
+    "$CORE" summarize-measurement single-measurement-raw.json \
+      single-measurement-profile.json >single-measurement-receipt.json
+
+    # r[verify tenstorrent.harness.utilization.valid]
+    # r[verify tenstorrent.harness.memory_pressure.valid]
+    # r[verify tenstorrent.harness.op_latency.valid]
+    # r[verify tenstorrent.harness.scaling_efficiency.valid]
+    jq -n \
+      --slurpfile measurement_receipt measurement-receipt.json \
+      --slurpfile telemetry fixtures/device-telemetry.json \
+      --slurpfile single_profile single-measurement-profile.json \
+      --slurpfile single_receipt single-measurement-receipt.json \
+      '{
+        measurement_receipt: $measurement_receipt[0],
+        telemetry: $telemetry[0],
+        scaling_baseline: {
+          profile: $single_profile[0],
+          receipt: $single_receipt[0]
+        }
+      }' >utilization-raw.json
+    "$CORE" summarize-utilization utilization-raw.json measurement-profile-first.json \
+      >utilization-receipt.json
+    "$CORE" summarize-utilization utilization-raw.json measurement-profile-first.json \
+      >utilization-receipt-again.json
+    cmp utilization-receipt.json utilization-receipt-again.json
+    "$CORE" admit-utilization utilization-receipt.json utilization-raw.json \
+      measurement-profile-first.json >utilization-admission.json
+    grep -F '"status":"admitted"' utilization-admission.json
+    grep -F '"device_count":2' utilization-admission.json
+    grep -F '"operation_count":2' utilization-admission.json
+    grep -F '"scaling_efficiency":' utilization-admission.json
+
+    # r[verify tenstorrent.harness.scaling_efficiency.invalid]
+    jq '.scaling_baseline = null' utilization-raw.json >utilization-missing-scaling.json
+    if "$CORE" summarize-utilization utilization-missing-scaling.json \
+      measurement-profile-first.json > /dev/null 2> rejected.log; then
+      echo "dual-device scaling without a baseline was admitted" >&2
+      exit 1
+    fi
+    grep -F "missing_scaling_baseline" rejected.log
 
     # r[verify tenstorrent.harness.measurement_profile.scope]
     # r[verify tenstorrent.harness.stage_breakdown.invalid]

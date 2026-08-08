@@ -13,11 +13,13 @@
 
 mod generated_model_target_identity;
 mod measurement;
+mod utilization;
 
 pub use measurement::{
     Distribution, MeasurementAdmission, MeasurementProfile, admit_measurement_profile,
     admit_measurement_receipt, bind_machine_facts, summarize_measurement,
 };
+pub use utilization::{UtilizationAdmission, admit_utilization_receipt, summarize_utilization};
 
 use std::cmp::Ordering;
 

@@ -249,6 +249,67 @@ runCommand "rwkv7-lora-p150a-check"
     grep -F '"status":"admitted"' measurement-admission.json
     grep -F '"repeats":5' measurement-admission.json
 
+    # r[verify tenstorrent.harness.utilization.valid]
+    # r[verify tenstorrent.harness.memory_pressure.valid]
+    # r[verify tenstorrent.harness.op_latency.valid]
+    # r[verify tenstorrent.harness.scaling_efficiency.invalid]
+    jq -n \
+      --slurpfile measurement_receipt measurement-receipt.json \
+      --slurpfile telemetry fixtures/device-telemetry.json \
+      '{
+        measurement_receipt: $measurement_receipt[0],
+        telemetry: $telemetry[0],
+        scaling_baseline: null
+      }' >utilization-raw.json
+    "$CORE" summarize-utilization utilization-raw.json measurement-profile-first.json \
+      >utilization-receipt.json
+    "$CORE" summarize-utilization utilization-raw.json measurement-profile-first.json \
+      >utilization-receipt-again.json
+    cmp utilization-receipt.json utilization-receipt-again.json
+    "$CORE" admit-utilization utilization-receipt.json utilization-raw.json \
+      measurement-profile-first.json >utilization-admission.json
+    grep -F '"status":"admitted"' utilization-admission.json
+    grep -F '"device_count":1' utilization-admission.json
+    grep -F '"operation_count":2' utilization-admission.json
+
+    # r[verify tenstorrent.harness.utilization.invalid]
+    # r[verify tenstorrent.harness.memory_pressure.invalid]
+    # r[verify tenstorrent.harness.op_latency.invalid]
+    jq '.telemetry.utilization.math_busy_fraction = 1.1' utilization-raw.json \
+      >utilization-out-of-range.json
+    if "$CORE" summarize-utilization utilization-out-of-range.json \
+      measurement-profile-first.json > /dev/null 2> rejected.log; then
+      echo "out-of-range utilization was admitted" >&2
+      exit 1
+    fi
+    grep -F "utilization_fraction_out_of_range" rejected.log
+    jq '.telemetry.memory[0].l1_peak_bytes = -1' utilization-raw.json \
+      >utilization-invalid-memory.json
+    if "$CORE" summarize-utilization utilization-invalid-memory.json \
+      measurement-profile-first.json > /dev/null 2> rejected.log; then
+      echo "negative memory peak was admitted" >&2
+      exit 1
+    fi
+    grep -F "invalid_utilization_metric" rejected.log
+    jq 'del(.telemetry.operation_samples[1])' utilization-raw.json \
+      >utilization-missing-operation.json
+    if "$CORE" summarize-utilization utilization-missing-operation.json \
+      measurement-profile-first.json > /dev/null 2> rejected.log; then
+      echo "incomplete operation table was admitted" >&2
+      exit 1
+    fi
+    grep -F "incomplete_operation_latency" rejected.log
+    jq --slurpfile profile measurement-profile-first.json \
+      --slurpfile receipt measurement-receipt.json \
+      '.scaling_baseline = {profile: $profile[0], receipt: $receipt[0]}' \
+      utilization-raw.json >utilization-false-scaling.json
+    if "$CORE" summarize-utilization utilization-false-scaling.json \
+      measurement-profile-first.json > /dev/null 2> rejected.log; then
+      echo "single-device scaling claim was admitted" >&2
+      exit 1
+    fi
+    grep -F "scaling_claim_without_two_device_run" rejected.log
+
     # r[verify tenstorrent.harness.measurement_profile.scope]
     # r[verify tenstorrent.harness.stage_breakdown.invalid]
     # r[verify tenstorrent.harness.speedup_ratio.invalid]

@@ -24,7 +24,7 @@ MV=@mv@
 NANOSECONDS_PER_SECOND=1000000000
 
 usage() {
-  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--parity-receipt PATH] [--machine-facts PATH]" >&2
+  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--parity-receipt PATH] [--machine-facts PATH] [--device-telemetry PATH] [--single-measurement-profile PATH] [--single-measurement-receipt PATH]" >&2
   exit 2
 }
 
@@ -35,6 +35,9 @@ DTYPE=""
 MODE="receipt"
 PARITY_RECEIPT=""
 MACHINE_FACTS=""
+DEVICE_TELEMETRY=""
+SINGLE_MEASUREMENT_PROFILE=""
+SINGLE_MEASUREMENT_RECEIPT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -44,6 +47,9 @@ while [ "$#" -gt 0 ]; do
     --mode) MODE="$2"; shift 2 ;;
     --parity-receipt) PARITY_RECEIPT="$2"; shift 2 ;;
     --machine-facts) MACHINE_FACTS="$2"; shift 2 ;;
+    --device-telemetry) DEVICE_TELEMETRY="$2"; shift 2 ;;
+    --single-measurement-profile) SINGLE_MEASUREMENT_PROFILE="$2"; shift 2 ;;
+    --single-measurement-receipt) SINGLE_MEASUREMENT_RECEIPT="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -60,8 +66,13 @@ case "$MODE" in
   receipt|measurement|multistep|checkpoint) ;;
   *) usage ;;
 esac
-if [ "$MODE" = "measurement" ] && [ -z "$MACHINE_FACTS" ]; then
-  echo "rwkv7-lora-dual-p150a-full-step: measurement mode requires --machine-facts" >&2
+if [ "$MODE" = "measurement" ] && {
+  [ -z "$MACHINE_FACTS" ] \
+    || [ -z "$DEVICE_TELEMETRY" ] \
+    || [ -z "$SINGLE_MEASUREMENT_PROFILE" ] \
+    || [ -z "$SINGLE_MEASUREMENT_RECEIPT" ]
+}; then
+  echo "rwkv7-lora-dual-p150a-full-step: measurement mode requires machine facts, profiler telemetry, and the one-device measurement profile and receipt" >&2
   usage
 fi
 if [ "$MODE" = "multistep" ] && [ -z "$PARITY_RECEIPT" ]; then
@@ -72,6 +83,15 @@ fi
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 if [ -n "$MACHINE_FACTS" ]; then
   MACHINE_FACTS=$(readlink -f "$MACHINE_FACTS")
+fi
+if [ -n "$DEVICE_TELEMETRY" ]; then
+  DEVICE_TELEMETRY=$(readlink -f "$DEVICE_TELEMETRY")
+fi
+if [ -n "$SINGLE_MEASUREMENT_PROFILE" ]; then
+  SINGLE_MEASUREMENT_PROFILE=$(readlink -f "$SINGLE_MEASUREMENT_PROFILE")
+fi
+if [ -n "$SINGLE_MEASUREMENT_RECEIPT" ]; then
+  SINGLE_MEASUREMENT_RECEIPT=$(readlink -f "$SINGLE_MEASUREMENT_RECEIPT")
 fi
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
@@ -88,6 +108,8 @@ if [ "$MODE" = "measurement" ]; then
   "$CORE" admit-measurement-profile "$PROFILE" \
     > "$EVIDENCE_ROOT/measurement-profile-admission.json"
   "$CORE" bind-machine-facts "$MACHINE_FACTS" > "$EVIDENCE_ROOT/machine-facts.json"
+  "$CORE" admit-measurement "$SINGLE_MEASUREMENT_RECEIPT" \
+    "$SINGLE_MEASUREMENT_PROFILE" > "$EVIDENCE_ROOT/single-measurement-admission.json"
 fi
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
 TIMEOUT_SECONDS=$("$JQ" -r '.full_compile_timeout_seconds' "$EVIDENCE_ROOT/profile-admission.json")
@@ -222,6 +244,24 @@ finish_receipt() {
         > "$EVIDENCE_ROOT/receipt.json"
       "$CORE" admit-measurement "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
         > "$EVIDENCE_ROOT/measurement-admission.json"
+      "$JQ" -n \
+        --slurpfile measurement_receipt "$EVIDENCE_ROOT/receipt.json" \
+        --slurpfile telemetry "$DEVICE_TELEMETRY" \
+        --slurpfile single_profile "$SINGLE_MEASUREMENT_PROFILE" \
+        --slurpfile single_receipt "$SINGLE_MEASUREMENT_RECEIPT" \
+        '{
+          measurement_receipt: $measurement_receipt[0],
+          telemetry: $telemetry[0],
+          scaling_baseline: {
+            profile: $single_profile[0],
+            receipt: $single_receipt[0]
+          }
+        }' > "$EVIDENCE_ROOT/utilization-raw.json"
+      "$CORE" summarize-utilization "$EVIDENCE_ROOT/utilization-raw.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/utilization-receipt.json"
+      "$CORE" admit-utilization "$EVIDENCE_ROOT/utilization-receipt.json" \
+        "$EVIDENCE_ROOT/utilization-raw.json" "$PROFILE" \
+        > "$EVIDENCE_ROOT/utilization-admission.json"
     fi
   elif [ "$MODE" = "multistep" ]; then
     local run shard_plan
