@@ -88,9 +88,11 @@ This candidate has no profiler attribution or pinned FP32 CPU-reference comparis
 
 An alternating five-pair A/B test did not prove a sustained gain. Aggregate throughput changed by `-7.325042354322009%`. Mean throughput changed by `0.11850828141355407%`, while median throughput improved by `14.030194778215389%`.
 
-Dual profiler validation also failed exact card 0 token parity. The previously validated package reproduced this failure before and after a board reset. Unprofiled isolated and concurrent workers kept exact tokens.
+Further isolation found a timing-dependent physical concurrency failure. Card 0 kept exact tokens alone, and card 1 kept exact tokens. Concurrent independent workers could corrupt card 0 with or without profiling.
 
-The experiment was reverted. Current evidence does not justify replacing blocking readback.
+The previously validated package reproduced the failure. Board resets and a three-second settle interval did not reliably restore parity.
+
+The experiment was reverted. Current evidence does not justify replacing blocking readback or changing the benchmark launcher.
 
 ## Admission boundary
 

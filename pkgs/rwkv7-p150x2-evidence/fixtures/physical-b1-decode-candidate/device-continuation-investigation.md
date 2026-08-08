@@ -16,8 +16,14 @@ A five-pair alternating A/B test gave the strongest comparison:
 
 The device-continuation path was faster in four pairs. One `5.20511783`-second sample removed the aggregate gain. This evidence does not prove a sustained improvement.
 
-Dual-worker profiler validation also began returning incorrect card 0 tokens. The previously validated package reproduced this failure before and after a board reset. Unprofiled isolated and concurrent workers retained exact tokens.
+Further isolation changed the dual-worker diagnosis. Card 0 kept exact tokens when it ran alone, with or without profiling. Card 1 also kept exact tokens.
 
-The experiment was reverted. Do not claim a device-continuation gain until dual profiler parity and machine-time stability return.
+Concurrent independent workers could corrupt card 0, with or without profiling. Some concurrent runs passed, so the failure is timing-dependent. The previously validated package reproduced the same failure.
+
+Board resets and a three-second settle interval did not reliably restore parity. This is a physical multi-process concurrency blocker, not a proven profiler-only defect.
+
+The experiment was reverted. Do not claim a device-continuation gain until dual-worker parity and machine-time stability return.
 
 Raw B1 A/B receipts remain under `/var/tmp/rwkv7-p150x2-b1-alternating-ab-20260808-2200/` on the measurement host.
+
+Profiler-isolation receipts remain under `/var/tmp/rwkv7-p150x2-profiler-isolation-card0-profiled-20260808-2240/`. Reset-control receipts remain under `/var/tmp/rwkv7-p150x2-reset-settle-control-20260809-0040/`.
