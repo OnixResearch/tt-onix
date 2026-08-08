@@ -233,6 +233,25 @@ let RegressionPolicyC = {
   hash_algorithm | std.contract.from_predicate (fun value => value == "blake3"),
 } in
 
+let StabilityPolicyC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  profile_id | NonEmptyC,
+  parity_profile_id | NonEmptyC,
+  step_budget | PositiveIntC,
+  trajectory_cadence_steps | PositiveIntC,
+  thermal_cadence_steps | PositiveIntC,
+  maximum_loss | PositiveC,
+  maximum_gradient_norm | PositiveC,
+  maximum_temperature_celsius | PositiveC,
+  maximum_power_watts | PositiveC,
+  maximum_eval_loss_ratio | std.contract.from_predicate (fun value =>
+    std.is_number value && value > 0 && value <= 1
+  ),
+  thermal_source | NonEmptyC,
+  generalization_non_claim | NonEmptyC,
+  hash_algorithm | std.contract.from_predicate (fun value => value == "blake3"),
+} in
+
 let MeasurementProfileC = std.contract.from_predicate (fun value =>
   std.is_record value
   && std.array.length (std.record.fields value) == measurement_profile_field_count
@@ -386,6 +405,7 @@ let profile_fields = [
   ProfileClosed = ClosedRecordC profile_fields,
   MeasurementProfile = MeasurementProfileC,
   RegressionPolicy = RegressionPolicyC,
+  StabilityPolicy = StabilityPolicyC,
   Wheels = WheelsC,
   WheelsClosed = ClosedRecordC wheels_fields,
   HashHex = HashHexC,

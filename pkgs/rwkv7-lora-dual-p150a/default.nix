@@ -86,6 +86,15 @@ let
         nickel export --format json regression-policy.ncl > "$out"
       '';
 
+  stabilityPolicyJson =
+    runCommand "rwkv7-lora-dual-p150a-stability-policy.json" { nativeBuildInputs = [ nickel ]; }
+      ''
+        cp -r ${packageSource} "$PWD/repository"
+        chmod -R u+w "$PWD/repository"
+        cd "$PWD/repository/pkgs/rwkv7-lora-dual-p150a"
+        nickel export --format json stability-policy.ncl > "$out"
+      '';
+
   wheelsJson = runCommand "rwkv7-lora-dual-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
     cp -r ${packageSource} "$PWD/repository"
     chmod -R u+w "$PWD/repository"
@@ -125,6 +134,8 @@ let
       --subst-var-by fuser "${psmisc}/bin/fuser" \
       --subst-var-by date "${coreutils}/bin/date" \
       --subst-var-by mv "${coreutils}/bin/mv" \
+      --subst-var-by rm "${coreutils}/bin/rm" \
+      --subst-var-by sleep "${coreutils}/bin/sleep" \
       --subst-var-by dual_probe_py "${./probes/full_model_dual.py}" \
       --subst-var-by model_dir "${../rwkv7-lora-p150a/model}" \
       --subst-var-by install_deps_py "${../rwkv7-lora-p150a/probes/install_deps.py}" \
@@ -143,6 +154,7 @@ let
     ln -s ${profileJson} "$out/share/rwkv7-lora-dual-p150a/profile.json"
     ln -s ${measurementProfileJson} "$out/share/rwkv7-lora-dual-p150a/measurement-profile.json"
     ln -s ${regressionPolicyJson} "$out/share/rwkv7-lora-dual-p150a/regression-policy.json"
+    ln -s ${stabilityPolicyJson} "$out/share/rwkv7-lora-dual-p150a/stability-policy.json"
     ln -s ${./baseline-store.json} "$out/share/rwkv7-lora-dual-p150a/baseline-store.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-dual-p150a/wheels.json"
     echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
@@ -180,6 +192,7 @@ runCommand "rwkv7-lora-dual-p150a-check"
         profileJson
         measurementProfileJson
         regressionPolicyJson
+        stabilityPolicyJson
         ;
     };
   }
@@ -333,6 +346,84 @@ runCommand "rwkv7-lora-dual-p150a-check"
       exit 1
     fi
     grep -F "determinism_divergence" rejected.log
+
+    # r[verify tenstorrent.harness.long_run.valid]
+    # r[verify tenstorrent.harness.thermal.valid]
+    # r[verify tenstorrent.harness.heldout_eval.valid]
+    nickel export --format json stability-policy.ncl >stability-policy.json
+    profile_identity=$(jq -r '.identity_blake3' profile-admission.json)
+    eval_split_identity=$(printf '%s' 'dual-heldout-eval-split' | b3sum | cut -d' ' -f1)
+    reference_batch_identity=$(printf '%s' 'dual-periodic-reference-batch' | b3sum | cut -d' ' -f1)
+    jq -n \
+      --arg profile_identity "$profile_identity" \
+      --arg eval_split_identity "$eval_split_identity" \
+      --arg reference_batch_identity "$reference_batch_identity" \
+      --slurpfile machine_facts machine-facts.json \
+      '{
+        status: "completed",
+        completed_steps: 256,
+        checked_steps: 256,
+        parity_profile_identity: $profile_identity,
+        machine_facts: $machine_facts[0],
+        trajectory: [range(1; 17) as $sample | {
+          step: ($sample * 16), loss: (5.0 - ($sample * 0.1)), gradient_norm: 2.0
+        }],
+        thermal: {
+          source: "tt-smi-jsonl",
+          samples: [range(1; 17) as $sample | {
+            step: ($sample * 16),
+            devices: [
+              {device_id: 0, temperature_celsius: 70.0, power_watts: 100.0},
+              {device_id: 1, temperature_celsius: 71.0, power_watts: 101.0}
+            ]
+          }]
+        },
+        heldout_eval: {
+          split_identity: $eval_split_identity,
+          reference_batch_identity: $reference_batch_identity,
+          split_role: "held_out",
+          metric: "loss",
+          before_loss: 5.0,
+          after_loss: 4.0,
+          generalization_non_claim: "held-out loss does not prove generalization beyond the bound split"
+        }
+      }' >stability-raw.json
+    "$CORE" summarize-stability stability-raw.json profile-first.json stability-policy.json \
+      >stability-receipt.json
+    "$CORE" summarize-stability stability-raw.json profile-first.json stability-policy.json \
+      >stability-receipt-again.json
+    cmp stability-receipt.json stability-receipt-again.json
+    "$CORE" admit-stability stability-receipt.json stability-raw.json profile-first.json \
+      stability-policy.json >stability-admission.json
+    grep -F '"status":"admitted"' stability-admission.json
+    grep -F '"completed_steps":256' stability-admission.json
+
+    # r[verify tenstorrent.harness.long_run.invalid]
+    # r[verify tenstorrent.harness.thermal.invalid]
+    # r[verify tenstorrent.harness.heldout_eval.invalid]
+    jq '.trajectory[3].gradient_norm = 1001.0' stability-raw.json >stability-diverged.json
+    if "$CORE" summarize-stability stability-diverged.json profile-first.json stability-policy.json \
+      > /dev/null 2> rejected.log; then
+      echo "divergent long run was admitted" >&2
+      exit 1
+    fi
+    grep -F "step 64" rejected.log
+    jq '.thermal.samples[2].devices[1].power_watts = "NaN"' stability-raw.json \
+      >stability-nonfinite-thermal.json
+    if "$CORE" summarize-stability stability-nonfinite-thermal.json profile-first.json \
+      stability-policy.json > /dev/null 2> rejected.log; then
+      echo "non-finite thermal sample was admitted" >&2
+      exit 1
+    fi
+    grep -F "step 48, device 1" rejected.log
+    jq '.heldout_eval.split_identity = .heldout_eval.reference_batch_identity' \
+      stability-raw.json >stability-reference-eval.json
+    if "$CORE" summarize-stability stability-reference-eval.json profile-first.json \
+      stability-policy.json > /dev/null 2> rejected.log; then
+      echo "reference-batch eval was admitted as held out" >&2
+      exit 1
+    fi
+    grep -F "eval_not_held_out" rejected.log
 
     # Build a compatible one-device measurement from the same harness profile.
     cp "$SINGLE_MEASUREMENT_PROFILE" single-measurement-profile.json

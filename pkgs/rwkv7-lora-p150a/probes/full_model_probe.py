@@ -72,6 +72,7 @@ def main():
             "receipt",
             "measurement",
             "multistep",
+            "longrun",
             "checkpoint",
         ],
     )
@@ -85,7 +86,11 @@ def main():
         default="",
         help="optional path to also save CPU reference tensors",
     )
+    parser.add_argument("--stability-policy", default="")
+    parser.add_argument("--eval-split", default="")
     args = parser.parse_args()
+    if args.mode == "longrun" and not (args.stability_policy and args.eval_split):
+        parser.error("longrun mode requires --stability-policy and --eval-split")
     with open(args.profile, encoding="utf-8") as handle:
         profile = json.load(handle)
 
@@ -576,6 +581,152 @@ def main():
             final_loss_interrupted=final_a,
             final_loss_resumed=final_c,
             resume_loss_dev=resume_dev,
+        )
+        return
+
+    # r[impl tenstorrent.harness.long_run]
+    # r[impl tenstorrent.harness.heldout_eval]
+    if args.mode == "longrun":
+        with open(args.stability_policy, encoding="utf-8") as handle:
+            stability_policy = json.load(handle)
+        with open(args.eval_split, encoding="utf-8") as handle:
+            eval_split = json.load(handle)
+
+        step_budget = stability_policy["step_budget"]
+        cadence = stability_policy["trajectory_cadence_steps"]
+        maximum_loss = stability_policy["maximum_loss"]
+        maximum_gradient_norm = stability_policy["maximum_gradient_norm"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+
+        static_shape = profile["static_shape"]
+        micro_batch = static_shape["micro_batch"]
+        sequence_length = static_shape["sequence_length"]
+        tokens = micro_batch * sequence_length
+        vocab = profile["model"]["vocabulary_size"]
+        period = 8
+        base_tokens = torch.randint(
+            0,
+            vocab,
+            (period,),
+            generator=torch.Generator().manual_seed(profile["seed"]),
+        )
+        row = base_tokens.repeat(tokens // period + 1)[:tokens]
+        longrun_input_ids = row.reshape(micro_batch, sequence_length)
+        longrun_labels = longrun_input_ids.clone()
+        with open("/evidence/reference-batch.json", "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "input_ids": longrun_input_ids.tolist(),
+                    "labels": longrun_labels.tolist(),
+                },
+                handle,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            handle.write("\n")
+
+        eval_input_ids = torch.tensor(eval_split["input_ids"], dtype=torch.long)
+        eval_labels = torch.tensor(eval_split["labels"], dtype=torch.long)
+        expected_shape = (micro_batch, sequence_length)
+        if (
+            tuple(eval_input_ids.shape) != expected_shape
+            or tuple(eval_labels.shape) != expected_shape
+        ):
+            raise ValueError(f"held-out eval tensors must have shape {expected_shape}")
+        if torch.equal(eval_input_ids, longrun_input_ids) and torch.equal(
+            eval_labels, longrun_labels
+        ):
+            raise ValueError("held-out eval split equals the periodic reference batch")
+
+        def evaluate_loss(model):
+            model.eval()
+            with torch.no_grad():
+                _logits, loss = compute_loss(
+                    model, eval_input_ids.to(device), eval_labels.to(device)
+                )
+                torch_xla.sync(wait=True)
+                value = float(loss.detach().to("cpu").item())
+            model.train()
+            return value
+
+        heldout_before_loss = evaluate_loss(dev_model)
+        trainable_params = [dev_model.get_parameter(n) for n in trainable_names]
+        optimizer = torch.optim.AdamW(
+            trainable_params, lr=lr, weight_decay=0.0, capturable=True
+        )
+        trajectory = []
+        checked_steps = 0
+        started = time.monotonic()
+        for step_index in range(step_budget):
+            optimizer.zero_grad()
+            _logits, loss = compute_loss(
+                dev_model, longrun_input_ids.to(device), longrun_labels.to(device)
+            )
+            loss.backward()
+            gradient_norm = torch.nn.utils.clip_grad_norm_(trainable_params, clip_norm)
+            optimizer.step()
+            torch_xla.sync(wait=True)
+            step = step_index + 1
+            checked_steps = step
+            loss_value = float(loss.detach().to("cpu").item())
+            gradient_norm_value = float(gradient_norm.detach().to("cpu").item())
+            if not math.isfinite(loss_value) or not math.isfinite(gradient_norm_value):
+                emit(
+                    "fail",
+                    mode="longrun",
+                    failing_step=step,
+                    condition="non_finite_loss_or_gradient_norm",
+                )
+                return
+            if loss_value > maximum_loss or gradient_norm_value > maximum_gradient_norm:
+                emit(
+                    "fail",
+                    mode="longrun",
+                    failing_step=step,
+                    condition="divergence_bound_exceeded",
+                    loss=loss_value,
+                    gradient_norm=gradient_norm_value,
+                )
+                return
+            if step % cadence == 0:
+                marker_directory = "/evidence/longrun-steps"
+                os.makedirs(marker_directory, exist_ok=True)
+                latest_marker_tmp = "/evidence/longrun-step.json.tmp"
+                latest_marker_path = "/evidence/longrun-step.json"
+                with open(latest_marker_tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"step": step}, handle, sort_keys=True)
+                    handle.write("\n")
+                os.replace(latest_marker_tmp, latest_marker_path)
+                marker_path = f"{marker_directory}/{step}.json"
+                marker_tmp = f"{marker_path}.tmp"
+                with open(marker_tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"step": step}, handle, sort_keys=True)
+                    handle.write("\n")
+                os.replace(marker_tmp, marker_path)
+                trajectory.append({
+                    "step": step,
+                    "loss": loss_value,
+                    "gradient_norm": gradient_norm_value,
+                })
+
+        heldout_after_loss = evaluate_loss(dev_model)
+        emit(
+            "pass",
+            mode="longrun",
+            device_count=len(supported),
+            seconds=time.monotonic() - started,
+            completed_steps=step_budget,
+            checked_steps=checked_steps,
+            trajectory=trajectory,
+            heldout_eval={
+                "split_role": "held_out",
+                "metric": "loss",
+                "before_loss": heldout_before_loss,
+                "after_loss": heldout_after_loss,
+                "generalization_non_claim": stability_policy[
+                    "generalization_non_claim"
+                ],
+            },
         )
         return
 

@@ -14,7 +14,7 @@ mod generated_model_target_identity;
 
 pub use rwkv7_lora_p150a_core::{
     DeterminismAdmission, Distribution, MeasurementAdmission, MeasurementProfile,
-    RegressionAdmission, UtilizationAdmission,
+    RegressionAdmission, StabilityAdmission, UtilizationAdmission,
 };
 
 use serde_json::{Value, json};
@@ -360,6 +360,30 @@ pub fn compare_determinism(
 
 pub fn admit_determinism_receipt(receipt: &Value) -> Result<DeterminismAdmission, Rejection> {
     rwkv7_lora_p150a_core::admit_determinism_receipt(receipt).map_err(shared_measurement_rejection)
+}
+
+pub fn normalize_tt_smi_snapshot(snapshot: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::normalize_tt_smi_snapshot(snapshot, profile)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_stability(
+    raw: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_stability(raw, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_stability_receipt(
+    receipt: &Value,
+    raw: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<StabilityAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_stability_receipt(receipt, raw, profile, policy)
+        .map_err(shared_measurement_rejection)
 }
 
 fn is_hash_hex(value: &str) -> bool {

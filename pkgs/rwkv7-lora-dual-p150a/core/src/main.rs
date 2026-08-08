@@ -24,6 +24,9 @@ fn usage() -> String {
      usage: rwkv7-lora-dual-p150a-core admit-baseline STORE_JSON PROFILE_JSON RECEIPT_JSON\n\
      usage: rwkv7-lora-dual-p150a-core gate-regression RECEIPT_JSON PROFILE_JSON STORE_JSON POLICY_JSON\n\
      usage: rwkv7-lora-dual-p150a-core compare-determinism LEFT_JSON RIGHT_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core normalize-thermal-snapshot SNAPSHOT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core summarize-stability RAW_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-stability RECEIPT_JSON RAW_JSON PROFILE_JSON POLICY_JSON\n\
      usage: rwkv7-lora-dual-p150a-core plan-shards PROFILE_JSON BATCH_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-collective RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
@@ -339,6 +342,70 @@ fn run() -> Result<u8, String> {
             {
                 Ok(determinism_receipt) => {
                     println!("{determinism_receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "normalize-thermal-snapshot" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let snapshot = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::normalize_tt_smi_snapshot(&snapshot, &profile) {
+                Ok(normalized) => {
+                    println!("{normalized}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-stability" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let policy = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::summarize_stability(&raw, &profile, &policy) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-stability" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let raw = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::admit_stability_receipt(
+                &receipt, &raw, &profile, &policy,
+            ) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "completed_steps": admission.completed_steps,
+                        "trajectory_samples": admission.trajectory_samples,
+                        "thermal_samples": admission.thermal_samples,
+                        "eval_loss_ratio": admission.eval_loss_ratio,
+                    });
+                    println!("{body}");
                     Ok(SUCCESS)
                 }
                 Err(rejection) => {

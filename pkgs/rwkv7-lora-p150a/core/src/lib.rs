@@ -14,6 +14,7 @@
 mod generated_model_target_identity;
 mod measurement;
 mod regression;
+mod stability;
 mod utilization;
 
 pub use measurement::{
@@ -23,6 +24,9 @@ pub use measurement::{
 pub use regression::{
     DeterminismAdmission, RegressionAdmission, admit_baseline_store, admit_determinism_receipt,
     admit_regression_receipt, compare_determinism, create_baseline, gate_regression,
+};
+pub use stability::{
+    StabilityAdmission, admit_stability_receipt, normalize_tt_smi_snapshot, summarize_stability,
 };
 pub use utilization::{UtilizationAdmission, admit_utilization_receipt, summarize_utilization};
 

@@ -5,6 +5,9 @@
 # r[impl tenstorrent.rwkv7_p150a_finetuning.parity]
 # r[impl tenstorrent.harness.regression_gate]
 # r[impl tenstorrent.harness.determinism]
+# r[impl tenstorrent.harness.long_run]
+# r[impl tenstorrent.harness.thermal]
+# r[impl tenstorrent.harness.heldout_eval]
 # Host-side orchestrator for the full-model single-P150A step receipt.
 # Runs the full RWKV7 LoRA graph in the pinned container, captures placement
 # and parity evidence, wraps it into a receipt, and validates it with the
@@ -20,6 +23,8 @@ B3SUM=@b3sum@
 FUSER=@fuser@
 DATE=@date@
 MV=@mv@
+RM=@rm@
+SLEEP=@sleep@
 PROBE_PY=@probe_py@
 MODEL_DIR=@model_dir@
 CONTAINER_SCRIPT=@container_script@
@@ -29,7 +34,7 @@ NANOSECONDS_PER_SECOND=1000000000
 REGRESSION_INPUT_TOTAL=3
 
 usage() {
-  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--machine-facts PATH] [--device-telemetry PATH] [--regression-baseline PATH --regression-policy PATH --determinism-receipt PATH]" >&2
+  echo "usage: rwkv7-lora-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|longrun|checkpoint] [--machine-facts PATH] [--device-telemetry PATH] [--regression-baseline PATH --regression-policy PATH --determinism-receipt PATH] [--stability-policy PATH --thermal-telemetry PATH --eval-split PATH]" >&2
   exit 2
 }
 
@@ -43,6 +48,9 @@ DEVICE_TELEMETRY=""
 REGRESSION_BASELINE=""
 REGRESSION_POLICY=""
 DETERMINISM_RECEIPT=""
+STABILITY_POLICY=""
+THERMAL_TELEMETRY=""
+EVAL_SPLIT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -55,6 +63,9 @@ while [ "$#" -gt 0 ]; do
     --regression-baseline) REGRESSION_BASELINE="$2"; shift 2 ;;
     --regression-policy) REGRESSION_POLICY="$2"; shift 2 ;;
     --determinism-receipt) DETERMINISM_RECEIPT="$2"; shift 2 ;;
+    --stability-policy) STABILITY_POLICY="$2"; shift 2 ;;
+    --thermal-telemetry) THERMAL_TELEMETRY="$2"; shift 2 ;;
+    --eval-split) EVAL_SPLIT="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -68,7 +79,7 @@ if [ -n "$DTYPE" ]; then
   esac
 fi
 case "$MODE" in
-  receipt|measurement|multistep|checkpoint) ;;
+  receipt|measurement|multistep|longrun|checkpoint) ;;
   *) usage ;;
 esac
 if [ "$MODE" = "measurement" ] && { [ -z "$MACHINE_FACTS" ] || [ -z "$DEVICE_TELEMETRY" ]; }; then
@@ -89,6 +100,15 @@ if [ "$REGRESSION_INPUT_COUNT" -eq "$REGRESSION_INPUT_TOTAL" ] && [ "$MODE" != "
   echo "rwkv7-lora-p150a-full-step: regression gating is available only in measurement mode" >&2
   usage
 fi
+if [ "$MODE" = "longrun" ] && {
+  [ -z "$MACHINE_FACTS" ] \
+    || [ -z "$STABILITY_POLICY" ] \
+    || [ -z "$THERMAL_TELEMETRY" ] \
+    || [ -z "$EVAL_SPLIT" ]
+}; then
+  echo "rwkv7-lora-p150a-full-step: longrun mode requires machine facts, stability policy, thermal telemetry, and an eval split" >&2
+  usage
+fi
 
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 if [ -n "$MACHINE_FACTS" ]; then
@@ -102,6 +122,21 @@ if [ "$REGRESSION_INPUT_COUNT" -eq "$REGRESSION_INPUT_TOTAL" ]; then
   REGRESSION_POLICY=$(readlink -f "$REGRESSION_POLICY")
   DETERMINISM_RECEIPT=$(readlink -f "$DETERMINISM_RECEIPT")
 fi
+STABILITY_DOCKER_ARGS=()
+STABILITY_PROBE_ARGS=()
+if [ "$MODE" = "longrun" ]; then
+  STABILITY_POLICY=$(readlink -f "$STABILITY_POLICY")
+  THERMAL_TELEMETRY=$(readlink -m "$THERMAL_TELEMETRY")
+  EVAL_SPLIT=$(readlink -f "$EVAL_SPLIT")
+  STABILITY_DOCKER_ARGS=(
+    -v "$STABILITY_POLICY:/stability/policy.json:ro"
+    -v "$EVAL_SPLIT:/stability/eval-split.json:ro"
+  )
+  STABILITY_PROBE_ARGS=(
+    --stability-policy /stability/policy.json
+    --eval-split /stability/eval-split.json
+  )
+fi
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
   if [ -n "${!variable:-}" ]; then
@@ -111,11 +146,21 @@ for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
 done
 
 mkdir -p "$EVIDENCE_ROOT"
+if [ "$MODE" = "longrun" ]; then
+  mkdir -p "$(dirname "$THERMAL_TELEMETRY")"
+  "$RM" -rf "$EVIDENCE_ROOT/longrun-steps"
+  "$RM" -f "$EVIDENCE_ROOT/longrun-step.json" \
+    "$EVIDENCE_ROOT/thermal-sampler.stop" \
+    "$EVIDENCE_ROOT/thermal-samples.jsonl" \
+    "$EVIDENCE_ROOT/tt-smi-source.jsonl"
+fi
 
 "$CORE" admit-profile "$PROFILE" > "$EVIDENCE_ROOT/profile-admission.json"
 if [ "$MODE" = "measurement" ]; then
   "$CORE" admit-measurement-profile "$PROFILE" \
     > "$EVIDENCE_ROOT/measurement-profile-admission.json"
+fi
+if [ "$MODE" = "measurement" ] || [ "$MODE" = "longrun" ]; then
   "$CORE" bind-machine-facts "$MACHINE_FACTS" > "$EVIDENCE_ROOT/machine-facts.json"
 fi
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
@@ -129,6 +174,61 @@ CONFIG_IDENTITY=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.config_identity')
 PLAN_IDENTITY=$(printf '%s' "$PLAN" | "$JQ" -r '.identity_blake3')
 
 stage_status() { printf '{"name": "%s", "status": "%s"}' "$1" "$2"; }
+
+sample_longrun_thermals() {
+  local cadence next_step snapshot_path source samples step_budget thermal_source
+  cadence=$("$JQ" -r '.thermal_cadence_steps' "$STABILITY_POLICY")
+  step_budget=$("$JQ" -r '.step_budget' "$STABILITY_POLICY")
+  thermal_source=$("$JQ" -r '.thermal_source' "$STABILITY_POLICY")
+  next_step=$cadence
+  snapshot_path="$EVIDENCE_ROOT/tt-smi-current.json"
+  source="$EVIDENCE_ROOT/tt-smi-source.jsonl"
+  samples="$EVIDENCE_ROOT/thermal-samples.jsonl"
+  : > "$source"
+  : > "$samples"
+  while [ "$next_step" -le "$step_budget" ]; do
+    local marker normalized
+    marker="$EVIDENCE_ROOT/longrun-steps/$next_step.json"
+    if [ -f "$marker" ]; then
+      local latest_step
+      latest_step=$("$JQ" -r '.step' "$EVIDENCE_ROOT/longrun-step.json")
+      if [ "$latest_step" -ne "$next_step" ]; then
+        echo "rwkv7-lora-p150a-full-step: thermal sampler missed cadence step $next_step; latest step is $latest_step" >&2
+        return 1
+      fi
+      if ! "$TTSMI" -s --snapshot_no_tty > "$snapshot_path"; then
+        echo "rwkv7-lora-p150a-full-step: tt-smi failed at step $next_step" >&2
+        return 1
+      fi
+      latest_step=$("$JQ" -r '.step' "$EVIDENCE_ROOT/longrun-step.json")
+      if [ "$latest_step" -ne "$next_step" ]; then
+        echo "rwkv7-lora-p150a-full-step: thermal snapshot crossed cadence step $next_step; latest step is $latest_step" >&2
+        return 1
+      fi
+      if ! "$JQ" -c . "$snapshot_path" >> "$source"; then
+        echo "rwkv7-lora-p150a-full-step: tt-smi returned invalid JSON at step $next_step" >&2
+        return 1
+      fi
+      if ! normalized=$("$CORE" normalize-thermal-snapshot "$snapshot_path" "$PROFILE"); then
+        echo "rwkv7-lora-p150a-full-step: thermal normalization failed at step $next_step" >&2
+        return 1
+      fi
+      if ! printf '%s\n' "$normalized" | "$JQ" -c --argjson step "$next_step" \
+        '{step: $step, devices: .devices}' >> "$samples"; then
+        echo "rwkv7-lora-p150a-full-step: thermal sample write failed at step $next_step" >&2
+        return 1
+      fi
+      next_step=$((next_step + cadence))
+    elif [ -f "$EVIDENCE_ROOT/thermal-sampler.stop" ]; then
+      echo "rwkv7-lora-p150a-full-step: thermal series ended before step $next_step" >&2
+      return 1
+    else
+      "$SLEEP" 1
+    fi
+  done
+  "$JQ" -s --arg source "$thermal_source" \
+    '{source: $source, samples: .}' "$samples" > "$THERMAL_TELEMETRY"
+}
 
 finalize_measurement_stage_times() {
   local elapsed_nanoseconds elapsed_seconds
@@ -226,6 +326,53 @@ finish_receipt() {
       "$CORE" admit-utilization "$EVIDENCE_ROOT/utilization-receipt.json" \
         "$EVIDENCE_ROOT/utilization-raw.json" "$PROFILE" \
         > "$EVIDENCE_ROOT/utilization-admission.json"
+    fi
+  elif [ "$MODE" = "longrun" ]; then
+    if [ "$overall" -ne 0 ]; then
+      "$JQ" -n \
+        --argjson schema_version 1 \
+        --arg kind "rwkv7_lora_p150a_stability_failure" \
+        --arg profile_identity "$PROFILE_IDENTITY" \
+        --argjson stages "$stages" \
+        --argjson probe_result "$probe_result" \
+        '{
+          schema_version: $schema_version,
+          kind: $kind,
+          profile_identity: $profile_identity,
+          stages: $stages,
+          probe_result: $probe_result
+        }' > "$EVIDENCE_ROOT/receipt.json"
+    else
+      local eval_split_identity machine_facts reference_batch_identity
+      eval_split_identity=$("$B3SUM" "$EVAL_SPLIT" | cut -d' ' -f1)
+      reference_batch_identity=$("$B3SUM" "$EVIDENCE_ROOT/reference-batch.json" | cut -d' ' -f1)
+      machine_facts=$(cat "$EVIDENCE_ROOT/machine-facts.json")
+      "$JQ" -n \
+        --arg status "completed" \
+        --arg profile_identity "$PROFILE_IDENTITY" \
+        --arg eval_split_identity "$eval_split_identity" \
+        --arg reference_batch_identity "$reference_batch_identity" \
+        --argjson machine_facts "$machine_facts" \
+        --argjson probe_result "$probe_result" \
+        --slurpfile thermal "$THERMAL_TELEMETRY" \
+        '{
+          status: $status,
+          completed_steps: $probe_result.completed_steps,
+          checked_steps: $probe_result.checked_steps,
+          parity_profile_identity: $profile_identity,
+          machine_facts: $machine_facts,
+          trajectory: $probe_result.trajectory,
+          thermal: $thermal[0],
+          heldout_eval: ($probe_result.heldout_eval + {
+            split_identity: $eval_split_identity,
+            reference_batch_identity: $reference_batch_identity
+          })
+        }' > "$EVIDENCE_ROOT/stability-raw.json"
+      "$CORE" summarize-stability "$EVIDENCE_ROOT/stability-raw.json" "$PROFILE" \
+        "$STABILITY_POLICY" > "$EVIDENCE_ROOT/receipt.json"
+      "$CORE" admit-stability "$EVIDENCE_ROOT/receipt.json" \
+        "$EVIDENCE_ROOT/stability-raw.json" "$PROFILE" "$STABILITY_POLICY" \
+        > "$EVIDENCE_ROOT/stability-admission.json"
     fi
   elif [ "$MODE" = "multistep" ]; then
     local run
@@ -347,7 +494,7 @@ fail_at() {
   finish_receipt 1 "$@" "$(stage_status "$failed" fail)"
 }
 
-"$TTSMI" -s > "$EVIDENCE_ROOT/health-before.json"
+"$TTSMI" -s --snapshot_no_tty > "$EVIDENCE_ROOT/health-before.json"
 S_HEALTH_BEFORE=$(stage_status health_before pass)
 
 for device_node in /dev/tenstorrent/[0-9]*; do
@@ -363,7 +510,12 @@ fi
 S_OWNERSHIP=$(stage_status ownership pass)
 
 RUN_STARTED_NANOSECONDS=$("$DATE" +%s%N)
+THERMAL_SAMPLER_PID=""
 set +e
+if [ "$MODE" = "longrun" ]; then
+  sample_longrun_thermals > "$EVIDENCE_ROOT/thermal-sampler.log" 2>&1 &
+  THERMAL_SAMPLER_PID=$!
+fi
 timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   --device /dev/tenstorrent \
   -v "$HUGEPAGE_MOUNT:$HUGEPAGE_MOUNT" \
@@ -375,14 +527,24 @@ timeout "$TIMEOUT_SECONDS" "$DOCKER" run --rm \
   -v "$CHECKPOINT:/ckpt/model.safetensors:ro" \
   -v "$PROFILE:/profile/profile.json:ro" \
   -v "$EVIDENCE_ROOT:/evidence" \
+  "${STABILITY_DOCKER_ARGS[@]}" \
   -e "MEASUREMENT_HOST_START_NS=$RUN_STARTED_NANOSECONDS" \
   "$IMAGE" \
   bash /container-full-model.sh \
     --profile /profile/profile.json \
     --checkpoint /ckpt/model.safetensors \
-    --mode "$MODE" "${DTYPE_ARGS[@]}" \
+    --mode "$MODE" "${DTYPE_ARGS[@]}" "${STABILITY_PROBE_ARGS[@]}" \
   > "$EVIDENCE_ROOT/step-stdout.log" 2> "$EVIDENCE_ROOT/step-stderr.log"
 STEP_STATUS=$?
+if [ "$MODE" = "longrun" ]; then
+  touch "$EVIDENCE_ROOT/thermal-sampler.stop"
+  wait "$THERMAL_SAMPLER_PID"
+  THERMAL_STATUS=$?
+  if [ "$THERMAL_STATUS" -ne 0 ]; then
+    STEP_STATUS=$THERMAL_STATUS
+    cat "$EVIDENCE_ROOT/thermal-sampler.log" >&2
+  fi
+fi
 set -e
 
 grep -E '^\{' "$EVIDENCE_ROOT/step-stdout.log" | tail -1 > "$EVIDENCE_ROOT/step-result.json" || true
@@ -398,7 +560,7 @@ for device_node in /dev/tenstorrent/[0-9]*; do
 done
 S_RESTORE=$(stage_status restore pass)
 
-"$TTSMI" -s > "$EVIDENCE_ROOT/health-after.json"
+"$TTSMI" -s --snapshot_no_tty > "$EVIDENCE_ROOT/health-after.json"
 S_HEALTH_AFTER=$(stage_status health_after pass)
 RUN_ENDED_NANOSECONDS=$("$DATE" +%s%N)
 if [ "$MODE" = "measurement" ]; then

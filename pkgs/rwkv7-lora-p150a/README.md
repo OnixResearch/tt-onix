@@ -157,7 +157,7 @@ Full-model step, bounded run, and checkpoint (hardware):
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
   --checkpoint <pinned-checkpoint.safetensors> \
   --evidence-root <evidence-dir> \
-  --mode receipt          # or: measurement, multistep, checkpoint
+  --mode receipt          # or: measurement, multistep, longrun, checkpoint
 ```
 
 - `receipt`: one-step placement + parity receipt.
@@ -166,6 +166,11 @@ Full-model step, bounded run, and checkpoint (hardware):
   Add `--machine-facts <machine-fact-values.json>` and
   `--device-telemetry <profiler-telemetry.json>`.
 - `multistep`: bounded multi-step run with loss-improvement criterion.
+- `longrun`: the policy-bound stability and held-out-eval run. Add
+  `--stability-policy "$TOOLS/share/rwkv7-lora-p150a/stability-policy.json"`,
+  `--thermal-telemetry <evidence-dir>/thermal.jsonl`, and
+  `--eval-split <held-out-token-split.json>`. The split file must be distinct
+  from the periodic reference batch.
 - `checkpoint`: adapter save/load/resume receipt and the Safetensors artifact.
 
 Each runner uses the package-owned training-platform authority and offline
@@ -198,6 +203,28 @@ writes `regression-receipt.json` and `determinism-receipt.json`. The
 determinism receipt records the maximum absolute time and loss differences.
 It is not a bitwise tensor-equivalence claim.
 
+## Stability and training value
+
+The checked policy runs 256 optimizer steps. It records loss and gradient norm
+every 16 steps. The probe stops at the first non-finite value or named bound
+violation. It writes `reference-batch.json` and `longrun-step.json` before the
+runner constructs the receipt.
+
+During `longrun`, the runner starts the sampler before the probe. The sampler
+uses `tt-smi -s --snapshot_no_tty` after each new cadence-aligned trajectory
+point. The core retains the profile-selected device. The
+sampler writes one source JSONL record per sample and stops when the probe ends.
+The runner rejects missing points, duplicate points, wrong devices, non-finite
+values, source errors, and cadence mismatches.
+
+The admission binds the exact policy, parity profile, machine facts, telemetry,
+trajectory, and held-out split with BLAKE3. It requires finite held-out loss and
+a final-to-initial loss ratio of at most 0.99. This result only applies to the
+bound split. It does not prove useful generalization or production quality.
+
+A passing run writes `receipt.json` and `stability-admission.json`. The checked
+fixtures only test the admission mechanism. They are not hardware evidence.
+
 ## Failure diagnosis
 
 - `stage ownership failed`: a process owns a device node. Find it with
@@ -225,9 +252,11 @@ every adapter tensor BLAKE3.
 A passing receipt does NOT establish:
 
 - Dual-card scaling, model parallelism, or data parallelism.
-- Useful generalization or production fine-tuning quality.
+- Useful generalization or production fine-tuning quality. A passing
+  `longrun` receipt only reports improvement on its bound held-out split.
 - Long-context support or other RWKV model sizes.
 - Speedup over the CPU reference from a parity, run, or checkpoint receipt.
   Only a passing physical `measurement` receipt can report the named ratio.
-- Sustained utilization, thermal endurance, or power efficiency. The
-  utilization receipt covers only its bound measured run.
+- Thermal endurance or power efficiency outside the bound `longrun` samples.
+  A utilization receipt covers only its measured run. A stability receipt
+  covers only its named step budget, cadence, devices, and limits.
