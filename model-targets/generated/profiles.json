@@ -195,6 +195,165 @@
         ],
         "replication": "none"
       }
+    },
+    {
+      "adapters": {
+        "architecture": "qwen3-6-hybrid-moe-device-free-candidate-v1",
+        "evidence": "qwen3-6-candidate-evidence-v1"
+      },
+      "architecture": {
+        "causal_conv_kernel_size": 4,
+        "full_attention_head_size": 256,
+        "full_attention_kv_head_count": 2,
+        "full_attention_layer_count": 10,
+        "full_attention_query_head_count": 16,
+        "linear_attention_layer_count": 30,
+        "linear_head_size": 128,
+        "linear_key_head_count": 16,
+        "linear_value_head_count": 32,
+        "other_layer_count": 0,
+        "routed_expert_count": 256,
+        "routed_experts_per_token": 8,
+        "shared_expert_count": 1
+      },
+      "artifacts": [
+        {
+          "blake3": "9781cea4d680dcc92a24eb83502753067db417aef49c2c327d84ebdb2fc266b3",
+          "name": "LICENSE",
+          "nix_hash": "sha256-UMurioksXymTuMc1GpkYJQdHLe87E3RVgwhgXZm4azI=",
+          "role": "model_license",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/LICENSE"
+        },
+        {
+          "blake3": "42dc306d24eef77095f58c89cfa6fe54f74c789761b3faa570ca3a6f682c2d23",
+          "name": "config.json",
+          "nix_hash": "sha256-k6RpP6nYOS+/zNSzyYc/S/3LFP3t6XixI9B9GWde/pk=",
+          "role": "model_config",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/config.json"
+        },
+        {
+          "blake3": "a407ed470f71314944fe7787423cea270cce0c4af1d5b1ff00fdedda4b450a7b",
+          "name": "generation_config.json",
+          "nix_hash": "sha256-5wwTbBt43cH7CQW6yOczpNxEjU+FKl3XUUP//HC+VQ4=",
+          "role": "generation_config",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/generation_config.json"
+        },
+        {
+          "blake3": "3fd498e7fff0650ca4cf62dccd4e0844ed5ad2f1abcee9adfda013fef06c4220",
+          "name": "tokenizer.json",
+          "nix_hash": "sha256-X55NSQGpK5l+RjwfRgVQiLbMpcphplItG59kxLuBy0I=",
+          "role": "tokenizer",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/tokenizer.json"
+        },
+        {
+          "blake3": "428c90a1d34af8c39a062b7dc9379a9aa070927311ffedf9e539276168e8526d",
+          "name": "tokenizer_config.json",
+          "nix_hash": "sha256-UYbw3vzX8jI4LH8K680iUtBzu5IaskDkB7euh0XSsps=",
+          "role": "tokenizer_config",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/tokenizer_config.json"
+        },
+        {
+          "blake3": "4426f51005e065a810456b4fee816e9d8aea2d4b08283e179593ee9dccf17605",
+          "name": "vocab.json",
+          "nix_hash": "sha256-zpm0yymD0RiAbOCot3ejWwk+IAClA+veJYUyhMnfoAM=",
+          "role": "tokenizer_vocabulary",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/vocab.json"
+        },
+        {
+          "blake3": "484ef1ce44341f3e58ea331d07d51fd749630e9f37d9a48260985125c8003868",
+          "name": "merges.txt",
+          "nix_hash": "sha256-qdNW173x70lJ4+dI6VuOEK2dTi6Djt3Digp7a5TR240=",
+          "role": "tokenizer_merges",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/merges.txt"
+        },
+        {
+          "blake3": "7ccfac375b7121adfb8c35763b183a7707bb071bd1abbd76128986b16c3b4d33",
+          "name": "chat_template.jinja",
+          "nix_hash": "sha256-6E8yoj/donaJ+GiqShpWIfQRM+UaSNfz78vqKDlXQlk=",
+          "role": "chat_template",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/chat_template.jinja"
+        },
+        {
+          "blake3": "958b4ab91892ca2d1dc675e12cc798dacfd705b32151ce902db23e8c8d9b4186",
+          "name": "model.safetensors.index.json",
+          "nix_hash": "sha256-Qbk1YQHr+OdRnhUNyBH4DEIm5ycwH7sDK4kPAG7QvoM=",
+          "role": "checkpoint_index",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/995ad96eacd98c81ed38be0c5b274b04031597b0/model.safetensors.index.json"
+        }
+      ],
+      "consumer": {
+        "adapter_format": "metadata-only-candidate",
+        "dimensions": {
+          "complete_state_element_count": 21708800,
+          "head_count": 16,
+          "head_size": 128,
+          "intermediate_size": 512
+        },
+        "precisions": {
+          "cpu_reference": "bf16_checkpoint_cpu_reference_only",
+          "runtime_arithmetic": "bf4_experts_bf8_attention_bf16_activations_candidate",
+          "ttwkv7_boundary": "not_applicable"
+        },
+        "tolerances": {
+          "control_divergence_floor": 0.5,
+          "final_hidden": 0.5,
+          "harness_oracle": 0.01,
+          "harness_replay": 0.01,
+          "logits": 1,
+          "lora_finite_difference": 0.02,
+          "lora_gradient_agreement": 0.005,
+          "recurrent_state": 1,
+          "state_carry_divergence_floor": 0.0001
+        }
+      },
+      "model": {
+        "architecture_family": "qwen3_6_hybrid_moe",
+        "checkpoint_layout": "safetensors_26_shard_index_metadata_only",
+        "checkpoint_shard_count": 26,
+        "id": "Qwen/Qwen3.6-35B-A3B",
+        "license": "Apache-2.0",
+        "precision": "bf4_experts_bf8_attention_bf16_activations_candidate",
+        "revision": "995ad96eacd98c81ed38be0c5b274b04031597b0"
+      },
+      "resources": {
+        "checkpoint_bytes": 71903645408,
+        "hidden_size": 2048,
+        "layer_count": 40,
+        "maximum_prompt_tokens": 512,
+        "vocabulary_size": 248320
+      },
+      "runnable": false,
+      "state": {
+        "carry_semantics": "full_attention_kv_cache_and_gated_delta_recurrent_matrix_with_conv_history",
+        "components": [
+          {
+            "carry_semantics": "fixed_shape_key_and_value_cache_updated_at_token_position",
+            "kind": "kv_cache",
+            "layer_count": 10,
+            "per_layer_element_count": 524288
+          },
+          {
+            "carry_semantics": "gated_delta_matrix_carry_with_three_token_causal_conv_history",
+            "kind": "recurrent_matrix",
+            "layer_count": 30,
+            "per_layer_element_count": 548864
+          }
+        ],
+        "kind": "hybrid_kv_recurrent",
+        "per_layer_element_count": 548864
+      },
+      "target_name": "qwen3-6-35b-a3b-p150x1-candidate",
+      "topology": {
+        "id": "p150x1-candidate",
+        "mesh_shape": [
+          1,
+          1
+        ],
+        "physical_device_ids": [
+          0
+        ],
+        "replication": "none"
+      }
     }
   ],
   "schema_version": 1

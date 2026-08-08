@@ -1,0 +1,12 @@
+{
+  "candidate_name": "qwen3-6-35b-a3b-p150x1-candidate",
+  "status": "eligible",
+  "simulator_change_eligible": true,
+  "runnable_output_exposed": false,
+  "not_run_reasons": [
+    "Qwen bring-up tt-metal base 3218270556c5ff58eba1e68d112d09a11b37dc0e does not match the repository package",
+    "custom ttl Gated DeltaNet kernels lack package-matched TTsim evidence",
+    "metadata-only scope excludes the 26 checkpoint shards"
+  ],
+  "blockers": []
+}

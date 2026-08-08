@@ -19,6 +19,7 @@
       modelTargetConsumerGenerator = pkgs.callPackage ../pkgs/model-target-consumer-generator { };
       modelTargets = pkgs.callPackage ../model-targets { inherit pkgs; };
       rwkvProfile = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
+      qwenCandidateProfile = modelTargets.getProfile "qwen3-6-35b-a3b-p150x1-candidate";
       rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
       rwkvArchitectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
       rwkvTarget = modelTargets.mkModelTarget {
@@ -53,7 +54,7 @@
         targetArtifacts = rwkvArtifacts;
       };
       modelTargetReport = pkgs.callPackage ../pkgs/model-target-report {
-        targetProfile = rwkvProfile;
+        targetProfile = qwenCandidateProfile;
       };
       rwkv7LoraReference = pkgs.callPackage ../pkgs/rwkv7-lora-reference {
         model = rwkvArtifacts.checkpoint.path;

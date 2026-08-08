@@ -88,6 +88,7 @@ fn run_self_test() -> Result<(), Box<dyn Error>> {
         reference_authority: None,
         evidence_adapter: None,
         topology_compatibility: None,
+        simulator_audit: None,
     };
     let report = evaluate_candidate(&facts);
     if report.status != CandidateStatus::Unsupported
@@ -134,7 +135,8 @@ mod tests {
         "memory_bounds":null,
         "reference_authority":null,
         "evidence_adapter":null,
-        "topology_compatibility":null
+        "topology_compatibility":null,
+        "simulator_audit":null
     }"#;
 
     #[test]

@@ -1,7 +1,10 @@
 # Model target consumer identities
 
-`model-targets/profiles.ncl` is the only source for model target identity data.
+`model-targets/profiles.ncl` is the only source for model target profile data.
 Do not edit generated Rust, Python, C++, Nix, or JSON files.
+
+The Qwen candidate has a separate reviewed authority source at
+`model-targets/qwen3-6/authority.ncl`. It pins upstream source and metadata.
 
 ## Update procedure
 
@@ -11,6 +14,13 @@ Do not edit generated Rust, Python, C++, Nix, or JSON files.
    ```sh
    nix shell nixpkgs#nickel -c sh -c \
      'nickel export --format json model-targets/profiles.ncl > model-targets/generated/profiles.json'
+   ```
+
+   If Qwen authority changes, export it separately:
+
+   ```sh
+   nix shell nixpkgs#nickel -c sh -c \
+     'nickel export --format json model-targets/qwen3-6/authority.ncl > model-targets/qwen3-6/generated/authority.json'
    ```
 
 3. Regenerate all consumer modules:
@@ -36,6 +46,8 @@ It uses BLAKE3 and writes lowercase hexadecimal text.
 - Put only identity data in generated modules.
 - Reject uppercase, mixed-case, short, long, and non-hexadecimal hashes.
 - Review model, artifact, topology, state, precision, tolerance, and adapter changes together.
+- Keep existing profile bytes stable when a new contract field does not apply.
+- Keep candidate-only architecture and hybrid-state fields fail-closed.
 - Confirm that runtime, command, harness, LoRA, evidence, and report outputs expose the same `profile-blake3` value.
 
 The model-target check regenerates all projections in a clean directory. It compares each output byte for byte. A stale file reports its language path and source profile file.

@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 const REVISION_HEX_LENGTH: usize = 40;
 const BLAKE3_HEX_LENGTH: usize = 64;
 const CANONICAL_TARGET_NAME: &str = "rwkv7-goose-world2.8-0.1b-p150x2";
+const QWEN_ARCHITECTURE_FAMILY: &str = "qwen3_6_hybrid_moe";
+const HYBRID_STATE_KIND: &str = "hybrid_kv_recurrent";
+const KV_CACHE_STATE_KIND: &str = "kv_cache";
+const RECURRENT_MATRIX_STATE_KIND: &str = "recurrent_matrix";
+const HYBRID_STATE_COMPONENT_KIND_COUNT: usize = 2;
 const GENERATED_NOTICE_RUST: &str = "// Generated from model-targets/profiles.ncl. Do not edit.\n";
 const GENERATED_NOTICE_PYTHON: &str = "# Generated from model-targets/profiles.ncl. Do not edit.\n";
 const GENERATED_NOTICE_CPP: &str = "// Generated from model-targets/profiles.ncl. Do not edit.\n";
@@ -156,7 +161,15 @@ fn validate_profile(profile: &Value, prefix: &str) -> Result<(), String> {
     }
     let hidden_size = required_u64(profile, "/resources/hidden_size", prefix)?;
     let layer_count = required_u64(profile, "/resources/layer_count", prefix)?;
-    let per_layer_state = required_u64(profile, "/state/per_layer_element_count", prefix)?;
+    if optional_u64(profile, "/model/checkpoint_shard_count", prefix)?
+        .is_some_and(|checkpoint_shard_count| checkpoint_shard_count == 0)
+    {
+        return Err(format!(
+            "field {prefix}/model/checkpoint_shard_count must be positive"
+        ));
+    }
+    validate_architecture_layer_mix(profile, prefix, layer_count)?;
+    let complete_state_from_components = validate_state_components(profile, prefix, layer_count)?;
     let head_count = required_u64(profile, "/consumer/dimensions/head_count", prefix)?;
     let head_size = required_u64(profile, "/consumer/dimensions/head_size", prefix)?;
     let complete_state = required_u64(
@@ -172,14 +185,12 @@ fn validate_profile(profile: &Value, prefix: &str) -> Result<(), String> {
             "field {prefix}/consumer/dimensions/head_count is inconsistent: head_count * head_size is {expected_hidden}, expected hidden_size {hidden_size}"
         ));
     }
-    let expected_complete_state = layer_count.checked_mul(per_layer_state).ok_or_else(|| {
-        format!("field {prefix}/consumer/dimensions overflows state-size validation")
-    })?;
-    if expected_complete_state != complete_state {
+    if complete_state_from_components != complete_state {
         return Err(format!(
-            "field {prefix}/consumer/dimensions/complete_state_element_count is inconsistent: got {complete_state}, expected {expected_complete_state}"
+            "field {prefix}/consumer/dimensions/complete_state_element_count is inconsistent: got {complete_state}, expected {complete_state_from_components} from state components"
         ));
     }
+    validate_qwen_candidate_boundary(profile, prefix)?;
 
     let mesh_shape = required_array(profile, "/topology/mesh_shape")?;
     let physical_device_ids = required_array(profile, "/topology/physical_device_ids")?;
@@ -223,6 +234,139 @@ fn validate_profile(profile: &Value, prefix: &str) -> Result<(), String> {
         if !value.is_finite() || value <= 0.0 {
             return Err(format!(
                 "field {prefix}{path} must be a positive finite number"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_architecture_layer_mix(
+    profile: &Value,
+    prefix: &str,
+    layer_count: u64,
+) -> Result<(), String> {
+    if profile.pointer("/architecture").is_none() {
+        let architecture_family = required_string(profile, "/model/architecture_family", prefix)?;
+        if architecture_family == QWEN_ARCHITECTURE_FAMILY {
+            return Err(format!(
+                "missing field {prefix}/architecture for the Qwen3.6 candidate"
+            ));
+        }
+        return Ok(());
+    }
+    let layer_fields = [
+        "/architecture/linear_attention_layer_count",
+        "/architecture/full_attention_layer_count",
+        "/architecture/other_layer_count",
+    ];
+    let mut total = 0_u64;
+    for path in layer_fields {
+        total = total
+            .checked_add(required_u64(profile, path, prefix)?)
+            .ok_or_else(|| format!("field {prefix}/architecture layer mix overflows"))?;
+    }
+    if total != layer_count {
+        return Err(format!(
+            "field {prefix}/architecture layer mix is inconsistent: got {total}, expected {layer_count}"
+        ));
+    }
+    let routed_expert_count = required_u64(profile, "/architecture/routed_expert_count", prefix)?;
+    let routed_experts_per_token =
+        required_u64(profile, "/architecture/routed_experts_per_token", prefix)?;
+    if routed_experts_per_token > routed_expert_count {
+        return Err(format!(
+            "field {prefix}/architecture/routed_experts_per_token exceeds routed_expert_count"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_state_components(
+    profile: &Value,
+    prefix: &str,
+    layer_count: u64,
+) -> Result<u64, String> {
+    let state_kind = required_string(profile, "/state/kind", prefix)?;
+    let Some(components) = profile
+        .pointer("/state/components")
+        .and_then(Value::as_array)
+    else {
+        if state_kind == HYBRID_STATE_KIND {
+            return Err(format!(
+                "missing field {prefix}/state/components for hybrid state"
+            ));
+        }
+        let per_layer_elements = required_u64(profile, "/state/per_layer_element_count", prefix)?;
+        return layer_count
+            .checked_mul(per_layer_elements)
+            .ok_or_else(|| format!("field {prefix}/state size overflows"));
+    };
+    if components.is_empty() {
+        return Err(format!("field {prefix}/state/components must not be empty"));
+    }
+    let mut component_kinds = BTreeSet::new();
+    let mut component_layer_count = 0_u64;
+    let mut complete_state_element_count = 0_u64;
+    for (index, component) in components.iter().enumerate() {
+        let component_prefix = format!("{prefix}/state/components/{index}");
+        let kind = required_string(component, "/kind", &component_prefix)?;
+        component_kinds.insert(kind.to_owned());
+        let component_layers = required_u64(component, "/layer_count", &component_prefix)?;
+        let per_layer_elements =
+            required_u64(component, "/per_layer_element_count", &component_prefix)?;
+        component_layer_count = component_layer_count
+            .checked_add(component_layers)
+            .ok_or_else(|| format!("field {prefix}/state/components layer count overflows"))?;
+        let component_elements = component_layers
+            .checked_mul(per_layer_elements)
+            .ok_or_else(|| format!("field {component_prefix} state size overflows"))?;
+        complete_state_element_count = complete_state_element_count
+            .checked_add(component_elements)
+            .ok_or_else(|| format!("field {prefix}/state/components state size overflows"))?;
+    }
+    if component_layer_count != layer_count {
+        return Err(format!(
+            "field {prefix}/state/components layer count is inconsistent: got {component_layer_count}, expected {layer_count}"
+        ));
+    }
+    if state_kind == HYBRID_STATE_KIND {
+        let valid_hybrid = component_kinds.len() == HYBRID_STATE_COMPONENT_KIND_COUNT
+            && component_kinds.contains(KV_CACHE_STATE_KIND)
+            && component_kinds.contains(RECURRENT_MATRIX_STATE_KIND);
+        if !valid_hybrid {
+            return Err(format!(
+                "field {prefix}/state/components must contain kv_cache and recurrent_matrix for hybrid state"
+            ));
+        }
+    } else if component_kinds.len() != 1 || !component_kinds.contains(state_kind) {
+        return Err(format!(
+            "field {prefix}/state/components must match state kind {state_kind}"
+        ));
+    }
+    Ok(complete_state_element_count)
+}
+
+fn validate_qwen_candidate_boundary(profile: &Value, prefix: &str) -> Result<(), String> {
+    let architecture_family = required_string(profile, "/model/architecture_family", prefix)?;
+    if architecture_family != QWEN_ARCHITECTURE_FAMILY {
+        return Ok(());
+    }
+    if profile.pointer("/model/checkpoint_shard_count").is_none() {
+        return Err(format!(
+            "missing field {prefix}/model/checkpoint_shard_count for the Qwen3.6 candidate"
+        ));
+    }
+    if required_bool(profile, "/runnable", prefix)? {
+        return Err(format!(
+            "field {prefix}/runnable must be false for the Qwen3.6 candidate"
+        ));
+    }
+    for (index, artifact) in required_array(profile, "/artifacts")?.iter().enumerate() {
+        let artifact_prefix = format!("{prefix}/artifacts/{index}");
+        let name = required_string(artifact, "/name", &artifact_prefix)?;
+        if name.ends_with(".safetensors") {
+            return Err(format!(
+                "field {artifact_prefix}/name must not include Qwen checkpoint shard bytes"
             ));
         }
     }
@@ -730,10 +874,27 @@ fn required_u64(value: &Value, path: &str, prefix: &str) -> Result<u64, String> 
         .ok_or_else(|| format!("field {prefix}{path} must be a non-negative integer"))
 }
 
+fn optional_u64(value: &Value, path: &str, prefix: &str) -> Result<Option<u64>, String> {
+    value
+        .pointer(path)
+        .map(|selected| {
+            selected
+                .as_u64()
+                .ok_or_else(|| format!("field {prefix}{path} must be a non-negative integer"))
+        })
+        .transpose()
+}
+
 fn required_f64(value: &Value, path: &str, prefix: &str) -> Result<f64, String> {
     required_value(value, path, prefix)?
         .as_f64()
         .ok_or_else(|| format!("field {prefix}{path} must be a number"))
+}
+
+fn required_bool(value: &Value, path: &str, prefix: &str) -> Result<bool, String> {
+    required_value(value, path, prefix)?
+        .as_bool()
+        .ok_or_else(|| format!("field {prefix}{path} must be a boolean"))
 }
 
 fn required_array<'a>(value: &'a Value, path: &str) -> Result<&'a Vec<Value>, String> {
@@ -781,12 +942,34 @@ mod tests {
                     "license": "fixture",
                     "architecture_family": "rwkv7",
                     "checkpoint_layout": "fixture",
+                    "checkpoint_shard_count": 1,
                     "precision": "bf16"
+                },
+                "architecture": {
+                    "linear_attention_layer_count": 0,
+                    "full_attention_layer_count": 0,
+                    "other_layer_count": 2,
+                    "routed_expert_count": 0,
+                    "routed_experts_per_token": 0,
+                    "shared_expert_count": 0,
+                    "full_attention_query_head_count": 0,
+                    "full_attention_kv_head_count": 0,
+                    "full_attention_head_size": 0,
+                    "linear_key_head_count": 0,
+                    "linear_value_head_count": 0,
+                    "linear_head_size": 0,
+                    "causal_conv_kernel_size": 0
                 },
                 "state": {
                     "kind": "recurrent_matrix",
                     "per_layer_element_count": 24,
-                    "carry_semantics": "fixture"
+                    "carry_semantics": "fixture",
+                    "components": [{
+                        "kind": "recurrent_matrix",
+                        "layer_count": 2,
+                        "per_layer_element_count": 24,
+                        "carry_semantics": "fixture"
+                    }]
                 },
                 "resources": {
                     "checkpoint_bytes": 16,

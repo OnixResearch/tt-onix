@@ -44,6 +44,9 @@ host binaries, kernels, and dependencies from the store.
 See [Model target consumer identities](docs/model-target-consumer-identities.md)
 for the canonical profile edit, regeneration, and freshness workflow.
 
+See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
+metadata-only profile, bounded simulator verdict, and explicit non-claims.
+
 Build a stable result link when you need to inspect or run several commands:
 
 ```sh
