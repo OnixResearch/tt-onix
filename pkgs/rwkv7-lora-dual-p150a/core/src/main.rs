@@ -20,6 +20,10 @@ fn usage() -> String {
      usage: rwkv7-lora-dual-p150a-core admit-measurement RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core summarize-utilization RAW_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-utilization RECEIPT_JSON RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core create-baseline RECEIPT_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-baseline STORE_JSON PROFILE_JSON RECEIPT_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core gate-regression RECEIPT_JSON PROFILE_JSON STORE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core compare-determinism LEFT_JSON RIGHT_JSON PROFILE_JSON POLICY_JSON\n\
      usage: rwkv7-lora-dual-p150a-core plan-shards PROFILE_JSON BATCH_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-collective RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
@@ -260,6 +264,81 @@ fn run() -> Result<u8, String> {
                         "scaling_efficiency": admission.scaling_efficiency,
                     });
                     println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "create-baseline" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let policy = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::create_baseline(&receipt, &profile, &policy) {
+                Ok(baseline) => {
+                    println!("{baseline}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-baseline" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let store = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let receipt = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::admit_baseline_store(&store, &profile, &receipt) {
+                Ok(baseline) => {
+                    println!("{baseline}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "gate-regression" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let store = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::gate_regression(&receipt, &profile, &store, &policy) {
+                Ok(gate_receipt) => {
+                    println!("{gate_receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "compare-determinism" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let left = read_json(&args[1])?;
+            let right = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::compare_determinism(&left, &right, &profile, &policy)
+            {
+                Ok(determinism_receipt) => {
+                    println!("{determinism_receipt}");
                     Ok(SUCCESS)
                 }
                 Err(rejection) => {

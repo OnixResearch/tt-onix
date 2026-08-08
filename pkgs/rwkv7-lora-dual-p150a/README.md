@@ -161,6 +161,31 @@ and offline wheelhouse. It does not accept replacement platform files or
 wheel sources. Each run writes a BLAKE3-bound receipt to the evidence root and
 validates it with the admission core before it counts as evidence.
 
+## Regression gates
+
+The package includes `regression-policy.json` and `baseline-store.json`.
+The policy names the mean step time, p99 step time, and mean loss bounds.
+The store key binds the full dual measurement profile and machine facts.
+A profile or machine mismatch fails closed.
+
+The checked baseline uses the device-free check fixture. It tests the gate but
+does not claim physical P150x2 performance. Create a physical baseline from an
+admitted measurement before you make a hardware regression claim.
+
+Run one independent measurement first. Then add all three options to a later
+measurement:
+
+```sh
+--regression-baseline <physical-baseline-store.json> \
+--regression-policy "$TOOLS/share/rwkv7-lora-dual-p150a/regression-policy.json" \
+--determinism-receipt <independent-measurement-receipt.json>
+```
+
+The options are one group. The runner rejects a partial group. A passing run
+writes `regression-receipt.json` and `determinism-receipt.json`. The
+determinism receipt records the maximum absolute time and loss differences.
+It is not a bitwise tensor-equivalence claim.
+
 ## Data contract
 
 The admitted global batch has `micro_batch * 2` samples of

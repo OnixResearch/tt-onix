@@ -3,6 +3,8 @@
 # r[impl tenstorrent.rwkv7_dual_p150a.graph]
 # r[impl tenstorrent.rwkv7_dual_p150a.sharding]
 # r[impl tenstorrent.rwkv7_dual_p150a.parity]
+# r[impl tenstorrent.harness.regression_gate]
+# r[impl tenstorrent.harness.determinism]
 # Host-side orchestrator for the dual-P150A data-parallel receipts. Runs the
 # dual-replica graph in the pinned container, plans the global-batch shards
 # with the admission core, wraps placement, shard, optimizer, replica, and
@@ -22,9 +24,10 @@ FUSER=@fuser@
 DATE=@date@
 MV=@mv@
 NANOSECONDS_PER_SECOND=1000000000
+REGRESSION_INPUT_TOTAL=3
 
 usage() {
-  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--parity-receipt PATH] [--machine-facts PATH] [--device-telemetry PATH] [--single-measurement-profile PATH] [--single-measurement-receipt PATH]" >&2
+  echo "usage: rwkv7-lora-dual-p150a-full-step --profile PATH --checkpoint PATH --evidence-root PATH [--dtype bf16|fp32] [--mode receipt|measurement|multistep|checkpoint] [--parity-receipt PATH] [--machine-facts PATH] [--device-telemetry PATH] [--single-measurement-profile PATH] [--single-measurement-receipt PATH] [--regression-baseline PATH --regression-policy PATH --determinism-receipt PATH]" >&2
   exit 2
 }
 
@@ -38,6 +41,9 @@ MACHINE_FACTS=""
 DEVICE_TELEMETRY=""
 SINGLE_MEASUREMENT_PROFILE=""
 SINGLE_MEASUREMENT_RECEIPT=""
+REGRESSION_BASELINE=""
+REGRESSION_POLICY=""
+DETERMINISM_RECEIPT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
@@ -50,6 +56,9 @@ while [ "$#" -gt 0 ]; do
     --device-telemetry) DEVICE_TELEMETRY="$2"; shift 2 ;;
     --single-measurement-profile) SINGLE_MEASUREMENT_PROFILE="$2"; shift 2 ;;
     --single-measurement-receipt) SINGLE_MEASUREMENT_RECEIPT="$2"; shift 2 ;;
+    --regression-baseline) REGRESSION_BASELINE="$2"; shift 2 ;;
+    --regression-policy) REGRESSION_POLICY="$2"; shift 2 ;;
+    --determinism-receipt) DETERMINISM_RECEIPT="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -79,6 +88,20 @@ if [ "$MODE" = "multistep" ] && [ -z "$PARITY_RECEIPT" ]; then
   echo "rwkv7-lora-dual-p150a-full-step: multistep mode requires --parity-receipt from a passing receipt-mode run" >&2
   usage
 fi
+REGRESSION_INPUT_COUNT=0
+for regression_input in "$REGRESSION_BASELINE" "$REGRESSION_POLICY" "$DETERMINISM_RECEIPT"; do
+  if [ -n "$regression_input" ]; then
+    REGRESSION_INPUT_COUNT=$((REGRESSION_INPUT_COUNT + 1))
+  fi
+done
+if [ "$REGRESSION_INPUT_COUNT" -ne 0 ] && [ "$REGRESSION_INPUT_COUNT" -ne "$REGRESSION_INPUT_TOTAL" ]; then
+  echo "rwkv7-lora-dual-p150a-full-step: regression gating requires baseline, policy, and determinism receipt" >&2
+  usage
+fi
+if [ "$REGRESSION_INPUT_COUNT" -eq "$REGRESSION_INPUT_TOTAL" ] && [ "$MODE" != "measurement" ]; then
+  echo "rwkv7-lora-dual-p150a-full-step: regression gating is available only in measurement mode" >&2
+  usage
+fi
 
 CHECKPOINT=$(readlink -f "$CHECKPOINT")
 if [ -n "$MACHINE_FACTS" ]; then
@@ -92,6 +115,11 @@ if [ -n "$SINGLE_MEASUREMENT_PROFILE" ]; then
 fi
 if [ -n "$SINGLE_MEASUREMENT_RECEIPT" ]; then
   SINGLE_MEASUREMENT_RECEIPT=$(readlink -f "$SINGLE_MEASUREMENT_RECEIPT")
+fi
+if [ "$REGRESSION_INPUT_COUNT" -eq "$REGRESSION_INPUT_TOTAL" ]; then
+  REGRESSION_BASELINE=$(readlink -f "$REGRESSION_BASELINE")
+  REGRESSION_POLICY=$(readlink -f "$REGRESSION_POLICY")
+  DETERMINISM_RECEIPT=$(readlink -f "$DETERMINISM_RECEIPT")
 fi
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
@@ -244,6 +272,13 @@ finish_receipt() {
         > "$EVIDENCE_ROOT/receipt.json"
       "$CORE" admit-measurement "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
         > "$EVIDENCE_ROOT/measurement-admission.json"
+      if [ "$REGRESSION_INPUT_COUNT" -eq "$REGRESSION_INPUT_TOTAL" ]; then
+        "$CORE" gate-regression "$EVIDENCE_ROOT/receipt.json" "$PROFILE" \
+          "$REGRESSION_BASELINE" "$REGRESSION_POLICY" \
+          > "$EVIDENCE_ROOT/regression-receipt.json"
+        "$CORE" compare-determinism "$EVIDENCE_ROOT/receipt.json" "$DETERMINISM_RECEIPT" \
+          "$PROFILE" "$REGRESSION_POLICY" > "$EVIDENCE_ROOT/determinism-receipt.json"
+      fi
       "$JQ" -n \
         --slurpfile measurement_receipt "$EVIDENCE_ROOT/receipt.json" \
         --slurpfile telemetry "$DEVICE_TELEMETRY" \

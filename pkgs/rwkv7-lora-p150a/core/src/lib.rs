@@ -13,11 +13,16 @@
 
 mod generated_model_target_identity;
 mod measurement;
+mod regression;
 mod utilization;
 
 pub use measurement::{
     Distribution, MeasurementAdmission, MeasurementProfile, admit_measurement_profile,
     admit_measurement_receipt, bind_machine_facts, summarize_measurement,
+};
+pub use regression::{
+    DeterminismAdmission, RegressionAdmission, admit_baseline_store, admit_determinism_receipt,
+    admit_regression_receipt, compare_determinism, create_baseline, gate_regression,
 };
 pub use utilization::{UtilizationAdmission, admit_utilization_receipt, summarize_utilization};
 

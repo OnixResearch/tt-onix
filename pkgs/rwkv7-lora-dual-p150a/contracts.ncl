@@ -255,6 +255,29 @@ let measurement_profile_fields = [
   "machine_fact_set",
 ] in
 let measurement_profile_field_count = std.array.length measurement_profile_fields in
+let RegressionMetricC = std.contract.from_predicate (fun value =>
+  std.array.elem value ["time_seconds.mean", "time_seconds.p99", "loss.mean"]
+) in
+
+let RegressionMetricBoundC = {
+  metric | RegressionMetricC,
+  direction | std.contract.from_predicate (fun value => value == "lower_is_better"),
+  maximum_regression_fraction | NonNegativeC,
+} in
+
+let DeterminismTolerancesC = {
+  time_seconds | NonNegativeC,
+  loss | NonNegativeC,
+} in
+
+let RegressionPolicyC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  profile_id | NonEmptyC,
+  metric_bounds | Array RegressionMetricBoundC,
+  determinism_tolerances | DeterminismTolerancesC,
+  hash_algorithm | std.contract.from_predicate (fun value => value == "blake3"),
+} in
+
 let MeasurementProfileC = std.contract.from_predicate (fun value =>
   std.is_record value
   && std.array.length (std.record.fields value) == measurement_profile_field_count
@@ -420,6 +443,7 @@ let profile_fields = [
   Profile = ProfileC,
   ProfileClosed = ClosedRecordC profile_fields,
   MeasurementProfile = MeasurementProfileC,
+  RegressionPolicy = RegressionPolicyC,
   Wheels = WheelsC,
   WheelsClosed = ClosedRecordC wheels_fields,
   HashHex = HashHexC,

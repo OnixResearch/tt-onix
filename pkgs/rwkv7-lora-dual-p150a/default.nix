@@ -77,6 +77,15 @@ let
         nickel export --format json measurement-profile.ncl > "$out"
       '';
 
+  regressionPolicyJson =
+    runCommand "rwkv7-lora-dual-p150a-regression-policy.json" { nativeBuildInputs = [ nickel ]; }
+      ''
+        cp -r ${packageSource} "$PWD/repository"
+        chmod -R u+w "$PWD/repository"
+        cd "$PWD/repository/pkgs/rwkv7-lora-dual-p150a"
+        nickel export --format json regression-policy.ncl > "$out"
+      '';
+
   wheelsJson = runCommand "rwkv7-lora-dual-p150a-wheels.json" { nativeBuildInputs = [ nickel ]; } ''
     cp -r ${packageSource} "$PWD/repository"
     chmod -R u+w "$PWD/repository"
@@ -133,6 +142,8 @@ let
     ln -s ${fullStepRunner} "$out/bin/rwkv7-lora-dual-p150a-full-step"
     ln -s ${profileJson} "$out/share/rwkv7-lora-dual-p150a/profile.json"
     ln -s ${measurementProfileJson} "$out/share/rwkv7-lora-dual-p150a/measurement-profile.json"
+    ln -s ${regressionPolicyJson} "$out/share/rwkv7-lora-dual-p150a/regression-policy.json"
+    ln -s ${./baseline-store.json} "$out/share/rwkv7-lora-dual-p150a/baseline-store.json"
     ln -s ${wheelsJson} "$out/share/rwkv7-lora-dual-p150a/wheels.json"
     echo '${targetProfile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
@@ -168,6 +179,7 @@ runCommand "rwkv7-lora-dual-p150a-check"
         tools
         profileJson
         measurementProfileJson
+        regressionPolicyJson
         ;
     };
   }
@@ -268,6 +280,59 @@ runCommand "rwkv7-lora-dual-p150a-check"
     "$CORE" admit-measurement measurement-receipt.json measurement-profile-first.json >measurement-admission.json
     grep -F '"status":"admitted"' measurement-admission.json
     grep -F '"repeats":5' measurement-admission.json
+
+    # r[verify tenstorrent.harness.baseline_store.valid]
+    # r[verify tenstorrent.harness.regression_gate.valid]
+    # r[verify tenstorrent.harness.determinism.valid]
+    # r[verify tenstorrent.harness.metric_sanity.valid]
+    nickel export --format json regression-policy.ncl >regression-policy.json
+    "$CORE" create-baseline measurement-receipt.json measurement-profile-first.json \
+      regression-policy.json >baseline-record.json
+    jq -c -S '{schema_version: 1, records: [.]}' baseline-record.json >baseline-store-generated.json
+    jq -c -S . baseline-store.json >baseline-store-checked.json
+    cmp baseline-store-generated.json baseline-store-checked.json
+    "$CORE" admit-baseline baseline-store.json measurement-profile-first.json \
+      measurement-receipt.json >baseline-admission.json
+    "$CORE" gate-regression measurement-receipt.json measurement-profile-first.json \
+      baseline-store.json regression-policy.json >regression-receipt.json
+    grep -F '"verdict":"pass"' regression-receipt.json
+    "$CORE" compare-determinism measurement-receipt.json measurement-receipt-again.json \
+      measurement-profile-first.json regression-policy.json >determinism-receipt.json
+    grep -F '"verdict":"pass"' determinism-receipt.json
+
+    # r[verify tenstorrent.harness.baseline_store.invalid]
+    # r[verify tenstorrent.harness.regression_gate.invalid]
+    # r[verify tenstorrent.harness.determinism.invalid]
+    # r[verify tenstorrent.harness.metric_sanity.invalid]
+    jq '.firmware_version = "other-firmware"' machine-fact-values.json \
+      >other-machine-fact-values.json
+    "$CORE" bind-machine-facts other-machine-fact-values.json >other-machine-facts.json
+    jq --slurpfile facts other-machine-facts.json '.machine_facts = $facts[0]' \
+      measurement-raw.json >measurement-other-machine-bound.json
+    "$CORE" summarize-measurement measurement-other-machine-bound.json \
+      measurement-profile-first.json >measurement-other-machine.json
+    if "$CORE" admit-baseline baseline-store.json measurement-profile-first.json \
+      measurement-other-machine.json > /dev/null 2> rejected.log; then
+      echo "mismatched machine baseline was admitted" >&2
+      exit 1
+    fi
+    grep -F "baseline_key_mismatch" rejected.log
+    jq '.runs |= map(.time_seconds = (.time_seconds * 1.25))' measurement-raw.json \
+      >measurement-regressed-raw.json
+    "$CORE" summarize-measurement measurement-regressed-raw.json measurement-profile-first.json \
+      >measurement-regressed.json
+    if "$CORE" gate-regression measurement-regressed.json measurement-profile-first.json \
+      baseline-store.json regression-policy.json > /dev/null 2> rejected.log; then
+      echo "regressed measurement passed its gate" >&2
+      exit 1
+    fi
+    grep -F "regression_gate_failure" rejected.log
+    if "$CORE" compare-determinism measurement-receipt.json measurement-regressed.json \
+      measurement-profile-first.json regression-policy.json > /dev/null 2> rejected.log; then
+      echo "divergent repeated run was admitted" >&2
+      exit 1
+    fi
+    grep -F "determinism_divergence" rejected.log
 
     # Build a compatible one-device measurement from the same harness profile.
     cp "$SINGLE_MEASUREMENT_PROFILE" single-measurement-profile.json

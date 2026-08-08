@@ -13,7 +13,8 @@
 mod generated_model_target_identity;
 
 pub use rwkv7_lora_p150a_core::{
-    Distribution, MeasurementAdmission, MeasurementProfile, UtilizationAdmission,
+    DeterminismAdmission, Distribution, MeasurementAdmission, MeasurementProfile,
+    RegressionAdmission, UtilizationAdmission,
 };
 
 use serde_json::{Value, json};
@@ -313,6 +314,52 @@ pub fn admit_utilization_receipt(
 ) -> Result<UtilizationAdmission, Rejection> {
     rwkv7_lora_p150a_core::admit_utilization_receipt(receipt, raw, profile)
         .map_err(shared_measurement_rejection)
+}
+
+pub fn create_baseline(
+    receipt: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::create_baseline(receipt, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_baseline_store(
+    store: &Value,
+    profile: &Value,
+    receipt: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::admit_baseline_store(store, profile, receipt)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn gate_regression(
+    receipt: &Value,
+    profile: &Value,
+    store: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::gate_regression(receipt, profile, store, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_regression_receipt(receipt: &Value) -> Result<RegressionAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_regression_receipt(receipt).map_err(shared_measurement_rejection)
+}
+
+pub fn compare_determinism(
+    left: &Value,
+    right: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::compare_determinism(left, right, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_determinism_receipt(receipt: &Value) -> Result<DeterminismAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_determinism_receipt(receipt).map_err(shared_measurement_rejection)
 }
 
 fn is_hash_hex(value: &str) -> bool {
