@@ -70,7 +70,17 @@ The four-request workload now fills one four-row batch on one card. The two-card
 
 Do not weaken the scaling gate to admit this result. A new scaling workload must saturate each card without exceeding four live state slots.
 
-Selected-token readback remains a measured optimization target. A device-resident continuation change requires a new simulator check and an idle physical owner window.
+## Physical B1 decode candidate
+
+`fixtures/physical-b1-decode-candidate/` retains a five-repeat B1 measurement. One physical P150 card generated 64 deterministic tokens from prompt token `0`.
+
+Mean throughput was `10.318388240286174` tokens/s. Median throughput was `8.087155632081794` tokens/s. Samples ranged from `6.675900729440436` to `14.994682237861321` tokens/s.
+
+Card 0 ended at `800 MHz` and `66.4°C`. The large range did not coincide with evident thermal throttling.
+
+Selected-token readback remains a measured optimization target. B1 performs a blocking read after every token. Device-resident continuation must retain deterministic token evidence without timing each readback.
+
+This candidate has no profiler attribution or pinned FP32 CPU-reference comparison. It cannot satisfy physical scaling admission.
 
 ## Admission boundary
 
