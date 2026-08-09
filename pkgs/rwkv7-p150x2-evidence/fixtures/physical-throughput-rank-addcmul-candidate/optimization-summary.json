@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_rank_addcmul_candidate",
+  "status": "rejected",
+  "reason": "no_physical_gain",
+  "alternating_ab": {
+    "pair_count": 10,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      1.027751683,
+      1.139049647,
+      1.04521595,
+      1.086991926,
+      0.970355749,
+      1.032205968,
+      0.998676158,
+      1.00823699,
+      0.997428618,
+      0.952423996
+    ],
+    "candidate_elapsed_seconds": [
+      1.062967284,
+      1.097231662,
+      1.039382478,
+      1.008781252,
+      1.020549534,
+      0.976213617,
+      0.986575402,
+      1.105564671,
+      1.00727176,
+      0.984416101
+    ],
+    "old_aggregate_tokens_per_second": 77.98535226181258,
+    "candidate_aggregate_tokens_per_second": 77.75328945809615,
+    "aggregate_change_percent": -0.2975722965735228,
+    "mean_change_percent": -0.3699266845228033,
+    "candidate_faster_pair_count": 5,
+    "exact_generated_token_parity": true,
+    "forward_source_root": "/var/tmp/rwkv7-p150x2-rank-addcmul-ab-20260809-1920",
+    "reverse_source_root": "/var/tmp/rwkv7-p150x2-rank-addcmul-reverse-ab-20260809-1935"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "removed_matmul_launch_count": 468,
+    "removed_binary_add_launch_count": 468,
+    "added_ternary_launch_count": 468,
+    "net_removed_launch_count": 468,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-lerp-profiler-20260809-1520",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-rank-addcmul-profiler-20260809-1910"
+  }
+}
