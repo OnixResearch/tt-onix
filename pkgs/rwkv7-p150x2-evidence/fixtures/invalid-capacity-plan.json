@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "profile_id": "rwkv7-p150x2-grid-capacity-v1",
+  "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "candidates": [
+    {
+      "id": "B64",
+      "per_card_slot_count": 64,
+      "maximum_wave_count": 2,
+      "minimum_ab_throughput_gain_fraction": 0.0,
+      "maximum_p99_latency_regression_fraction": 0.10
+    }
+  ],
+  "memory": {
+    "fp32_bytes_per_element": 4,
+    "bf16_bytes_per_element": 2,
+    "temporary_tensor_bytes_per_slot": 5242880,
+    "device_memory_budget_bytes": 1048576,
+    "safety_reserve_bytes": 268435456
+  },
+  "admission": {
+    "ab_repeat_count": 3,
+    "minimum_candidate_gain_fraction": 0.0
+  }
+}

@@ -58,6 +58,36 @@ let ThroughputProfileC = {
   timing | TimingC,
   admission | AdmissionC,
 } in
+let NonEmptyStringC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.length value > 0
+) in
+let CapacityCandidateC = {
+  id | NonEmptyStringC,
+  per_card_slot_count | PositiveIntC,
+  maximum_wave_count | PositiveIntC,
+  minimum_ab_throughput_gain_fraction | NonNegativeC,
+  maximum_p99_latency_regression_fraction | NonNegativeC,
+} in
+let MemoryBoundsC = {
+  fp32_bytes_per_element | ExactC 4,
+  bf16_bytes_per_element | ExactC 2,
+  temporary_tensor_bytes_per_slot | PositiveIntC,
+  device_memory_budget_bytes | PositiveIntC,
+  safety_reserve_bytes | PositiveIntC,
+} in
+let CapacityProfileC = {
+  schema_version | ExactC 1,
+  profile_id | NonEmptyStringC,
+  model_profile_blake3 | HashHexC,
+  candidates | Array CapacityCandidateC,
+  memory | MemoryBoundsC,
+  admission | {
+    ab_repeat_count | PositiveIntC,
+    minimum_candidate_gain_fraction | NonNegativeC,
+  },
+} in
 {
   ThroughputProfile = ThroughputProfileC,
+  CapacityProfile = CapacityProfileC,
+  MemoryBounds = MemoryBoundsC,
 }

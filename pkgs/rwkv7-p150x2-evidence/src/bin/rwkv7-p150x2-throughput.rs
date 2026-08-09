@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use rwkv7_p150x2_evidence::capacity::{CapacityProfile, ModelExtent, plan_capacity};
 use rwkv7_p150x2_evidence::throughput::{
     RawThroughputEvidence, ThroughputProfile, ThroughputReceipt, admit_throughput_receipt,
     profile_identity, summarize_throughput,
@@ -17,11 +18,13 @@ const USAGE_ERROR: u8 = 2;
 const SUMMARIZE_ARGUMENT_COUNT: usize = 3;
 const ADMIT_ARGUMENT_COUNT: usize = 4;
 const PROFILE_IDENTITY_ARGUMENT_COUNT: usize = 2;
+const CAPACITY_PLAN_ARGUMENT_COUNT: usize = 3;
 
 fn usage() -> &'static str {
     "usage: rwkv7-p150x2-throughput profile-identity PROFILE_JSON\n\
      usage: rwkv7-p150x2-throughput summarize PROFILE_JSON RAW_JSON\n\
-     usage: rwkv7-p150x2-throughput admit PROFILE_JSON RAW_JSON RECEIPT_JSON"
+     usage: rwkv7-p150x2-throughput admit PROFILE_JSON RAW_JSON RECEIPT_JSON\n\
+     usage: rwkv7-p150x2-throughput capacity-plan CAPACITY_PROFILE_JSON EXTENT_JSON"
 }
 
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -32,6 +35,18 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
 }
 
 fn print_rejection(rejection: &rwkv7_p150x2_evidence::throughput::Rejection) {
+    println!(
+        "{}",
+        json!({
+            "status": "rejected",
+            "code": rejection.code,
+            "detail": rejection.detail,
+        })
+    );
+    eprintln!("rwkv7-p150x2-throughput: {rejection}");
+}
+
+fn print_capacity_rejection(rejection: &rwkv7_p150x2_evidence::capacity::Rejection) {
     println!(
         "{}",
         json!({
@@ -101,6 +116,24 @@ fn run(arguments: &[String]) -> Result<u8, String> {
                 }
                 Err(rejection) => {
                     print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "capacity-plan" if arguments.len() == CAPACITY_PLAN_ARGUMENT_COUNT => {
+            let profile: CapacityProfile = read_json(Path::new(&arguments[1]))?;
+            let extent: ModelExtent = read_json(Path::new(&arguments[2]))?;
+            match plan_capacity(&profile, &extent) {
+                Ok(plans) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&plans)
+                            .map_err(|error| format!("cannot serialize capacity plans: {error}"))?
+                    );
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_capacity_rejection(&rejection);
                     Ok(REJECTED)
                 }
             }

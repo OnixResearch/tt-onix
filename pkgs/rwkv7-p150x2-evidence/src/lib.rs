@@ -1,3 +1,4 @@
+pub mod capacity;
 mod generated_model_target_identity;
 pub mod throughput;
 

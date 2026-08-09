@@ -3,21 +3,21 @@
 ## Phase 1: Contracts and baseline
 
 - [ ] [serial] B1 Record the current B4 runtime, profiler launch groups, memory use, exact token streams, and admitted physical baseline. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] B2 Add typed B4, B16, B32, and B64 capacity candidates with memory reserves and evidence bounds. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] B3 Add a pure capacity and memory planner with checked arithmetic. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] B2 Add typed B4, B16, B32, and B64 capacity candidates with memory reserves and evidence bounds. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] B3 Add a pure capacity and memory planner with checked arithmetic. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
 
 ## Phase 2: Runtime scheduling
 
-- [ ] [serial] R1 Replace the fixed slot boundary with the admitted profile capacity. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R2 Allocate card-local FP32 recurrent state and token-shift state from the checked plan. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R3 Preserve deterministic slot ownership, sorted recycling, and state zeroing. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R4 Record effective batch size, occupancy, host gaps, memory use, and per-request latency. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [serial] R1 Replace the fixed slot boundary with the admitted profile capacity. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R2 Allocate card-local FP32 recurrent state and token-shift state from the checked plan. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R3 Preserve deterministic slot ownership, sorted recycling, and state zeroing. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] R4 Record effective batch size, occupancy, host gaps, memory use, and per-request latency. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
 
 ## Phase 3: Positive and negative tests
 
-- [ ] [parallel] V1 Add positive tests for all candidate plans, deterministic assignment, slot recycling, and receipt calculation. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [parallel] V2 Add negative tests for duplicate ownership, stale state, unsupported capacity, checked-arithmetic overflow, and insufficient reserve. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [parallel] V3 Add negative evidence fixtures for parity mismatch, malformed metrics, non-finite metrics, and unsupported simulator claims. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [parallel] V1 Add positive tests for all candidate plans, deterministic assignment, slot recycling, and receipt calculation. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [parallel] V2 Add negative tests for duplicate ownership, stale state, unsupported capacity, checked-arithmetic overflow, and insufficient reserve. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [parallel] V3 Add negative evidence fixtures for parity mismatch, malformed metrics, non-finite metrics, and unsupported simulator claims. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
 
 ## Phase 4: Simulator and physical sweep
 
