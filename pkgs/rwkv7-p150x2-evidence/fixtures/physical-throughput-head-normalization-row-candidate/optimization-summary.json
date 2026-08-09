@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_head_normalization_row_candidate",
+  "status": "rejected",
+  "reason": "physical_throughput_regression",
+  "alternating_ab": {
+    "pair_count": 5,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      1.320079472,
+      1.303802743,
+      1.413752508,
+      1.799809649,
+      1.25331695
+    ],
+    "candidate_elapsed_seconds": [
+      1.335568914,
+      1.319223286,
+      1.296029523,
+      2.456997862,
+      1.258580633
+    ],
+    "old_aggregate_tokens_per_second": 56.411431979659014,
+    "candidate_aggregate_tokens_per_second": 52.17572636774648,
+    "aggregate_change_percent": -7.508594381081934,
+    "old_mean_tokens_per_second": 57.36562886134134,
+    "candidate_mean_tokens_per_second": 55.678405455360135,
+    "mean_change_percent": -2.9411747756821316,
+    "bounded_change_without_stall_pair_percent": 1.5654255791180072,
+    "bounded_pairs_with_candidate_regression": 3,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-head-normalization-row-ab-20260809-1310"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "old_tiled_reshape_launch_count": 5187,
+    "candidate_tiled_reshape_launch_count": 4251,
+    "removed_tiled_reshape_launch_count": 936,
+    "tiled_reshape_reduction_percent": 18.045112781954888,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-transpose-fusion-profiler-20260809-1140",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-head-normalization-row-profiler-20260809-1300"
+  }
+}
