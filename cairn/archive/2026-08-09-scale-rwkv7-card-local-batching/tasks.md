@@ -29,4 +29,4 @@
 ## Phase 5: Documentation and gates
 
 - [x] [serial] D1 Document the selected capacity, throughput, latency, memory use, receipt identities, and all non-claims. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] G1 Run formatting, runtime tests, evidence tests, simulator smoke, Cairn validation, lifecycle gates, and relevant Nix checks. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
+- [x] [depends:tenstorrent.rwkv7_p150x2.scalable_card_local_batching] G1 Run formatting, runtime tests, evidence tests, simulator smoke, Cairn validation, lifecycle gates, and relevant Nix checks. r[tenstorrent.rwkv7_p150x2.scalable_card_local_batching]
