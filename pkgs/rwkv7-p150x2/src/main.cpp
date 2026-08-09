@@ -14,6 +14,7 @@
 #include <ttnn/operations/data_movement/untilize/untilize.hpp>
 #include <ttnn/operations/eltwise/binary/binary.hpp>
 #include <ttnn/operations/eltwise/binary/binary_composite.hpp>
+#include <ttnn/operations/eltwise/ternary/ternary.hpp>
 #include <ttnn/operations/eltwise/unary/unary.hpp>
 #include <ttnn/operations/embedding/embedding.hpp>
 #include <ttnn/operations/matmul/matmul.hpp>
@@ -1021,6 +1022,11 @@ Tensor op_divide(DeviceContext &context, const Tensor &left,
   return context.checked(ttnn::divide(left, right), "divide");
 }
 
+Tensor op_lerp(DeviceContext &context, const Tensor &input, const Tensor &end,
+               const Tensor &weight) {
+  return context.checked(ttnn::lerp(input, end, weight), "lerp");
+}
+
 Tensor op_matmul(DeviceContext &context, const Tensor &left,
                  const Tensor &right) {
   return context.checked(ttnn::matmul(left, right), "matmul");
@@ -1089,9 +1095,7 @@ Tensor op_sum_last(DeviceContext &context, const Tensor &input) {
 
 Tensor mixed(DeviceContext &context, const Tensor &input,
              const Tensor &previous, const Tensor &factor) {
-  return op_add(
-      context, input,
-      op_multiply(context, op_subtract(context, previous, input), factor));
+  return op_lerp(context, input, previous, factor);
 }
 
 Tensor normalize_heads(DeviceContext &context, const Tensor &input) {

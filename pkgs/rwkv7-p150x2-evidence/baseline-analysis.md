@@ -126,6 +126,12 @@ The WKV matrix products now use the transpose flags of `ttnn::matmul`. This chan
 
 The strict transpose-fusion run reached `62.53832039352678` tokens/s on one card and `125.00182683097606` tokens/s on two cards. Its speedup was `1.998803710179507`.
 
+The time-mix and channel-mix paths now use the fused tensor form of `ttnn::lerp`. Each fused operation replaces three binary operations.
+
+`fixtures/physical-throughput-lerp-admitted/` retains this result. It removed `6,552` launches and measured a `35.72536872705587%` aggregate A/B gain.
+
+The final strict fused run reached `82.98023822469438` tokens/s on one card and `171.6697365433619` tokens/s on two cards. Its speedup was `2.068802647667913`.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary

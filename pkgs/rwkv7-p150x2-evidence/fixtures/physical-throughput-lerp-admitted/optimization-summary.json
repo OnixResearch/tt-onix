@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_fused_time_mix",
+  "alternating_ab": {
+    "pair_count": 5,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      1.216400007,
+      1.440771766,
+      1.290082619,
+      1.256215787,
+      1.378276278
+    ],
+    "new_elapsed_seconds": [
+      0.964884478,
+      0.985027328,
+      0.959360005,
+      1.006900624,
+      0.933139465
+    ],
+    "old_aggregate_tokens_per_second": 60.774142944169625,
+    "new_aggregate_tokens_per_second": 82.48592960168224,
+    "aggregate_change_percent": 35.72536872705587,
+    "old_mean_tokens_per_second": 61.00640191422498,
+    "new_mean_tokens_per_second": 82.5400506725579,
+    "mean_change_percent": 35.29735910111405,
+    "old_median_tokens_per_second": 62.01153230171531,
+    "new_median_tokens_per_second": 82.91147989635293,
+    "median_change_percent": 33.70332391231605,
+    "faster_pair_count": 5,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-lerp-ab-20260809-1540"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "mixes_per_layer": 7,
+    "old_binary_launch_count": 9828,
+    "new_ternary_launch_count": 3276,
+    "removed_launch_count": 6552,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-transpose-fusion-profiler-20260809-1140",
+    "new_source_root": "/var/tmp/rwkv7-p150x2-lerp-profiler-20260809-1520"
+  },
+  "strict_admission_identity_blake3": "de19a9ee3a1cfe9c5d28fdd240485f949c7fb6651fa7189d76b28a611cfa3631"
+}

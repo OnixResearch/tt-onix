@@ -5,6 +5,7 @@
   ninja,
   pkg-config,
   makeWrapper,
+  symlinkJoin,
   libblake3,
   nlohmann_json,
   enchantum,
@@ -21,7 +22,19 @@ let
   artifacts = targetContext.artifacts;
   model = artifacts.checkpoint.path;
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
-  metaliumRoot = "${tt-metal}/libexec/tt-metalium";
+  metaliumRuntime = symlinkJoin {
+    name = "rwkv7-p150x2-metalium-runtime";
+    paths = [ "${tt-metal}/libexec/tt-metalium" ];
+    postBuild = ''
+      unary_header_root=tt_metal/hw/inc/api/compute/eltwise_unary
+      for header in ${tt-metal.src}/$unary_header_root/*.h; do
+        install -Dm444 "$header" "$out/$unary_header_root/$(basename "$header")"
+      done
+      test -f "$out/$unary_header_root/lerp.h"
+      test -f "$out/$unary_header_root/snake_beta.h"
+    '';
+  };
+  metaliumRoot = "${metaliumRuntime}";
   meshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_x2_mesh_graph_descriptor.textproto";
   singleCardMeshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto";
 in

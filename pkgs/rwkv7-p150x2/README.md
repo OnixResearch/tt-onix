@@ -24,6 +24,8 @@ Static group-normalization and `r_k` vectors load in head-row shape. Attention c
 
 WKV matrix products use the transpose flags of `ttnn::matmul`. The runtime does not dispatch separate vector-transpose operations in the decode loop.
 
+Time mixing and channel mixing use the tensor form of `ttnn::lerp`. This fused kernel replaces the subtraction, multiplication, and addition sequence.
+
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
