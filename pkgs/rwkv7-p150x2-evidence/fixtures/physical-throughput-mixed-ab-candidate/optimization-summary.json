@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_mixed_ab_candidate",
+  "status": "rejected",
+  "reason": "physical_throughput_regression",
+  "alternating_ab": {
+    "pair_count": 4,
+    "tokens_per_sample": 80,
+    "baseline_elapsed_seconds": [
+      0.977001143,
+      1.009988716,
+      1.00720231,
+      0.93820151
+    ],
+    "candidate_elapsed_seconds": [
+      1.086971307,
+      1.035542535,
+      1.017531493,
+      1.005406101
+    ],
+    "candidate_faster_pair_count": 0,
+    "baseline_aggregate_tokens_per_second": 81.37537238676862,
+    "candidate_aggregate_tokens_per_second": 77.19304035769194,
+    "aggregate_gain_percent": -5.139555010818864,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-mixed-ab-ab-20260810-0350"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "removed_typecast_launch_count": 936,
+    "baseline_elapsed_seconds": 0.932745777,
+    "candidate_elapsed_seconds": 1.150330766,
+    "baseline_source_root": "/var/tmp/rwkv7-p150x2-mixed-r-profiler-20260810-0210",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-mixed-ab-profiler-20260810-0340"
+  }
+}
