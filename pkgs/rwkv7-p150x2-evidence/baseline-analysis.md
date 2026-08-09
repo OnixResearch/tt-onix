@@ -120,6 +120,12 @@ Static correction vectors now load in head-row shape. Group-normalization scale 
 
 The final strict run reached `62.69137518901232` tokens/s on one card and `125.85112395302231` tokens/s on two cards. Its speedup was `2.007471100667126`.
 
+The WKV matrix products now use the transpose flags of `ttnn::matmul`. This change removes separate transposes of the `a`, `v`, and `r` vectors.
+
+`fixtures/physical-throughput-transpose-fusion-admitted/` retains this result. It removed all `1,404` transpose launches and measured a `3.042123464106572%` aggregate A/B gain.
+
+The strict transpose-fusion run reached `62.53832039352678` tokens/s on one card and `125.00182683097606` tokens/s on two cards. Its speedup was `1.998803710179507`.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary

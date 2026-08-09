@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_wkv_transpose_fusion",
+  "alternating_ab": {
+    "pair_count": 5,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      1.280157333,
+      1.319830015,
+      1.267458444,
+      1.25314638,
+      1.310119872
+    ],
+    "new_elapsed_seconds": [
+      1.2945033,
+      1.221645657,
+      1.267782582,
+      1.220223719,
+      1.236702197
+    ],
+    "old_aggregate_tokens_per_second": 62.20151007588795,
+    "new_aggregate_tokens_per_second": 64.09375680893515,
+    "aggregate_change_percent": 3.042123464106572,
+    "old_mean_tokens_per_second": 62.22540992422968,
+    "new_mean_tokens_per_second": 64.12748427863082,
+    "mean_change_percent": 3.0567486123711296,
+    "old_median_tokens_per_second": 62.492318668771006,
+    "new_median_tokens_per_second": 64.68816841602165,
+    "median_change_percent": 3.513791445136394,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-transpose-fusion-ab-20260809-1150"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "old_transpose_launch_count": 1404,
+    "new_transpose_launch_count": 0,
+    "removed_transpose_launch_count": 1404,
+    "transpose_reduction_percent": 100.0,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-head-row-normalization-profiler-20260809-0930",
+    "new_source_root": "/var/tmp/rwkv7-p150x2-transpose-fusion-profiler-20260809-1140"
+  },
+  "strict_admission_identity_blake3": "4e9c6db426e09f1f8ed1e4e49d31d037764d32882b9754638145aee53e073bbd"
+}

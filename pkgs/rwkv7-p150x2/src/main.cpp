@@ -1026,6 +1026,18 @@ Tensor op_matmul(DeviceContext &context, const Tensor &left,
   return context.checked(ttnn::matmul(left, right), "matmul");
 }
 
+Tensor op_matmul_transpose_left(DeviceContext &context, const Tensor &left,
+                                const Tensor &right) {
+  return context.checked(ttnn::matmul(left, right, true, false),
+                         "matmul-transpose-left");
+}
+
+Tensor op_matmul_transpose_right(DeviceContext &context, const Tensor &left,
+                                 const Tensor &right) {
+  return context.checked(ttnn::matmul(left, right, false, true),
+                         "matmul-transpose-right");
+}
+
 Tensor op_layer_norm(DeviceContext &context, const Tensor &input,
                      const Tensor &weight, const Tensor &bias, float epsilon) {
   return context.checked(ttnn::layer_norm(input, epsilon, weight, bias),
@@ -1203,10 +1215,6 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
                              "typecast-recurrence-fp32")
                : rows;
   };
-  const auto column = [&](const Tensor &rows) {
-    return op_transpose(context, rows, kMatrixRowDimension,
-                        kMatrixColumnDimension);
-  };
   const Tensor a_rows = state_row(preparation.a);
   const Tensor b_rows = state_row(preparation.b);
   const Tensor w_rows = state_row(preparation.w);
@@ -1216,15 +1224,16 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
   const Tensor v_state_rows = source_to_state(v_rows);
   const Tensor k_state_rows = source_to_state(k_rows);
   const Tensor r_state_rows = source_to_state(r_rows);
-  const Tensor state_dot_a = op_matmul(context, state, column(a_rows));
+  const Tensor state_dot_a =
+      op_matmul_transpose_right(context, state, a_rows);
   const Tensor rank_update = op_matmul(context, state_dot_a, b_rows);
   const Tensor decay = op_multiply(context, state, w_rows);
   const Tensor outer =
-      op_matmul(context, column(v_state_rows), k_state_rows);
+      op_matmul_transpose_left(context, v_state_rows, k_state_rows);
   const Tensor next_state =
       op_add(context, op_add(context, decay, rank_update), outer);
   const Tensor output_column =
-      op_matmul(context, next_state, column(r_state_rows));
+      op_matmul_transpose_right(context, next_state, r_state_rows);
   const Tensor output_for_hidden =
       fp32_state ? op_typecast(context, output_column,
                               ttnn::DataType::BFLOAT16,

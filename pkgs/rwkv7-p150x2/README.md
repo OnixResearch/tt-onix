@@ -22,6 +22,8 @@ The WKV path reuses BF16 `r`, `k`, and `v` head rows during attention correction
 
 Static group-normalization and `r_k` vectors load in head-row shape. Attention correction stays in that shape until the output projection.
 
+WKV matrix products use the transpose flags of `ttnn::matmul`. The runtime does not dispatch separate vector-transpose operations in the decode loop.
+
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
