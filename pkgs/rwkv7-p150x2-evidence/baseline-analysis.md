@@ -106,6 +106,14 @@ The speedup was `2.0984592182132698`. Scaling efficiency was `1.0492296091066349
 
 All profiler and timed token streams matched the pinned FP32 CPU reference. The result passes both physical admission bounds.
 
+Profiler inspection then found `8,463` tiled reshape launches in one 39-step B4 worker. Reusing BF16 head rows reduced this count to `6,591` without changing other leading kernel signatures.
+
+`fixtures/physical-throughput-row-reuse-admitted/` retains the optimization evidence. Five alternating A/B pairs measured a `3.666199109471613%` aggregate gain. Mean and median gains were also positive.
+
+The following strict run reached `60.59247374263283` tokens/s on one card and `123.79287232979172` tokens/s on two cards. Its speedup was `2.0430404088732743`.
+
+All strict token streams stayed exact. Separate strict runs remain too nonstationary to isolate the optimization gain, so the claim uses the alternating A/B result.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary

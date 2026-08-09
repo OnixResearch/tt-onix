@@ -18,6 +18,8 @@ The worker keeps one static batch per card. Each batch row has independent FP32 
 
 The saturated benchmark supports at most two process waves. It never assigns more than four active state slots to one worker.
 
+The WKV path reuses BF16 `r`, `k`, and `v` head rows during attention correction. Separate FP32 cast views preserve recurrent-state precision.
+
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.

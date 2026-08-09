@@ -1,0 +1,786 @@
+{
+  "schema_version": 1,
+  "profile_identity_blake3": "baaf6aa8da124f5c0d7081bac430237d87f07dc006c70ff14c66d967bc2b73b7",
+  "machine_facts": {
+    "source": "tt-smi -s --snapshot_no_tty",
+    "before_blake3": "93265e83858dd1efb18979939ec4224fbff2221d79c5692e029630369c53d2de",
+    "after_blake3": "f03aa46915cab9c3736fc2fb28bbf56f9bee904df90f3ae163c352ee8167a0af",
+    "physical_device_ids": [
+      0,
+      1
+    ]
+  },
+  "execution": {
+    "scheduler_mode": "deterministic_continuous_batching",
+    "scheduler_tie_break": "least_loaded_card_then_lowest_card_then_lowest_slot",
+    "replica_mode": "independent_card_replicas",
+    "recurrent_state_residency": "device_fp32",
+    "timed_region": "decode_only",
+    "warmup_token_count": 4,
+    "program_cache_stable": true,
+    "dynamic_token_and_state_bindings_validated": true,
+    "state_readback_during_timing": false,
+    "profiler_flush_during_timing": false,
+    "control_replay_during_timing": false,
+    "artifact_writes_during_timing": false
+  },
+  "one_card_runs": [
+    {
+      "run_id": "single-0",
+      "physical_device_ids": [
+        0
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 3.5537651309999996,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.189302411
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.189302411
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.263842081
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.263842081
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.446125036
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.446125036
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 2.289910467
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 2.289910467
+        }
+      ]
+    },
+    {
+      "run_id": "single-1",
+      "physical_device_ids": [
+        0
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 2.493089606,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.175102177
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.175102177
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.221323783
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.221323783
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.187694485
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.187694485
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.271751236
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.271751236
+        }
+      ]
+    },
+    {
+      "run_id": "single-2",
+      "physical_device_ids": [
+        0
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 2.463802635,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182358026
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182358026
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.234009997
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.234009997
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.179261869
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.179261869
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.229776768
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.229776768
+        }
+      ]
+    },
+    {
+      "run_id": "single-3",
+      "physical_device_ids": [
+        0
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 2.488631575,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.183075863
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.183075863
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.237244835
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.237244835
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.182621942
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.182621942
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.251376641
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.251376641
+        }
+      ]
+    },
+    {
+      "run_id": "single-4",
+      "physical_device_ids": [
+        0
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 2.479479478,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.185520367
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.185520367
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.245705624
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.245705624
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.18171467
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 1,
+          "token_count": 5,
+          "latency_seconds": 0.18171467
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.233759407
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 1,
+          "token_count": 35,
+          "latency_seconds": 1.233759407
+        }
+      ]
+    }
+  ],
+  "two_card_runs": [
+    {
+      "run_id": "dual-0",
+      "physical_device_ids": [
+        0,
+        1
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 1.269668209,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.187189839
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 1,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.179295132
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.269662308
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 1,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.228753889
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.187189839
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 1,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.179295132
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.269662308
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 1,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.228753889
+        }
+      ]
+    },
+    {
+      "run_id": "dual-1",
+      "physical_device_ids": [
+        0,
+        1
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 1.26139954,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.188292117
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 1,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.187833135
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.261391285
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 1,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.243325169
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.188292117
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 1,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.187833135
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.261391285
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 1,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.243325169
+        }
+      ]
+    },
+    {
+      "run_id": "dual-2",
+      "physical_device_ids": [
+        0,
+        1
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 1.279930287,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182965666
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 1,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.1813736
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.279924656
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 1,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.231362061
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182965666
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 1,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.1813736
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.279924656
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 1,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.231362061
+        }
+      ]
+    },
+    {
+      "run_id": "dual-3",
+      "physical_device_ids": [
+        0,
+        1
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 1.303044922,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.195200995
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 1,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182512386
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.303034843
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 1,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.253594241
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.195200995
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 1,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.182512386
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.303034843
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 1,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.253594241
+        }
+      ]
+    },
+    {
+      "run_id": "dual-4",
+      "physical_device_ids": [
+        0,
+        1
+      ],
+      "physical_hardware": true,
+      "profiler_attributed": true,
+      "elapsed_seconds": 1.352404232,
+      "requests": [
+        {
+          "request_id": "request-0",
+          "card_id": 0,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.192370857
+        },
+        {
+          "request_id": "request-1",
+          "card_id": 1,
+          "state_slot": 0,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.201017354
+        },
+        {
+          "request_id": "request-2",
+          "card_id": 0,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.352397459
+        },
+        {
+          "request_id": "request-3",
+          "card_id": 1,
+          "state_slot": 1,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.307811341
+        },
+        {
+          "request_id": "request-4",
+          "card_id": 0,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.192370857
+        },
+        {
+          "request_id": "request-5",
+          "card_id": 1,
+          "state_slot": 2,
+          "wave_index": 0,
+          "token_count": 5,
+          "latency_seconds": 0.201017354
+        },
+        {
+          "request_id": "request-6",
+          "card_id": 0,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.352397459
+        },
+        {
+          "request_id": "request-7",
+          "card_id": 1,
+          "state_slot": 3,
+          "wave_index": 0,
+          "token_count": 35,
+          "latency_seconds": 1.307811341
+        }
+      ]
+    }
+  ]
+}

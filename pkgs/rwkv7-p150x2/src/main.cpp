@@ -1163,7 +1163,10 @@ TimePreparation prepare_time_mix(DeviceContext &context,
 
 struct WkvOutput {
   Tensor state;
-  Tensor raw_output;
+  Tensor output_for_hidden;
+  Tensor r_rows;
+  Tensor k_rows;
+  Tensor v_rows;
 };
 
 WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
@@ -1176,40 +1179,57 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
                              "typecast-recurrence-fp32")
                : tensor;
   };
-  const auto row = [&](const Tensor &tensor) {
+  const auto state_row = [&](const Tensor &tensor) {
     return op_reshape(context, state_dtype(tensor),
                       {batch_size, kHeadCount, 1U, kHeadSize});
   };
-  const auto column = [&](const Tensor &tensor) {
-    return op_transpose(context, row(tensor), kMatrixRowDimension,
+  const auto source_row = [&](const Tensor &tensor) {
+    return op_reshape(context, tensor,
+                      {batch_size, kHeadCount, 1U, kHeadSize});
+  };
+  const auto source_to_state = [&](const Tensor &rows) {
+    return fp32_state
+               ? op_typecast(context, rows, ttnn::DataType::FLOAT32,
+                             "typecast-recurrence-fp32")
+               : rows;
+  };
+  const auto column = [&](const Tensor &rows) {
+    return op_transpose(context, rows, kMatrixRowDimension,
                         kMatrixColumnDimension);
   };
-  const Tensor state_dot_a = op_matmul(context, state, column(preparation.a));
-  const Tensor rank_update =
-      op_matmul(context, state_dot_a, row(preparation.b));
-  const Tensor decay = op_multiply(context, state, row(preparation.w));
+  const Tensor a_rows = state_row(preparation.a);
+  const Tensor b_rows = state_row(preparation.b);
+  const Tensor w_rows = state_row(preparation.w);
+  const Tensor v_rows = source_row(preparation.v);
+  const Tensor k_rows = source_row(preparation.k);
+  const Tensor r_rows = source_row(preparation.r);
+  const Tensor v_state_rows = source_to_state(v_rows);
+  const Tensor k_state_rows = source_to_state(k_rows);
+  const Tensor r_state_rows = source_to_state(r_rows);
+  const Tensor state_dot_a = op_matmul(context, state, column(a_rows));
+  const Tensor rank_update = op_matmul(context, state_dot_a, b_rows);
+  const Tensor decay = op_multiply(context, state, w_rows);
   const Tensor outer =
-      op_matmul(context, column(preparation.v), row(preparation.k));
+      op_matmul(context, column(v_state_rows), k_state_rows);
   const Tensor next_state =
       op_add(context, op_add(context, decay, rank_update), outer);
   const Tensor output_column =
-      op_matmul(context, next_state, column(preparation.r));
+      op_matmul(context, next_state, column(r_state_rows));
   const Tensor output_for_hidden =
       fp32_state ? op_typecast(context, output_column,
                               ttnn::DataType::BFLOAT16,
                               "typecast-recurrence-output-bf16")
                  : output_column;
-  const Tensor raw_output = op_reshape(
-      context, output_for_hidden, {1U, 1U, batch_size, kHiddenSize});
-  return WkvOutput{next_state, raw_output};
+  return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows};
 }
 
 Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
                         const TimePreparation &preparation,
-                        const Tensor &raw_output) {
-  const std::uint32_t batch_size = raw_output.logical_shape()[-2];
+                        const WkvOutput &wkv) {
+  const std::uint32_t batch_size = wkv.output_for_hidden.logical_shape()[0];
   const Tensor rows = op_reshape(
-      context, raw_output, {batch_size, kHeadCount, 1U, kHeadSize});
+      context, wkv.output_for_hidden,
+      {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor normalized_rows =
       op_layer_norm(context, rows, kGroupNormEpsilon);
   const Tensor normalized =
@@ -1219,23 +1239,18 @@ Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
                                     {1U, 1U, batch_size, kHiddenSize}),
                          weights.at("group_norm_weight")),
              weights.at("group_norm_bias"));
-  const Tensor r_rows = op_reshape(
-      context, preparation.r, {batch_size, kHeadCount, 1U, kHeadSize});
-  const Tensor k_rows = op_reshape(
-      context, preparation.k, {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor rk_rows =
       op_reshape(context, weights.at("r_k"), {1U, kHeadCount, 1U, kHeadSize});
   const Tensor scalar = op_sum_last(
       context,
-      op_multiply(context, op_multiply(context, r_rows, k_rows), rk_rows));
-  const Tensor v_rows = op_reshape(
-      context, preparation.v, {batch_size, kHeadCount, 1U, kHeadSize});
+      op_multiply(context,
+                  op_multiply(context, wkv.r_rows, wkv.k_rows), rk_rows));
   const Tensor corrected_rows = op_multiply(
       context,
       op_add(context,
              op_reshape(context, normalized,
                         {batch_size, kHeadCount, 1U, kHeadSize}),
-             op_multiply(context, scalar, v_rows)),
+             op_multiply(context, scalar, wkv.v_rows)),
       op_reshape(context, preparation.gate,
                  {batch_size, kHeadCount, 1U, kHeadSize}));
   return op_matmul(
@@ -1284,7 +1299,7 @@ Tensor execute_layer(DeviceContext &context, const LayerWeights &weights,
 
   context.set_stage(std::string(stage_prefix) + "/attention-finish");
   const Tensor attention_output =
-      finish_attention(context, weights, preparation, wkv.raw_output);
+      finish_attention(context, weights, preparation, wkv);
   const Tensor after_attention = op_add(context, residual, attention_output);
 
   context.set_stage(std::string(stage_prefix) + "/channel-mix");
