@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_head_row_normalization",
+  "alternating_ab": {
+    "pair_count": 5,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      1.435424827,
+      1.741370899,
+      1.487106152,
+      1.222765547,
+      1.244521954
+    ],
+    "new_elapsed_seconds": [
+      1.318810502,
+      1.230048988,
+      1.529038783,
+      1.21782484,
+      1.242864465
+    ],
+    "old_aggregate_tokens_per_second": 56.091624936777606,
+    "new_aggregate_tokens_per_second": 61.17529133445523,
+    "aggregate_change_percent": 9.063146955374467,
+    "old_mean_tokens_per_second": 57.03527469658215,
+    "new_mean_tokens_per_second": 61.61551297483492,
+    "mean_change_percent": 8.030536019364964,
+    "old_median_tokens_per_second": 55.73262945939,
+    "new_median_tokens_per_second": 64.36743687896814,
+    "median_change_percent": 15.493271183032853,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-head-row-normalization-ab-20260809-0950"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "old_tiled_reshape_launch_count": 6591,
+    "new_tiled_reshape_launch_count": 5187,
+    "removed_tiled_reshape_launch_count": 1404,
+    "tiled_reshape_reduction_percent": 21.301775147928993,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-bf16-row-reuse-profiler-20260809-0750",
+    "new_source_root": "/var/tmp/rwkv7-p150x2-head-row-normalization-profiler-20260809-0930"
+  },
+  "strict_admission_identity_blake3": "9f89f074fe1cf1dc93484d8eb51f017c2692eef092ccf4e75ab78887f4d04034"
+}

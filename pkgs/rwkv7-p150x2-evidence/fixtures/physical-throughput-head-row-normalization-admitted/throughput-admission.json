@@ -1,0 +1,8 @@
+{
+  "aggregate_tokens_per_second": 125.85112395302231,
+  "dual_card_speedup": 2.007471100667126,
+  "identity_blake3": "9f89f074fe1cf1dc93484d8eb51f017c2692eef092ccf4e75ab78887f4d04034",
+  "p99_latency_regression_fraction": -0.11914938276738306,
+  "scaling_efficiency": 1.003735550333563,
+  "status": "admitted"
+}

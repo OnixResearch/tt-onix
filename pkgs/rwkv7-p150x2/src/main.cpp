@@ -817,13 +817,18 @@ struct ModelWeights {
   std::vector<LayerWeights> layers;
 };
 
-Tensor load_vector(DeviceContext &context, const CheckpointIndex &checkpoint,
-                   const std::string &name, std::uint32_t length,
-                   const std::vector<std::uint32_t> &checkpoint_shape = {}) {
-  const std::vector<std::uint32_t> shape =
+Tensor load_vector(
+    DeviceContext &context, const CheckpointIndex &checkpoint,
+    const std::string &name, std::uint32_t length,
+    const std::vector<std::uint32_t> &checkpoint_shape = {},
+    const std::vector<std::uint32_t> &device_shape = {}) {
+  const std::vector<std::uint32_t> source_shape =
       checkpoint_shape.empty() ? std::vector<std::uint32_t>{length}
                                : checkpoint_shape;
-  return context.bf16_tensor(checkpoint.read(name, shape), {1U, 1U, 1U, length},
+  const std::vector<std::uint32_t> logical_shape =
+      device_shape.empty() ? std::vector<std::uint32_t>{1U, 1U, 1U, length}
+                           : device_shape;
+  return context.bf16_tensor(checkpoint.read(name, source_shape), logical_shape,
                              ttnn::Layout::TILE);
 }
 
@@ -840,13 +845,16 @@ LayerWeights load_layer(DeviceContext &context,
                         const CheckpointIndex &checkpoint,
                         std::uint32_t layer_index) {
   LayerWeights layer{layer_index, {}};
-  const auto vector = [&](std::string_view key, std::string_view suffix,
-                          std::vector<std::uint32_t> shape = {}) {
-    layer.tensors.emplace(std::string(key),
-                          load_vector(context, checkpoint,
-                                      layer_tensor_name(layer_index, suffix),
-                                      kHiddenSize, shape));
-  };
+  const auto vector =
+      [&](std::string_view key, std::string_view suffix,
+          std::vector<std::uint32_t> checkpoint_shape = {},
+          std::vector<std::uint32_t> device_shape = {}) {
+        layer.tensors.emplace(
+            std::string(key),
+            load_vector(context, checkpoint,
+                        layer_tensor_name(layer_index, suffix), kHiddenSize,
+                        checkpoint_shape, device_shape));
+      };
   const auto matrix = [&](std::string_view key, std::string_view suffix,
                           std::uint32_t rows, std::uint32_t columns) {
     layer.tensors.emplace(std::string(key),
@@ -886,9 +894,11 @@ LayerWeights load_layer(DeviceContext &context,
   }
   vector("k_k", "attn.k_k");
   vector("k_a", "attn.k_a");
-  vector("r_k", "attn.r_k", {kHeadCount, kHeadSize});
-  vector("group_norm_weight", "attn.g_norm.weight");
-  vector("group_norm_bias", "attn.g_norm.bias");
+  const std::vector<std::uint32_t> head_row_shape{1U, kHeadCount, 1U,
+                                                   kHeadSize};
+  vector("r_k", "attn.r_k", {kHeadCount, kHeadSize}, head_row_shape);
+  vector("group_norm_weight", "attn.g_norm.weight", {}, head_row_shape);
+  vector("group_norm_bias", "attn.g_norm.bias", {}, head_row_shape);
   vector("ffn_norm_weight", "ffn_norm.weight");
   vector("ffn_norm_bias", "ffn_norm.bias");
   vector("ffn_x_k", "ffn.x_k");
@@ -1232,25 +1242,19 @@ Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
       {batch_size, kHeadCount, 1U, kHeadSize});
   const Tensor normalized_rows =
       op_layer_norm(context, rows, kGroupNormEpsilon);
-  const Tensor normalized =
+  const Tensor scaled_rows =
       op_add(context,
-             op_multiply(context,
-                         op_reshape(context, normalized_rows,
-                                    {1U, 1U, batch_size, kHiddenSize}),
+             op_multiply(context, normalized_rows,
                          weights.at("group_norm_weight")),
              weights.at("group_norm_bias"));
-  const Tensor rk_rows =
-      op_reshape(context, weights.at("r_k"), {1U, kHeadCount, 1U, kHeadSize});
   const Tensor scalar = op_sum_last(
       context,
       op_multiply(context,
-                  op_multiply(context, wkv.r_rows, wkv.k_rows), rk_rows));
+                  op_multiply(context, wkv.r_rows, wkv.k_rows),
+                  weights.at("r_k")));
   const Tensor corrected_rows = op_multiply(
-      context,
-      op_add(context,
-             op_reshape(context, normalized,
-                        {batch_size, kHeadCount, 1U, kHeadSize}),
-             op_multiply(context, scalar, wkv.v_rows)),
+      context, op_add(context, scaled_rows,
+                      op_multiply(context, scalar, wkv.v_rows)),
       op_reshape(context, preparation.gate,
                  {batch_size, kHeadCount, 1U, kHeadSize}));
   return op_matmul(

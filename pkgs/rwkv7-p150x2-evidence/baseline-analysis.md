@@ -114,6 +114,12 @@ The following strict run reached `60.59247374263283` tokens/s on one card and `1
 
 All strict token streams stayed exact. Separate strict runs remain too nonstationary to isolate the optimization gain, so the claim uses the alternating A/B result.
 
+Static correction vectors now load in head-row shape. Group-normalization scale and bias stay in that shape through attention correction.
+
+`fixtures/physical-throughput-head-row-normalization-admitted/` retains this result. It removed another `1,404` tiled reshape launches and measured a `9.063146955374467%` aggregate A/B gain.
+
+The final strict run reached `62.69137518901232` tokens/s on one card and `125.85112395302231` tokens/s on two cards. Its speedup was `2.007471100667126`.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary
