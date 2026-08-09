@@ -28,6 +28,8 @@ Time mixing and channel mixing use the tensor form of `ttnn::lerp`. This fused k
 
 The value, decay, and attention-gate projections pass their static biases to `ttnn::linear`. This removes separate row-broadcast additions.
 
+The FP32 WKV output matmul writes BF16 directly for attention normalization. This removes one recurrent output typecast per layer and token.
+
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
@@ -85,7 +87,9 @@ The benchmark fails unless all conditions are true:
 
 The admitted 2026-08-08 physical result was `21.289619409251138` tokens/s on one card and `38.65481160499171` tokens/s on two cards. The speedup was `1.8156647548238811`. The p99 latency change was `-0.2225636226581016`. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-admitted/`.
 
-The latest strict result reached `86.8422965099119` tokens/s on one card and `181.8205337965597` tokens/s on two cards. Its speedup was `2.0936863844429454`. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-linear-bias-admitted/`.
+The best strict result reached `86.8422965099119` tokens/s on one card and `181.8205337965597` tokens/s on two cards. Its speedup was `2.0936863844429454`. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-linear-bias-admitted/`.
+
+Direct BF16 WKV output removed `468` more launches. Stable dual-card A/B rounds gained `5.203905022531408%`. Later strict runs passed admission but contained stalls, so they do not replace the absolute record. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-bf16-wkv-output-admitted/`.
 
 The pure admission command can recompute a retained receipt:
 

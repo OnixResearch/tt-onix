@@ -1050,6 +1050,15 @@ Tensor op_matmul_transpose_right(DeviceContext &context, const Tensor &left,
                          "matmul-transpose-right");
 }
 
+Tensor op_matmul_transpose_right_bf16(DeviceContext &context,
+                                      const Tensor &left,
+                                      const Tensor &right) {
+  return context.checked(
+      ttnn::matmul(left, right, false, true, std::nullopt,
+                   ttnn::DataType::BFLOAT16),
+      "matmul-transpose-right-bf16");
+}
+
 Tensor op_layer_norm(DeviceContext &context, const Tensor &input,
                      const Tensor &weight, const Tensor &bias, float epsilon) {
   return context.checked(ttnn::layer_norm(input, epsilon, weight, bias),
@@ -1242,13 +1251,10 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
       op_matmul_transpose_left(context, v_state_rows, k_state_rows);
   const Tensor next_state =
       op_add(context, op_add(context, decay, rank_update), outer);
-  const Tensor output_column =
-      op_matmul_transpose_right(context, next_state, r_state_rows);
   const Tensor output_for_hidden =
-      fp32_state ? op_typecast(context, output_column,
-                              ttnn::DataType::BFLOAT16,
-                              "typecast-recurrence-output-bf16")
-                 : output_column;
+      fp32_state
+          ? op_matmul_transpose_right_bf16(context, next_state, r_state_rows)
+          : op_matmul_transpose_right(context, next_state, r_state_rows);
   return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows};
 }
 

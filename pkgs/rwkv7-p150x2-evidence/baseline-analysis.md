@@ -140,6 +140,14 @@ The latest strict run reached `86.8422965099119` tokens/s on one card and `181.8
 
 The first strict attempt missed the p99 bound by `0.01925839936994552`. The repeated strict run passed with a p99 change of `-0.16762321580493525`.
 
+The FP32 WKV output matmul now writes BF16 directly. This removes the separate recurrent-output typecast without changing FP32 state storage or inputs.
+
+`fixtures/physical-throughput-bf16-wkv-output-admitted/` retains this result. It removed `468` typecast launches. Five stable card-0 pairs gained `1.0599807142447792%` in aggregate.
+
+Three stable dual-card A/B rounds were all faster. Their aggregate throughput increased from `156.365956809559` to `164.50309268950096` tokens/s, a `5.203905022531408%` gain.
+
+Two strict runs passed admission but contained nonstationary stalls. The retry reached `149.08769593833534` tokens/s across two cards. It does not replace the `181.8205337965597` tokens/s absolute record.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary
