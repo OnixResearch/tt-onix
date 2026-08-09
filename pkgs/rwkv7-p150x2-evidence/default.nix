@@ -55,14 +55,17 @@ rustPlatform.buildRustPackage {
     mkdir -p "$out/share/model-target" "$out/share/rwkv7-p150x2-throughput"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp throughput-contracts.ncl throughput-profile.ncl \
-      throughput-saturated-profile.ncl \
+      throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fixtures/throughput-workload.json \
       fixtures/throughput-saturated-workload.json \
+      fixtures/model-extent.json \
       "$out/share/rwkv7-p150x2-throughput/"
     nickel export --format json throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-profile.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
+    nickel export --format json throughput-capacity-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/throughput-capacity-profile.json"
     substitute run-simulator-smoke.sh \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
@@ -122,6 +125,29 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     grep -F 'unattributed_throughput_run' invalid-estimated.out
+
+    # r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+    capacity_profile="$out/share/rwkv7-p150x2-throughput/throughput-capacity-profile.json"
+    extent="$out/share/rwkv7-p150x2-throughput/model-extent.json"
+    "$throughput_core" capacity-plan "$capacity_profile" "$extent" >capacity-plans.json
+    grep -F '"candidate_id": "B4"' capacity-plans.json
+    grep -F '"candidate_id": "B16"' capacity-plans.json
+    grep -F '"candidate_id": "B32"' capacity-plans.json
+    grep -F '"candidate_id": "B64"' capacity-plans.json
+
+    # r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.invalid_memory]
+    if nickel export --format json fixtures/invalid-capacity-unsupported.ncl \
+      >invalid-capacity.json 2>invalid-capacity.log; then
+      echo "zero-slot capacity candidate passed its typed contract" >&2
+      exit 1
+    fi
+    test -s invalid-capacity.log
+    if "$throughput_core" capacity-plan \
+      fixtures/invalid-capacity-plan.json "$extent" >invalid-capacity-plan.out 2>invalid-capacity-plan.err; then
+      echo "unsafe capacity plan passed device-free admission" >&2
+      exit 1
+    fi
+    grep -F 'insufficient_device_memory' invalid-capacity-plan.out
     runHook postInstallCheck
   '';
 

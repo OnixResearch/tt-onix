@@ -16,8 +16,15 @@ Each worker sets `TT_VISIBLE_DEVICES` to its physical card. It uses the pinned s
 
 The worker keeps one static batch per card. Each batch row has independent FP32 WKV state and token-shift state. The worker uses deterministic, bounded state slots.
 
-The saturated benchmark supports at most two process waves. It never assigns more than four active state slots to one worker.
+The saturated benchmark supports at most two process waves. It never assigns more active state slots to one worker than the admitted card-local capacity.
 
+## Card-local capacity plan
+
+Nickel owns the typed capacity candidates B4, B16, B32, and B64 (`throughput-capacity-profile.ncl` in the evidence package). The pure planner (`rwkv7-p150x2-throughput capacity-plan`) validates every candidate device-free: it derives FP32 recurrent-state bytes, BF16 token-shift bytes, temporary tensor estimates, and a safety reserve with checked arithmetic, and it rejects overflow or an insufficient device budget before any device opens.
+
+The benchmark launcher writes the admitted capacity and its checked memory bounds into each worker request. The worker re-runs the same checked derivation before opening its device. It records the effective batch size, queue occupancy, memory plan, per-request latency, and host gap (host-only batch-step scheduling time) in its receipt.
+
+A capacity above four becomes the default only after simulator, exact-parity, stable A/B, and strict two-card physical evidence pass. See the change `cairn/changes/scale-rwkv7-card-local-batching/`.
 The WKV path reuses BF16 `r`, `k`, and `v` head rows during attention correction. Separate FP32 cast views preserve recurrent-state precision.
 
 Static group-normalization and `r_k` vectors load in head-row shape. Attention correction stays in that shape until the output projection.

@@ -35,6 +35,11 @@ const PROFILER_HEADER_LINE_COUNT: usize = 2;
 const CPU_REFERENCE_METHOD: &str = "pinned_fp32_full_sequence_greedy_argmax";
 const KIBIBYTE: usize = 1024;
 const MAX_PROFILER_LINE_BYTES: usize = KIBIBYTE * KIBIBYTE;
+// r[impl tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+// These match the exported `throughput-capacity-profile.ncl` memory bounds.
+const WORKER_CAPACITY_TEMPORARY_BYTES_PER_SLOT: u64 = 5 * 1024 * 1024;
+const WORKER_CAPACITY_DEVICE_BUDGET_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+const WORKER_CAPACITY_SAFETY_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -58,7 +63,17 @@ struct BenchmarkWorkload {
 struct WorkerRequest {
     schema_version: u32,
     run_id: String,
+    capacity: WorkerCapacity,
     requests: Vec<WorkerRequestEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct WorkerCapacity {
+    id: String,
+    per_card_slot_count: usize,
+    temporary_tensor_bytes_per_slot: u64,
+    device_budget_bytes: u64,
+    safety_reserve_bytes: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -80,8 +95,32 @@ struct WorkerReceipt {
     physical_hardware: bool,
     profiler_attributed: bool,
     elapsed_seconds: f64,
+    capacity: WorkerReceiptCapacity,
+    effective_batch_size: usize,
+    queue_occupancy_fraction: f64,
+    batch_step_count: usize,
+    host_gap_accumulated_seconds: f64,
     requests: Vec<WorkerRequestMeasurement>,
     execution: WorkerExecution,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerReceiptCapacity {
+    id: String,
+    per_card_slot_count: usize,
+    memory_plan_bytes: WorkerReceiptMemoryPlan,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerReceiptMemoryPlan {
+    recurrent_state_bytes: u64,
+    token_shift_bytes: u64,
+    temporary_tensor_bytes: u64,
+    safety_reserve_bytes: u64,
+    total_required_bytes: u64,
+    device_budget_bytes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -302,9 +341,28 @@ fn worker_request(
             "scheduler assigned no requests to physical card {card_id}"
         ));
     }
+    let slot_count = profile.scheduler.per_card_slot_count;
+    let capacity_id = match slot_count {
+        4 => "B4",
+        16 => "B16",
+        32 => "B32",
+        64 => "B64",
+        _ => {
+            return Err(format!(
+                "profile slot count {slot_count} is not a supported grid capacity"
+            ));
+        }
+    };
     Ok(WorkerRequest {
         schema_version: SCHEMA_VERSION,
         run_id: format!("{run_id}-wave-{wave_index}-card-{card_id}"),
+        capacity: WorkerCapacity {
+            id: capacity_id.to_owned(),
+            per_card_slot_count: slot_count,
+            temporary_tensor_bytes_per_slot: WORKER_CAPACITY_TEMPORARY_BYTES_PER_SLOT,
+            device_budget_bytes: WORKER_CAPACITY_DEVICE_BUDGET_BYTES,
+            safety_reserve_bytes: WORKER_CAPACITY_SAFETY_RESERVE_BYTES,
+        },
         requests,
     })
 }
@@ -530,6 +588,47 @@ fn validate_worker(
     {
         return Err(format!(
             "card {} contaminated its timed region",
+            worker.card_id
+        ));
+    }
+    // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+    let expected_capacity_id = match profile.scheduler.per_card_slot_count {
+        4 => "B4",
+        16 => "B16",
+        32 => "B32",
+        64 => "B64",
+        _ => {
+            return Err(format!(
+                "profile slot count {} is not a supported grid capacity",
+                profile.scheduler.per_card_slot_count
+            ));
+        }
+    };
+    if receipt.capacity.id != expected_capacity_id
+        || receipt.capacity.per_card_slot_count != profile.scheduler.per_card_slot_count
+        || receipt.effective_batch_size == 0
+        || receipt.effective_batch_size > profile.scheduler.per_card_slot_count
+        || receipt.effective_batch_size != receipt.requests.len()
+        || !receipt.queue_occupancy_fraction.is_finite()
+        || receipt.queue_occupancy_fraction <= 0.0
+        || receipt.queue_occupancy_fraction > 1.0 + 1.0e-9
+        || receipt.batch_step_count == 0
+        || !receipt.host_gap_accumulated_seconds.is_finite()
+        || receipt.host_gap_accumulated_seconds < 0.0
+        || receipt.capacity.memory_plan_bytes.recurrent_state_bytes == 0
+        || receipt.capacity.memory_plan_bytes.token_shift_bytes == 0
+        || receipt.capacity.memory_plan_bytes.temporary_tensor_bytes == 0
+        || receipt.capacity.memory_plan_bytes.safety_reserve_bytes == 0
+        || receipt.capacity.memory_plan_bytes.total_required_bytes
+            != receipt.capacity.memory_plan_bytes.recurrent_state_bytes
+                + receipt.capacity.memory_plan_bytes.token_shift_bytes
+                + receipt.capacity.memory_plan_bytes.temporary_tensor_bytes
+                + receipt.capacity.memory_plan_bytes.safety_reserve_bytes
+        || receipt.capacity.memory_plan_bytes.total_required_bytes
+            > receipt.capacity.memory_plan_bytes.device_budget_bytes
+    {
+        return Err(format!(
+            "card {} returned a capacity or batch metric outside its admitted profile",
             worker.card_id
         ));
     }

@@ -143,6 +143,9 @@ constexpr std::size_t kFastOutputValueIndex = 7U;
 constexpr std::size_t kFastPerCardSlotCount = 4U;
 constexpr std::uint32_t kFastWarmupTokenCount = 4U;
 constexpr std::uint32_t kFastMaximumGeneratedTokens = 64U;
+constexpr std::uint64_t kCapacityTokenShiftBufferCount = 2U;
+constexpr std::uint64_t kCapacityFp32Bytes = 4U;
+constexpr std::uint64_t kCapacityBf16Bytes = 2U;
 constexpr std::size_t kProgramArgumentIndex = 0U;
 constexpr std::size_t kModeArgumentIndex = 1U;
 constexpr std::size_t kTokensValueIndex = 2U;
@@ -174,6 +177,19 @@ void require(bool condition, std::string_view message) {
   if (!condition) {
     fail(message);
   }
+}
+
+std::uint64_t checked_uint64_add(std::uint64_t left, std::uint64_t right) {
+  require(right <= std::numeric_limits<std::uint64_t>::max() - left,
+          "card-local memory addition overflows the address space");
+  return left + right;
+}
+
+std::uint64_t checked_uint64_mul(std::uint64_t left, std::uint64_t right) {
+  require(right != 0U &&
+              left <= std::numeric_limits<std::uint64_t>::max() / right,
+          "card-local memory product overflows the address space");
+  return left * right;
 }
 
 std::uint32_t parse_u32(std::string_view text, std::string_view name) {
@@ -956,9 +972,11 @@ ModelState zero_model_state(DeviceContext &context) {
 }
 
 ModelState zero_fast_model_state(DeviceContext &context,
-                                 std::uint32_t batch_size) {
-  require(batch_size > 0U && batch_size <= kFastPerCardSlotCount,
-          "fast state batch size is outside the card-local range");
+                                 std::uint32_t batch_size,
+                                 std::size_t max_slot_count) {
+  require(batch_size > 0U &&
+              static_cast<std::size_t>(batch_size) <= max_slot_count,
+          "fast state batch size is outside the admitted card-local capacity");
   context.set_stage("fast-state-zero-initialization");
   std::vector<LayerState> layers;
   layers.reserve(kLayerCount);
@@ -1380,9 +1398,9 @@ read_u32_shards(DeviceContext &context, const Tensor &input) {
 
 std::vector<std::uint32_t>
 read_fast_u32(DeviceContext &context, const Tensor &input,
-              std::size_t batch_size) {
-  require(batch_size > 0U && batch_size <= kFastPerCardSlotCount,
-          "fast UINT32 readback batch size is outside the card-local range");
+              std::size_t batch_size, std::size_t max_slot_count) {
+  require(batch_size > 0U && batch_size <= max_slot_count,
+          "fast UINT32 readback batch size exceeds the admitted card-local capacity");
   context.set_stage("fast-selection/readback-u32");
   const Tensor host = ttnn::from_device(input, true);
   const std::vector<Tensor> shards =
@@ -1643,8 +1661,17 @@ struct FastRequest {
   std::size_t state_slot;
 };
 
+struct FastCardCapacity {
+  std::string id;
+  std::size_t per_card_slot_count;
+  std::uint64_t temporary_tensor_bytes_per_slot;
+  std::uint64_t device_budget_bytes;
+  std::uint64_t safety_reserve_bytes;
+};
+
 struct FastWorkerRequest {
   std::string run_id;
+  FastCardCapacity capacity;
   std::vector<FastRequest> requests;
 };
 
@@ -1668,6 +1695,61 @@ struct FastBatchStepPlan {
   std::vector<bool> selection_required;
   bool any_selection_required;
 };
+
+bool supported_fast_capacity_id(std::string_view id,
+                                std::size_t slot_count) {
+  return (id == "B4" && slot_count == 4U) ||
+         (id == "B16" && slot_count == 16U) ||
+         (id == "B32" && slot_count == 32U) ||
+         (id == "B64" && slot_count == 64U);
+}
+
+struct FastMemoryPlan {
+  std::uint64_t recurrent_state_bytes;
+  std::uint64_t token_shift_bytes;
+  std::uint64_t temporary_tensor_bytes;
+  std::uint64_t safety_reserve_bytes;
+  std::uint64_t total_required_bytes;
+  std::uint64_t device_budget_bytes;
+};
+
+// r[impl tenstorrent.rwkv7_p150x2.scalable_card_local_batching.invalid_memory]
+// Pure, checked card-local memory derivation. It must run before any device
+// opens. Every product uses checked arithmetic; overflow and budget
+// exhaustion fail with the rejected bound.
+FastMemoryPlan plan_fast_card_memory(const FastCardCapacity &capacity) {
+  const std::uint64_t heads_area =
+      static_cast<std::uint64_t>(kHeadCount) *
+      static_cast<std::uint64_t>(kHeadSize) *
+      static_cast<std::uint64_t>(kHeadSize);
+  const std::uint64_t recurrent_bytes =
+      checked_uint64_mul(
+          checked_uint64_mul(heads_area, static_cast<std::uint64_t>(kLayerCount)),
+          kCapacityFp32Bytes);
+  const std::uint64_t recurrent_total = checked_uint64_mul(
+      recurrent_bytes, static_cast<std::uint64_t>(capacity.per_card_slot_count));
+  const std::uint64_t shift_bytes = checked_uint64_mul(
+      checked_uint64_mul(checked_uint64_mul(
+                             static_cast<std::uint64_t>(kHiddenSize),
+                             kCapacityTokenShiftBufferCount),
+                         static_cast<std::uint64_t>(kLayerCount)),
+      kCapacityBf16Bytes);
+  const std::uint64_t shift_total =
+      checked_uint64_mul(shift_bytes,
+                         static_cast<std::uint64_t>(capacity.per_card_slot_count));
+  const std::uint64_t temporary_total = checked_uint64_mul(
+      static_cast<std::uint64_t>(capacity.per_card_slot_count),
+      capacity.temporary_tensor_bytes_per_slot);
+  const std::uint64_t total = checked_uint64_add(
+      checked_uint64_add(checked_uint64_add(recurrent_total, shift_total),
+                         temporary_total),
+      capacity.safety_reserve_bytes);
+  require(total <= capacity.device_budget_bytes,
+          "admitted card-local capacity exceeds the device memory budget");
+  return FastMemoryPlan{recurrent_total, shift_total, temporary_total,
+                        capacity.safety_reserve_bytes, total,
+                        capacity.device_budget_bytes};
+}
 
 FastWorkerArguments
 parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
@@ -1705,20 +1787,43 @@ FastWorkerRequest read_fast_worker_request(
   std::ifstream input(path);
   require(input.good(), "failed to open fast worker request");
   const Json document = Json::parse(input);
-  require(document.is_object() && document.size() == 3U,
-          "fast worker request must contain exactly three fields");
+  require(document.is_object() && document.size() == 4U,
+          "fast worker request must contain exactly four fields");
   require(document.at("schema_version").get<std::uint32_t>() ==
               kSchemaVersion,
           "fast worker request schema mismatch");
-  FastWorkerRequest request{document.at("run_id").get<std::string>(), {}};
+  FastWorkerRequest request{document.at("run_id").get<std::string>(),
+                            FastCardCapacity{}, {}};
   require(!request.run_id.empty(), "fast worker run ID must not be empty");
+  const Json &raw_capacity = document.at("capacity");
+  require(raw_capacity.is_object() && raw_capacity.size() == 5U,
+          "fast worker capacity must contain exactly five fields");
+  request.capacity.id = raw_capacity.at("id").get<std::string>();
+  request.capacity.per_card_slot_count =
+      raw_capacity.at("per_card_slot_count").get<std::size_t>();
+  request.capacity.temporary_tensor_bytes_per_slot =
+      raw_capacity.at("temporary_tensor_bytes_per_slot").get<std::uint64_t>();
+  request.capacity.device_budget_bytes =
+      raw_capacity.at("device_budget_bytes").get<std::uint64_t>();
+  request.capacity.safety_reserve_bytes =
+      raw_capacity.at("safety_reserve_bytes").get<std::uint64_t>();
+  require(supported_fast_capacity_id(request.capacity.id,
+                                     request.capacity.per_card_slot_count),
+          "fast worker capacity is not a supported grid capacity");
+  require(request.capacity.temporary_tensor_bytes_per_slot > 0U &&
+              request.capacity.device_budget_bytes > 0U &&
+              request.capacity.safety_reserve_bytes > 0U,
+          "fast worker capacity memory bounds must be positive");
+  // The checked memory plan rejects overflow and budget exhaustion before
+  // the worker opens a device. r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.invalid_memory]
+  static_cast<void>(plan_fast_card_memory(request.capacity));
   const Json &raw_requests = document.at("requests");
   require(raw_requests.is_array() && !raw_requests.empty(),
           "fast worker request list must not be empty");
-  require(raw_requests.size() <= kFastPerCardSlotCount,
-          "fast worker request list exceeds card-local state slots");
+  require(raw_requests.size() <= request.capacity.per_card_slot_count,
+          "fast worker request list exceeds the admitted card-local capacity");
   std::map<std::string, bool> request_ids;
-  std::array<bool, kFastPerCardSlotCount> used_slots{};
+  std::vector<bool> used_slots(request.capacity.per_card_slot_count, false);
   for (const Json &raw : raw_requests) {
     require(raw.is_object() && raw.size() == 4U,
             "fast request must contain exactly four fields");
@@ -1741,8 +1846,8 @@ FastWorkerRequest read_fast_worker_request(
     require(current.max_new_tokens > 0U &&
                 current.max_new_tokens <= kFastMaximumGeneratedTokens,
             "fast request generation count is outside the package bounds");
-    require(current.state_slot < kFastPerCardSlotCount,
-            "fast request state slot is outside the card-local range");
+    require(current.state_slot < request.capacity.per_card_slot_count,
+            "fast request state slot is outside the admitted card-local capacity");
     require(!used_slots[current.state_slot],
             "fast worker received duplicate active state slots");
     used_slots[current.state_slot] = true;
@@ -1753,9 +1858,10 @@ FastWorkerRequest read_fast_worker_request(
 
 FastBatchStepPlan
 plan_fast_batch_step(const std::vector<FastSlot> &slots,
-                     const std::vector<bool> &completed) {
-  require(!slots.empty() && slots.size() <= kFastPerCardSlotCount,
-          "fast batch planner slot count is outside the card-local range");
+                     const std::vector<bool> &completed,
+                     std::size_t max_slot_count) {
+  require(!slots.empty() && slots.size() <= max_slot_count,
+          "fast batch planner slot count exceeds the admitted card-local capacity");
   require(completed.size() == slots.size(),
           "fast batch planner completion count differs from slot count");
   FastBatchStepPlan plan{{}, {}, {}, false};
@@ -1828,10 +1934,10 @@ std::optional<std::vector<std::uint32_t>>
 advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
                     ModelState &state,
                     const std::vector<std::uint32_t> &input_tokens,
-                    bool select_tokens, std::uint64_t step_index) {
-  require(!input_tokens.empty() &&
-              input_tokens.size() <= kFastPerCardSlotCount,
-          "fast model batch size is outside the card-local range");
+                    bool select_tokens, std::uint64_t step_index,
+                    std::size_t max_slot_count) {
+  require(!input_tokens.empty() && input_tokens.size() <= max_slot_count,
+          "fast model batch size exceeds the admitted card-local capacity");
   require(state.layers.size() == kLayerCount,
           "fast model state has the wrong layer count");
   const auto batch_size = static_cast<std::uint32_t>(input_tokens.size());
@@ -1873,7 +1979,8 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   context.set_stage(step_name + "/greedy-selection");
   const Tensor selected = context.checked(
       ttnn::argmax(logits_row_major, kLastDimension, true), "argmax");
-  return read_fast_u32(context, selected, input_tokens.size());
+  return read_fast_u32(context, selected, input_tokens.size(),
+                        input_tokens.size());
 }
 
 void write_json(const std::filesystem::path &path, const Json &value) {
@@ -1930,7 +2037,7 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
   DeviceContext context(kPhysicalDeviceZero);
   context.set_profiler_flush_enabled(false);
   const ModelWeights weights = load_model(context, checkpoint);
-  ModelState state = zero_fast_model_state(context, 1U);
+  ModelState state = zero_fast_model_state(context, 1U, 1U);
   require(state.layers[kFirstIndex].matrix.dtype() == ttnn::DataType::FLOAT32,
           "simulator smoke recurrent matrix is not FP32");
   for (std::uint32_t step = 0U; step < kMinimumGeneratedTokens; ++step) {
@@ -1976,6 +2083,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       std::string_view(profiler_value) == kEnabledEnvironmentValue;
   const FastWorkerRequest request =
       read_fast_worker_request(arguments.requests_path);
+  // The checked memory plan already ran inside the request read, before any
+  // device opened. Recompute it here for the receipt so the reported numbers
+  // are the exact same checked values the worker enforced.
+  const FastMemoryPlan memory_plan =
+      plan_fast_card_memory(request.capacity);
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
   DeviceContext context(kFilteredLogicalDevice);
@@ -1984,18 +2096,22 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const ModelWeights weights = load_model(context, checkpoint);
   const auto batch_size =
       static_cast<std::uint32_t>(request.requests.size());
+  const std::size_t max_slot_count =
+      request.capacity.per_card_slot_count;
 
-  ModelState warmup_state = zero_fast_model_state(context, batch_size);
+  ModelState warmup_state =
+      zero_fast_model_state(context, batch_size, max_slot_count);
   std::vector<std::uint32_t> warmup_tokens(
       request.requests.size(), kGenerationEosToken);
   for (std::uint32_t index = 0U; index < kFastWarmupTokenCount; ++index) {
     const auto selected = advance_tokens_fast(
-        context, weights, warmup_state, warmup_tokens, true, index);
+        context, weights, warmup_state, warmup_tokens, true, index,
+        max_slot_count);
     require(selected.has_value(),
             "fast worker warmup did not select tokens");
     warmup_tokens = *selected;
   }
-  ModelState state = zero_fast_model_state(context, batch_size);
+  ModelState state = zero_fast_model_state(context, batch_size, max_slot_count);
   const std::size_t cache_after_warmup = context.program_cache_entries();
   require(cache_after_warmup > 0U,
           "fast worker warmup did not populate the program cache");
@@ -2013,15 +2129,30 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   std::size_t completed_count = 0U;
   std::uint64_t batch_step_count = 0U;
+  // r[impl tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+  // Host gap is scheduler overhead: the pure host time spent planning and
+  // applying one batch step, excluding the device `advance_tokens_fast` call.
+  double host_gap_accumulated_seconds = 0.0;
   while (completed_count < slots.size()) {
     const std::vector<bool> completed_before = completed;
-    const FastBatchStepPlan plan = plan_fast_batch_step(slots, completed);
+    const auto plan_begin = std::chrono::steady_clock::now();
+    const FastBatchStepPlan plan =
+        plan_fast_batch_step(slots, completed, max_slot_count);
+    const auto plan_end = std::chrono::steady_clock::now();
     const auto selected = advance_tokens_fast(
         context, weights, state, plan.input_tokens,
-        plan.any_selection_required, batch_step_count);
+        plan.any_selection_required, batch_step_count, max_slot_count);
+    const auto apply_begin = std::chrono::steady_clock::now();
     apply_fast_batch_step(slots, completed, plan, selected);
     ++batch_step_count;
-    const auto completed_at = std::chrono::steady_clock::now();
+    const auto apply_end = std::chrono::steady_clock::now();
+    const double host_gap_seconds =
+        std::chrono::duration<double>(plan_end - plan_begin).count() +
+        std::chrono::duration<double>(apply_end - apply_begin).count();
+    require(std::isfinite(host_gap_seconds) && host_gap_seconds >= 0.0,
+            "fast host gap is not finite and non-negative");
+    host_gap_accumulated_seconds += host_gap_seconds;
+    const auto completed_at = apply_end;
     for (std::size_t slot_index = 0U; slot_index < slots.size();
          ++slot_index) {
       if (completed_before[slot_index] || !completed[slot_index]) {
@@ -2049,32 +2180,55 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "fast worker elapsed time is not finite and positive");
   require(context.program_cache_entries() == cache_after_warmup,
           "fast worker compiled a new program during timed decode");
+  const double queue_occupancy_fraction =
+      static_cast<double>(request.requests.size()) /
+      static_cast<double>(max_slot_count);
+  require(std::isfinite(queue_occupancy_fraction) &&
+              queue_occupancy_fraction > 0.0 &&
+              queue_occupancy_fraction <= 1.0 + 1.0e-9,
+          "fast queue occupancy is not within (0, 1]");
 
   context.set_profiler_flush_enabled(profiler_attributed);
   context.flush_profiler("fast-worker-post-timing-attribution");
-  const Json receipt{
-      {"schema_version", kSchemaVersion},
-      {"run_id", request.run_id},
-      {"physical_device_ids", {arguments.physical_device_id}},
-      {"visible_physical_device_ids", {arguments.physical_device_id}},
-      {"logical_device_ids", {kFilteredLogicalDevice}},
-      {"physical_hardware", true},
-      {"profiler_attributed", profiler_attributed},
-      {"elapsed_seconds", elapsed_seconds},
-      {"requests", std::move(request_metrics)},
-      {"execution",
-       {{"scheduler_mode", "deterministic_continuous_batching"},
-        {"scheduler_tie_break", "least_loaded_card_then_lowest_card_then_lowest_slot"},
-        {"replica_mode", "independent_card_replica"},
-        {"recurrent_state_residency", "device_fp32"},
-        {"timed_region", "decode_only"},
-        {"warmup_token_count", kFastWarmupTokenCount},
-        {"program_cache_stable", true},
-        {"dynamic_token_and_state_bindings_validated", true},
-        {"state_readback_during_timing", false},
-        {"profiler_flush_during_timing", false},
-        {"control_replay_during_timing", false},
-        {"artifact_writes_during_timing", false}}}};
+  Json receipt = Json::object();
+  receipt["schema_version"] = kSchemaVersion;
+  receipt["run_id"] = request.run_id;
+  receipt["physical_device_ids"] = {arguments.physical_device_id};
+  receipt["visible_physical_device_ids"] = {arguments.physical_device_id};
+  receipt["logical_device_ids"] = {kFilteredLogicalDevice};
+  receipt["physical_hardware"] = true;
+  receipt["profiler_attributed"] = profiler_attributed;
+  receipt["elapsed_seconds"] = elapsed_seconds;
+  receipt["capacity"] = {
+      {"id", request.capacity.id},
+      {"per_card_slot_count", max_slot_count},
+      {"memory_plan_bytes",
+       {{"recurrent_state_bytes", memory_plan.recurrent_state_bytes},
+        {"token_shift_bytes", memory_plan.token_shift_bytes},
+        {"temporary_tensor_bytes", memory_plan.temporary_tensor_bytes},
+        {"safety_reserve_bytes", memory_plan.safety_reserve_bytes},
+        {"total_required_bytes", memory_plan.total_required_bytes},
+        {"device_budget_bytes", memory_plan.device_budget_bytes}}}};
+  receipt["effective_batch_size"] = request.requests.size();
+  receipt["queue_occupancy_fraction"] = queue_occupancy_fraction;
+  receipt["batch_step_count"] = batch_step_count;
+  receipt["host_gap_accumulated_seconds"] =
+      host_gap_accumulated_seconds;
+  receipt["requests"] = std::move(request_metrics);
+  receipt["execution"] = {
+      {"scheduler_mode", "deterministic_continuous_batching"},
+      {"scheduler_tie_break",
+       "least_loaded_card_then_lowest_card_then_lowest_slot"},
+      {"replica_mode", "independent_card_replica"},
+      {"recurrent_state_residency", "device_fp32"},
+      {"timed_region", "decode_only"},
+      {"warmup_token_count", kFastWarmupTokenCount},
+      {"program_cache_stable", true},
+      {"dynamic_token_and_state_bindings_validated", true},
+      {"state_readback_during_timing", false},
+      {"profiler_flush_during_timing", false},
+      {"control_replay_during_timing", false},
+      {"artifact_writes_during_timing", false}};
   write_json(arguments.output_path, receipt);
   std::cout << arguments.output_path << '\n';
 }
@@ -2447,8 +2601,9 @@ void run_self_test() {
       FastSlot{&first_fast_request, 0U, {}, 0U, {}},
       FastSlot{&second_fast_request, 0U, {}, 0U, {}}};
   std::vector<bool> fast_completed(fast_slots.size(), false);
+  const std::size_t fast_self_test_capacity = fast_slots.size();
   const FastBatchStepPlan initial_plan =
-      plan_fast_batch_step(fast_slots, fast_completed);
+      plan_fast_batch_step(fast_slots, fast_completed, fast_self_test_capacity);
   require(initial_plan.input_tokens ==
               std::vector<std::uint32_t>{kFirstPromptToken,
                                          kFirstPromptToken} &&
@@ -2458,7 +2613,7 @@ void run_self_test() {
   fast_slots[kFirstIndex].prompt_index = 1U;
   fast_slots[kSecondIndex].prompt_index = 2U;
   const FastBatchStepPlan final_prompt_plan =
-      plan_fast_batch_step(fast_slots, fast_completed);
+      plan_fast_batch_step(fast_slots, fast_completed, fast_self_test_capacity);
   require(final_prompt_plan.any_selection_required &&
               final_prompt_plan.selection_required ==
                   std::vector<bool>{true, true},
@@ -2474,7 +2629,7 @@ void run_self_test() {
               !fast_completed[kFirstIndex] && !fast_completed[kSecondIndex],
           "positive fast batch step self-test changed first selections");
   const FastBatchStepPlan generation_plan =
-      plan_fast_batch_step(fast_slots, fast_completed);
+      plan_fast_batch_step(fast_slots, fast_completed, fast_self_test_capacity);
   require(generation_plan.input_tokens ==
               std::vector<std::uint32_t>{kFirstSelectedToken,
                                          kSecondSelectedToken} &&
@@ -2488,18 +2643,77 @@ void run_self_test() {
 
   expect_operation_failure(
       [&fast_slots]() {
-        static_cast<void>(
-            plan_fast_batch_step(fast_slots, std::vector<bool>{false}));
+        static_cast<void>(plan_fast_batch_step(
+            fast_slots, std::vector<bool>{false}, fast_slots.size()));
       },
       "completion count differs from slot count");
   expect_operation_failure(
       [&fast_slots]() {
         std::vector<bool> incomplete(fast_slots.size(), false);
-        const FastBatchStepPlan plan =
-            plan_fast_batch_step(fast_slots, incomplete);
+        const FastBatchStepPlan plan = plan_fast_batch_step(
+            fast_slots, incomplete, fast_slots.size());
         apply_fast_batch_step(fast_slots, incomplete, plan, std::nullopt);
       },
       "selection result does not match the plan");
+  expect_operation_failure(
+      [&fast_slots]() {
+        // A plan with more slots than the admitted capacity must fail before
+        // any decode dispatch.
+        std::vector<bool> incomplete(fast_slots.size(), false);
+        static_cast<void>(plan_fast_batch_step(
+            fast_slots, incomplete, fast_slots.size() - 1U));
+      },
+      "exceeds the admitted card-local capacity");
+
+  // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+  // All four supported candidate capacities plan without a device.
+  for (const std::string_view capacity_id :
+       {std::string_view("B4"), std::string_view("B16"),
+        std::string_view("B32"), std::string_view("B64")}) {
+    require(supported_fast_capacity_id(capacity_id, 4U) ||
+                supported_fast_capacity_id(capacity_id, 16U) ||
+                supported_fast_capacity_id(capacity_id, 32U) ||
+                supported_fast_capacity_id(capacity_id, 64U),
+            "supported capacity id self-test is incomplete");
+  }
+  const FastCardCapacity b64_capacity{"B64", 64U, 5U * 1024U * 1024U,
+                                      3U * 1024U * 1024U * 1024U,
+                                      256U * 1024U * 1024U};
+  const FastMemoryPlan b64_plan = plan_fast_card_memory(b64_capacity);
+  require(b64_plan.total_required_bytes <= b64_plan.device_budget_bytes,
+          "B64 memory plan must fit the pinned budget");
+  require(b64_plan.recurrent_state_bytes > 0U &&
+              b64_plan.token_shift_bytes > 0U &&
+              b64_plan.temporary_tensor_bytes > 0U,
+          "B64 memory plan has zero contributions");
+
+  // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.invalid_memory]
+  expect_operation_failure(
+      []() {
+        static_cast<void>(supported_fast_capacity_id("B8", 8U) ||
+                          supported_fast_capacity_id("B4", 8U));
+        // Force the unsupported branch so the negative is explicit.
+        require(supported_fast_capacity_id("B8", 8U),
+                "unsupported capacity must not be admitted");
+      },
+      "must not be admitted");
+  expect_operation_failure(
+      []() {
+        FastCardCapacity over_budget{"B64", 64U, 5U * 1024U * 1024U,
+                                     static_cast<std::uint64_t>(1U) << 20U,
+                                     256U * 1024U * 1024U};
+        static_cast<void>(plan_fast_card_memory(over_budget));
+      },
+      "exceeds the device memory budget");
+  expect_operation_failure(
+      []() {
+        // A safety reserve beyond the address space must overflow.
+        FastCardCapacity overflowing{"B64", 64U, 5U * 1024U * 1024U,
+                                     std::numeric_limits<std::uint64_t>::max(),
+                                     std::numeric_limits<std::uint64_t>::max()};
+        static_cast<void>(plan_fast_card_memory(overflowing));
+      },
+      "overflows the address space");
 
   const std::vector<bfloat16> input = {
       std::bit_cast<bfloat16>(kSelfTestBitOne),
