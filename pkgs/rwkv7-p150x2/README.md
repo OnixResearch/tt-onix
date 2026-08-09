@@ -30,6 +30,8 @@ The value, decay, and attention-gate projections pass their static biases to `tt
 
 The FP32 WKV output matmul writes BF16 directly for attention normalization. This removes one recurrent output typecast per layer and token.
 
+The same matmul consumes the BF16 read vector directly. The pinned workload preserves exact tokens while removing another vector typecast per layer and token.
+
 The worker omits final normalization and the vocabulary head for nonfinal prompt tokens. It reads one selected-token vector after each required batched head.
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
@@ -90,6 +92,8 @@ The admitted 2026-08-08 physical result was `21.289619409251138` tokens/s on one
 The best strict result reached `86.8422965099119` tokens/s on one card and `181.8205337965597` tokens/s on two cards. Its speedup was `2.0936863844429454`. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-linear-bias-admitted/`.
 
 Direct BF16 WKV output removed `468` more launches. Stable dual-card A/B rounds gained `5.203905022531408%`. Later strict runs passed admission but contained stalls, so they do not replace the absolute record. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-bf16-wkv-output-admitted/`.
+
+Passing the BF16 read vector directly removed another `468` launches. Five stable card-0 pairs gained `4.651337407376599%`. See `../rwkv7-p150x2-evidence/fixtures/physical-throughput-mixed-r-admitted/`.
 
 The pure admission command can recompute a retained receipt:
 

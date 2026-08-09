@@ -1242,7 +1242,6 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
   const Tensor r_rows = source_row(preparation.r);
   const Tensor v_state_rows = source_to_state(v_rows);
   const Tensor k_state_rows = source_to_state(k_rows);
-  const Tensor r_state_rows = source_to_state(r_rows);
   const Tensor state_dot_a =
       op_matmul_transpose_right(context, state, a_rows);
   const Tensor rank_update = op_matmul(context, state_dot_a, b_rows);
@@ -1253,8 +1252,8 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
       op_add(context, op_add(context, decay, rank_update), outer);
   const Tensor output_for_hidden =
       fp32_state
-          ? op_matmul_transpose_right_bf16(context, next_state, r_state_rows)
-          : op_matmul_transpose_right(context, next_state, r_state_rows);
+          ? op_matmul_transpose_right_bf16(context, next_state, r_rows)
+          : op_matmul_transpose_right(context, next_state, r_rows);
   return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows};
 }
 

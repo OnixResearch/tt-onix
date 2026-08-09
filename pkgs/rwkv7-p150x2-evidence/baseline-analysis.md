@@ -148,6 +148,12 @@ Three stable dual-card A/B rounds were all faster. Their aggregate throughput in
 
 Two strict runs passed admission but contained nonstationary stalls. The retry reached `149.08769593833534` tokens/s across two cards. It does not replace the `181.8205337965597` tokens/s absolute record.
 
+The WKV output matmul now also consumes the BF16 read vector directly. The FP32 recurrent state and explicit BF16 output stay unchanged.
+
+`fixtures/physical-throughput-mixed-r-admitted/` retains this result. It removed another `468` typecast launches. All five stable card-0 A/B pairs were faster, with a `4.651337407376599%` aggregate gain.
+
+Strict admission passed at `152.99240618044047` tokens/s across two cards. Nonstationary stalls prevent this run from replacing the absolute record.
+
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 
 ## Admission boundary
