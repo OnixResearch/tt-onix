@@ -130,7 +130,15 @@ The time-mix and channel-mix paths now use the fused tensor form of `ttnn::lerp`
 
 `fixtures/physical-throughput-lerp-admitted/` retains this result. It removed `6,552` launches and measured a `35.72536872705587%` aggregate A/B gain.
 
-The final strict fused run reached `82.98023822469438` tokens/s on one card and `171.6697365433619` tokens/s on two cards. Its speedup was `2.068802647667913`.
+The fused time-mix strict run reached `82.98023822469438` tokens/s on one card and `171.6697365433619` tokens/s on two cards. Its speedup was `2.068802647667913`.
+
+The value, decay, and attention-gate projections now pass their static biases directly to `ttnn::linear`. This removes all `1,365` row-broadcast bias-add launches.
+
+`fixtures/physical-throughput-linear-bias-admitted/` retains this result. Five stable order-balanced A/B pairs were faster, with a `6.867574337715254%` aggregate gain.
+
+The latest strict run reached `86.8422965099119` tokens/s on one card and `181.8205337965597` tokens/s on two cards. Its speedup was `2.0936863844429454`.
+
+The first strict attempt missed the p99 bound by `0.01925839936994552`. The repeated strict run passed with a p99 change of `-0.16762321580493525`.
 
 The continuation experiment remains reverted. Current evidence does not justify replacing blocking readback.
 

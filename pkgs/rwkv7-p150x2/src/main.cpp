@@ -1032,6 +1032,12 @@ Tensor op_matmul(DeviceContext &context, const Tensor &left,
   return context.checked(ttnn::matmul(left, right), "matmul");
 }
 
+Tensor op_linear_bias(DeviceContext &context, const Tensor &input,
+                      const Tensor &weight, const Tensor &bias) {
+  return context.checked(ttnn::linear(input, weight, bias),
+                         "linear-with-bias");
+}
+
 Tensor op_matmul_transpose_left(DeviceContext &context, const Tensor &left,
                                 const Tensor &right) {
   return context.checked(ttnn::matmul(left, right, true, false),
@@ -1144,9 +1150,9 @@ TimePreparation prepare_time_mix(DeviceContext &context,
             "later layer is missing the token-local value anchor");
     const Tensor value_hidden =
         op_matmul(context, x_v, weights.at("value_down"));
-    const Tensor value_logits = op_add(
-        context, op_matmul(context, value_hidden, weights.at("value_up")),
-        weights.at("value_bias"));
+    const Tensor value_logits =
+        op_linear_bias(context, value_hidden, weights.at("value_up"),
+                       weights.at("value_bias"));
     const Tensor value_gate = op_sigmoid(context, value_logits);
     v = op_add(
         context, projected_value,
@@ -1157,16 +1163,16 @@ TimePreparation prepare_time_mix(DeviceContext &context,
   const Tensor w_hidden =
       op_tanh(context, op_matmul(context, x_w, weights.at("w_down")));
   const Tensor w_logits =
-      op_add(context, op_matmul(context, w_hidden, weights.at("w_up")),
-             weights.at("w_bias"));
+      op_linear_bias(context, w_hidden, weights.at("w_up"),
+                     weights.at("w_bias"));
   const Tensor w =
       op_exp(context, op_multiply_scalar(context, op_sigmoid(context, w_logits),
                                          kDecayScale));
 
   const Tensor a_hidden = op_matmul(context, x_a, weights.at("a_down"));
   const Tensor a_logits =
-      op_add(context, op_matmul(context, a_hidden, weights.at("a_up")),
-             weights.at("a_bias"));
+      op_linear_bias(context, a_hidden, weights.at("a_up"),
+                     weights.at("a_bias"));
   const Tensor a_gate = op_sigmoid(context, a_logits);
 
   const Tensor gate_hidden =
