@@ -25,6 +25,8 @@ Nickel owns the typed capacity candidates B4, B16, B32, and B64 (`throughput-cap
 The benchmark launcher writes the admitted capacity and its checked memory bounds into each worker request. The worker re-runs the same checked derivation before opening its device. It records the effective batch size, queue occupancy, memory plan, per-request latency, and host gap (host-only batch-step scheduling time) in its receipt.
 
 A capacity above four becomes the default only after simulator, exact-parity, stable A/B, and strict two-card physical evidence pass. See the change `cairn/changes/scale-rwkv7-card-local-batching/`.
+
+The bounded physical sweep of 2026-08-09 kept B4 admitted. B16 measured a stable `3.62x` two-card throughput gain over the B4 baseline but failed the retained p99 latency bound in two of three alternating A/B rounds, so it was not promoted. The evidence and the measured blocker are retained in `../rwkv7-p150x2-evidence/fixtures/physical-capacity-sweep-retained/`.
 The WKV path reuses BF16 `r`, `k`, and `v` head rows during attention correction. Separate FP32 cast views preserve recurrent-state precision.
 
 Static group-normalization and `r_k` vectors load in head-row shape. Attention correction stays in that shape until the output projection.

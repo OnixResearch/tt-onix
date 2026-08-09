@@ -167,3 +167,9 @@ Only `rwkv7-p150x2-throughput-benchmark` can produce candidate physical scaling 
 - state readback, profiler flush, control replay, or artifact writes inside timing;
 - speedup below `1.50`; or
 - p99 latency regression above `0.10`.
+
+## Card-local capacity sweep 2026-08-09
+
+The capacity change measured B4 against B16 on the same physical cards with order-balanced A/B runs. The B4 baseline with the new runtime is `149.89` tokens per second on two cards (second sample `155.54`), and it stays the admitted capacity.
+
+B16 (16 slots, two waves) reached `493.85`, `579.25`, and `585.05` tokens per second on two cards. Its throughput gain over B4 was stable, but its p99 latency passed the `0.10` regression bound in only one of three rounds. The change retains the strongest measured blocker: B16 fails the retained p99 stability rule, so the sweep stops and the runtime keeps the B4 boundary. See `fixtures/physical-capacity-sweep-retained/`.

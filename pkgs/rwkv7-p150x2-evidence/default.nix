@@ -148,6 +148,17 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     grep -F 'insufficient_device_memory' invalid-capacity-plan.out
+    # r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.target_miss]
+    sweep_root="$out/share/rwkv7-p150x2-capacity-sweep-retained"
+    mkdir -p "$sweep_root"
+    cp -R fixtures/physical-capacity-sweep-retained/. "$sweep_root/"
+    jq -e '
+      ("b4-baseline/throughput-receipt.json" | input_filename),
+      .two_card.aggregate_tokens_per_second > 0
+    ' "$sweep_root/b4-baseline/throughput-receipt.json" >/dev/null
+    # The retained sweep keeps B4 admitted and records the measured B16 blocker.
+    grep -F 'B4 remains the admitted card-local capacity' \
+      "$sweep_root/README.md"
     runHook postInstallCheck
   '';
 

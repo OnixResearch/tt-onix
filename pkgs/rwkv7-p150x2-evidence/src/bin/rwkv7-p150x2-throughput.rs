@@ -4,7 +4,10 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
-use rwkv7_p150x2_evidence::capacity::{CapacityProfile, ModelExtent, plan_capacity};
+use rwkv7_p150x2_evidence::capacity::{
+    CapacityMeasurement, CapacityProfile, CurrentAdmittedMeasurement, ModelExtent,
+    evaluate_candidate, plan_capacity, plan_selected_capacity,
+};
 use rwkv7_p150x2_evidence::throughput::{
     RawThroughputEvidence, ThroughputProfile, ThroughputReceipt, admit_throughput_receipt,
     profile_identity, summarize_throughput,
@@ -19,12 +22,14 @@ const SUMMARIZE_ARGUMENT_COUNT: usize = 3;
 const ADMIT_ARGUMENT_COUNT: usize = 4;
 const PROFILE_IDENTITY_ARGUMENT_COUNT: usize = 2;
 const CAPACITY_PLAN_ARGUMENT_COUNT: usize = 3;
+const CAPACITY_EVALUATE_ARGUMENT_COUNT: usize = 6;
 
 fn usage() -> &'static str {
     "usage: rwkv7-p150x2-throughput profile-identity PROFILE_JSON\n\
      usage: rwkv7-p150x2-throughput summarize PROFILE_JSON RAW_JSON\n\
      usage: rwkv7-p150x2-throughput admit PROFILE_JSON RAW_JSON RECEIPT_JSON\n\
-     usage: rwkv7-p150x2-throughput capacity-plan CAPACITY_PROFILE_JSON EXTENT_JSON"
+     usage: rwkv7-p150x2-throughput capacity-plan CAPACITY_PROFILE_JSON EXTENT_JSON\n\
+     usage: rwkv7-p150x2-throughput capacity-evaluate CAPACITY_PROFILE_JSON EXTENT_JSON CANDIDATE_ID MEASUREMENT_JSON CURRENT_JSON"
 }
 
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -129,6 +134,30 @@ fn run(arguments: &[String]) -> Result<u8, String> {
                         "{}",
                         serde_json::to_string_pretty(&plans)
                             .map_err(|error| format!("cannot serialize capacity plans: {error}"))?
+                    );
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_capacity_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "capacity-evaluate" if arguments.len() == CAPACITY_EVALUATE_ARGUMENT_COUNT => {
+            let profile: CapacityProfile = read_json(Path::new(&arguments[1]))?;
+            let extent: ModelExtent = read_json(Path::new(&arguments[2]))?;
+            let candidate_id = arguments[3].clone();
+            let measurement: CapacityMeasurement = read_json(Path::new(&arguments[4]))?;
+            let current: CurrentAdmittedMeasurement = read_json(Path::new(&arguments[5]))?;
+            match plan_selected_capacity(&profile, &extent, &candidate_id)
+                .and_then(|plan| evaluate_candidate(&plan, &measurement, &current))
+            {
+                Ok(evaluation) => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&evaluation).map_err(|error| format!(
+                            "cannot serialize capacity evaluation: {error}"
+                        ))?
                     );
                     Ok(SUCCESS)
                 }
