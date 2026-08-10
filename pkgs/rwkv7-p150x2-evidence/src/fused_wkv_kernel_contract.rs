@@ -47,6 +47,12 @@ const REDUCE_FUNCTION_START: &str = "void reduce_row_vector(";
 const REDUCE_FUNCTION_END: &str = "\n}\n\nvoid center_readout";
 const MAXIMUM_BATCH_PROBE: &str =
     "kFusedWkvProbeBatchSize =\n    rwkv7::fused_wkv::kMaximumBatchSize;";
+const FUSED_LAYER_SMOKE_POLICY: &str =
+    "if (execution_policy == WkvExecutionPolicy::RequireFusedCandidate) {";
+const FUSED_LAYER_SMOKE_INVOCATION: &str = "run_simulator_smoke(parse_fused_wkv_layer_smoke_output(arguments),\n                          WkvExecutionPolicy::RequireFusedCandidate);";
+const FUSED_LAYER_SMOKE_OUTCOME: &str = "simulated_single_card_fused_wkv_layer_state_carry";
+const STATE_CARRY_GUARD: &str = "require(state_changed_after_carry,";
+const RESET_CONTROL_GUARD: &str = "require(carried_state_differs_from_reset_control,";
 const STATE_RANK_VALIDATION: &str = "bool has_state_shape(const Tensor &tensor, std::uint32_t batch_size) {\n  const auto &shape = tensor.logical_shape();\n  return shape.rank() == kTensorRank &&";
 const STATE_DTYPE_VALIDATION: &str = "inputs.state.dtype() != tt::tt_metal::DataType::FLOAT32";
 const VECTOR_DTYPE_VALIDATION: &str = "vector->dtype() != tt::tt_metal::DataType::BFLOAT16";
@@ -396,6 +402,17 @@ pub fn validate_fused_program_source(
         ("generic fallback", "return generic_wkv_step("),
         ("completed fused correction", "k_rows, v_rows, true"),
         ("maximum-batch cycle probe", MAXIMUM_BATCH_PROBE),
+        (
+            "explicit fused layer smoke policy",
+            FUSED_LAYER_SMOKE_POLICY,
+        ),
+        (
+            "explicit fused layer smoke invocation",
+            FUSED_LAYER_SMOKE_INVOCATION,
+        ),
+        ("fused layer smoke outcome", FUSED_LAYER_SMOKE_OUTCOME),
+        ("recurrent state carry guard", STATE_CARRY_GUARD),
+        ("reset-matrix control guard", RESET_CONTROL_GUARD),
     ] {
         require_once(runtime_source, name, pattern)?;
     }
@@ -633,6 +650,43 @@ mod tests {
             .expect_err("probe below the maximum batch");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("maximum-batch cycle probe"));
+    }
+
+    #[test]
+    fn rejects_a_layer_smoke_that_does_not_require_the_fused_candidate() {
+        let invalid = RUNTIME_SOURCE.replace(
+            FUSED_LAYER_SMOKE_INVOCATION,
+            "run_simulator_smoke(parse_fused_wkv_layer_smoke_output(arguments),\n                          WkvExecutionPolicy::Production);",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("generic layer smoke cannot prove the fused candidate");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("explicit fused layer smoke invocation")
+        );
+    }
+
+    #[test]
+    fn rejects_a_layer_smoke_without_a_state_carry_guard() {
+        let invalid = RUNTIME_SOURCE.replace(STATE_CARRY_GUARD, "if (state_changed_after_carry) {");
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("layer smoke without a state carry guard");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("recurrent state carry guard"));
+    }
+
+    #[test]
+    fn rejects_a_layer_smoke_without_a_reset_matrix_control() {
+        let invalid = RUNTIME_SOURCE.replace(
+            RESET_CONTROL_GUARD,
+            "if (carried_state_differs_from_reset_control) {",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("layer smoke without a reset-matrix control");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("reset-matrix control guard"));
     }
 
     #[test]

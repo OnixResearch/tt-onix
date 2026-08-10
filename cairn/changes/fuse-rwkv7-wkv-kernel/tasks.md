@@ -24,7 +24,7 @@
 
 - [x] [serial] A1 Run the complete LLK race audit set for config, semaphore, mailbox, dataflow, source-register, and NoC hazards. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [x] [serial] A2 Run instruction-latency and performance audits for every hand-written instruction sequence. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] A3 Run package-matched Blackhole simulator smoke for one layer and recurrent-state carry. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] A3 Run package-matched Blackhole simulator smoke for one layer and recurrent-state carry. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 
 ## Phase 5: Physical acceptance
 

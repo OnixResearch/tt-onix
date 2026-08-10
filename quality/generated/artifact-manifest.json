@@ -20,6 +20,12 @@
       "blake3": "27da7379a123291747d1d950a738b8c1ad390c86dbbc8f17f2c1469072362f6c"
     },
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-layer-simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1316,
+      "blake3": "eb25c84e9b8eec860bdf7649c9c59a0b98d322dd2a950cd85b5008a069574f6d"
+    },
+    {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-simulator-receipt.json",
       "class": "portable_evidence",
       "byte_count": 1673,

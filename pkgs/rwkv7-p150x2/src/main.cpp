@@ -26,6 +26,7 @@
 #include <ttnn/tensor/tensor.hpp>
 #include <ttnn/types.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <charconv>
@@ -115,6 +116,8 @@ constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kFastWorkerArgument = "--fast-worker";
 constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
+constexpr std::string_view kFusedWkvLayerSmokeArgument =
+    "--fused-wkv-layer-smoke";
 constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
 constexpr std::string_view kFastDeviceArgument = "--device";
 constexpr std::string_view kFastRequestsArgument = "--requests";
@@ -160,6 +163,8 @@ constexpr std::size_t kEvidenceNameIndex = 5U;
 constexpr std::size_t kEvidenceValueIndex = 6U;
 constexpr std::size_t kFirstIndex = 0U;
 constexpr std::size_t kSecondIndex = 1U;
+constexpr std::uint32_t kFirstSimulatorSmokeStep = 0U;
+constexpr std::uint32_t kSecondSimulatorSmokeStep = 1U;
 constexpr std::uint32_t kSelfTestTokenTwo = 2U;
 constexpr std::uint32_t kSelfTestRows = 2U;
 constexpr std::uint32_t kSelfTestColumns = 3U;
@@ -1244,6 +1249,11 @@ TimePreparation prepare_time_mix(DeviceContext &context,
   return TimePreparation{projected_value, r, w, k, v, a, b, gate};
 }
 
+enum class WkvExecutionPolicy {
+  Production,
+  RequireFusedCandidate,
+};
+
 struct WkvOutput {
   Tensor state;
   Tensor output_for_hidden;
@@ -1287,7 +1297,8 @@ WkvOutput generic_wkv_step(DeviceContext &context, const Tensor &state,
 }
 
 WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
-                   const Tensor &state, const TimePreparation &preparation) {
+                   const Tensor &state, const TimePreparation &preparation,
+                   WkvExecutionPolicy execution_policy) {
   const std::uint32_t batch_size = state.logical_shape()[0];
   const auto source_row = [&](const Tensor &tensor) {
     return op_reshape(context, tensor,
@@ -1316,11 +1327,11 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
   const rwkv7::fused_wkv::DispatchDecision decision =
       rwkv7::fused_wkv::select_dispatch(
           fused_inputs, kFusedWkvPhysicallyAdmitted);
-  if (decision.use_fused_path) {
+  const auto run_fused_candidate = [&]() {
     const char *const kernel_root =
         std::getenv(kFusedWkvKernelRootEnvironment.data());
     require(kernel_root != nullptr,
-            "admitted fused WKV path has no kernel source root");
+            "fused WKV candidate has no kernel source root");
     rwkv7::fused_wkv::Outputs fused =
         rwkv7::fused_wkv::run(context.mesh(), fused_inputs, kernel_root);
     Tensor fused_state =
@@ -1329,6 +1340,15 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
         context.checked(std::move(fused.output), "fused-wkv-output");
     return WkvOutput{std::move(fused_state), std::move(fused_output), r_rows,
                      k_rows, v_rows, true};
+  };
+  if (execution_policy == WkvExecutionPolicy::RequireFusedCandidate) {
+    require(decision.capability_supported,
+            std::string("fused WKV layer smoke rejected candidate: ") +
+                decision.reason);
+    return run_fused_candidate();
+  }
+  if (decision.use_fused_path) {
+    return run_fused_candidate();
   }
   return generic_wkv_step(context, state, a_rows, b_rows, w_rows, v_rows,
                           k_rows, r_rows);
@@ -1383,7 +1403,8 @@ Tensor channel_mix(DeviceContext &context, const LayerWeights &weights,
 Tensor execute_layer(DeviceContext &context, const LayerWeights &weights,
                      const Tensor &hidden, LayerState &state,
                      std::optional<Tensor> &value_anchor,
-                     std::string_view stage_prefix) {
+                     std::string_view stage_prefix,
+                     WkvExecutionPolicy wkv_execution_policy) {
   context.set_stage(std::string(stage_prefix) + "/pre-norm");
   Tensor residual = hidden;
   if (weights.layer_index == kLayerZero) {
@@ -1405,7 +1426,8 @@ Tensor execute_layer(DeviceContext &context, const LayerWeights &weights,
 
   context.set_stage(std::string(stage_prefix) + "/wkv");
   const WkvOutput wkv =
-      wkv_step(context, weights, state.matrix, preparation);
+      wkv_step(context, weights, state.matrix, preparation,
+               wkv_execution_policy);
   state.matrix = wkv.state;
 
   context.set_stage(std::string(stage_prefix) + "/attention-finish");
@@ -1577,9 +1599,9 @@ StepResult advance_token(DeviceContext &context, const ModelWeights &weights,
        ++layer_index) {
     const std::string stage_prefix =
         step_name + "/layer-" + std::to_string(layer_index);
-    hidden =
-        execute_layer(context, weights.layers[layer_index], hidden,
-                      state.layers[layer_index], value_anchor, stage_prefix);
+    hidden = execute_layer(context, weights.layers[layer_index], hidden,
+                           state.layers[layer_index], value_anchor,
+                           stage_prefix, WkvExecutionPolicy::Production);
   }
   require(value_anchor.has_value(),
           "full model did not establish the token-local value anchor");
@@ -2026,7 +2048,7 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
         step_name + "/layer-" + std::to_string(layer_index);
     hidden = execute_layer(context, weights.layers[layer_index], hidden,
                            state.layers[layer_index], value_anchor,
-                           stage_prefix);
+                           stage_prefix, WkvExecutionPolicy::Production);
   }
   require(value_anchor.has_value(),
           "fast full model did not establish the token-local value anchor");
@@ -2105,13 +2127,26 @@ std::filesystem::path parse_simulator_smoke_output(
                           "simulator smoke");
 }
 
+std::filesystem::path parse_fused_wkv_layer_smoke_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments, kFusedWkvLayerSmokeArgument,
+                          "fused WKV layer smoke");
+}
+
 std::filesystem::path parse_fused_wkv_probe_output(
     const std::vector<std::string> &arguments) {
   return parse_new_output(arguments, kFusedWkvProbeArgument,
                           "fused WKV probe");
 }
 
-void run_simulator_smoke(const std::filesystem::path &output_path) {
+template <typename Value>
+std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
+                                                const Tensor &input,
+                                                bool untilize);
+
+void run_simulator_smoke(const std::filesystem::path &output_path,
+                         WkvExecutionPolicy wkv_execution_policy) {
+  static_assert(kMinimumGeneratedTokens == kSecondSimulatorSmokeStep + 1U);
   select_single_card_device(kPhysicalDeviceZero);
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
@@ -2121,7 +2156,10 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
   ModelState state = zero_fast_model_state(context, 1U, 1U);
   require(state.layers[kFirstIndex].matrix.dtype() == ttnn::DataType::FLOAT32,
           "simulator smoke recurrent matrix is not FP32");
-  for (std::uint32_t step = 0U; step < kMinimumGeneratedTokens; ++step) {
+
+  const auto execute_smoke_step = [&](std::uint32_t step,
+                                      std::string_view carry_mode,
+                                      LayerState &layer_state) {
     context.set_stage("simulator-smoke/embedding");
     const Tensor token = context.uint32_tensor({kGenerationEosToken}, {1U, 1U});
     Tensor hidden = context.checked(
@@ -2130,18 +2168,77 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
         "embedding");
     hidden = op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
     std::optional<Tensor> value_anchor;
-    static_cast<void>(execute_layer(
-        context, weights.layers[kFirstIndex], hidden,
-        state.layers[kFirstIndex], value_anchor,
-        "simulator-smoke/layer-0/step-" + std::to_string(step)));
+    Tensor layer_output = execute_layer(
+        context, weights.layers[kFirstIndex], hidden, layer_state,
+        value_anchor,
+        "simulator-smoke/layer-0/" + std::string(carry_mode) + "/step-" +
+            std::to_string(step),
+        wkv_execution_policy);
     require(value_anchor.has_value(),
             "simulator smoke layer did not establish its value anchor");
-  }
+    require(layer_output.dtype() == ttnn::DataType::BFLOAT16,
+            "simulator smoke layer output is not BF16");
+    return layer_output;
+  };
+
+  static_cast<void>(execute_smoke_step(
+      kFirstSimulatorSmokeStep, "carried", state.layers[kFirstIndex]));
+  const std::vector<float> first_state =
+      read_fused_wkv_probe_values<float>(
+          context, state.layers[kFirstIndex].matrix, false);
+  LayerState reset_control_state = state.layers[kFirstIndex];
+  reset_control_state.matrix = context.zeros_fp32(
+      {1U, kHeadCount, kHeadSize, kHeadSize});
+  static_cast<void>(execute_smoke_step(
+      kSecondSimulatorSmokeStep, "carried", state.layers[kFirstIndex]));
+  const std::vector<float> second_state =
+      read_fused_wkv_probe_values<float>(
+          context, state.layers[kFirstIndex].matrix, false);
+  static_cast<void>(execute_smoke_step(
+      kSecondSimulatorSmokeStep, "reset-control", reset_control_state));
+  const std::vector<float> reset_control_second_state =
+      read_fused_wkv_probe_values<float>(context, reset_control_state.matrix,
+                                         false);
+  const bool first_state_finite =
+      std::all_of(first_state.begin(), first_state.end(),
+                  [](float value) { return std::isfinite(value); });
+  const bool second_state_finite =
+      std::all_of(second_state.begin(), second_state.end(),
+                  [](float value) { return std::isfinite(value); });
+  const bool reset_control_state_finite =
+      std::all_of(reset_control_second_state.begin(),
+                  reset_control_second_state.end(),
+                  [](float value) { return std::isfinite(value); });
+  const bool first_state_nonzero =
+      std::any_of(first_state.begin(), first_state.end(),
+                  [](float value) { return value != 0.0F; });
+  const bool state_changed_after_carry =
+      first_state.size() == second_state.size() &&
+      !std::equal(first_state.begin(), first_state.end(), second_state.begin());
+  const bool carried_state_differs_from_reset_control =
+      second_state.size() == reset_control_second_state.size() &&
+      !std::equal(second_state.begin(), second_state.end(),
+                  reset_control_second_state.begin());
+  require(first_state_finite && second_state_finite &&
+              reset_control_state_finite,
+          "simulator smoke produced a non-finite recurrent state");
+  require(first_state_nonzero,
+          "simulator smoke first recurrent state remained zero");
+  require(state_changed_after_carry,
+          "simulator smoke second recurrent state did not change");
+  require(carried_state_differs_from_reset_control,
+          "simulator smoke carried state matches its reset-matrix control");
   require(!context.operation_counts().empty(),
           "simulator smoke executed no TT-NN operations");
+
+  const bool fused_candidate_requested =
+      wkv_execution_policy == WkvExecutionPolicy::RequireFusedCandidate;
   const Json receipt{
       {"schema_version", kSchemaVersion},
-      {"outcome", "simulated_single_card_layer_state_carry"},
+      {"outcome",
+       fused_candidate_requested
+           ? "simulated_single_card_fused_wkv_layer_state_carry"
+           : "simulated_single_card_layer_state_carry"},
       {"simulated", true},
       {"physical_hardware", false},
       {"architecture", "blackhole"},
@@ -2150,6 +2247,17 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
       {"layer_count_executed", 1U},
       {"recurrent_steps", kMinimumGeneratedTokens},
       {"recurrent_matrix_residency", "device_fp32"},
+      {"first_state_finite", first_state_finite},
+      {"second_state_finite", second_state_finite},
+      {"reset_control_state_finite", reset_control_state_finite},
+      {"first_state_nonzero", first_state_nonzero},
+      {"state_changed_after_carry", state_changed_after_carry},
+      {"reset_control_replays", 1U},
+      {"carried_state_differs_from_reset_control",
+       carried_state_differs_from_reset_control},
+      {"fused_wkv_candidate_requested", fused_candidate_requested},
+      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted},
+      {"output_projection_outside_fused_wkv", true},
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
   write_json(output_path, receipt);
@@ -3095,7 +3203,14 @@ int main(int argc, char **argv) {
     }
     if (arguments.size() == kSimulatorSmokeArgumentCount &&
         arguments[kModeArgumentIndex] == kSimulatorSmokeArgument) {
-      run_simulator_smoke(parse_simulator_smoke_output(arguments));
+      run_simulator_smoke(parse_simulator_smoke_output(arguments),
+                          WkvExecutionPolicy::Production);
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] == kFusedWkvLayerSmokeArgument) {
+      run_simulator_smoke(parse_fused_wkv_layer_smoke_output(arguments),
+                          WkvExecutionPolicy::RequireFusedCandidate);
       return EXIT_SUCCESS;
     }
     if (arguments.size() == kSimulatorSmokeArgumentCount &&

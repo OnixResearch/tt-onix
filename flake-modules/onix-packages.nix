@@ -213,6 +213,8 @@
             grep -F 'ttnn::DataType::FLOAT32' "$runtime_source"
             grep -F 'set_profiler_flush_enabled(false)' "$runtime_source"
             grep -F 'simulated_single_card_layer_state_carry' "$runtime_source"
+            grep -F 'simulated_single_card_fused_wkv_layer_state_carry' "$runtime_source"
+            grep -F 'WkvExecutionPolicy::RequireFusedCandidate' "$runtime_source"
             grep -F 'deterministic_slot_assignments' "$throughput_source"
             grep -F 'minimum_dual_card_speedup' "$throughput_source"
             grep -F 'maximum_p99_latency_regression_fraction' "$throughput_source"

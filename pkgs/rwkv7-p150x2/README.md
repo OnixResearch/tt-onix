@@ -81,6 +81,17 @@ Run the bounded Blackhole `1x1` smoke before a new physical attempt:
 
 The script uses packaged `libttsim_bh.so`, slow dispatch, and a named 60-minute timeout. It opens one simulated device, loads the model weights, executes RWKV layer 0 twice, and carries the FP32 recurrent matrix between steps. Its receipt is marked simulated and cannot satisfy physical throughput admission.
 
+Run the same layer with the fused WKV candidate explicitly required:
+
+```sh
+"$EVIDENCE/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke" \
+  /absolute/new/fused-wkv-layer-simulator-root
+```
+
+This smoke fails if the fused capability contract rejects the layer. It reads the FP32 matrix after both steps and compares the carried result with a reset-matrix control. All states must be finite, and the carried state must differ from the control. Production admission remains closed.
+
+The retained receipt is `cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-layer-simulator-receipt.json`. Its BLAKE3 is `eb25c84e9b8eec860bdf7649c9c59a0b98d322dd2a950cd85b5008a069574f6d`.
+
 Run the standalone fused candidate with the packaged smoke script:
 
 ```sh
