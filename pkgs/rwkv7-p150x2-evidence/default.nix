@@ -18,6 +18,7 @@ let
     fileset = lib.fileset.unions [
       ./.
       ../model-target-core
+      ../rwkv7-p150x2/kernel/fused_wkv_compute.cpp
     ];
   };
 in

@@ -179,6 +179,9 @@
       rwkv7P150x2Runtime = rwkvTarget.runtime;
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
       rwkv7P150x2Evidence = rwkvTarget.evidence;
+      rwkv7P150x2FusedWkvArchitectureCheck =
+        pkgs.callPackage ../pkgs/rwkv7-p150x2/fused-wkv-architecture-check.nix
+          { };
       rwkv7P150x2ProductionClosure = pkgs.closureInfo {
         rootPaths = [ rwkv7P150x2Evidence ];
       };
@@ -590,6 +593,7 @@
         training-platform-nixos-example = trainingPlatformExampleCheck;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        rwkv7-p150x2-fused-wkv-architecture = rwkv7P150x2FusedWkvArchitectureCheck;
         rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;
         rwkv7-p150x2-production-closure = rwkv7P150x2ClosureCheck;
         rwkv7-p150x2-attempt-3-evidence = rwkv7P150x2Attempt3Evidence;
