@@ -92,7 +92,8 @@ stdenv.mkDerivation {
       "$out/bin/rwkv7-p150x2-runtime" \
       --set TT_METAL_HOME ${lib.escapeShellArg metaliumRoot} \
       --set TT_METAL_RUNTIME_ROOT ${lib.escapeShellArg metaliumRoot} \
-      --set TT_MESH_GRAPH_DESC_PATH ${lib.escapeShellArg meshDescriptor}
+      --set TT_MESH_GRAPH_DESC_PATH ${lib.escapeShellArg meshDescriptor} \
+      --set RWKV7_FUSED_WKV_KERNEL_ROOT "$out/share/rwkv7-p150x2/kernel"
     mkdir -p "$out/share/model-target"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';

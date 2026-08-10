@@ -20,14 +20,22 @@ constexpr std::uint16_t kBfloat16TileSizeBytes = 2048;
 constexpr std::uint16_t kInvalidTileSizeBytes = 1088;
 constexpr std::uint8_t kTileFacesPerDimension = 2;
 
-constexpr std::size_t kFirstVectorCb = 0;
-constexpr std::size_t kLastVectorCb = 5;
+constexpr std::size_t kFirstRecurrenceVectorCb = 0;
+constexpr std::size_t kLastRecurrenceVectorCb = 5;
 constexpr std::size_t kStateCb = 6;
+constexpr std::size_t kRkCb = 7;
 constexpr std::size_t kStateDotACb = 8;
 constexpr std::size_t kNextStateCb = 9;
 constexpr std::size_t kReadoutCb = 10;
+constexpr std::size_t kGroupNormWeightCb = 11;
+constexpr std::size_t kFirstOrientedVectorCb = 12;
+constexpr std::size_t kLastOrientedVectorCb = 15;
 constexpr std::size_t kOutputCb = 16;
 constexpr std::size_t kNextStateOutputCb = 17;
+constexpr std::size_t kFirstTrailingVectorCb = 18;
+constexpr std::size_t kLastCorrectionInputCb = 21;
+constexpr std::size_t kFirstCorrectionScratchCb = 22;
+constexpr std::size_t kLastCorrectionScratchCb = 31;
 
 template <typename Value, std::size_t Count>
 constexpr std::array<Value, Count> repeat_value(Value value) {
@@ -48,14 +56,22 @@ constexpr std::array<Value, Count> generate_values(Generator generator) {
 }
 
 constexpr bool is_bfloat16_cb(std::size_t index) {
-  return (index >= kFirstVectorCb && index <= kLastVectorCb) ||
-         index == kOutputCb;
+  return (index >= kFirstRecurrenceVectorCb &&
+          index <= kLastRecurrenceVectorCb) ||
+         index == kRkCb || index == kGroupNormWeightCb ||
+         (index >= kFirstOrientedVectorCb &&
+          index <= kLastOrientedVectorCb) ||
+         index == kOutputCb ||
+         (index >= kFirstTrailingVectorCb &&
+          index <= kLastCorrectionInputCb);
 }
 
 constexpr bool is_float32_cb(std::size_t index) {
   return index == kStateCb || index == kStateDotACb ||
          index == kNextStateCb || index == kReadoutCb ||
-         index == kNextStateOutputCb;
+         index == kNextStateOutputCb ||
+         (index >= kFirstCorrectionScratchCb &&
+          index <= kLastCorrectionScratchCb);
 }
 
 constexpr std::uint8_t data_format_for_index(std::size_t index) {

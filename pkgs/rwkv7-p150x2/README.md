@@ -45,6 +45,22 @@ The worker omits final normalization and the vocabulary head for nonfinal prompt
 
 The fast path does not retain per-operation event strings or maps. Profiler attribution remains available through the TT-Metal device profiler.
 
+## Fused WKV candidate
+
+The package contains a Blackhole-only fused WKV candidate. It supports 12 heads, width 64, and batches from 1 through 16.
+
+The candidate reads BF16 vectors and FP32 recurrent state. It writes separate BF16 attention output and FP32 next state.
+
+The device kernel includes recurrence, per-head group normalization, the `r_k` correction, and gate multiplication. The later output projection stays outside.
+
+Each `(request, head)` work item has one deterministic core owner. Each state page has one writer, and requests never share state.
+
+Production dispatch remains closed. `generic_wkv_step` remains authoritative until physical parity and performance admission pass.
+
+The standalone `--fused-wkv-probe` runs the candidate at batch 16 for two recurrent steps. It does not enable production dispatch.
+
+No physical performance gain is measured for this candidate. Simulator results cannot supply that measurement.
+
 The timed region contains warmed prompt and decode operations. It excludes:
 
 - recurrent-state readback;
@@ -64,6 +80,15 @@ Run the bounded Blackhole `1x1` smoke before a new physical attempt:
 ```
 
 The script uses packaged `libttsim_bh.so`, slow dispatch, and a named 60-minute timeout. It opens one simulated device, loads the model weights, executes RWKV layer 0 twice, and carries the FP32 recurrent matrix between steps. Its receipt is marked simulated and cannot satisfy physical throughput admission.
+
+Run the standalone fused candidate with the packaged smoke script:
+
+```sh
+"$EVIDENCE/bin/rwkv7-p150x2-fused-wkv-simulator-smoke" \
+  /absolute/new/fused-wkv-simulator-root
+```
+
+This smoke uses batch 16, all 12 heads, and two recurrent steps. It compares output and next state with the corrected fixture.
 
 ## Benchmark and admission
 

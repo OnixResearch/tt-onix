@@ -19,6 +19,10 @@ let
       ./.
       ../model-target-core
       ../rwkv7-p150x2/kernel/fused_wkv_compute.cpp
+      ../rwkv7-p150x2/kernel/fused_wkv_reader.cpp
+      ../rwkv7-p150x2/kernel/fused_wkv_writer.cpp
+      ../rwkv7-p150x2/src/fused_wkv_program.cpp
+      ../rwkv7-p150x2/src/main.cpp
     ];
   };
 in
@@ -72,7 +76,14 @@ rustPlatform.buildRustPackage {
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
       --replace-fail '@timeout@' ${lib.escapeShellArg "${coreutils}/bin/timeout"} \
       --replace-fail '@runtime@' ${lib.escapeShellArg (toString deviceRuntime)}
-    chmod +x "$out/bin/rwkv7-p150x2-simulator-smoke"
+    substitute run-fused-wkv-simulator-smoke.sh \
+      "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke" \
+      --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
+      --replace-fail '@timeout@' ${lib.escapeShellArg "${coreutils}/bin/timeout"} \
+      --replace-fail '@runtime@' ${lib.escapeShellArg (toString deviceRuntime)}
+    chmod +x \
+      "$out/bin/rwkv7-p150x2-simulator-smoke" \
+      "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke"
   '';
 
   doCheck = true;
@@ -86,6 +97,7 @@ rustPlatform.buildRustPackage {
     "$out/bin/rwkv7-p150x2-evidence" --self-test
     "$out/bin/rwkv7-p150x2-command" --self-test
     bash -n "$out/bin/rwkv7-p150x2-simulator-smoke"
+    bash -n "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke"
     if "$out/bin/rwkv7-p150x2-throughput-benchmark" \
       >missing-benchmark-args.out 2>missing-benchmark-args.err; then
       echo "throughput benchmark accepted missing arguments" >&2

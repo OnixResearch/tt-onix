@@ -14,9 +14,18 @@ foreach(required_path IN ITEMS RWKV7_CHECKPOINT_PATH RWKV7_MESH_DESCRIPTOR_PATH 
 endforeach()
 configure_file(config.hpp.in generated/config.hpp @ONLY)
 
-add_executable(rwkv7-p150x2-runtime src/main.cpp)
+add_executable(
+  rwkv7-p150x2-runtime
+  src/fused_wkv_program.cpp
+  src/main.cpp
+)
 target_compile_features(rwkv7-p150x2-runtime PRIVATE cxx_std_20)
-target_include_directories(rwkv7-p150x2-runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(
+  rwkv7-p150x2-runtime
+  PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
 target_compile_options(
   rwkv7-p150x2-runtime
   PRIVATE
@@ -34,3 +43,8 @@ target_link_libraries(
 )
 
 install(TARGETS rwkv7-p150x2-runtime RUNTIME DESTINATION libexec/rwkv7-p150x2)
+install(
+  DIRECTORY kernel/
+  DESTINATION share/rwkv7-p150x2/kernel
+  FILES_MATCHING PATTERN "*.cpp"
+)

@@ -2,6 +2,36 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/b1-equation-baseline.md",
+      "class": "portable_evidence",
+      "byte_count": 4142,
+      "blake3": "37a9274ccb5ff653b66be3762838400f6907c4d49301b2cb04bbd33e7f909b35"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-bounded-hazard-audits.md",
+      "class": "portable_evidence",
+      "byte_count": 7245,
+      "blake3": "15c68186a1b86dff0b14772e5c38c521d4932d5e223ec1165ea24b2bd6f1e394"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-compute-kernel-slice.md",
+      "class": "portable_evidence",
+      "byte_count": 1841,
+      "blake3": "27da7379a123291747d1d950a738b8c1ad390c86dbbc8f17f2c1469072362f6c"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1673,
+      "blake3": "16c3edd79d63fd83e34fbe9f64c6e20662b32e0e29827f6eab2ced20d8fc6e88"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-planning-cores.md",
+      "class": "portable_evidence",
+      "byte_count": 3048,
+      "blake3": "f00b601d1c838be40398040d60eaa5acdff0762321020940e65308c0a327304e"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
@@ -262,8 +292,8 @@
     {
       "path": "quality/generated/repository-quality.json",
       "class": "generated_source",
-      "byte_count": 2736,
-      "blake3": "c5b558c25c9f290c83e8734b4b62e1a4c3e9d55832f609dcfb6beb63ab95e3b9"
+      "byte_count": 2753,
+      "blake3": "318c260a2700c50ac32bae3d9ad978c61e26ce3cb6bc23d59a1f2c024f48218d"
     }
   ]
 }

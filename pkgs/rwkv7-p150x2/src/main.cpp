@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "fused_wkv_program.hpp"
 
 #include <blake3.h>
 #include <nlohmann/json.hpp>
@@ -114,6 +115,7 @@ constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kFastWorkerArgument = "--fast-worker";
 constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
+constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
 constexpr std::string_view kFastDeviceArgument = "--device";
 constexpr std::string_view kFastRequestsArgument = "--requests";
 constexpr std::string_view kFastOutputArgument = "--output";
@@ -122,6 +124,9 @@ constexpr std::string_view kMaxNewArgument = "--max-new";
 constexpr std::string_view kEvidenceRootArgument = "--evidence-root";
 constexpr std::string_view kEnabledEnvironmentValue = "1";
 constexpr std::string_view kDisabledEnvironmentValue = "0";
+constexpr std::string_view kFusedWkvKernelRootEnvironment =
+    "RWKV7_FUSED_WKV_KERNEL_ROOT";
+constexpr bool kFusedWkvPhysicallyAdmitted = false;
 constexpr std::string_view kLogsDirectoryName = "logs";
 constexpr std::string_view kProfilerDirectoryName = "profiler";
 constexpr std::string_view kInspectorRelativeDirectory =
@@ -164,6 +169,25 @@ constexpr std::uint16_t kSelfTestBitThree = 3U;
 constexpr std::uint16_t kSelfTestBitFour = 4U;
 constexpr std::uint16_t kSelfTestBitFive = 5U;
 constexpr std::uint16_t kSelfTestBitSix = 6U;
+constexpr std::uint32_t kFusedWkvProbeBatchSize =
+    rwkv7::fused_wkv::kMaximumBatchSize;
+constexpr float kFusedWkvProbeA = 0.125F;
+constexpr float kFusedWkvProbeW = 0.875F;
+constexpr float kFusedWkvProbeK = 0.25F;
+constexpr float kFusedWkvProbeV = 0.5F;
+constexpr float kFusedWkvProbeR = 0.375F;
+constexpr float kFusedWkvProbeB = 0.125F;
+constexpr float kFusedWkvProbeRk = 1.0F;
+constexpr float kFusedWkvProbeGroupNormWeight = 0.5F;
+constexpr float kFusedWkvProbeGroupNormBias = 0.25F;
+constexpr float kFusedWkvProbeGate = 0.5F;
+constexpr float kFusedWkvProbeFirstStateMagnitude = 0.125F;
+constexpr float kFusedWkvProbeSecondStateMagnitude = 0.359375F;
+constexpr float kFusedWkvProbeNegativeOutput = -1.625F;
+constexpr float kFusedWkvProbePositiveOutput = 1.875F;
+constexpr std::uint32_t kFusedWkvProbeNegativeWidth = kHeadSize / 2U;
+constexpr float kFusedWkvProbeExactTolerance = 0.0F;
+constexpr std::size_t kFusedWkvProbeComparisonCount = 4U;
 
 static_assert(sizeof(bfloat16) == kBf16Bytes);
 static_assert(std::is_trivially_copyable_v<bfloat16>);
@@ -1226,44 +1250,30 @@ struct WkvOutput {
   Tensor r_rows;
   Tensor k_rows;
   Tensor v_rows;
+  bool correction_complete;
 };
 
-WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
-                   const TimePreparation &preparation) {
+WkvOutput generic_wkv_step(DeviceContext &context, const Tensor &state,
+                           const Tensor &a_rows, const Tensor &b_rows,
+                           const Tensor &w_rows, const Tensor &v_rows,
+                           const Tensor &k_rows, const Tensor &r_rows) {
   const bool fp32_state = state.dtype() == ttnn::DataType::FLOAT32;
-  const std::uint32_t batch_size = state.logical_shape()[0];
-  const auto state_dtype = [&](const Tensor &tensor) {
-    return fp32_state
-               ? op_typecast(context, tensor, ttnn::DataType::FLOAT32,
-                             "typecast-recurrence-fp32")
-               : tensor;
-  };
-  const auto state_row = [&](const Tensor &tensor) {
-    return op_reshape(context, state_dtype(tensor),
-                      {batch_size, kHeadCount, 1U, kHeadSize});
-  };
-  const auto source_row = [&](const Tensor &tensor) {
-    return op_reshape(context, tensor,
-                      {batch_size, kHeadCount, 1U, kHeadSize});
-  };
   const auto source_to_state = [&](const Tensor &rows) {
     return fp32_state
                ? op_typecast(context, rows, ttnn::DataType::FLOAT32,
                              "typecast-recurrence-fp32")
                : rows;
   };
-  const Tensor a_rows = state_row(preparation.a);
-  const Tensor b_rows = state_row(preparation.b);
-  const Tensor w_rows = state_row(preparation.w);
-  const Tensor v_rows = source_row(preparation.v);
-  const Tensor k_rows = source_row(preparation.k);
-  const Tensor r_rows = source_row(preparation.r);
+  const Tensor a_state_rows = source_to_state(a_rows);
+  const Tensor b_state_rows = source_to_state(b_rows);
+  const Tensor w_state_rows = source_to_state(w_rows);
   const Tensor v_state_rows = source_to_state(v_rows);
   const Tensor k_state_rows = source_to_state(k_rows);
   const Tensor state_dot_a =
-      op_matmul_transpose_right(context, state, a_rows);
-  const Tensor rank_update = op_matmul(context, state_dot_a, b_rows);
-  const Tensor decay = op_multiply(context, state, w_rows);
+      op_matmul_transpose_right(context, state, a_state_rows);
+  const Tensor rank_update =
+      op_matmul(context, state_dot_a, b_state_rows);
+  const Tensor decay = op_multiply(context, state, w_state_rows);
   const Tensor outer =
       op_matmul_transpose_left(context, v_state_rows, k_state_rows);
   const Tensor next_state =
@@ -1272,7 +1282,56 @@ WkvOutput wkv_step(DeviceContext &context, const Tensor &state,
       fp32_state
           ? op_matmul_transpose_right_bf16(context, next_state, r_rows)
           : op_matmul_transpose_right(context, next_state, r_rows);
-  return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows};
+  return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows,
+                   false};
+}
+
+WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
+                   const Tensor &state, const TimePreparation &preparation) {
+  const std::uint32_t batch_size = state.logical_shape()[0];
+  const auto source_row = [&](const Tensor &tensor) {
+    return op_reshape(context, tensor,
+                      {batch_size, kHeadCount, 1U, kHeadSize});
+  };
+  const Tensor a_rows = source_row(preparation.a);
+  const Tensor w_rows = source_row(preparation.w);
+  const Tensor k_rows = source_row(preparation.k);
+  const Tensor v_rows = source_row(preparation.v);
+  const Tensor r_rows = source_row(preparation.r);
+  const Tensor b_rows = source_row(preparation.b);
+  const Tensor gate_rows = source_row(preparation.gate);
+  const rwkv7::fused_wkv::Inputs fused_inputs{
+      a_rows,
+      w_rows,
+      k_rows,
+      v_rows,
+      r_rows,
+      b_rows,
+      weights.at("r_k"),
+      weights.at("group_norm_weight"),
+      weights.at("group_norm_bias"),
+      gate_rows,
+      state,
+  };
+  const rwkv7::fused_wkv::DispatchDecision decision =
+      rwkv7::fused_wkv::select_dispatch(
+          fused_inputs, kFusedWkvPhysicallyAdmitted);
+  if (decision.use_fused_path) {
+    const char *const kernel_root =
+        std::getenv(kFusedWkvKernelRootEnvironment.data());
+    require(kernel_root != nullptr,
+            "admitted fused WKV path has no kernel source root");
+    rwkv7::fused_wkv::Outputs fused =
+        rwkv7::fused_wkv::run(context.mesh(), fused_inputs, kernel_root);
+    Tensor fused_state =
+        context.checked(std::move(fused.next_state), "fused-wkv-state");
+    Tensor fused_output =
+        context.checked(std::move(fused.output), "fused-wkv-output");
+    return WkvOutput{std::move(fused_state), std::move(fused_output), r_rows,
+                     k_rows, v_rows, true};
+  }
+  return generic_wkv_step(context, state, a_rows, b_rows, w_rows, v_rows,
+                          k_rows, r_rows);
 }
 
 Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
@@ -1282,23 +1341,28 @@ Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
   const Tensor rows = op_reshape(
       context, wkv.output_for_hidden,
       {batch_size, kHeadCount, 1U, kHeadSize});
-  const Tensor normalized_rows =
-      op_layer_norm(context, rows, kGroupNormEpsilon);
-  const Tensor scaled_rows =
-      op_add(context,
-             op_multiply(context, normalized_rows,
-                         weights.at("group_norm_weight")),
-             weights.at("group_norm_bias"));
-  const Tensor scalar = op_sum_last(
-      context,
-      op_multiply(context,
-                  op_multiply(context, wkv.r_rows, wkv.k_rows),
-                  weights.at("r_k")));
-  const Tensor corrected_rows = op_multiply(
-      context, op_add(context, scaled_rows,
-                      op_multiply(context, scalar, wkv.v_rows)),
-      op_reshape(context, preparation.gate,
-                 {batch_size, kHeadCount, 1U, kHeadSize}));
+  const Tensor corrected_rows = [&]() {
+    if (wkv.correction_complete) {
+      return rows;
+    }
+    const Tensor normalized_rows =
+        op_layer_norm(context, rows, kGroupNormEpsilon);
+    const Tensor scaled_rows =
+        op_add(context,
+               op_multiply(context, normalized_rows,
+                           weights.at("group_norm_weight")),
+               weights.at("group_norm_bias"));
+    const Tensor scalar = op_sum_last(
+        context,
+        op_multiply(context,
+                    op_multiply(context, wkv.r_rows, wkv.k_rows),
+                    weights.at("r_k")));
+    return op_multiply(
+        context, op_add(context, scaled_rows,
+                        op_multiply(context, scalar, wkv.v_rows)),
+        op_reshape(context, preparation.gate,
+                   {batch_size, kHeadCount, 1U, kHeadSize}));
+  }();
   return op_matmul(
       context,
       op_reshape(context, corrected_rows,
@@ -1340,7 +1404,8 @@ Tensor execute_layer(DeviceContext &context, const LayerWeights &weights,
   state.attention_previous = attention_input;
 
   context.set_stage(std::string(stage_prefix) + "/wkv");
-  const WkvOutput wkv = wkv_step(context, state.matrix, preparation);
+  const WkvOutput wkv =
+      wkv_step(context, weights, state.matrix, preparation);
   state.matrix = wkv.state;
 
   context.set_stage(std::string(stage_prefix) + "/attention-finish");
@@ -2014,20 +2079,36 @@ void select_single_card_device(int physical_device_id) {
   require(visibility_status == 0, "failed to select the physical card");
 }
 
-std::filesystem::path parse_simulator_smoke_output(
-    const std::vector<std::string> &arguments) {
+std::filesystem::path parse_new_output(
+    const std::vector<std::string> &arguments, std::string_view mode,
+    std::string_view invocation_name) {
   require(arguments.size() == kSimulatorSmokeArgumentCount,
-          "simulator smoke invocation has the wrong argument count");
-  require(arguments[kModeArgumentIndex] == kSimulatorSmokeArgument,
-          "simulator smoke invocation must start with --simulator-smoke");
+          std::string(invocation_name) +
+              " invocation has the wrong argument count");
+  require(arguments[kModeArgumentIndex] == mode,
+          std::string(invocation_name) + " invocation has the wrong mode");
   require(arguments[kSimulatorOutputNameIndex] == kFastOutputArgument,
-          "simulator smoke invocation must place --output last");
+          std::string(invocation_name) +
+              " invocation must place --output last");
   const std::filesystem::path output(arguments[kSimulatorOutputValueIndex]);
   require(output.is_absolute() &&
               !output.string().starts_with("/nix/store/") &&
               !std::filesystem::exists(output),
-          "simulator smoke output must be a new absolute non-store path");
+          std::string(invocation_name) +
+              " output must be a new absolute non-store path");
   return output;
+}
+
+std::filesystem::path parse_simulator_smoke_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments, kSimulatorSmokeArgument,
+                          "simulator smoke");
+}
+
+std::filesystem::path parse_fused_wkv_probe_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments, kFusedWkvProbeArgument,
+                          "fused WKV probe");
 }
 
 void run_simulator_smoke(const std::filesystem::path &output_path) {
@@ -2072,6 +2153,224 @@ void run_simulator_smoke(const std::filesystem::path &output_path) {
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
   write_json(output_path, receipt);
+  std::cout << output_path << '\n';
+}
+
+template <typename Value>
+std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
+                                                const Tensor &input,
+                                                bool untilize) {
+  Tensor readable = input;
+  if (untilize) {
+    readable = context.checked(ttnn::untilize(input),
+                               "untilize-fused-wkv-probe");
+  }
+  const Tensor host = ttnn::from_device(readable, true);
+  const std::vector<Tensor> shards =
+      ttnn::distributed::get_device_tensors(host);
+  require(shards.size() == 1U,
+          "fused WKV probe readback must contain one device shard");
+  return shards[kFirstIndex].to_vector<Value>();
+}
+
+template <typename Value>
+float patterned_fixture_max_error(const std::vector<Value> &values,
+                                  std::size_t expected_size,
+                                  std::size_t coordinate_stride,
+                                  float negative_expected,
+                                  float positive_expected) {
+  require(values.size() == expected_size && coordinate_stride > 0U,
+          "fused WKV probe readback has the wrong geometry");
+  const std::size_t negative_width = kFusedWkvProbeNegativeWidth;
+  float maximum_error = 0.0F;
+  for (std::size_t index = 0U; index < values.size(); ++index) {
+    const float converted = static_cast<float>(values[index]);
+    require(std::isfinite(converted),
+            "fused WKV probe readback contains a non-finite value");
+    const std::size_t coordinate =
+        (index / coordinate_stride) % kHeadSize;
+    const float expected = coordinate < negative_width
+                               ? negative_expected
+                               : positive_expected;
+    maximum_error =
+        std::max(maximum_error, std::abs(converted - expected));
+  }
+  return maximum_error;
+}
+
+template <typename Value>
+Json fixture_summary(const std::vector<Value> &values,
+                     std::size_t expected_size) {
+  require(values.size() == expected_size && !values.empty(),
+          "fused WKV probe summary has the wrong element count");
+  float minimum = std::numeric_limits<float>::infinity();
+  float maximum = -std::numeric_limits<float>::infinity();
+  std::size_t nonzero_count = 0U;
+  for (const Value value : values) {
+    const float converted = static_cast<float>(value);
+    require(std::isfinite(converted),
+            "fused WKV probe summary contains a non-finite value");
+    minimum = std::min(minimum, converted);
+    maximum = std::max(maximum, converted);
+    if (converted != 0.0F) {
+      ++nonzero_count;
+    }
+  }
+  return Json{{"first", static_cast<float>(values[kFirstIndex])},
+              {"minimum", minimum},
+              {"maximum", maximum},
+              {"nonzero_count", nonzero_count}};
+}
+
+void run_fused_wkv_probe(const std::filesystem::path &output_path) {
+  select_single_card_device(kPhysicalDeviceZero);
+  DeviceContext context(kPhysicalDeviceZero);
+  context.set_profiler_flush_enabled(false);
+
+  const std::vector<std::uint32_t> vector_shape = {
+      kFusedWkvProbeBatchSize, kHeadCount, 1U, kHeadSize};
+  const std::vector<std::uint32_t> shared_vector_shape = {
+      1U, kHeadCount, 1U, kHeadSize};
+  const std::vector<std::uint32_t> state_shape = {
+      kFusedWkvProbeBatchSize, kHeadCount, kHeadSize, kHeadSize};
+  const std::size_t vector_elements =
+      static_cast<std::size_t>(kFusedWkvProbeBatchSize) * kHeadCount *
+      kHeadSize;
+  const std::size_t state_elements = vector_elements * kHeadSize;
+  const auto bf16_constant = [&](const std::vector<std::uint32_t> &shape,
+                                 float value) {
+    return op_add_scalar(context, context.zeros(shape), value);
+  };
+
+  const Tensor a = bf16_constant(vector_shape, kFusedWkvProbeA);
+  const Tensor w = bf16_constant(vector_shape, kFusedWkvProbeW);
+  const Tensor k = bf16_constant(vector_shape, kFusedWkvProbeK);
+  std::vector<bfloat16> v_values;
+  v_values.reserve(vector_elements);
+  const std::size_t negative_width = kFusedWkvProbeNegativeWidth;
+  for (std::size_t index = 0U; index < vector_elements; ++index) {
+    const float value = index % kHeadSize < negative_width
+                            ? -kFusedWkvProbeV
+                            : kFusedWkvProbeV;
+    v_values.emplace_back(value);
+  }
+  const Tensor v =
+      context.bf16_tensor(std::move(v_values), vector_shape,
+                          ttnn::Layout::TILE);
+  const Tensor r = bf16_constant(vector_shape, kFusedWkvProbeR);
+  const Tensor b = bf16_constant(vector_shape, kFusedWkvProbeB);
+  const Tensor r_k =
+      bf16_constant(shared_vector_shape, kFusedWkvProbeRk);
+  const Tensor group_norm_weight = bf16_constant(
+      shared_vector_shape, kFusedWkvProbeGroupNormWeight);
+  const Tensor group_norm_bias = bf16_constant(
+      shared_vector_shape, kFusedWkvProbeGroupNormBias);
+  const Tensor gate =
+      bf16_constant(vector_shape, kFusedWkvProbeGate);
+  const Tensor zero_state = context.float32_tensor(
+      std::vector<float>(state_elements, 0.0F), state_shape,
+      ttnn::Layout::TILE);
+  const char *const kernel_root =
+      std::getenv(kFusedWkvKernelRootEnvironment.data());
+  require(kernel_root != nullptr,
+          "fused WKV probe has no kernel source root");
+
+  const rwkv7::fused_wkv::Inputs first_inputs{
+      a, w, k, v, r, b, r_k, group_norm_weight, group_norm_bias, gate,
+      zero_state};
+  rwkv7::fused_wkv::Outputs first = rwkv7::fused_wkv::run(
+      context.mesh(), first_inputs, kernel_root);
+  Tensor first_state =
+      context.checked(std::move(first.next_state), "fused-wkv-probe-state-1");
+  Tensor first_output =
+      context.checked(std::move(first.output), "fused-wkv-probe-output-1");
+
+  const rwkv7::fused_wkv::Inputs second_inputs{
+      a, w, k, v, r, b, r_k, group_norm_weight, group_norm_bias, gate,
+      first_state};
+  rwkv7::fused_wkv::Outputs second = rwkv7::fused_wkv::run(
+      context.mesh(), second_inputs, kernel_root);
+  Tensor second_state = context.checked(std::move(second.next_state),
+                                        "fused-wkv-probe-state-2");
+  Tensor second_output = context.checked(std::move(second.output),
+                                         "fused-wkv-probe-output-2");
+
+  const std::vector<float> first_state_values =
+      read_fused_wkv_probe_values<float>(context, first_state, false);
+  const std::vector<float> second_state_values =
+      read_fused_wkv_probe_values<float>(context, second_state, false);
+  const std::vector<bfloat16> first_output_values =
+      read_fused_wkv_probe_values<bfloat16>(context, first_output, true);
+  const std::vector<bfloat16> second_output_values =
+      read_fused_wkv_probe_values<bfloat16>(context, second_output, true);
+  const float first_state_error = patterned_fixture_max_error(
+      first_state_values, state_elements, kHeadSize,
+      -kFusedWkvProbeFirstStateMagnitude,
+      kFusedWkvProbeFirstStateMagnitude);
+  const float second_state_error = patterned_fixture_max_error(
+      second_state_values, state_elements, kHeadSize,
+      -kFusedWkvProbeSecondStateMagnitude,
+      kFusedWkvProbeSecondStateMagnitude);
+  const float first_output_error = patterned_fixture_max_error(
+      first_output_values, vector_elements, 1U,
+      kFusedWkvProbeNegativeOutput, kFusedWkvProbePositiveOutput);
+  const float second_output_error = patterned_fixture_max_error(
+      second_output_values, vector_elements, 1U,
+      kFusedWkvProbeNegativeOutput, kFusedWkvProbePositiveOutput);
+  const std::array<float, kFusedWkvProbeComparisonCount> fixture_errors = {
+      first_state_error, second_state_error, first_output_error,
+      second_output_error};
+  const bool fixture_exact =
+      std::all_of(fixture_errors.begin(), fixture_errors.end(),
+                  [](float error) {
+                    return error <= kFusedWkvProbeExactTolerance;
+                  });
+
+  const bool simulated = std::getenv("TT_METAL_SIMULATOR") != nullptr;
+  const Json receipt{
+      {"schema_version", kSchemaVersion},
+      {"outcome", fixture_exact ? "fused_wkv_corrected_fixture_pass"
+                                  : "fused_wkv_corrected_fixture_mismatch"},
+      {"simulated", simulated},
+      {"physical_hardware", !simulated},
+      {"architecture", "blackhole"},
+      {"mesh_shape", {kMeshRows, kMeshRows}},
+      {"selection_ordinal", kPhysicalDeviceZero},
+      {"batch_size", kFusedWkvProbeBatchSize},
+      {"head_count", kHeadCount},
+      {"head_size", kHeadSize},
+      {"recurrent_steps", kMinimumGeneratedTokens},
+      {"state_dtype", "float32"},
+      {"vector_dtype", "bfloat16"},
+      {"output_dtype", "bfloat16"},
+      {"corrected_fixture_exact", fixture_exact},
+      {"fused_attention_boundary",
+       {{"group_normalization", true},
+        {"r_k_correction", true},
+        {"gate", true},
+        {"bf16_output", true},
+        {"output_projection", false}}},
+      {"maximum_absolute_error",
+       {{"first_state", first_state_error},
+        {"second_state", second_state_error},
+        {"first_output", first_output_error},
+        {"second_output", second_output_error}}},
+      {"value_summary",
+       {{"first_state",
+         fixture_summary(first_state_values, state_elements)},
+        {"second_state",
+         fixture_summary(second_state_values, state_elements)},
+        {"first_output",
+         fixture_summary(first_output_values, vector_elements)},
+        {"second_output",
+         fixture_summary(second_output_values, vector_elements)}}},
+      {"candidate_dispatch", true},
+      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted},
+      {"performance_claim", false},
+      {"operation_counts", map_to_json(context.operation_counts())}};
+  write_json(output_path, receipt);
+  require(fixture_exact,
+          "fused WKV corrected fixture differs from the exact reference");
   std::cout << output_path << '\n';
 }
 
@@ -2797,6 +3096,11 @@ int main(int argc, char **argv) {
     if (arguments.size() == kSimulatorSmokeArgumentCount &&
         arguments[kModeArgumentIndex] == kSimulatorSmokeArgument) {
       run_simulator_smoke(parse_simulator_smoke_output(arguments));
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] == kFusedWkvProbeArgument) {
+      run_fused_wkv_probe(parse_fused_wkv_probe_output(arguments));
       return EXIT_SUCCESS;
     }
     const RuntimeRequest request = parse_runtime_request(arguments);

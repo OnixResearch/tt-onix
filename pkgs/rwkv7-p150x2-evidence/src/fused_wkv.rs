@@ -21,6 +21,11 @@ pub const FUSED_VECTOR_DTYPE: &str = "bfloat16";
 pub const FUSED_OUTPUT_DTYPE: &str = "bfloat16";
 const FP32_BYTE_WIDTH: usize = 4;
 const BF16_BYTE_WIDTH: usize = 2;
+const BF16_SHIFT: u32 = 16;
+const BF16_ROUND_BIAS: u32 = 0x7fff;
+const BF16_TRUNCATION_MASK: u32 = 0xffff_0000;
+const FUSED_PER_REQUEST_VECTOR_COUNT: usize = 7;
+const FUSED_SHARED_VECTOR_COUNT: usize = 3;
 const MAXIMUM_SUPPORTED_BATCH: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -195,10 +200,9 @@ pub fn fused_wkv_step(inputs: &FusedWkvInputs) -> Result<FusedWkvResult, Rejecti
             }
             // S'[i,j] = S[i,j] * w[j] + sa * b[j] + k[j] * v[i]
             for j in 0..d {
-                let next =
-                    state_head[i * d + j] * inputs.w[head_base + j]
-                        + sa * inputs.b[head_base + j]
-                        + inputs.k[head_base + j] * inputs.v[head_base + i];
+                let next = state_head[i * d + j] * inputs.w[head_base + j]
+                    + sa * inputs.b[head_base + j]
+                    + inputs.k[head_base + j] * inputs.v[head_base + i];
                 next_state[head * d * d + i * d + j] = next;
             }
             // out[i] = sum_j S'[i,j] * r[j]
@@ -209,10 +213,7 @@ pub fn fused_wkv_step(inputs: &FusedWkvInputs) -> Result<FusedWkvResult, Rejecti
             output[head_base + i] = acc;
         }
     }
-    Ok(FusedWkvResult {
-        next_state,
-        output,
-    })
+    Ok(FusedWkvResult { next_state, output })
 }
 
 /// Inputs for the attention boundary that follows the WKV recurrence.
@@ -226,14 +227,16 @@ pub struct AttentionCorrectionInputs {
     pub head_size: usize,
     /// The pre-correction readout values, `[head][D]`.
     pub output: Vec<f32>,
-    /// The removal-key rows, `[head][D]`, used for the r_k bonus.
+    /// The receptance rows, `[head][D]`, used for the r_k correction.
+    pub r_rows: Vec<f32>,
+    /// The key rows, `[head][D]`, used for the r_k correction.
     pub k_rows: Vec<f32>,
-    /// The value rows, `[head][D]`, used for the r_k bonus.
+    /// The value rows, `[head][D]`, scaled by the correction scalar.
     pub v_rows: Vec<f32>,
     /// The rwkv gate rows, `[head][D]`.
     pub gate: Vec<f32>,
-    /// The scalar `r_k` coefficient (per request, broadcast).
-    pub r_k: f32,
+    /// The learned `r_k` rows, `[head][D]`, shared across requests.
+    pub r_k: Vec<f32>,
     /// Group-norm affinity weight, `[head][D]`.
     pub group_norm_weight: Vec<f32>,
     /// Group-norm affinity bias, `[head][D]`.
@@ -245,6 +248,17 @@ pub struct AttentionCorrectionInputs {
 pub struct AttentionCorrectionResult {
     /// Corrected rows, `[head][D]`, BF16-bounded values.
     pub corrected_rows: Vec<f32>,
+}
+
+fn round_to_bfloat16(value: f32) -> Option<f32> {
+    if !value.is_finite() {
+        return None;
+    }
+    let bits = value.to_bits();
+    let retained_lsb = (bits >> BF16_SHIFT) & 1;
+    let rounded = bits.wrapping_add(BF16_ROUND_BIAS + retained_lsb) & BF16_TRUNCATION_MASK;
+    let result = f32::from_bits(rounded);
+    result.is_finite().then_some(result)
 }
 
 fn validate_row_vector(name: &str, values: &[f32], rows: usize) -> Result<(), Rejection> {
@@ -267,8 +281,8 @@ fn validate_row_vector(name: &str, values: &[f32], rows: usize) -> Result<(), Re
 }
 
 /// Pure attention correction: group-norm the readout rows, add the r_k
-/// bonus weighted by the value rows, scale by the gate, and bound the
-/// result to the BF16 finite range. The output projection is outside.
+/// correction weighted by the value rows, scale by the gate, and round the
+/// result to BF16. The output projection is outside.
 ///
 /// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.valid]
 pub fn attention_correction(
@@ -284,23 +298,24 @@ pub fn attention_correction(
     let rows = inputs.head_count * inputs.head_size;
     for (name, values) in [
         ("output", &inputs.output),
+        ("r_rows", &inputs.r_rows),
         ("k_rows", &inputs.k_rows),
         ("v_rows", &inputs.v_rows),
         ("gate", &inputs.gate),
+        ("r_k", &inputs.r_k),
         ("group_norm_weight", &inputs.group_norm_weight),
         ("group_norm_bias", &inputs.group_norm_bias),
     ] {
         validate_row_vector(name, values, rows)?;
     }
-    if !inputs.r_k.is_finite() || !group_norm_epsilon.is_finite() || group_norm_epsilon <= 0.0 {
+    if !group_norm_epsilon.is_finite() || group_norm_epsilon <= 0.0 {
         return Err(Rejection::new(
             "non_finite_reference_input",
-            "attention correction scalars must be finite and epsilon positive",
+            "attention correction epsilon must be finite and positive",
         ));
     }
     let d = inputs.head_size;
     let mut corrected_rows = Vec::with_capacity(rows);
-    let mut corrections = Vec::new();
     for head in 0..inputs.head_count {
         let base = head * d;
         let mut mean = 0.0_f32;
@@ -315,30 +330,24 @@ pub fn attention_correction(
         }
         variance /= d as f32;
         let inv_std = 1.0_f32 / (variance + group_norm_epsilon).sqrt();
-        let scalar = inputs.r_k
-            * (0..d)
-                .map(|i| inputs.k_rows[base + i] * inputs.v_rows[base + i])
-                .sum::<f32>();
+        let scalar = (0..d)
+            .map(|i| inputs.r_rows[base + i] * inputs.k_rows[base + i] * inputs.r_k[base + i])
+            .sum::<f32>();
         for i in 0..d {
             let normalized = (inputs.output[base + i] - mean) * inv_std;
-            let scaled = normalized * inputs.group_norm_weight[base + i]
-                + inputs.group_norm_bias[base + i];
-            let corrected =
-                (scaled + scalar * inputs.v_rows[base + i]) * inputs.gate[base + i];
-            if corrected.abs() > f32::MAX / 2.0 {
-                corrections.push((head, i));
-            }
-            corrected_rows.push(corrected);
+            let scaled =
+                normalized * inputs.group_norm_weight[base + i] + inputs.group_norm_bias[base + i];
+            let corrected = (scaled + scalar * inputs.v_rows[base + i]) * inputs.gate[base + i];
+            let bounded = round_to_bfloat16(corrected).ok_or_else(|| {
+                Rejection::new(
+                    "correction_overflow",
+                    format!(
+                        "corrected row at head {head}, channel {i} exceeds the BF16 finite bound"
+                    ),
+                )
+            })?;
+            corrected_rows.push(bounded);
         }
-    }
-    if !corrections.is_empty() {
-        return Err(Rejection::new(
-            "correction_overflow",
-            format!(
-                "{} corrected rows exceed the BF16 finite bound",
-                corrections.len()
-            ),
-        ));
     }
     Ok(AttentionCorrectionResult { corrected_rows })
 }
@@ -432,7 +441,10 @@ pub fn validate_fused_capability(capability: &FusedWkvCapability) -> Result<(), 
             "state tile ownership must be unique",
         ));
     }
-    if !capability.state_ownership_plan.no_cross_request_state_sharing {
+    if !capability
+        .state_ownership_plan
+        .no_cross_request_state_sharing
+    {
         return Err(Rejection::new(
             "state_ownership_cross_request",
             "state tiles must not be shared across requests",
@@ -473,23 +485,37 @@ pub fn fused_vector_bytes(capability: &FusedWkvCapability) -> Result<usize, Reje
                 "fused WKV vector byte budget overflows usize",
             )
         })?;
-    let vectors = 6_usize; // r, w, k, v, a, b
-    capability
+    let request_bytes = capability
         .batch_size
         .checked_mul(per_request)
-        .and_then(|bytes| bytes.checked_mul(vectors))
+        .and_then(|bytes| bytes.checked_mul(FUSED_PER_REQUEST_VECTOR_COUNT))
         .ok_or_else(|| {
             Rejection::new(
                 "vector_byte_overflow",
-                "fused WKV vector byte budget overflows usize",
+                "fused WKV request-vector byte budget overflows usize",
             )
-        })
+        })?;
+    let shared_bytes = per_request
+        .checked_mul(FUSED_SHARED_VECTOR_COUNT)
+        .ok_or_else(|| {
+            Rejection::new(
+                "vector_byte_overflow",
+                "fused WKV shared-vector byte budget overflows usize",
+            )
+        })?;
+    request_bytes.checked_add(shared_bytes).ok_or_else(|| {
+        Rejection::new(
+            "vector_byte_overflow",
+            "fused WKV vector byte budget overflows usize",
+        )
+    })
 }
 
 /// Per-request dataflow plan for one fused WKV decode step.
 ///
 /// K1: this is the bounded data-movement contract. Each live request owns
-/// one FP32 state tile per head and six BF16 vectors. The plan names exact
+/// one FP32 state tile per head, seven per-request BF16 vectors, and three
+/// shared BF16 parameter vectors. The plan names exact
 /// byte counts so the device shell can reserve buffers, and it never exceeds
 /// the capability's batch bound.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -499,7 +525,8 @@ pub struct FusedDataflowPlan {
     pub head_size: usize,
     /// FP32 state bytes for the whole batch (batch x heads x D x D x 4).
     pub state_bytes: usize,
-    /// BF16 vector bytes for the whole batch (six vectors per request).
+    /// BF16 vector bytes for seven vectors per request and three shared
+    /// parameter vectors.
     pub vector_bytes: usize,
     /// BF16 output bytes (one vector per request head row).
     pub output_bytes: usize,
@@ -526,15 +553,30 @@ pub fn plan_fused_dataflow(
                 "per-request state bytes overflow usize",
             )
         })?;
-    let per_request_vector = capability
+    let one_vector = capability
         .head_count
         .checked_mul(d)
-        .and_then(|rows| rows.checked_mul(6_usize)) // r,w,k,v,a,b
-        .and_then(|vectors| vectors.checked_mul(BF16_BYTE_WIDTH))
+        .and_then(|rows| rows.checked_mul(BF16_BYTE_WIDTH))
+        .ok_or_else(|| {
+            Rejection::new(
+                "dataflow_byte_overflow",
+                "one vector byte count overflows usize",
+            )
+        })?;
+    let per_request_vector = one_vector
+        .checked_mul(FUSED_PER_REQUEST_VECTOR_COUNT)
         .ok_or_else(|| {
             Rejection::new(
                 "dataflow_byte_overflow",
                 "per-request vector bytes overflow usize",
+            )
+        })?;
+    let shared_vector = one_vector
+        .checked_mul(FUSED_SHARED_VECTOR_COUNT)
+        .ok_or_else(|| {
+            Rejection::new(
+                "dataflow_byte_overflow",
+                "shared vector bytes overflow usize",
             )
         })?;
     let per_request_output = capability
@@ -551,15 +593,31 @@ pub fn plan_fused_dataflow(
         batch_size: capability.batch_size,
         head_count: capability.head_count,
         head_size: d,
-        state_bytes: capability.batch_size.checked_mul(per_request_state).ok_or_else(||
-            Rejection::new("dataflow_byte_overflow", "batch state bytes overflow usize")
-        )?,
-        vector_bytes: capability.batch_size.checked_mul(per_request_vector).ok_or_else(||
-            Rejection::new("dataflow_byte_overflow", "batch vector bytes overflow usize")
-        )?,
-        output_bytes: capability.batch_size.checked_mul(per_request_output).ok_or_else(||
-            Rejection::new("dataflow_byte_overflow", "batch output bytes overflow usize")
-        )?,
+        state_bytes: capability
+            .batch_size
+            .checked_mul(per_request_state)
+            .ok_or_else(|| {
+                Rejection::new("dataflow_byte_overflow", "batch state bytes overflow usize")
+            })?,
+        vector_bytes: capability
+            .batch_size
+            .checked_mul(per_request_vector)
+            .and_then(|bytes| bytes.checked_add(shared_vector))
+            .ok_or_else(|| {
+                Rejection::new(
+                    "dataflow_byte_overflow",
+                    "batch vector bytes overflow usize",
+                )
+            })?,
+        output_bytes: capability
+            .batch_size
+            .checked_mul(per_request_output)
+            .ok_or_else(|| {
+                Rejection::new(
+                    "dataflow_byte_overflow",
+                    "batch output bytes overflow usize",
+                )
+            })?,
         state_tiles_per_request: capability.head_count,
         works_per_request: capability.head_count,
     })
@@ -689,7 +747,6 @@ pub fn plan_fused_step(
         output_bytes: dataflow.output_bytes,
     })
 }
-
 
 /// The capability-selected dispatch decision.
 ///
@@ -864,13 +921,17 @@ mod tests {
         let mut wide = capability(4);
         wide.head_size = 128;
         assert_eq!(
-            validate_fused_capability(&wide).expect_err("wide head").code,
+            validate_fused_capability(&wide)
+                .expect_err("wide head")
+                .code,
             "unsupported_head_width"
         );
         let mut many = capability(4);
         many.head_count = 16;
         assert_eq!(
-            validate_fused_capability(&many).expect_err("many heads").code,
+            validate_fused_capability(&many)
+                .expect_err("many heads")
+                .code,
             "unsupported_head_count"
         );
     }
@@ -882,6 +943,27 @@ mod tests {
         assert_eq!(
             validate_fused_capability(&c).expect_err("bf16 state").code,
             "unsupported_state_dtype"
+        );
+    }
+
+    #[test]
+    fn rejects_non_bf16_vectors_and_output() {
+        let mut vectors = capability(4);
+        vectors.vector_dtype = "float32".to_owned();
+        assert_eq!(
+            validate_fused_capability(&vectors)
+                .expect_err("fp32 vectors")
+                .code,
+            "unsupported_vector_dtype"
+        );
+
+        let mut output = capability(4);
+        output.output_dtype = "float32".to_owned();
+        assert_eq!(
+            validate_fused_capability(&output)
+                .expect_err("fp32 output")
+                .code,
+            "unsupported_output_dtype"
         );
     }
 
@@ -952,8 +1034,8 @@ mod tests {
         // FP32 state per request: 12 heads x 64 x 64 x 4 = 196608 bytes.
         assert_eq!(p4.state_bytes, 4 * 196608);
         assert_eq!(p16.state_bytes, p4.state_bytes * 4);
-        // Six BF16 vectors per request: 6 x 12 x 64 x 2 = 9216 bytes.
-        assert_eq!(p4.vector_bytes, 4 * 9216);
+        // Seven BF16 vectors per request plus three shared vectors.
+        assert_eq!(p4.vector_bytes, 4 * 10752 + 4608);
         // One BF16 output per request: 12 x 64 x 2 = 1536 bytes.
         assert_eq!(p4.output_bytes, 4 * 1536);
         assert_eq!(p16.state_tiles_per_request, WKV_HEAD_COUNT);
@@ -984,7 +1066,7 @@ mod tests {
         let set = plan_fused_step(&capability(8), 4).expect("plan set");
         assert_eq!(set.dataflow.state_bytes, set.state_bytes);
         assert_eq!(set.ownership.core_count, 4);
-        assert_eq!(set.vector_bytes, 8 * 9216);
+        assert_eq!(set.vector_bytes, 8 * 10752 + 4608);
     }
 
     #[test]
@@ -1011,16 +1093,21 @@ mod tests {
         assert!(decision.reason.contains("capability validation failed"));
     }
 
-    fn correction_inputs(head_count: usize, head_size: usize, val: f32) -> AttentionCorrectionInputs {
+    fn correction_inputs(
+        head_count: usize,
+        head_size: usize,
+        val: f32,
+    ) -> AttentionCorrectionInputs {
         let rows = head_count * head_size;
         AttentionCorrectionInputs {
             head_count,
             head_size,
             output: vec![val; rows],
+            r_rows: vec![1.0; rows],
             k_rows: vec![1.0; rows],
             v_rows: vec![1.0; rows],
             gate: vec![1.0; rows],
-            r_k: 1.0,
+            r_k: vec![1.0; rows],
             group_norm_weight: vec![1.0; rows],
             group_norm_bias: vec![0.0; rows],
         }
@@ -1030,10 +1117,36 @@ mod tests {
     fn correction_with_constant_rows_is_identity_like() {
         // Constant head rows have zero variance -> normalized row is 0.
         // corrected = (0 + r_k * sum(1*1)=d) * 1 = d for each element.
-        let result = attention_correction(&correction_inputs(2, 64, 5.0), 1e-5)
-            .expect("valid correction");
+        let result =
+            attention_correction(&correction_inputs(2, 64, 5.0), 1e-5).expect("valid correction");
         assert_eq!(result.corrected_rows.len(), 2 * 64);
         assert!((result.corrected_rows[0] - 64.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn correction_uses_receptance_key_and_rk_rows() {
+        let inputs = AttentionCorrectionInputs {
+            head_count: 1,
+            head_size: 2,
+            output: vec![1.0, -1.0],
+            r_rows: vec![2.0, 3.0],
+            k_rows: vec![5.0, 7.0],
+            v_rows: vec![17.0, 19.0],
+            gate: vec![1.0, 1.0],
+            r_k: vec![11.0, 13.0],
+            group_norm_weight: vec![0.0, 0.0],
+            group_norm_bias: vec![0.0, 0.0],
+        };
+        let result = attention_correction(&inputs, 1e-5).expect("valid correction");
+        let scalar = 2.0 * 5.0 * 11.0 + 3.0 * 7.0 * 13.0;
+        assert_eq!(
+            result.corrected_rows[0],
+            round_to_bfloat16(scalar * 17.0).unwrap()
+        );
+        assert_eq!(
+            result.corrected_rows[1],
+            round_to_bfloat16(scalar * 19.0).unwrap()
+        );
     }
 
     #[test]
@@ -1047,9 +1160,21 @@ mod tests {
     }
 
     #[test]
+    fn correction_rejects_malformed_rk_rows() {
+        let mut inputs = correction_inputs(2, 64, 1.0);
+        inputs.r_k.pop();
+        assert_eq!(
+            attention_correction(&inputs, 1e-5)
+                .expect_err("short r_k")
+                .code,
+            "invalid_correction_shape"
+        );
+    }
+
+    #[test]
     fn correction_rejects_bad_epsilon() {
-        let rejection = attention_correction(&correction_inputs(2, 64, 1.0), 0.0)
-            .expect_err("zero epsilon");
+        let rejection =
+            attention_correction(&correction_inputs(2, 64, 1.0), 0.0).expect_err("zero epsilon");
         assert_eq!(rejection.code, "non_finite_reference_input");
     }
 
@@ -1057,8 +1182,7 @@ mod tests {
     fn correction_rejects_overflowing_rows() {
         let mut inputs = correction_inputs(2, 64, 1.0);
         inputs.gate = vec![f32::MAX; inputs.gate.len()];
-        let rejection =
-            attention_correction(&inputs, 1e-5).expect_err("overflow");
+        let rejection = attention_correction(&inputs, 1e-5).expect_err("overflow");
         assert_eq!(rejection.code, "correction_overflow");
     }
 }

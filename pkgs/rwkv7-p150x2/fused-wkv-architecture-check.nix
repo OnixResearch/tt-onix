@@ -7,14 +7,22 @@
 let
   metaliumRoot = "${tt-metal}/libexec/tt-metalium";
   compiler = "${metaliumRoot}/runtime/sfpi/compiler/bin/riscv-tt-elf-g++";
-  firmwareSource = "${metaliumRoot}/tt_metal/hw/firmware/src/tt-1xx/trisck.cc";
-  kernelSource = writeText "rwkv7-fused-wkv-compute.cpp" (
+  computeFirmware = "${metaliumRoot}/tt_metal/hw/firmware/src/tt-1xx/trisck.cc";
+  readerFirmware = "${metaliumRoot}/tt_metal/hw/firmware/src/tt-1xx/brisck.cc";
+  writerFirmware = "${metaliumRoot}/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc";
+  computeSource = writeText "rwkv7-fused-wkv-compute.cpp" (
     builtins.readFile ./kernel/fused_wkv_compute.cpp
+  );
+  readerSource = writeText "rwkv7-fused-wkv-reader.cpp" (
+    builtins.readFile ./kernel/fused_wkv_reader.cpp
+  );
+  writerSource = writeText "rwkv7-fused-wkv-writer.cpp" (
+    builtins.readFile ./kernel/fused_wkv_writer.cpp
   );
   descriptors = writeText "rwkv7-fused-wkv-architecture-check-descriptors.h" (
     builtins.readFile ./fused-wkv-architecture-check-descriptors.h
   );
-  buildDirectory = "$PWD/build/blackhole/fused-wkv-compute";
+  computeBuildDirectory = "$PWD/build/blackhole/fused-wkv-compute";
   negativeBuildDirectory = "$PWD/build/unsupported/fused-wkv-compute";
   pcieNocX = 0;
   pcieNocY = 3;
@@ -68,7 +76,13 @@ let
     "${metaliumRoot}/tt_metal/hw/ckernels/blackhole/metal/llk_api"
     "${metaliumRoot}/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu"
   ];
-  definitions = [
+  architectureDefinitions = [
+    "ARCH_BLACKHOLE"
+    "NUM_DRAM_BANKS=${toString blackholeDramBankCount}"
+    "NUM_L1_BANKS=${toString blackholeL1BankCount}"
+    "IS_NOT_POW2_NUM_L1_BANKS=1"
+  ];
+  computeDefinitions = [
     "TENSIX_FIRMWARE"
     "LOCAL_MEM_EN=0"
     "PROCESSOR_INDEX=${toString mathProcessorIndex}"
@@ -81,65 +95,135 @@ let
     "DISPATCH_MESSAGE_ADDR=${toString dispatchMessageAddress}"
     ''FULL_KERNEL_NAME="rwkv7-fused-wkv-architecture-check/"''
     "KERNEL_COMPILE_TIME_ARGS=${compileTimeArgs}"
-    "ARCH_BLACKHOLE"
-    "NUM_DRAM_BANKS=${toString blackholeDramBankCount}"
-    "NUM_L1_BANKS=${toString blackholeL1BankCount}"
-    "IS_NOT_POW2_NUM_L1_BANKS=1"
-  ];
+  ]
+  ++ architectureDefinitions;
   includeFlags = map (directory: "-I${directory}") includeDirectories;
-  definitionFlags = map (definition: "-D${definition}") definitions;
-  compileFlags = commonFlags ++ [ "-mcpu=tt-bh-tensix" ] ++ includeFlags ++ definitionFlags;
-  scaffold = directory: ''
-    mkdir -p "${directory}/trisc1"
-    cp ${lib.escapeShellArg descriptors} "${directory}/chlkc_descriptors.h"
-    printf '%s\n' '#define NOC_MODE 0' >"${directory}/defines_generated.h"
-    printf '%s\n' \
-      '#define TRISC_MATH' \
-      '#include "defines_generated.h"' \
-      '#include "${kernelSource}"' \
-      >"${directory}/chlkc_math.cpp"
-  '';
+  definitionFlags = definitions: map (definition: "-D${definition}") definitions;
+  computeFlags =
+    commonFlags ++ [ "-mcpu=tt-bh-tensix" ] ++ includeFlags ++ definitionFlags computeDefinitions;
+  computeScaffold =
+    {
+      directory,
+      source,
+    }:
+    ''
+      mkdir -p "${directory}/trisc1"
+      cp ${lib.escapeShellArg descriptors} "${directory}/chlkc_descriptors.h"
+      printf '%s\n' '#define NOC_MODE 0' >"${directory}/defines_generated.h"
+      printf '%s\n' \
+        '#define TRISC_MATH' \
+        '#include "defines_generated.h"' \
+        '#include "${source}"' \
+        >"${directory}/chlkc_math.cpp"
+    '';
+  dataMovementSpecs = [
+    {
+      name = "reader";
+      source = readerSource;
+      firmware = readerFirmware;
+      processorIndex = 0;
+      nocIndex = 0;
+      processorDefinition = "COMPILE_FOR_BRISC";
+    }
+    {
+      name = "writer";
+      source = writerSource;
+      firmware = writerFirmware;
+      processorIndex = 1;
+      nocIndex = 1;
+      processorDefinition = "COMPILE_FOR_NCRISC";
+    }
+  ];
+  dataMovementFlags =
+    spec:
+    commonFlags
+    ++ [ "-mcpu=tt-bh-tensix" ]
+    ++ includeFlags
+    ++ definitionFlags (
+      architectureDefinitions
+      ++ [
+        "TENSIX_FIRMWARE"
+        "LOCAL_MEM_EN=0"
+        "PCIE_NOC_X=${toString pcieNocX}"
+        "PCIE_NOC_Y=${toString pcieNocY}"
+        "DISPATCH_MESSAGE_ADDR=${toString dispatchMessageAddress}"
+        "PROCESSOR_INDEX=${toString spec.processorIndex}"
+        spec.processorDefinition
+        "NOC_INDEX=${toString spec.nocIndex}"
+        "NOC_MODE=0"
+        "KERNEL_BUILD"
+        ''FULL_KERNEL_NAME="rwkv7-fused-wkv-${spec.name}-architecture-check/"''
+        "KERNEL_COMPILE_TIME_ARGS=${compileTimeArgs}"
+        "LOG_BASE_2_OF_NUM_DRAM_BANKS=3"
+      ]
+    );
+  compileDataMovement =
+    spec:
+    let
+      directory = "$PWD/build/blackhole/fused-wkv-${spec.name}";
+    in
+    ''
+      mkdir -p "${directory}"
+      cp ${lib.escapeShellArg descriptors} "${directory}/chlkc_descriptors.h"
+      printf '%s\n' '#define NOC_MODE ${toString spec.nocIndex}' >"${directory}/defines_generated.h"
+      printf '%s\n' '#include "${spec.source}"' >"${directory}/kernel_includes.hpp"
+      (
+        cd "${directory}"
+        ${lib.escapeShellArgs ([ compiler ] ++ dataMovementFlags spec)} \
+          -I. \
+          -c ${lib.escapeShellArg spec.firmware} \
+          -o "$out/fused-wkv-${spec.name}-blackhole.o"
+      )
+      test -s "$out/fused-wkv-${spec.name}-blackhole.o"
+    '';
 in
 runCommand "rwkv7-fused-wkv-architecture-check" { } ''
   set -euo pipefail
 
   test -x ${lib.escapeShellArg compiler}
-  test -f ${lib.escapeShellArg firmwareSource}
-  test -f ${lib.escapeShellArg kernelSource}
+  test -f ${lib.escapeShellArg computeFirmware}
+  test -f ${lib.escapeShellArg readerFirmware}
+  test -f ${lib.escapeShellArg writerFirmware}
+  test -f ${lib.escapeShellArg computeSource}
+  test -f ${lib.escapeShellArg readerSource}
+  test -f ${lib.escapeShellArg writerSource}
   test -f ${lib.escapeShellArg descriptors}
 
-  ${scaffold buildDirectory}
+  ${computeScaffold {
+    directory = computeBuildDirectory;
+    source = computeSource;
+  }}
   mkdir -p "$out"
   (
-    cd "${buildDirectory}/trisc1"
-    ${lib.escapeShellArgs ([ compiler ] ++ compileFlags)} \
+    cd "${computeBuildDirectory}/trisc1"
+    ${lib.escapeShellArgs ([ compiler ] ++ computeFlags)} \
       -I. -I.. \
-      -c ${lib.escapeShellArg firmwareSource} \
+      -c ${lib.escapeShellArg computeFirmware} \
       -o "$out/fused-wkv-compute-blackhole.o"
   )
   test -s "$out/fused-wkv-compute-blackhole.o"
 
+  ${lib.concatMapStringsSep "\n" compileDataMovement dataMovementSpecs}
+
   invalid_kernel="$PWD/invalid-fused-wkv-compute.cpp"
-  cp ${lib.escapeShellArg kernelSource} "$invalid_kernel"
+  cp ${lib.escapeShellArg computeSource} "$invalid_kernel"
   chmod u+w "$invalid_kernel"
   substituteInPlace "$invalid_kernel" \
     --replace-fail '#if !defined(ARCH_BLACKHOLE)' '#if defined(ARCH_BLACKHOLE)'
 
-  mkdir -p "${negativeBuildDirectory}/trisc1"
-  cp ${lib.escapeShellArg descriptors} "${negativeBuildDirectory}/chlkc_descriptors.h"
-  printf '%s\n' '#define NOC_MODE 0' >"${negativeBuildDirectory}/defines_generated.h"
-  printf '%s\n' \
-    '#define TRISC_MATH' \
-    '#include "defines_generated.h"' \
-    "#include \"$invalid_kernel\"" \
-    >"${negativeBuildDirectory}/chlkc_math.cpp"
+  ${computeScaffold {
+    directory = negativeBuildDirectory;
+    source = "$invalid_kernel";
+  }}
+  substituteInPlace "${negativeBuildDirectory}/chlkc_math.cpp" \
+    --replace-fail '#include "$invalid_kernel"' "#include \"$invalid_kernel\""
 
   negative_log="$PWD/invalid-blackhole-fixture.log"
   if (
     cd "${negativeBuildDirectory}/trisc1"
-    ${lib.escapeShellArgs ([ compiler ] ++ compileFlags)} \
+    ${lib.escapeShellArgs ([ compiler ] ++ computeFlags)} \
       -I. -I.. \
-      -c ${lib.escapeShellArg firmwareSource} \
+      -c ${lib.escapeShellArg computeFirmware} \
       -o "$PWD/invalid-blackhole-fixture.o"
   ) >"$negative_log" 2>&1; then
     echo "fused WKV architecture check accepted its invalid Blackhole fixture" >&2
