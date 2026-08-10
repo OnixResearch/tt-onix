@@ -2133,19 +2133,40 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   // Host gap is scheduler overhead: the pure host time spent planning and
   // applying one batch step, excluding the device `advance_tokens_fast` call.
   double host_gap_accumulated_seconds = 0.0;
+  // B16 stall probe: when RWKV7_STALL_PROBE_STEPS is set, record each decode
+  // step's wall time so an intermittent slow step becomes attributable.
+  const char *const stall_probe_value =
+      std::getenv("RWKV7_STALL_PROBE_STEPS");
+  const bool stall_probe_enabled =
+      stall_probe_value != nullptr &&
+      std::string_view(stall_probe_value) == kEnabledEnvironmentValue;
+  std::vector<double> step_wall_seconds;
+  if (stall_probe_enabled) {
+    step_wall_seconds.reserve(128);
+  }
   while (completed_count < slots.size()) {
     const std::vector<bool> completed_before = completed;
     const auto plan_begin = std::chrono::steady_clock::now();
     const FastBatchStepPlan plan =
         plan_fast_batch_step(slots, completed, max_slot_count);
     const auto plan_end = std::chrono::steady_clock::now();
+    const auto device_begin = plan_end;
     const auto selected = advance_tokens_fast(
         context, weights, state, plan.input_tokens,
         plan.any_selection_required, batch_step_count, max_slot_count);
-    const auto apply_begin = std::chrono::steady_clock::now();
+    const auto device_end = std::chrono::steady_clock::now();
+    const auto apply_begin = device_end;
     apply_fast_batch_step(slots, completed, plan, selected);
     ++batch_step_count;
     const auto apply_end = std::chrono::steady_clock::now();
+    if (stall_probe_enabled) {
+      step_wall_seconds.push_back(std::chrono::duration<double>(
+          device_end - device_begin)
+                                      .count());
+      require(std::isfinite(step_wall_seconds.back()) &&
+                  step_wall_seconds.back() >= 0.0,
+              "stall probe step wall time is not finite and non-negative");
+    }
     const double host_gap_seconds =
         std::chrono::duration<double>(plan_end - plan_begin).count() +
         std::chrono::duration<double>(apply_end - apply_begin).count();
@@ -2180,6 +2201,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "fast worker elapsed time is not finite and positive");
   require(context.program_cache_entries() == cache_after_warmup,
           "fast worker compiled a new program during timed decode");
+  if (stall_probe_enabled) {
+    require(step_wall_seconds.size() == batch_step_count,
+            "stall probe step timing count differs from batch step count");
+  }
   const double queue_occupancy_fraction =
       static_cast<double>(request.requests.size()) /
       static_cast<double>(max_slot_count);
@@ -2214,6 +2239,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["batch_step_count"] = batch_step_count;
   receipt["host_gap_accumulated_seconds"] =
       host_gap_accumulated_seconds;
+  if (stall_probe_enabled) {
+    receipt["stall_probe_step_wall_seconds"] = step_wall_seconds;
+  }
   receipt["requests"] = std::move(request_metrics);
   receipt["execution"] = {
       {"scheduler_mode", "deterministic_continuous_batching"},
