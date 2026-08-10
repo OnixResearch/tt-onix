@@ -1,0 +1,50 @@
+{
+  "complete_zone_event_count": 1155480,
+  "data_row_count": 2310960,
+  "logical_card_id": 0,
+  "physical_card_id": 0,
+  "program_signature_blake3": "ff360f09182084ab955110cb2047a9e128889c75b698919d8ae09e4b354920a2",
+  "raw_blake3": "93ef7864a6ca7b34481bea360b9c83186bc70526a9d048aa30988ab67127410f",
+  "schema_version": 1,
+  "total_zone_cycles": 6789434933,
+  "unmatched_end_count": 0,
+  "unmatched_start_count": 0,
+  "zones": {
+    "BRISC-FW": {
+      "complete_count": 130000,
+      "maximum_cycles": 374621,
+      "start_count": 130000,
+      "total_cycles": 1026116591
+    },
+    "BRISC-KERNEL": {
+      "complete_count": 129870,
+      "maximum_cycles": 372190,
+      "start_count": 129870,
+      "total_cycles": 753652930
+    },
+    "NCRISC-FW": {
+      "complete_count": 130000,
+      "maximum_cycles": 339916,
+      "start_count": 130000,
+      "total_cycles": 839560349
+    },
+    "NCRISC-KERNEL": {
+      "complete_count": 130000,
+      "maximum_cycles": 337328,
+      "start_count": 130000,
+      "total_cycles": 649780418
+    },
+    "TRISC-FW": {
+      "complete_count": 317805,
+      "maximum_cycles": 345419,
+      "start_count": 317805,
+      "total_cycles": 2015564217
+    },
+    "TRISC-KERNEL": {
+      "complete_count": 317805,
+      "maximum_cycles": 343501,
+      "start_count": 317805,
+      "total_cycles": 1504760428
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "production_physically_admitted": false,
+  "rejection": "dual_card_speedup_below_bound: dual-card speedup is 1.4924591117651091, minimum is 1.5",
+  "status": "fused_candidate_scaling_rejected",
+  "wkv_execution_policy": "fused-candidate"
+}

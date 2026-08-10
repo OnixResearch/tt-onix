@@ -18,7 +18,7 @@
 - [x] [parallel] V1 Add positive tests for zero state, nonzero state, multiple requests, BF16 boundaries, and repeated state carry. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [x] [parallel] V2 Add negative tests for invalid width, head count, state rank, dtype, layout, architecture, aliasing, and ownership. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [x] [parallel] V3 Compare intermediate state and output with the pure reference under profile-owned tolerances. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
-- [ ] [serial] V4 Require exact end-to-end generated-token parity for every admitted workload. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [serial] V4 Require exact end-to-end generated-token parity for every admitted workload. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 
 ## Phase 4: Hazard and simulator gates
 
@@ -28,9 +28,11 @@
 
 ## Phase 5: Physical acceptance
 
-- [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H1 Capture before and after program signatures, launch counts, device time, and memory facts. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H2 Run stable alternating A/B measurements at each admitted batch capacity. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H1 Capture before and after program signatures, launch counts, device time, and memory facts. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H2 Run stable alternating A/B measurements at each admitted batch capacity. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H3 Run strict one-card and two-card admission. Select the fused path only after all gates pass. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+
+  Blocker: the fused two-card speedup was `1.4924591117651091`; the profile requires `1.5`. Production admission remains closed.
 
 ## Phase 6: Documentation and gates
 

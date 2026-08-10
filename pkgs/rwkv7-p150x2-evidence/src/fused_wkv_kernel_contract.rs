@@ -53,6 +53,8 @@ const FUSED_LAYER_SMOKE_INVOCATION: &str = "run_simulator_smoke(parse_fused_wkv_
 const FUSED_LAYER_SMOKE_OUTCOME: &str = "simulated_single_card_fused_wkv_layer_state_carry";
 const STATE_CARRY_GUARD: &str = "require(state_changed_after_carry,";
 const RESET_CONTROL_GUARD: &str = "require(carried_state_differs_from_reset_control,";
+const PHYSICAL_WORKER_POLICY_PARSE: &str =
+    "parse_wkv_execution_policy(arguments[kWkvPolicyValueIndex]);";
 const STATE_RANK_VALIDATION: &str = "bool has_state_shape(const Tensor &tensor, std::uint32_t batch_size) {\n  const auto &shape = tensor.logical_shape();\n  return shape.rank() == kTensorRank &&";
 const STATE_DTYPE_VALIDATION: &str = "inputs.state.dtype() != tt::tt_metal::DataType::FLOAT32";
 const VECTOR_DTYPE_VALIDATION: &str = "vector->dtype() != tt::tt_metal::DataType::BFLOAT16";
@@ -413,6 +415,10 @@ pub fn validate_fused_program_source(
         ("fused layer smoke outcome", FUSED_LAYER_SMOKE_OUTCOME),
         ("recurrent state carry guard", STATE_CARRY_GUARD),
         ("reset-matrix control guard", RESET_CONTROL_GUARD),
+        (
+            "explicit physical worker WKV policy",
+            PHYSICAL_WORKER_POLICY_PARSE,
+        ),
     ] {
         require_once(runtime_source, name, pattern)?;
     }
@@ -687,6 +693,18 @@ mod tests {
             .expect_err("layer smoke without a reset-matrix control");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("reset-matrix control guard"));
+    }
+
+    #[test]
+    fn rejects_a_physical_worker_without_an_explicit_wkv_policy() {
+        let invalid = RUNTIME_SOURCE.replace(
+            PHYSICAL_WORKER_POLICY_PARSE,
+            "WkvExecutionPolicy::Production;",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("physical worker without an explicit WKV policy");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("explicit physical worker WKV policy"));
     }
 
     #[test]

@@ -1,0 +1,45 @@
+{
+  "batch_capacity": 16,
+  "cpu_reference_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "exact_generated_token_parity": true,
+  "fused_one_card_tokens_per_second": 375.6423841464654,
+  "fused_receipt_identity_blake3": "18ff4e30b252e70e890f4b34d5dcdf4ccd041f887d1c7f87f950f7d303d47ed8",
+  "fused_two_card_tokens_per_second": 560.6308989845617,
+  "generic_one_card_tokens_per_second": 307.94323614990446,
+  "generic_receipt_identity_blake3": "a3de888221c171f60b6ff27ab924523d76afd4b44b5aadb3cff1838de8ecc2cc",
+  "generic_two_card_tokens_per_second": 445.98736406997796,
+  "kind": "rwkv7_fused_wkv_physical_ab",
+  "machine_facts_after": "machine-after.json",
+  "machine_facts_before": "machine-before.json",
+  "one_card_paired_speedups": [
+    1.1739560208517679,
+    1.2825253935028924,
+    1.2044758611722342
+  ],
+  "order_schedule": [
+    [
+      "production",
+      "fused-candidate"
+    ],
+    [
+      "fused-candidate",
+      "production"
+    ],
+    [
+      "production",
+      "fused-candidate"
+    ]
+  ],
+  "physical_hardware": true,
+  "production_physically_admitted": false,
+  "profiler_attestation": "profiler-attestation.json",
+  "repeat_count": 3,
+  "schema_version": 1,
+  "stable_gain": true,
+  "status": "stable_physical_gain",
+  "two_card_paired_speedups": [
+    1.033296863270333,
+    1.7587348393203222,
+    1.3301446381676707
+  ]
+}

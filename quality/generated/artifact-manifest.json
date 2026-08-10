@@ -26,10 +26,82 @@
       "blake3": "eb25c84e9b8eec860bdf7649c9c59a0b98d322dd2a950cd85b5008a069574f6d"
     },
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-ab-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1390,
+      "blake3": "65f61ab1095779ea2d7f9e4fc0d39ff45f3f1d72ac0e2a61ba71ce156ebad44b"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 244,
+      "blake3": "d2ff6f60e773e999f9acbdec4f488193b651668d400a8742d3f91aed5f60202c"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-memory-facts.json",
+      "class": "portable_evidence",
+      "byte_count": 412,
+      "blake3": "489647ea9f0bccc4a1183bfc486bc88aea7b16e93107c2f5b7b7082d88cf8e90"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-probe-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1673,
+      "blake3": "bf08dc1e1fe28b0a82b78622f086b50a2c4992e151e61b7149304f05881a6d18"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-throughput-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1100,
+      "blake3": "da9f81ed9d0d5d1faa990813cf6fef8e398a3749ab6e071ef37752b14088967f"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-attestation.json",
+      "class": "portable_evidence",
+      "byte_count": 594,
+      "blake3": "4fb2cbd1e29b89d7496edb22a631f8c9ac54605d040d458c4477a95b5431c798"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-signature-dual-card0.json",
+      "class": "portable_evidence",
+      "byte_count": 1353,
+      "blake3": "1d3c48fc6e3dd24ab6cd773c2bba8ade315dd0e7bb07498bb4c87ccab20c11b2"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-signature-single.json",
+      "class": "portable_evidence",
+      "byte_count": 1353,
+      "blake3": "a883d5ce7c6fc91180c624aa8f2d4dbf82541b92f6de28474c37e1e701ae774b"
+    },
+    {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-simulator-receipt.json",
       "class": "portable_evidence",
       "byte_count": 1673,
       "blake3": "16c3edd79d63fd83e34fbe9f64c6e20662b32e0e29827f6eab2ced20d8fc6e88"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-physical-throughput-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1102,
+      "blake3": "bff12343cd9c41b3e47f8feaaa3d4ec4e9e6c68c3bd223ba1ee7d11d0bcabf9d"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-profiler-signature-dual-card0.json",
+      "class": "portable_evidence",
+      "byte_count": 1355,
+      "blake3": "780ca7785bf8b7b35d391698ffcfbac170370b9e257f63631bb1d593391eb0f5"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-profiler-signature-single.json",
+      "class": "portable_evidence",
+      "byte_count": 1355,
+      "blake3": "8927b257dd1adaeb71598e979e2d546a4bfc44f73aad4bacef65750d9748264a"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-physical-acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 3957,
+      "blake3": "b47f35d3041deb40711d694c20d43e921ce473b1dacda34597c5ddb1ae10851f"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-planning-cores.md",

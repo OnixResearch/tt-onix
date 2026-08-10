@@ -122,6 +122,9 @@ constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
 constexpr std::string_view kFastDeviceArgument = "--device";
 constexpr std::string_view kFastRequestsArgument = "--requests";
 constexpr std::string_view kFastOutputArgument = "--output";
+constexpr std::string_view kWkvPolicyArgument = "--wkv-policy";
+constexpr std::string_view kProductionWkvPolicy = "production";
+constexpr std::string_view kFusedCandidateWkvPolicy = "fused-candidate";
 constexpr std::string_view kTokensArgument = "--tokens";
 constexpr std::string_view kMaxNewArgument = "--max-new";
 constexpr std::string_view kEvidenceRootArgument = "--evidence-root";
@@ -138,7 +141,7 @@ constexpr std::string_view kProfilerCsvRelativePath =
     "profiler/.logs/profile_log_device.csv";
 constexpr std::size_t kSelfTestArgumentCount = 2U;
 constexpr std::size_t kRuntimeArgumentCount = 7U;
-constexpr std::size_t kFastWorkerArgumentCount = 8U;
+constexpr std::size_t kFastWorkerArgumentCount = 10U;
 constexpr std::size_t kSimulatorSmokeArgumentCount = 4U;
 constexpr std::size_t kSimulatorOutputNameIndex = 2U;
 constexpr std::size_t kSimulatorOutputValueIndex = 3U;
@@ -148,6 +151,8 @@ constexpr std::size_t kFastRequestsNameIndex = 4U;
 constexpr std::size_t kFastRequestsValueIndex = 5U;
 constexpr std::size_t kFastOutputNameIndex = 6U;
 constexpr std::size_t kFastOutputValueIndex = 7U;
+constexpr std::size_t kWkvPolicyNameIndex = 8U;
+constexpr std::size_t kWkvPolicyValueIndex = 9U;
 constexpr std::size_t kFastPerCardSlotCount = 4U;
 constexpr std::uint32_t kFastWarmupTokenCount = 4U;
 constexpr std::uint32_t kFastMaximumGeneratedTokens = 64U;
@@ -1254,6 +1259,26 @@ enum class WkvExecutionPolicy {
   RequireFusedCandidate,
 };
 
+std::string_view wkv_execution_policy_name(WkvExecutionPolicy policy) {
+  switch (policy) {
+  case WkvExecutionPolicy::Production:
+    return kProductionWkvPolicy;
+  case WkvExecutionPolicy::RequireFusedCandidate:
+    return kFusedCandidateWkvPolicy;
+  }
+  fail("unsupported WKV execution policy");
+}
+
+WkvExecutionPolicy parse_wkv_execution_policy(std::string_view policy) {
+  if (policy == kProductionWkvPolicy) {
+    return WkvExecutionPolicy::Production;
+  }
+  if (policy == kFusedCandidateWkvPolicy) {
+    return WkvExecutionPolicy::RequireFusedCandidate;
+  }
+  fail("WKV execution policy must be production or fused-candidate");
+}
+
 struct WkvOutput {
   Tensor state;
   Tensor output_for_hidden;
@@ -1766,6 +1791,7 @@ struct FastWorkerArguments {
   int physical_device_id;
   std::filesystem::path requests_path;
   std::filesystem::path output_path;
+  WkvExecutionPolicy wkv_execution_policy;
 };
 
 struct FastSlot {
@@ -1849,7 +1875,9 @@ parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
   require(arguments[kFastRequestsNameIndex] == kFastRequestsArgument,
           "fast worker invocation must place --requests second");
   require(arguments[kFastOutputNameIndex] == kFastOutputArgument,
-          "fast worker invocation must place --output last");
+          "fast worker invocation must place --output third");
+  require(arguments[kWkvPolicyNameIndex] == kWkvPolicyArgument,
+          "fast worker invocation must place --wkv-policy last");
   const std::uint32_t device_id =
       parse_u32(arguments[kFastDeviceValueIndex], "fast worker device");
   require(device_id <= static_cast<std::uint32_t>(kPhysicalDeviceOne),
@@ -1865,8 +1893,10 @@ parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
           "fast worker output path already exists");
   require(!output_path.string().starts_with("/nix/store/"),
           "fast worker output must be outside the Nix store");
+  const WkvExecutionPolicy wkv_execution_policy =
+      parse_wkv_execution_policy(arguments[kWkvPolicyValueIndex]);
   return FastWorkerArguments{static_cast<int>(device_id), requests_path,
-                             output_path};
+                             output_path, wkv_execution_policy};
 }
 
 FastWorkerRequest read_fast_worker_request(
@@ -2022,7 +2052,8 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
                     ModelState &state,
                     const std::vector<std::uint32_t> &input_tokens,
                     bool select_tokens, std::uint64_t step_index,
-                    std::size_t max_slot_count) {
+                    std::size_t max_slot_count,
+                    WkvExecutionPolicy wkv_execution_policy) {
   require(!input_tokens.empty() && input_tokens.size() <= max_slot_count,
           "fast model batch size exceeds the admitted card-local capacity");
   require(state.layers.size() == kLayerCount,
@@ -2048,7 +2079,7 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
         step_name + "/layer-" + std::to_string(layer_index);
     hidden = execute_layer(context, weights.layers[layer_index], hidden,
                            state.layers[layer_index], value_anchor,
-                           stage_prefix, WkvExecutionPolicy::Production);
+                           stage_prefix, wkv_execution_policy);
   }
   require(value_anchor.has_value(),
           "fast full model did not establish the token-local value anchor");
@@ -2513,7 +2544,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   for (std::uint32_t index = 0U; index < kFastWarmupTokenCount; ++index) {
     const auto selected = advance_tokens_fast(
         context, weights, warmup_state, warmup_tokens, true, index,
-        max_slot_count);
+        max_slot_count, arguments.wkv_execution_policy);
     require(selected.has_value(),
             "fast worker warmup did not select tokens");
     warmup_tokens = *selected;
@@ -2560,7 +2591,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     const auto device_begin = plan_end;
     const auto selected = advance_tokens_fast(
         context, weights, state, plan.input_tokens,
-        plan.any_selection_required, batch_step_count, max_slot_count);
+        plan.any_selection_required, batch_step_count, max_slot_count,
+        arguments.wkv_execution_policy);
     const auto device_end = std::chrono::steady_clock::now();
     const auto apply_begin = device_end;
     apply_fast_batch_step(slots, completed, plan, selected);
@@ -2663,7 +2695,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"state_readback_during_timing", false},
       {"profiler_flush_during_timing", false},
       {"control_replay_during_timing", false},
-      {"artifact_writes_during_timing", false}};
+      {"artifact_writes_during_timing", false},
+      {"wkv_execution_policy",
+       wkv_execution_policy_name(arguments.wkv_execution_policy)},
+      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted}};
   write_json(arguments.output_path, receipt);
   std::cout << arguments.output_path << '\n';
 }
@@ -2930,6 +2965,15 @@ void run_self_test() {
           "positive request parser self-test changed token IDs");
   require(request.max_new_tokens == kMinimumGeneratedTokens,
           "positive request parser self-test changed generation bound");
+  require(parse_wkv_execution_policy(kProductionWkvPolicy) ==
+              WkvExecutionPolicy::Production,
+          "production WKV policy parser changed");
+  require(parse_wkv_execution_policy(kFusedCandidateWkvPolicy) ==
+              WkvExecutionPolicy::RequireFusedCandidate,
+          "fused candidate WKV policy parser changed");
+  expect_operation_failure(
+      []() { static_cast<void>(parse_wkv_execution_policy("invalid")); },
+      "must be production or fused-candidate");
   require(mesh_descriptor_for_device_count(1U) ==
               RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH,
           "single-card descriptor selection changed");

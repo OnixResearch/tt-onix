@@ -22,6 +22,9 @@ const TT_SMI_PATH: Option<&str> = option_env!("TT_SMI_PATH");
 const MACHINE_FACT_SOURCE: &str = "tt-smi -s --snapshot_no_tty";
 const PROGRAM_ARGUMENT_COUNT: usize = 1;
 const EXPECTED_ARGUMENT_COUNT: usize = 3;
+const FUSED_CANDIDATE_ARGUMENT_COUNT: usize = EXPECTED_ARGUMENT_COUNT + 1;
+const FUSED_CANDIDATE_MODE: &str = "--fused-wkv-candidate";
+const ORDER_BALANCE_PERIOD: usize = 2;
 const PROFILE_ARGUMENT_INDEX: usize = 0;
 const REQUESTS_ARGUMENT_INDEX: usize = 1;
 const OUTPUT_ARGUMENT_INDEX: usize = 2;
@@ -31,7 +34,18 @@ const TWO_CARD_IDS: [usize; 2] = [0, 1];
 const FILTERED_WORKER_LOGICAL_CARD_ID: usize = 0;
 const PROFILER_RELATIVE_PATH: &str = "profiler/.logs/profile_log_device.csv";
 const PROFILER_SUMMARY_FILENAME: &str = "profiler-attribution.csv";
+const PROFILER_PROGRAM_SIGNATURE_FILENAME: &str = "profiler-program-signature.json";
 const PROFILER_HEADER_LINE_COUNT: usize = 2;
+const PROFILER_CORE_X_INDEX: usize = 1;
+const PROFILER_CORE_Y_INDEX: usize = 2;
+const PROFILER_PROCESSOR_INDEX: usize = 3;
+const PROFILER_TIMER_INDEX: usize = 4;
+const PROFILER_CYCLE_INDEX: usize = 5;
+const PROFILER_ZONE_NAME_INDEX: usize = 10;
+const PROFILER_EVENT_TYPE_INDEX: usize = 11;
+const PROFILER_MINIMUM_FIELD_COUNT: usize = PROFILER_EVENT_TYPE_INDEX + 1;
+const PROFILER_ZONE_START: &str = "ZONE_START";
+const PROFILER_ZONE_END: &str = "ZONE_END";
 const CPU_REFERENCE_METHOD: &str = "pinned_fp32_full_sequence_greedy_argmax";
 const KIBIBYTE: usize = 1024;
 const MAX_PROFILER_LINE_BYTES: usize = KIBIBYTE * KIBIBYTE;
@@ -40,6 +54,60 @@ const MAX_PROFILER_LINE_BYTES: usize = KIBIBYTE * KIBIBYTE;
 const WORKER_CAPACITY_TEMPORARY_BYTES_PER_SLOT: u64 = 5 * 1024 * 1024;
 const WORKER_CAPACITY_DEVICE_BUDGET_BYTES: u64 = 3 * 1024 * 1024 * 1024;
 const WORKER_CAPACITY_SAFETY_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WkvPolicy {
+    Production,
+    FusedCandidate,
+}
+
+impl WkvPolicy {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::FusedCandidate => "fused-candidate",
+        }
+    }
+}
+
+fn parse_wkv_policy(arguments: &[String]) -> Result<(WkvPolicy, usize), String> {
+    if arguments.len() == EXPECTED_ARGUMENT_COUNT {
+        return Ok((WkvPolicy::Production, PROFILE_ARGUMENT_INDEX));
+    }
+    if arguments.len() == FUSED_CANDIDATE_ARGUMENT_COUNT
+        && arguments[PROFILE_ARGUMENT_INDEX] == FUSED_CANDIDATE_MODE
+    {
+        return Ok((WkvPolicy::FusedCandidate, PROFILE_ARGUMENT_INDEX + 1));
+    }
+    Err("usage: rwkv7-p150x2-throughput-benchmark [--fused-wkv-candidate] PROFILE_JSON REQUESTS_JSON NEW_OUTPUT_ROOT".to_owned())
+}
+
+fn order_balanced_wkv_policies(sample_index: usize) -> [WkvPolicy; ORDER_BALANCE_PERIOD] {
+    if sample_index.is_multiple_of(ORDER_BALANCE_PERIOD) {
+        return [WkvPolicy::Production, WkvPolicy::FusedCandidate];
+    }
+    [WkvPolicy::FusedCandidate, WkvPolicy::Production]
+}
+
+fn paired_speedups(baseline_rates: &[f64], candidate_rates: &[f64]) -> Result<Vec<f64>, String> {
+    if baseline_rates.is_empty() || baseline_rates.len() != candidate_rates.len() {
+        return Err("A/B rates must be non-empty and have equal lengths".to_owned());
+    }
+    baseline_rates
+        .iter()
+        .zip(candidate_rates)
+        .map(|(baseline, candidate)| {
+            if !baseline.is_finite()
+                || !candidate.is_finite()
+                || *baseline <= 0.0
+                || *candidate <= 0.0
+            {
+                return Err("A/B rates must be finite and positive".to_owned());
+            }
+            Ok(candidate / baseline)
+        })
+        .collect()
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -146,6 +214,8 @@ struct WorkerExecution {
     profiler_flush_during_timing: bool,
     control_replay_during_timing: bool,
     artifact_writes_during_timing: bool,
+    wkv_execution_policy: String,
+    production_physically_admitted: bool,
 }
 
 struct WorkerProcess {
@@ -154,6 +224,29 @@ struct WorkerProcess {
     root: PathBuf,
     output_path: PathBuf,
     child: std::process::Child,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProfilerEventType {
+    Start,
+    End,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProfilerEvent {
+    logical_card_id: usize,
+    key: String,
+    zone_name: String,
+    cycle: u64,
+    event_type: ProfilerEventType,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct ProfilerZoneAggregate {
+    start_count: usize,
+    complete_count: usize,
+    total_cycles: u64,
+    maximum_cycles: u64,
 }
 
 struct WorkerLaunchRequest<'a> {
@@ -166,6 +259,7 @@ struct WorkerLaunchRequest<'a> {
     workload: &'a BenchmarkWorkload,
     profile: &'a ThroughputProfile,
     collect_profiler: bool,
+    wkv_policy: WkvPolicy,
 }
 
 struct SampleRequest<'a> {
@@ -178,6 +272,7 @@ struct SampleRequest<'a> {
     profile: &'a ThroughputProfile,
     collect_profiler: bool,
     profiler_attested: bool,
+    wkv_policy: WkvPolicy,
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -241,7 +336,7 @@ fn capture_machine_snapshot(
     if !output.status.success() || output.stdout.is_empty() {
         return Err(format!("tt-smi snapshot failed with {}", output.status));
     }
-    let path = output_root.join(format!("machine-facts-{name}.json"));
+    let path = output_root.join(format!("machine-{name}.json"));
     fs::write(&path, &output.stdout)
         .map_err(|error| format!("cannot retain {}: {error}", path.display()))?;
     Ok(blake3::hash(&output.stdout).to_hex().to_string())
@@ -378,6 +473,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         workload,
         profile,
         collect_profiler,
+        wkv_policy,
     } = request;
     let worker_root = run_root
         .join(format!("wave-{wave_index}"))
@@ -405,6 +501,8 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         .arg(&request_path)
         .arg("--output")
         .arg(&output_path)
+        .arg("--wkv-policy")
+        .arg(wkv_policy.as_str())
         .env("TT_METAL_LOGS_PATH", worker_root.join("logs"))
         .env("TT_METAL_PROFILER_DIR", worker_root.join("profiler"))
         .env_remove("TT_METAL_WATCHER")
@@ -454,6 +552,63 @@ fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usiz
     Ok(Some(card_id))
 }
 
+fn profiler_event_from_line(
+    line: &[u8],
+    line_index: usize,
+) -> Result<Option<ProfilerEvent>, String> {
+    let Some(logical_card_id) = profiler_card_from_line(line, line_index)? else {
+        return Ok(None);
+    };
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(line);
+    let record = reader
+        .records()
+        .next()
+        .ok_or_else(|| format!("profiler line {} has no CSV record", line_index + 1))?
+        .map_err(|error| format!("profiler line {} is invalid CSV: {error}", line_index + 1))?;
+    if record.len() < PROFILER_MINIMUM_FIELD_COUNT {
+        return Err(format!(
+            "profiler line {} has {} fields; expected at least {}",
+            line_index + 1,
+            record.len(),
+            PROFILER_MINIMUM_FIELD_COUNT
+        ));
+    }
+    let event_type = match record[PROFILER_EVENT_TYPE_INDEX].trim() {
+        PROFILER_ZONE_START => ProfilerEventType::Start,
+        PROFILER_ZONE_END => ProfilerEventType::End,
+        _ => return Ok(None),
+    };
+    let cycle = record[PROFILER_CYCLE_INDEX]
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| format!("profiler line {} cycle is invalid: {error}", line_index + 1))?;
+    let zone_name = record[PROFILER_ZONE_NAME_INDEX].trim();
+    if zone_name.is_empty() {
+        return Err(format!(
+            "profiler line {} has an empty zone name",
+            line_index + 1
+        ));
+    }
+    let key = format!(
+        "{}|{}|{}|{}|{}",
+        record[PROFILER_CORE_X_INDEX].trim(),
+        record[PROFILER_CORE_Y_INDEX].trim(),
+        record[PROFILER_PROCESSOR_INDEX].trim(),
+        record[PROFILER_TIMER_INDEX].trim(),
+        zone_name
+    );
+    Ok(Some(ProfilerEvent {
+        logical_card_id,
+        key,
+        zone_name: zone_name.to_owned(),
+        cycle,
+        event_type,
+    }))
+}
+
 fn profiler_binding_matches(logical_card_id: usize, physical_card_id: usize) -> bool {
     logical_card_id == FILTERED_WORKER_LOGICAL_CARD_ID && TWO_CARD_IDS.contains(&physical_card_id)
 }
@@ -468,6 +623,9 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
     let mut data_row_count = 0_usize;
     let mut raw_byte_count = 0_u64;
     let mut hasher = blake3::Hasher::new();
+    let mut active_zones = BTreeMap::<String, Vec<u64>>::new();
+    let mut zone_aggregates = BTreeMap::<String, ProfilerZoneAggregate>::new();
+    let mut unmatched_end_count = 0_usize;
     loop {
         line.clear();
         let byte_count = reader
@@ -499,6 +657,49 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
             data_row_count = data_row_count
                 .checked_add(1)
                 .ok_or_else(|| "profiler row count overflowed".to_owned())?;
+            if let Some(event) = profiler_event_from_line(&line, line_index)? {
+                if event.logical_card_id != card_id {
+                    return Err(format!(
+                        "profiler line {} parser card mismatch",
+                        line_index + 1
+                    ));
+                }
+                let aggregate = zone_aggregates.entry(event.zone_name.clone()).or_default();
+                match event.event_type {
+                    ProfilerEventType::Start => {
+                        aggregate.start_count = aggregate
+                            .start_count
+                            .checked_add(1)
+                            .ok_or_else(|| "profiler zone start count overflowed".to_owned())?;
+                        active_zones.entry(event.key).or_default().push(event.cycle);
+                    }
+                    ProfilerEventType::End => {
+                        let start = active_zones.entry(event.key).or_default().pop();
+                        if let Some(start_cycle) = start {
+                            let duration = event
+                                .cycle
+                                .checked_sub(start_cycle)
+                                .ok_or_else(|| "profiler zone end precedes its start".to_owned())?;
+                            aggregate.complete_count =
+                                aggregate.complete_count.checked_add(1).ok_or_else(|| {
+                                    "profiler complete zone count overflowed".to_owned()
+                                })?;
+                            aggregate.total_cycles = aggregate
+                                .total_cycles
+                                .checked_add(duration)
+                                .ok_or_else(|| {
+                                "profiler zone cycle total overflowed".to_owned()
+                            })?;
+                            aggregate.maximum_cycles = aggregate.maximum_cycles.max(duration);
+                        } else {
+                            unmatched_end_count =
+                                unmatched_end_count.checked_add(1).ok_or_else(|| {
+                                    "profiler unmatched end count overflowed".to_owned()
+                                })?;
+                        }
+                    }
+                }
+            }
         }
         line_index = line_index
             .checked_add(1)
@@ -510,17 +711,53 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
             worker.card_id
         ));
     }
+    let raw_blake3 = hasher.finalize().to_hex().to_string();
     let summary_path = worker.root.join(PROFILER_SUMMARY_FILENAME);
     let summary = format!(
         "physical_card_id,logical_card_id,raw_blake3,raw_byte_count,data_row_count,raw_csv_retained\n{},{},{},{},{},false\n",
-        worker.card_id,
-        FILTERED_WORKER_LOGICAL_CARD_ID,
-        hasher.finalize().to_hex(),
-        raw_byte_count,
-        data_row_count
+        worker.card_id, FILTERED_WORKER_LOGICAL_CARD_ID, raw_blake3, raw_byte_count, data_row_count
     );
     fs::write(&summary_path, summary)
         .map_err(|error| format!("cannot write {}: {error}", summary_path.display()))?;
+    let unmatched_start_count = active_zones.values().try_fold(0_usize, |total, starts| {
+        total
+            .checked_add(starts.len())
+            .ok_or_else(|| "profiler unmatched start count overflowed".to_owned())
+    })?;
+    let complete_zone_event_count =
+        zone_aggregates
+            .values()
+            .try_fold(0_usize, |total, aggregate| {
+                total
+                    .checked_add(aggregate.complete_count)
+                    .ok_or_else(|| "profiler complete event count overflowed".to_owned())
+            })?;
+    let total_zone_cycles = zone_aggregates
+        .values()
+        .try_fold(0_u64, |total, aggregate| {
+            total
+                .checked_add(aggregate.total_cycles)
+                .ok_or_else(|| "profiler aggregate cycle count overflowed".to_owned())
+        })?;
+    let signature_bytes = serde_json::to_vec(&zone_aggregates)
+        .map_err(|error| format!("cannot serialize profiler program signature: {error}"))?;
+    let program_signature_path = worker.root.join(PROFILER_PROGRAM_SIGNATURE_FILENAME);
+    write_new_json(
+        &program_signature_path,
+        &json!({
+            "schema_version": SCHEMA_VERSION,
+            "physical_card_id": worker.card_id,
+            "logical_card_id": FILTERED_WORKER_LOGICAL_CARD_ID,
+            "raw_blake3": raw_blake3,
+            "data_row_count": data_row_count,
+            "program_signature_blake3": blake3::hash(&signature_bytes).to_hex().to_string(),
+            "complete_zone_event_count": complete_zone_event_count,
+            "total_zone_cycles": total_zone_cycles,
+            "unmatched_start_count": unmatched_start_count,
+            "unmatched_end_count": unmatched_end_count,
+            "zones": zone_aggregates,
+        }),
+    )?;
     fs::remove_file(&profiler_path).map_err(|error| {
         format!(
             "cannot remove summarized {}: {error}",
@@ -547,6 +784,7 @@ fn validate_worker(
     workload: &BenchmarkWorkload,
     profile: &ThroughputProfile,
     collect_profiler: bool,
+    wkv_policy: WkvPolicy,
 ) -> Result<(), String> {
     if receipt.schema_version != SCHEMA_VERSION
         || receipt.run_id.is_empty()
@@ -585,6 +823,8 @@ fn validate_worker(
         || receipt.execution.profiler_flush_during_timing
         || receipt.execution.control_replay_during_timing
         || receipt.execution.artifact_writes_during_timing
+        || receipt.execution.wkv_execution_policy != wkv_policy.as_str()
+        || receipt.execution.production_physically_admitted
     {
         return Err(format!(
             "card {} contaminated its timed region",
@@ -656,6 +896,28 @@ fn validate_worker(
     Ok(())
 }
 
+fn throughput_run_rate(run: &ThroughputRun) -> Result<f64, String> {
+    if !run.elapsed_seconds.is_finite() || run.elapsed_seconds <= 0.0 {
+        return Err(format!(
+            "run '{}' elapsed time must be finite and positive",
+            run.run_id
+        ));
+    }
+    let token_count = run.requests.iter().try_fold(0_usize, |total, request| {
+        total
+            .checked_add(request.token_count)
+            .ok_or_else(|| format!("run '{}' token count overflowed", run.run_id))
+    })?;
+    if token_count == 0 {
+        return Err(format!("run '{}' produced no tokens", run.run_id));
+    }
+    Ok(token_count as f64 / run.elapsed_seconds)
+}
+
+fn throughput_run_rates(runs: &[ThroughputRun]) -> Result<Vec<f64>, String> {
+    runs.iter().map(throughput_run_rate).collect()
+}
+
 fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
     let SampleRequest {
         runtime,
@@ -667,6 +929,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
         profile,
         collect_profiler,
         profiler_attested,
+        wkv_policy,
     } = request;
     let run_id = format!("{topology}-{sample_index}");
     let run_root = root.join(&run_id);
@@ -704,6 +967,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
                     workload,
                     profile,
                     collect_profiler,
+                    wkv_policy,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -724,7 +988,14 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
         let mut wave_elapsed_seconds = 0.0_f64;
         for worker in &workers {
             let receipt: WorkerReceipt = read_json(&worker.output_path)?;
-            validate_worker(worker, &receipt, workload, profile, collect_profiler)?;
+            validate_worker(
+                worker,
+                &receipt,
+                workload,
+                profile,
+                collect_profiler,
+                wkv_policy,
+            )?;
             wave_elapsed_seconds = wave_elapsed_seconds.max(receipt.elapsed_seconds);
             requests.extend(receipt.requests.into_iter().map(|request| {
                 let mut measurement = request.measurement;
@@ -749,15 +1020,10 @@ fn run() -> Result<(), String> {
     let arguments = std::env::args()
         .skip(PROGRAM_ARGUMENT_COUNT)
         .collect::<Vec<_>>();
-    if arguments.len() != EXPECTED_ARGUMENT_COUNT {
-        return Err(
-            "usage: rwkv7-p150x2-throughput-benchmark PROFILE_JSON REQUESTS_JSON NEW_OUTPUT_ROOT"
-                .to_owned(),
-        );
-    }
-    let profile_path = require_input_file(&arguments[PROFILE_ARGUMENT_INDEX])?;
-    let workload_path = require_input_file(&arguments[REQUESTS_ARGUMENT_INDEX])?;
-    let output_root = require_new_output_root(&arguments[OUTPUT_ARGUMENT_INDEX])?;
+    let (wkv_policy, argument_offset) = parse_wkv_policy(&arguments)?;
+    let profile_path = require_input_file(&arguments[argument_offset + PROFILE_ARGUMENT_INDEX])?;
+    let workload_path = require_input_file(&arguments[argument_offset + REQUESTS_ARGUMENT_INDEX])?;
+    let output_root = require_new_output_root(&arguments[argument_offset + OUTPUT_ARGUMENT_INDEX])?;
     let profile: ThroughputProfile = read_json(&profile_path)?;
     let workload: BenchmarkWorkload = read_json(&workload_path)?;
     validate_workload(&workload, &profile)?;
@@ -776,6 +1042,7 @@ fn run() -> Result<(), String> {
         profile: &profile,
         collect_profiler: true,
         profiler_attested: true,
+        wkv_policy,
     })?;
     let profiler_dual = run_sample(SampleRequest {
         runtime: &runtime,
@@ -787,7 +1054,40 @@ fn run() -> Result<(), String> {
         profile: &profile,
         collect_profiler: true,
         profiler_attested: true,
+        wkv_policy,
     })?;
+    let baseline_profiler_single = if wkv_policy == WkvPolicy::FusedCandidate {
+        Some(run_sample(SampleRequest {
+            runtime: &runtime,
+            root: &output_root,
+            topology: "profiler-generic-single",
+            sample_index: 0,
+            card_ids: &ONE_CARD_IDS,
+            workload: &workload,
+            profile: &profile,
+            collect_profiler: true,
+            profiler_attested: true,
+            wkv_policy: WkvPolicy::Production,
+        })?)
+    } else {
+        None
+    };
+    let baseline_profiler_dual = if wkv_policy == WkvPolicy::FusedCandidate {
+        Some(run_sample(SampleRequest {
+            runtime: &runtime,
+            root: &output_root,
+            topology: "profiler-generic-dual",
+            sample_index: 0,
+            card_ids: &TWO_CARD_IDS,
+            workload: &workload,
+            profile: &profile,
+            collect_profiler: true,
+            profiler_attested: true,
+            wkv_policy: WkvPolicy::Production,
+        })?)
+    } else {
+        None
+    };
     let profiler_attestation_path = output_root.join("profiler-attestation.json");
     write_new_json(
         &profiler_attestation_path,
@@ -798,62 +1098,123 @@ fn run() -> Result<(), String> {
             "single_physical_device_ids": profiler_single.physical_device_ids,
             "dual_run_id": profiler_dual.run_id,
             "dual_physical_device_ids": profiler_dual.physical_device_ids,
+            "baseline_single_run_id": baseline_profiler_single.as_ref().map(|run| &run.run_id),
+            "baseline_dual_run_id": baseline_profiler_dual.as_ref().map(|run| &run.run_id),
             "timed_samples_profiled": false,
+            "program_signature_filename": PROFILER_PROGRAM_SIGNATURE_FILENAME,
+            "wkv_execution_policy": wkv_policy.as_str(),
+            "production_physically_admitted": false,
         }),
     )?;
 
     let mut one_card_runs = Vec::with_capacity(profile.repeat_count);
     let mut two_card_runs = Vec::with_capacity(profile.repeat_count);
+    let mut baseline_one_card_runs = Vec::with_capacity(profile.repeat_count);
+    let mut baseline_two_card_runs = Vec::with_capacity(profile.repeat_count);
     for sample_index in 0..profile.repeat_count {
-        one_card_runs.push(run_sample(SampleRequest {
-            runtime: &runtime,
-            root: &output_root,
-            topology: "single",
-            sample_index,
-            card_ids: &ONE_CARD_IDS,
-            workload: &workload,
-            profile: &profile,
-            collect_profiler: false,
-            profiler_attested: true,
-        })?);
+        let policies = if wkv_policy == WkvPolicy::FusedCandidate {
+            order_balanced_wkv_policies(sample_index).to_vec()
+        } else {
+            vec![WkvPolicy::Production]
+        };
+        for sample_policy in policies {
+            let topology = match sample_policy {
+                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
+                    "single-generic"
+                }
+                WkvPolicy::Production => "single",
+                WkvPolicy::FusedCandidate => "single-fused",
+            };
+            let run = run_sample(SampleRequest {
+                runtime: &runtime,
+                root: &output_root,
+                topology,
+                sample_index,
+                card_ids: &ONE_CARD_IDS,
+                workload: &workload,
+                profile: &profile,
+                collect_profiler: false,
+                profiler_attested: true,
+                wkv_policy: sample_policy,
+            })?;
+            match sample_policy {
+                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
+                    baseline_one_card_runs.push(run);
+                }
+                WkvPolicy::Production | WkvPolicy::FusedCandidate => one_card_runs.push(run),
+            }
+        }
     }
     for sample_index in 0..profile.repeat_count {
-        two_card_runs.push(run_sample(SampleRequest {
-            runtime: &runtime,
-            root: &output_root,
-            topology: "dual",
-            sample_index,
-            card_ids: &TWO_CARD_IDS,
-            workload: &workload,
-            profile: &profile,
-            collect_profiler: false,
-            profiler_attested: true,
-        })?);
+        let policies = if wkv_policy == WkvPolicy::FusedCandidate {
+            order_balanced_wkv_policies(sample_index).to_vec()
+        } else {
+            vec![WkvPolicy::Production]
+        };
+        for sample_policy in policies {
+            let topology = match sample_policy {
+                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => "dual-generic",
+                WkvPolicy::Production => "dual",
+                WkvPolicy::FusedCandidate => "dual-fused",
+            };
+            let run = run_sample(SampleRequest {
+                runtime: &runtime,
+                root: &output_root,
+                topology,
+                sample_index,
+                card_ids: &TWO_CARD_IDS,
+                workload: &workload,
+                profile: &profile,
+                collect_profiler: false,
+                profiler_attested: true,
+                wkv_policy: sample_policy,
+            })?;
+            match sample_policy {
+                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
+                    baseline_two_card_runs.push(run);
+                }
+                WkvPolicy::Production | WkvPolicy::FusedCandidate => two_card_runs.push(run),
+            }
+        }
     }
     let machine_facts_after = capture_machine_snapshot(&tt_smi, &output_root, "after")?;
+    let machine_facts = MachineFactsEvidence {
+        source: MACHINE_FACT_SOURCE.to_owned(),
+        before_blake3: machine_facts_before,
+        after_blake3: machine_facts_after,
+        physical_device_ids: TWO_CARD_IDS,
+    };
+    let execution = ExecutionEvidence {
+        scheduler_mode: profile.scheduler.mode.clone(),
+        scheduler_tie_break: profile.scheduler.tie_break.clone(),
+        replica_mode: profile.runtime.replica_mode.clone(),
+        recurrent_state_residency: profile.runtime.recurrent_state_residency.clone(),
+        timed_region: profile.timing.timed_region.clone(),
+        warmup_token_count: profile.timing.warmup_token_count,
+        program_cache_stable: true,
+        dynamic_token_and_state_bindings_validated: true,
+        state_readback_during_timing: false,
+        profiler_flush_during_timing: false,
+        control_replay_during_timing: false,
+        artifact_writes_during_timing: false,
+    };
+    let baseline_raw = if wkv_policy == WkvPolicy::FusedCandidate {
+        Some(RawThroughputEvidence {
+            schema_version: SCHEMA_VERSION,
+            profile_identity_blake3: identity.clone(),
+            machine_facts: machine_facts.clone(),
+            execution: execution.clone(),
+            one_card_runs: baseline_one_card_runs,
+            two_card_runs: baseline_two_card_runs,
+        })
+    } else {
+        None
+    };
     let raw = RawThroughputEvidence {
         schema_version: SCHEMA_VERSION,
         profile_identity_blake3: identity,
-        machine_facts: MachineFactsEvidence {
-            source: MACHINE_FACT_SOURCE.to_owned(),
-            before_blake3: machine_facts_before,
-            after_blake3: machine_facts_after,
-            physical_device_ids: TWO_CARD_IDS,
-        },
-        execution: ExecutionEvidence {
-            scheduler_mode: profile.scheduler.mode.clone(),
-            scheduler_tie_break: profile.scheduler.tie_break.clone(),
-            replica_mode: profile.runtime.replica_mode.clone(),
-            recurrent_state_residency: profile.runtime.recurrent_state_residency.clone(),
-            timed_region: profile.timing.timed_region.clone(),
-            warmup_token_count: profile.timing.warmup_token_count,
-            program_cache_stable: true,
-            dynamic_token_and_state_bindings_validated: true,
-            state_readback_during_timing: false,
-            profiler_flush_during_timing: false,
-            control_replay_during_timing: false,
-            artifact_writes_during_timing: false,
-        },
+        machine_facts,
+        execution,
         one_card_runs,
         two_card_runs,
     };
@@ -862,26 +1223,125 @@ fn run() -> Result<(), String> {
     let receipt = summarize_throughput(&raw, &profile).map_err(|error| error.to_string())?;
     let receipt_path = output_root.join("throughput-receipt.json");
     write_new_json(&receipt_path, &receipt)?;
-    let admission =
-        admit_throughput_receipt(&receipt, &raw, &profile).map_err(|error| error.to_string())?;
     let admission_path = output_root.join("throughput-admission.json");
-    write_new_json(
-        &admission_path,
-        &json!({
-            "status": "admitted",
-            "identity_blake3": admission.identity_blake3,
-            "dual_card_speedup": admission.dual_card_speedup,
-            "scaling_efficiency": admission.scaling_efficiency,
-            "p99_latency_regression_fraction": admission.p99_latency_regression_fraction,
-            "aggregate_tokens_per_second": admission.aggregate_tokens_per_second,
-        }),
-    )?;
-    let manifest = BTreeMap::from([
+    match admit_throughput_receipt(&receipt, &raw, &profile) {
+        Ok(admission) => write_new_json(
+            &admission_path,
+            &json!({
+                "status": if wkv_policy == WkvPolicy::Production {
+                    "production_scaling_admitted"
+                } else {
+                    "fused_candidate_scaling_pass"
+                },
+                "wkv_execution_policy": wkv_policy.as_str(),
+                "production_physically_admitted": false,
+                "identity_blake3": admission.identity_blake3,
+                "dual_card_speedup": admission.dual_card_speedup,
+                "scaling_efficiency": admission.scaling_efficiency,
+                "p99_latency_regression_fraction": admission.p99_latency_regression_fraction,
+                "aggregate_tokens_per_second": admission.aggregate_tokens_per_second,
+            }),
+        )?,
+        Err(rejection) if wkv_policy == WkvPolicy::FusedCandidate => write_new_json(
+            &admission_path,
+            &json!({
+                "status": "fused_candidate_scaling_rejected",
+                "wkv_execution_policy": wkv_policy.as_str(),
+                "production_physically_admitted": false,
+                "rejection": rejection.to_string(),
+            }),
+        )?,
+        Err(rejection) => return Err(rejection.to_string()),
+    }
+    let mut manifest = BTreeMap::from([
         ("raw", raw_path),
         ("receipt", receipt_path),
         ("admission", admission_path),
         ("profiler_attestation", profiler_attestation_path),
     ]);
+    if let Some(baseline) = baseline_raw {
+        let baseline_raw_path = output_root.join("generic-raw-throughput-evidence.json");
+        write_new_json(&baseline_raw_path, &baseline)?;
+        let baseline_receipt =
+            summarize_throughput(&baseline, &profile).map_err(|error| error.to_string())?;
+        let baseline_receipt_path = output_root.join("generic-throughput-receipt.json");
+        write_new_json(&baseline_receipt_path, &baseline_receipt)?;
+        let baseline_admission_path = output_root.join("generic-throughput-admission.json");
+        match admit_throughput_receipt(&baseline_receipt, &baseline, &profile) {
+            Ok(baseline_admission) => write_new_json(
+                &baseline_admission_path,
+                &json!({
+                    "status": "generic_baseline_scaling_admitted",
+                    "identity_blake3": baseline_admission.identity_blake3,
+                    "dual_card_speedup": baseline_admission.dual_card_speedup,
+                    "scaling_efficiency": baseline_admission.scaling_efficiency,
+                    "p99_latency_regression_fraction": baseline_admission.p99_latency_regression_fraction,
+                    "aggregate_tokens_per_second": baseline_admission.aggregate_tokens_per_second,
+                }),
+            )?,
+            Err(rejection) => write_new_json(
+                &baseline_admission_path,
+                &json!({
+                    "status": "generic_baseline_scaling_rejected",
+                    "rejection": rejection.to_string(),
+                }),
+            )?,
+        }
+
+        let one_card_speedups = paired_speedups(
+            &throughput_run_rates(&baseline.one_card_runs)?,
+            &throughput_run_rates(&raw.one_card_runs)?,
+        )?;
+        let two_card_speedups = paired_speedups(
+            &throughput_run_rates(&baseline.two_card_runs)?,
+            &throughput_run_rates(&raw.two_card_runs)?,
+        )?;
+        let stable_gain = one_card_speedups.iter().all(|speedup| *speedup > 1.0)
+            && two_card_speedups.iter().all(|speedup| *speedup > 1.0);
+        let order_schedule = (0..profile.repeat_count)
+            .map(|sample_index| {
+                order_balanced_wkv_policies(sample_index)
+                    .map(WkvPolicy::as_str)
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        let ab_receipt_path = output_root.join("fused-wkv-ab-receipt.json");
+        write_new_json(
+            &ab_receipt_path,
+            &json!({
+                "schema_version": SCHEMA_VERSION,
+                "kind": "rwkv7_fused_wkv_physical_ab",
+                "status": if stable_gain {
+                    "stable_physical_gain"
+                } else {
+                    "rejected_unstable_or_no_gain"
+                },
+                "physical_hardware": true,
+                "production_physically_admitted": false,
+                "batch_capacity": profile.scheduler.per_card_slot_count,
+                "repeat_count": profile.repeat_count,
+                "order_schedule": order_schedule,
+                "exact_generated_token_parity": true,
+                "cpu_reference_profile_blake3": workload.cpu_reference_profile_blake3,
+                "generic_receipt_identity_blake3": baseline_receipt.identity_blake3,
+                "fused_receipt_identity_blake3": receipt.identity_blake3,
+                "generic_one_card_tokens_per_second": baseline_receipt.one_card.aggregate_tokens_per_second,
+                "fused_one_card_tokens_per_second": receipt.one_card.aggregate_tokens_per_second,
+                "generic_two_card_tokens_per_second": baseline_receipt.two_card.aggregate_tokens_per_second,
+                "fused_two_card_tokens_per_second": receipt.two_card.aggregate_tokens_per_second,
+                "one_card_paired_speedups": one_card_speedups,
+                "two_card_paired_speedups": two_card_speedups,
+                "stable_gain": stable_gain,
+                "profiler_attestation": "profiler-attestation.json",
+                "machine_facts_before": "machine-before.json",
+                "machine_facts_after": "machine-after.json",
+            }),
+        )?;
+        manifest.insert("generic_raw", baseline_raw_path);
+        manifest.insert("generic_receipt", baseline_receipt_path);
+        manifest.insert("generic_admission", baseline_admission_path);
+        manifest.insert("fused_wkv_ab_receipt", ab_receipt_path);
+    }
     write_new_json(&output_root.join("manifest.json"), &manifest)?;
     println!("{}", output_root.display());
     Ok(())
@@ -902,6 +1362,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wkv_policy_parser_accepts_production_and_candidate_modes() {
+        let production = vec![
+            "profile".to_owned(),
+            "workload".to_owned(),
+            "output".to_owned(),
+        ];
+        assert_eq!(
+            parse_wkv_policy(&production),
+            Ok((WkvPolicy::Production, PROFILE_ARGUMENT_INDEX))
+        );
+        let candidate = vec![
+            FUSED_CANDIDATE_MODE.to_owned(),
+            "profile".to_owned(),
+            "workload".to_owned(),
+            "output".to_owned(),
+        ];
+        assert_eq!(
+            parse_wkv_policy(&candidate),
+            Ok((WkvPolicy::FusedCandidate, PROFILE_ARGUMENT_INDEX + 1))
+        );
+    }
+
+    #[test]
+    fn wkv_policy_parser_rejects_an_unknown_mode() {
+        let invalid = vec![
+            "--unknown".to_owned(),
+            "profile".to_owned(),
+            "workload".to_owned(),
+            "output".to_owned(),
+        ];
+        assert!(parse_wkv_policy(&invalid).is_err());
+    }
+
+    #[test]
+    fn ab_order_and_speedup_core_accepts_a_stable_gain() {
+        assert_eq!(
+            order_balanced_wkv_policies(0),
+            [WkvPolicy::Production, WkvPolicy::FusedCandidate]
+        );
+        assert_eq!(
+            order_balanced_wkv_policies(1),
+            [WkvPolicy::FusedCandidate, WkvPolicy::Production]
+        );
+        assert_eq!(
+            paired_speedups(&[10.0, 20.0], &[15.0, 30.0]),
+            Ok(vec![1.5, 1.5])
+        );
+    }
+
+    #[test]
+    fn ab_speedup_core_rejects_malformed_rates() {
+        assert!(paired_speedups(&[], &[]).is_err());
+        assert!(paired_speedups(&[10.0], &[10.0, 20.0]).is_err());
+        assert!(paired_speedups(&[0.0], &[10.0]).is_err());
+        assert!(paired_speedups(&[10.0], &[f64::NAN]).is_err());
+    }
+
+    #[test]
     fn profiler_card_parser_accepts_a_logical_data_row() {
         let row = b"1,1,2,BRISC,52564,14597231684249\n";
         assert_eq!(
@@ -915,6 +1433,32 @@ mod tests {
         assert!(profiler_card_from_line(b"not-a-card,row\n", PROFILER_HEADER_LINE_COUNT).is_err());
         assert!(
             profiler_card_from_line(b"missing separator\n", PROFILER_HEADER_LINE_COUNT).is_err()
+        );
+    }
+
+    #[test]
+    fn profiler_event_parser_accepts_a_zone_start() {
+        let event = profiler_event_from_line(
+            b"0,1,2,BRISC,3,100,0,42,,,fused_wkv_compute,ZONE_START,1,k.cpp,\n",
+            PROFILER_HEADER_LINE_COUNT,
+        )
+        .expect("valid profiler row")
+        .expect("zone event");
+        assert_eq!(event.logical_card_id, FILTERED_WORKER_LOGICAL_CARD_ID);
+        assert_eq!(event.key, "1|2|BRISC|3|fused_wkv_compute");
+        assert_eq!(event.zone_name, "fused_wkv_compute");
+        assert_eq!(event.cycle, 100);
+        assert_eq!(event.event_type, ProfilerEventType::Start);
+    }
+
+    #[test]
+    fn profiler_event_parser_rejects_an_invalid_cycle() {
+        assert!(
+            profiler_event_from_line(
+                b"0,1,2,BRISC,3,bad,0,42,,,fused_wkv_compute,ZONE_END,1,k.cpp,\n",
+                PROFILER_HEADER_LINE_COUNT,
+            )
+            .is_err()
         );
     }
 

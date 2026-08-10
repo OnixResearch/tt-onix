@@ -59,7 +59,9 @@ Production dispatch remains closed. `generic_wkv_step` remains authoritative unt
 
 The standalone `--fused-wkv-probe` runs the candidate at batch 16 for two recurrent steps. It does not enable production dispatch.
 
-No physical performance gain is measured for this candidate. Simulator results cannot supply that measurement.
+Physical B16 evidence shows a stable `1.219842945222559x` one-card gain and a stable `1.2570555673783517x` two-card gain. Exact generated-token parity passed.
+
+Strict scaling admission remains blocked. The measured two-card scaling was `1.4924591117651091`; the profile requires `1.5`. Simulator results cannot supply physical performance evidence.
 
 The timed region contains warmed prompt and decode operations. It excludes:
 
@@ -118,7 +120,19 @@ WORKLOAD="$EVIDENCE/share/rwkv7-p150x2-throughput/throughput-workload.json"
   "$PROFILE" "$WORKLOAD" /absolute/new/evidence-root
 ```
 
-Set `EVIDENCE` to the built `rwkv7-p150x2-evidence` store path. The benchmark first runs matching one-card and two-card profiler attestations. It then runs five unprofiled one-card samples and five unprofiled two-card samples.
+Use the explicit candidate mode for fused-versus-generic physical evidence:
+
+```sh
+FUSED_PROFILE="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-physical-profile.json"
+FUSED_WORKLOAD="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-physical-workload.json"
+"$EVIDENCE/bin/rwkv7-p150x2-throughput-benchmark" \
+  --fused-wkv-candidate "$FUSED_PROFILE" "$FUSED_WORKLOAD" \
+  /absolute/new/ab-evidence-root
+```
+
+The fused profile runs three A/B pairs at the admitted B16 capacity. Candidate mode alternates generic and fused runs for each sample. It checks every generated token against the pinned FP32 reference. It retains profiler samples for both paths. This mode does not open production admission.
+
+Set `EVIDENCE` to the built `rwkv7-p150x2-evidence` store path. The benchmark first runs matching one-card and two-card profiler attestations. It then runs the unprofiled one-card and two-card samples from the selected profile.
 
 The benchmark streams each raw profiler CSV into a bounded card-attribution summary. It retains the BLAKE3 hash, byte count, row count, worker logs, request, and receipt. It removes the large raw CSV after validation. Profiler instrumentation does not enter the timed repeats.
 
