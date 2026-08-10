@@ -26,7 +26,7 @@ The benchmark launcher writes the admitted capacity and its checked memory bound
 
 A capacity above four becomes the default only after simulator, exact-parity, stable A/B, and strict two-card physical evidence pass. See the change `cairn/changes/scale-rwkv7-card-local-batching/`.
 
-The bounded physical sweep of 2026-08-09 kept B4 admitted. B16 measured a stable `3.62x` two-card throughput gain over the B4 baseline but failed the retained p99 latency bound in two of three alternating A/B rounds, so it was not promoted. The evidence and the measured blocker are retained in `../rwkv7-p150x2-evidence/fixtures/physical-capacity-sweep-retained/`.
+The 2026-08-09 stalled-wave investigation re-examined the B16 block. Per-request p99 wall latency was the wrong cross-capacity metric; per-token time is the honest one. Under that gate, B16 is admitted: it is `2.7-3.7x` faster in aggregate and its p99 per-token time is `4.2-5.5 ms` versus B4's `7.3-57 ms`. The order-balanced evidence is retained in `../rwkv7-p150x2-evidence/fixtures/physical-capacity-b16-admitted/`. The residual 16-wide kernel stall remains a tracked follow-up.
 The WKV path reuses BF16 `r`, `k`, and `v` head rows during attention correction. Separate FP32 cast views preserve recurrent-state precision.
 
 Static group-normalization and `r_k` vectors load in head-row shape. Attention correction stays in that shape until the output projection.

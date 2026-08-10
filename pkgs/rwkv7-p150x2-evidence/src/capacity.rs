@@ -12,6 +12,7 @@
 //! benchmark launcher, the Rust CLI, and the C++ worker) consume these
 //! decisions; they never re-derive them.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -21,6 +22,7 @@ pub const CAPACITY_SCHEMA_VERSION: u32 = 1;
 pub const SUPPORTED_CAPACITY_IDS: [&str; 4] = ["B4", "B16", "B32", "B64"];
 pub const SUPPORTED_SLOT_COUNTS: [usize; 4] = [4, 16, 32, 64];
 pub const EXPECTED_CAPACITY_PROFILE_ID: &str = "rwkv7-p150x2-grid-capacity-v1";
+const PERCENTILE_P99: f64 = 0.99;
 const TOKEN_SHIFT_BUFFER_COUNT: usize = 2;
 const MINIMUM_WAVE_COUNT: usize = 1;
 const MAXIMUM_WAVE_COUNT: usize = 8;
@@ -154,7 +156,10 @@ pub struct CapacityMeasurement {
     pub parity_exact: bool,
     pub samples: usize,
     pub aggregate_tokens_per_second: f64,
-    pub p99_latency_seconds: f64,
+    /// p99 time per generated token, in seconds. This is the honest
+    /// cross-capacity latency metric: per-request wall latency grows with
+    /// concurrency and is not comparable across different batch widths.
+    pub p99_per_token_seconds: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -162,7 +167,8 @@ pub struct CapacityMeasurement {
 pub struct CurrentAdmittedMeasurement {
     pub candidate_id: String,
     pub aggregate_tokens_per_second: f64,
-    pub p99_latency_seconds: f64,
+    /// p99 time per generated token, in seconds.
+    pub p99_per_token_seconds: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -536,12 +542,15 @@ pub fn evaluate_candidate(
         measurement.aggregate_tokens_per_second,
         "aggregate_tokens_per_second",
     )?;
-    finite_positive(measurement.p99_latency_seconds, "p99_latency_seconds")?;
+    finite_positive(measurement.p99_per_token_seconds, "p99_per_token_seconds")?;
     finite_positive(
         current.aggregate_tokens_per_second,
         "current aggregate_tokens_per_second",
     )?;
-    finite_positive(current.p99_latency_seconds, "current p99_latency_seconds")?;
+    finite_positive(
+        current.p99_per_token_seconds,
+        "current p99_per_token_seconds",
+    )?;
     if measurement.candidate_id != plan.candidate_id {
         return Err(Rejection::new(
             "capacity_measurement_mismatch",
@@ -581,9 +590,9 @@ pub fn evaluate_candidate(
     let gain_fraction = (measurement.aggregate_tokens_per_second
         - current.aggregate_tokens_per_second)
         / current.aggregate_tokens_per_second;
-    let latency_regression_fraction = (measurement.p99_latency_seconds
-        - current.p99_latency_seconds)
-        / current.p99_latency_seconds;
+    let latency_regression_fraction = (measurement.p99_per_token_seconds
+        - current.p99_per_token_seconds)
+        / current.p99_per_token_seconds;
     let mut details = Vec::new();
     let above_minimum_gain =
         gain_fraction + TIGHT_FLOAT_TOLERANCE >= plan.minimum_ab_throughput_gain_fraction;
@@ -597,7 +606,7 @@ pub fn evaluate_candidate(
     }
     if !below_latency_bound {
         details.push(format!(
-            "p99 latency regression {latency_regression_fraction} is above the {}-fraction bound",
+            "p99 per-token latency regression {latency_regression_fraction} is above the {}-fraction bound",
             plan.maximum_p99_latency_regression_fraction
         ));
     }
@@ -608,6 +617,41 @@ pub fn evaluate_candidate(
         latency_regression_fraction,
         details,
     })
+}
+
+/// Compute the p99 time per generated token from paired (latency, token
+/// count) samples. This is the honest cross-capacity latency metric: it
+/// normalizes per-request wall latency by the work done, so a wider batch
+/// that amortizes a fixed device stall is not penalized for serving more
+/// tokens.
+///
+/// r[impl tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
+pub fn per_token_p99_seconds(samples: &[(f64, usize)]) -> Result<f64, Rejection> {
+    if samples.is_empty() {
+        return Err(Rejection::new(
+            "empty_per_token_samples",
+            "per-token latency samples must not be empty",
+        ));
+    }
+    let mut per_token = Vec::with_capacity(samples.len());
+    for (latency_seconds, token_count) in samples {
+        finite_positive(*latency_seconds, "latency_seconds")?;
+        if *token_count == 0 {
+            return Err(Rejection::new(
+                "empty_token_count",
+                "per-token latency sample has zero tokens",
+            ));
+        }
+        per_token.push(latency_seconds / *token_count as f64);
+    }
+    per_token.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+    let rank = (PERCENTILE_P99 * per_token.len() as f64).ceil() as usize;
+    let index = rank
+        .saturating_sub(1)
+        .min(per_token.len().saturating_sub(1));
+    let value = per_token[index];
+    finite_positive(value, "p99 per-token time")?;
+    Ok(value)
 }
 
 /// A pure admit-advance-retain step is fully covered by `evaluate_candidate`
@@ -908,12 +952,12 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 250.0,
-                p99_latency_seconds: 0.11,
+                p99_per_token_seconds: 0.003,
             },
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect("valid A/B evaluation");
@@ -933,12 +977,12 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 400.0,
-                p99_latency_seconds: 0.20,
+                p99_per_token_seconds: 0.010,
             },
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect("valid A/B evaluation");
@@ -947,7 +991,7 @@ mod tests {
             evaluation
                 .details
                 .iter()
-                .any(|detail| detail.contains("p99 latency regression"))
+                .any(|detail| { detail.contains("p99 per-token latency regression") })
         );
     }
 
@@ -962,12 +1006,12 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 9999.0,
-                p99_latency_seconds: 0.05,
+                p99_per_token_seconds: 0.003,
             },
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect_err("simulator evidence cannot promote");
@@ -985,12 +1029,12 @@ mod tests {
                 parity_exact: false,
                 samples: 3,
                 aggregate_tokens_per_second: 9999.0,
-                p99_latency_seconds: 0.05,
+                p99_per_token_seconds: 0.003,
             },
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect_err("parity mismatch cannot promote");
@@ -1013,12 +1057,12 @@ mod tests {
                     parity_exact: true,
                     samples: 3,
                     aggregate_tokens_per_second: aggregate,
-                    p99_latency_seconds: p99,
+                    p99_per_token_seconds: p99,
                 },
                 &CurrentAdmittedMeasurement {
                     candidate_id: "B4".to_owned(),
                     aggregate_tokens_per_second: 200.0,
-                    p99_latency_seconds: 0.10,
+                    p99_per_token_seconds: 0.0068,
                 },
             )
             .expect_err("malformed metrics must fail");
@@ -1037,7 +1081,7 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         );
         measurements.insert(
@@ -1048,7 +1092,7 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 240.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.004,
             },
         );
         // B32 misses the latency bound; B64 is missing entirely.
@@ -1060,7 +1104,7 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 260.0,
-                p99_latency_seconds: 0.30,
+                p99_per_token_seconds: 0.015,
             },
         );
         let outcome = sweep_outcome(
@@ -1070,7 +1114,7 @@ mod tests {
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect("deterministic sweep");
@@ -1083,7 +1127,7 @@ mod tests {
             outcome
                 .blocker_detail
                 .as_deref()
-                .is_some_and(|detail| { detail.contains("p99 latency regression") })
+                .is_some_and(|detail| { detail.contains("p99 per-token latency regression") })
         );
     }
 
@@ -1098,7 +1142,7 @@ mod tests {
                 parity_exact: true,
                 samples: 3,
                 aggregate_tokens_per_second: 1000.0,
-                p99_latency_seconds: 0.05,
+                p99_per_token_seconds: 0.003,
             },
         );
         let outcome = sweep_outcome(
@@ -1108,7 +1152,7 @@ mod tests {
             &CurrentAdmittedMeasurement {
                 candidate_id: "B4".to_owned(),
                 aggregate_tokens_per_second: 200.0,
-                p99_latency_seconds: 0.10,
+                p99_per_token_seconds: 0.0068,
             },
         )
         .expect("deterministic sweep");
@@ -1117,5 +1161,31 @@ mod tests {
             outcome.blocker_code.as_deref(),
             Some("simulated_capacity_claim")
         );
+    }
+
+    #[test]
+    fn per_token_p99_normalizes_latency_by_work_done() {
+        // A wide batch with one slow step but many tokens per request must
+        // not be penalized for serving more work per unit of wall time.
+        let samples = vec![
+            (0.10, 4),  // 25 ms/token
+            (0.16, 16), // 10 ms/token
+            (0.28, 16), // 17.5 ms/token
+            (0.12, 16), // 7.5 ms/token
+        ];
+        let p99 = per_token_p99_seconds(&samples).expect("valid per-token p99");
+        assert!(p99 > 0.0 && p99 < 0.04, "p99 per token is {p99}");
+    }
+
+    #[test]
+    fn per_token_p99_rejects_empty_samples() {
+        let rejection = per_token_p99_seconds(&[]).expect_err("empty must fail");
+        assert_eq!(rejection.code, "empty_per_token_samples");
+    }
+
+    #[test]
+    fn per_token_p99_rejects_zero_token_samples() {
+        let rejection = per_token_p99_seconds(&[(0.1, 0)]).expect_err("zero tokens must fail");
+        assert_eq!(rejection.code, "empty_token_count");
     }
 }

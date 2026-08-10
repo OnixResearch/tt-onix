@@ -159,6 +159,14 @@ rustPlatform.buildRustPackage {
     # The retained sweep keeps B4 admitted and records the measured B16 blocker.
     grep -F 'B4 remains the admitted card-local capacity' \
       "$sweep_root/README.md"
+    # The B16 re-admission evidence binds the per-token re-admission decision.
+    b16_root="$out/share/rwkv7-p150x2-capacity-b16-admitted"
+    mkdir -p "$b16_root"
+    cp -R fixtures/physical-capacity-b16-admitted/. "$b16_root/"
+    jq -e '.two_card.aggregate_tokens_per_second > 300' \
+      "$b16_root/b16-r2/throughput-receipt.json" >/dev/null
+    grep -F 'B16 is promoted in every order-balanced comparison' \
+      "$b16_root/README.md"
     runHook postInstallCheck
   '';
 

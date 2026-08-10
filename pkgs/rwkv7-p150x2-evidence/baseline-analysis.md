@@ -173,3 +173,18 @@ Only `rwkv7-p150x2-throughput-benchmark` can produce candidate physical scaling 
 The capacity change measured B4 against B16 on the same physical cards with order-balanced A/B runs. The B4 baseline with the new runtime is `149.89` tokens per second on two cards (second sample `155.54`), and it stays the admitted capacity.
 
 B16 (16 slots, two waves) reached `493.85`, `579.25`, and `585.05` tokens per second on two cards. Its throughput gain over B4 was stable, but its p99 latency passed the `0.10` regression bound in only one of three rounds. The change retains the strongest measured blocker: B16 fails the retained p99 stability rule, so the sweep stops and the runtime keeps the B4 boundary. See `fixtures/physical-capacity-sweep-retained/`.
+
+## B16 re-admission 2026-08-09 (per-token gate)
+
+The stalled-wave investigation proved the p99 latency rejection compared the wrong metric. Per-request wall latency grows with concurrency, so it is not comparable across different capacity workloads. The honest cross-capacity metric is p99 time per generated token.
+
+A fresh order-balanced B4/B16 sweep used token-balanced workloads and the per-token gate:
+
+| Run | Capacity | Two-card tps | p99 per-token (ms) |
+| --- | --- | --- | --- |
+| b4-r1 | B4 | 152.5 | 7.29 |
+| b16-r1 | B16 | 408.4 | 5.53 |
+| b16-r2 | B16 | 551.8 | 4.24 |
+| b4-r2b | B4 | 116.6 | 57.05 |
+
+B16 promotes in every order-balanced comparison: gains `+1.68x` to `+3.73x`, with per-token latency regression of `-24%` to `-93%` (negative means B16 is faster per token than B4). The b4-r2b sample contains a stalled wave, confirming B4 is not immune to the same device event. See `fixtures/physical-capacity-b16-admitted/`.
