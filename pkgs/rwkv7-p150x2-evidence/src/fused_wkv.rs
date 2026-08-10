@@ -215,6 +215,134 @@ pub fn fused_wkv_step(inputs: &FusedWkvInputs) -> Result<FusedWkvResult, Rejecti
     })
 }
 
+/// Inputs for the attention boundary that follows the WKV recurrence.
+///
+/// The fused operator covers state readout (in `fused_wkv_step`), attention
+/// correction, and the BF16 output boundary. The output projection at the
+/// end stays outside the operator per the design decision.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttentionCorrectionInputs {
+    pub head_count: usize,
+    pub head_size: usize,
+    /// The pre-correction readout values, `[head][D]`.
+    pub output: Vec<f32>,
+    /// The removal-key rows, `[head][D]`, used for the r_k bonus.
+    pub k_rows: Vec<f32>,
+    /// The value rows, `[head][D]`, used for the r_k bonus.
+    pub v_rows: Vec<f32>,
+    /// The rwkv gate rows, `[head][D]`.
+    pub gate: Vec<f32>,
+    /// The scalar `r_k` coefficient (per request, broadcast).
+    pub r_k: f32,
+    /// Group-norm affinity weight, `[head][D]`.
+    pub group_norm_weight: Vec<f32>,
+    /// Group-norm affinity bias, `[head][D]`.
+    pub group_norm_bias: Vec<f32>,
+}
+
+/// The attention-corrected output rows before the output projection.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttentionCorrectionResult {
+    /// Corrected rows, `[head][D]`, BF16-bounded values.
+    pub corrected_rows: Vec<f32>,
+}
+
+fn validate_row_vector(name: &str, values: &[f32], rows: usize) -> Result<(), Rejection> {
+    if values.len() != rows {
+        return Err(Rejection::new(
+            "invalid_correction_shape",
+            format!(
+                "{name} has {} elements, expected {rows} (heads x head size)",
+                values.len()
+            ),
+        ));
+    }
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(Rejection::new(
+            "non_finite_reference_input",
+            format!("{name} contains a non-finite value"),
+        ));
+    }
+    Ok(())
+}
+
+/// Pure attention correction: group-norm the readout rows, add the r_k
+/// bonus weighted by the value rows, scale by the gate, and bound the
+/// result to the BF16 finite range. The output projection is outside.
+///
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.valid]
+pub fn attention_correction(
+    inputs: &AttentionCorrectionInputs,
+    group_norm_epsilon: f32,
+) -> Result<AttentionCorrectionResult, Rejection> {
+    if inputs.head_count == 0 || inputs.head_size == 0 {
+        return Err(Rejection::new(
+            "invalid_head_geometry",
+            "head count and head size must be positive",
+        ));
+    }
+    let rows = inputs.head_count * inputs.head_size;
+    for (name, values) in [
+        ("output", &inputs.output),
+        ("k_rows", &inputs.k_rows),
+        ("v_rows", &inputs.v_rows),
+        ("gate", &inputs.gate),
+        ("group_norm_weight", &inputs.group_norm_weight),
+        ("group_norm_bias", &inputs.group_norm_bias),
+    ] {
+        validate_row_vector(name, values, rows)?;
+    }
+    if !inputs.r_k.is_finite() || !group_norm_epsilon.is_finite() || group_norm_epsilon <= 0.0 {
+        return Err(Rejection::new(
+            "non_finite_reference_input",
+            "attention correction scalars must be finite and epsilon positive",
+        ));
+    }
+    let d = inputs.head_size;
+    let mut corrected_rows = Vec::with_capacity(rows);
+    let mut corrections = Vec::new();
+    for head in 0..inputs.head_count {
+        let base = head * d;
+        let mut mean = 0.0_f32;
+        for i in 0..d {
+            mean += inputs.output[base + i];
+        }
+        mean /= d as f32;
+        let mut variance = 0.0_f32;
+        for i in 0..d {
+            let diff = inputs.output[base + i] - mean;
+            variance += diff * diff;
+        }
+        variance /= d as f32;
+        let inv_std = 1.0_f32 / (variance + group_norm_epsilon).sqrt();
+        let scalar = inputs.r_k
+            * (0..d)
+                .map(|i| inputs.k_rows[base + i] * inputs.v_rows[base + i])
+                .sum::<f32>();
+        for i in 0..d {
+            let normalized = (inputs.output[base + i] - mean) * inv_std;
+            let scaled = normalized * inputs.group_norm_weight[base + i]
+                + inputs.group_norm_bias[base + i];
+            let corrected =
+                (scaled + scalar * inputs.v_rows[base + i]) * inputs.gate[base + i];
+            if corrected.abs() > f32::MAX / 2.0 {
+                corrections.push((head, i));
+            }
+            corrected_rows.push(corrected);
+        }
+    }
+    if !corrections.is_empty() {
+        return Err(Rejection::new(
+            "correction_overflow",
+            format!(
+                "{} corrected rows exceed the BF16 finite bound",
+                corrections.len()
+            ),
+        ));
+    }
+    Ok(AttentionCorrectionResult { corrected_rows })
+}
+
 /// Validate the typed capability contract. Every check runs before any
 /// device dispatch; an unsupported field rejects the fused path.
 ///
@@ -356,6 +484,258 @@ pub fn fused_vector_bytes(capability: &FusedWkvCapability) -> Result<usize, Reje
                 "fused WKV vector byte budget overflows usize",
             )
         })
+}
+
+/// Per-request dataflow plan for one fused WKV decode step.
+///
+/// K1: this is the bounded data-movement contract. Each live request owns
+/// one FP32 state tile per head and six BF16 vectors. The plan names exact
+/// byte counts so the device shell can reserve buffers, and it never exceeds
+/// the capability's batch bound.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FusedDataflowPlan {
+    pub batch_size: usize,
+    pub head_count: usize,
+    pub head_size: usize,
+    /// FP32 state bytes for the whole batch (batch x heads x D x D x 4).
+    pub state_bytes: usize,
+    /// BF16 vector bytes for the whole batch (six vectors per request).
+    pub vector_bytes: usize,
+    /// BF16 output bytes (one vector per request head row).
+    pub output_bytes: usize,
+    pub state_tiles_per_request: usize,
+    pub works_per_request: usize,
+}
+
+/// Plan the bounded data movement for one fused decode step.
+///
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.valid]
+pub fn plan_fused_dataflow(
+    capability: &FusedWkvCapability,
+) -> Result<FusedDataflowPlan, Rejection> {
+    validate_fused_capability(capability)?;
+    let d = capability.head_size;
+    let per_request_state = capability
+        .head_count
+        .checked_mul(d)
+        .and_then(|area| area.checked_mul(d))
+        .and_then(|elements| elements.checked_mul(FP32_BYTE_WIDTH))
+        .ok_or_else(|| {
+            Rejection::new(
+                "dataflow_byte_overflow",
+                "per-request state bytes overflow usize",
+            )
+        })?;
+    let per_request_vector = capability
+        .head_count
+        .checked_mul(d)
+        .and_then(|rows| rows.checked_mul(6_usize)) // r,w,k,v,a,b
+        .and_then(|vectors| vectors.checked_mul(BF16_BYTE_WIDTH))
+        .ok_or_else(|| {
+            Rejection::new(
+                "dataflow_byte_overflow",
+                "per-request vector bytes overflow usize",
+            )
+        })?;
+    let per_request_output = capability
+        .head_count
+        .checked_mul(d)
+        .and_then(|rows| rows.checked_mul(BF16_BYTE_WIDTH))
+        .ok_or_else(|| {
+            Rejection::new(
+                "dataflow_byte_overflow",
+                "per-request output bytes overflow usize",
+            )
+        })?;
+    Ok(FusedDataflowPlan {
+        batch_size: capability.batch_size,
+        head_count: capability.head_count,
+        head_size: d,
+        state_bytes: capability.batch_size.checked_mul(per_request_state).ok_or_else(||
+            Rejection::new("dataflow_byte_overflow", "batch state bytes overflow usize")
+        )?,
+        vector_bytes: capability.batch_size.checked_mul(per_request_vector).ok_or_else(||
+            Rejection::new("dataflow_byte_overflow", "batch vector bytes overflow usize")
+        )?,
+        output_bytes: capability.batch_size.checked_mul(per_request_output).ok_or_else(||
+            Rejection::new("dataflow_byte_overflow", "batch output bytes overflow usize")
+        )?,
+        state_tiles_per_request: capability.head_count,
+        works_per_request: capability.head_count,
+    })
+}
+
+/// A deterministic (request, head) work item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct FusedWorkItem {
+    pub request_index: usize,
+    pub head_index: usize,
+}
+
+/// One core's assigned work and its synchronous-count constant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct CoreAssignment {
+    pub core_index: usize,
+    pub work_count: usize,
+}
+
+/// Deterministic state-tile ownership plan.
+///
+/// K3: heads and request tiles map to fixed core groups. Every
+/// (request, head) state tile has exactly one writer core, and no tile is
+/// shared across requests. The plan uses a stable round-robin so it is
+/// reproducible without hardware.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FusedOwnershipPlan {
+    pub core_count: usize,
+    /// Sorted (request, head) work items owned by each core.
+    pub per_core_work: Vec<Vec<FusedWorkItem>>,
+    /// A stable per-core completion/semaphore count.
+    pub per_core_completion_count: Vec<usize>,
+}
+
+/// Deterministically assign (request, head) tiles to cores, one writer per
+/// tile.
+///
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.invalid_input]
+pub fn plan_fused_ownership(
+    capability: &FusedWkvCapability,
+    core_count: usize,
+) -> Result<FusedOwnershipPlan, Rejection> {
+    validate_fused_capability(capability)?;
+    if core_count == 0 {
+        return Err(Rejection::new(
+            "invalid_core_count",
+            "fused WKV core count must be positive",
+        ));
+    }
+    let total_works = capability
+        .batch_size
+        .checked_mul(capability.head_count)
+        .ok_or_else(|| {
+            Rejection::new(
+                "ownership_works_overflow",
+                "total fused work items overflow usize",
+            )
+        })?;
+    let mut per_core_work = vec![Vec::new(); core_count];
+    let mut completion = vec![0_usize; core_count];
+    for request_index in 0..capability.batch_size {
+        for head_index in 0..capability.head_count {
+            let core = (request_index * capability.head_count + head_index) % core_count;
+            per_core_work[core].push(FusedWorkItem {
+                request_index,
+                head_index,
+            });
+            completion[core] += 1;
+        }
+    }
+    let mut per_core = per_core_work;
+    for work in per_core.iter_mut() {
+        work.sort();
+    }
+    // Verify single-writer and uniqueness (the round-robin construction is
+    // deterministic, so this is an internal invariant check).
+    let mut seen = Vec::with_capacity(total_works);
+    for work in per_core.iter().flatten() {
+        if seen.contains(work) {
+            return Err(Rejection::new(
+                "ownership_not_unique",
+                "state tile assigned to more than one core",
+            ));
+        }
+        seen.push(*work);
+    }
+    if seen.len() != total_works {
+        return Err(Rejection::new(
+            "ownership_incomplete",
+            "state tile ownership does not cover every work item",
+        ));
+    }
+    Ok(FusedOwnershipPlan {
+        core_count,
+        per_core_work: per_core,
+        per_core_completion_count: completion,
+    })
+}
+
+/// The completed per-request plan consumed by the runtime shell and the
+/// later device op source tree.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FusedPlanSet {
+    pub capability: FusedWkvCapability,
+    pub dataflow: FusedDataflowPlan,
+    pub ownership: FusedOwnershipPlan,
+    pub state_bytes: usize,
+    pub vector_bytes: usize,
+    pub output_bytes: usize,
+}
+
+/// Assemble the full device-free plan set for one fused decode step.
+///
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.valid]
+pub fn plan_fused_step(
+    capability: &FusedWkvCapability,
+    core_count: usize,
+) -> Result<FusedPlanSet, Rejection> {
+    let dataflow = plan_fused_dataflow(capability)?;
+    let ownership = plan_fused_ownership(capability, core_count)?;
+    Ok(FusedPlanSet {
+        capability: capability.clone(),
+        dataflow: dataflow.clone(),
+        ownership: ownership.clone(),
+        state_bytes: dataflow.state_bytes,
+        vector_bytes: dataflow.vector_bytes,
+        output_bytes: dataflow.output_bytes,
+    })
+}
+
+
+/// The capability-selected dispatch decision.
+///
+/// K4: the runtime shell calls this before choosing the fused path. It is
+/// fail-closed: the fused path is selected only when the capability is
+/// supported AND the fused path has been physically admitted. Otherwise the
+/// generic TT-NN path stays.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FusedDispatchDecision {
+    pub candidate_id: String,
+    pub capability_supported: bool,
+    pub physically_admitted: bool,
+    pub use_fused_path: bool,
+    pub reason: String,
+}
+
+/// Decide whether to use the fused WKV path for a candidate.
+///
+/// The `physically_admitted` flag is owned by the evidence pipeline; it is
+/// set only after stable alternating A/B and strict admission pass. This
+/// function never fabricates that evidence.
+///
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.valid]
+/// r[verify tenstorrent.rwkv7_p150x2.fused_wkv_kernel.no_gain]
+pub fn decide_fused_dispatch(
+    candidate_id: &str,
+    capability: &FusedWkvCapability,
+    physically_admitted: bool,
+) -> FusedDispatchDecision {
+    let capability_supported = validate_fused_capability(capability).is_ok();
+    let use_fused_path = capability_supported && physically_admitted;
+    let reason = if !capability_supported {
+        "capability validation failed; generic path retained".to_owned()
+    } else if !physically_admitted {
+        "capability valid but fused path not yet physically admitted; generic path retained"
+            .to_owned()
+    } else {
+        "capability supported and fused path physically admitted".to_owned()
+    };
+    FusedDispatchDecision {
+        candidate_id: candidate_id.to_owned(),
+        capability_supported,
+        physically_admitted,
+        use_fused_path,
+        reason,
+    }
 }
 
 #[cfg(test)]
@@ -563,5 +943,122 @@ mod tests {
         let b16 = fused_state_bytes(&capability(16)).expect("b16 bytes");
         assert_eq!(b16, b4 * 4);
         assert!(fused_vector_bytes(&capability(4)).expect("vec bytes") > 0);
+    }
+
+    #[test]
+    fn dataflow_plan_is_bounded_and_batch_scaled() {
+        let p4 = plan_fused_dataflow(&capability(4)).expect("b4 dataflow");
+        let p16 = plan_fused_dataflow(&capability(16)).expect("b16 dataflow");
+        // FP32 state per request: 12 heads x 64 x 64 x 4 = 196608 bytes.
+        assert_eq!(p4.state_bytes, 4 * 196608);
+        assert_eq!(p16.state_bytes, p4.state_bytes * 4);
+        // Six BF16 vectors per request: 6 x 12 x 64 x 2 = 9216 bytes.
+        assert_eq!(p4.vector_bytes, 4 * 9216);
+        // One BF16 output per request: 12 x 64 x 2 = 1536 bytes.
+        assert_eq!(p4.output_bytes, 4 * 1536);
+        assert_eq!(p16.state_tiles_per_request, WKV_HEAD_COUNT);
+    }
+
+    #[test]
+    fn ownership_plan_is_unique_and_complete() {
+        let plan = plan_fused_ownership(&capability(8), 4).expect("ownership");
+        assert_eq!(plan.per_core_work.len(), 4);
+        let total: usize = plan.per_core_work.iter().map(|work| work.len()).sum();
+        assert_eq!(total, 8 * WKV_HEAD_COUNT);
+        let mut seen = Vec::new();
+        for work in plan.per_core_work.iter().flatten() {
+            assert!(!seen.contains(work), "duplicate work item");
+            seen.push(*work);
+        }
+        assert_eq!(plan.per_core_completion_count.len(), 4);
+    }
+
+    #[test]
+    fn ownership_rejects_zero_cores() {
+        let rejection = plan_fused_ownership(&capability(4), 0).expect_err("zero cores");
+        assert_eq!(rejection.code, "invalid_core_count");
+    }
+
+    #[test]
+    fn plan_set_assembles_device_free() {
+        let set = plan_fused_step(&capability(8), 4).expect("plan set");
+        assert_eq!(set.dataflow.state_bytes, set.state_bytes);
+        assert_eq!(set.ownership.core_count, 4);
+        assert_eq!(set.vector_bytes, 8 * 9216);
+    }
+
+    #[test]
+    fn dispatch_fails_closed_without_admission() {
+        let decision = decide_fused_dispatch("B16", &capability(4), false);
+        assert!(decision.capability_supported);
+        assert!(!decision.use_fused_path);
+        assert!(decision.reason.contains("not yet physically admitted"));
+    }
+
+    #[test]
+    fn dispatch_selects_fused_path_only_after_admission() {
+        let decision = decide_fused_dispatch("B16", &capability(4), true);
+        assert!(decision.use_fused_path);
+    }
+
+    #[test]
+    fn dispatch_rejects_unsupported_capability_even_if_admitted() {
+        let mut bad = capability(4);
+        bad.head_size = 128;
+        let decision = decide_fused_dispatch("B16", &bad, true);
+        assert!(!decision.capability_supported);
+        assert!(!decision.use_fused_path);
+        assert!(decision.reason.contains("capability validation failed"));
+    }
+
+    fn correction_inputs(head_count: usize, head_size: usize, val: f32) -> AttentionCorrectionInputs {
+        let rows = head_count * head_size;
+        AttentionCorrectionInputs {
+            head_count,
+            head_size,
+            output: vec![val; rows],
+            k_rows: vec![1.0; rows],
+            v_rows: vec![1.0; rows],
+            gate: vec![1.0; rows],
+            r_k: 1.0,
+            group_norm_weight: vec![1.0; rows],
+            group_norm_bias: vec![0.0; rows],
+        }
+    }
+
+    #[test]
+    fn correction_with_constant_rows_is_identity_like() {
+        // Constant head rows have zero variance -> normalized row is 0.
+        // corrected = (0 + r_k * sum(1*1)=d) * 1 = d for each element.
+        let result = attention_correction(&correction_inputs(2, 64, 5.0), 1e-5)
+            .expect("valid correction");
+        assert_eq!(result.corrected_rows.len(), 2 * 64);
+        assert!((result.corrected_rows[0] - 64.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn correction_rejects_non_finite_input() {
+        let mut inputs = correction_inputs(2, 64, 1.0);
+        inputs.output[3] = f32::NAN;
+        assert_eq!(
+            attention_correction(&inputs, 1e-5).expect_err("nan").code,
+            "non_finite_reference_input"
+        );
+    }
+
+    #[test]
+    fn correction_rejects_bad_epsilon() {
+        let rejection = attention_correction(&correction_inputs(2, 64, 1.0), 0.0)
+            .expect_err("zero epsilon");
+        assert_eq!(rejection.code, "non_finite_reference_input");
+    }
+
+    #[test]
+    fn correction_rejects_overflowing_rows() {
+        let mut inputs = correction_inputs(2, 64, 1.0);
+        inputs.gate = vec![f32::MAX; inputs.gate.len()];
+        let rejection =
+            attention_correction(&inputs, 1e-5).expect_err("overflow");
+        assert_eq!(rejection.code, "correction_overflow");
     }
 }
