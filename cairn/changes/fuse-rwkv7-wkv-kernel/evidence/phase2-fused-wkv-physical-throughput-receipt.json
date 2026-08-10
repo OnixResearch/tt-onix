@@ -9,12 +9,12 @@
     "sample_count": 3,
     "request_count": 96,
     "token_count": 1920,
-    "aggregate_tokens_per_second": 375.6423841464654,
+    "aggregate_tokens_per_second": 437.98668576683207,
     "per_card_tokens_per_second": {
-      "0": 375.6423841464654
+      "0": 437.98668576683207
     },
-    "p50_latency_seconds": 0.129673019,
-    "p99_latency_seconds": 0.955066282
+    "p50_latency_seconds": 0.112349687,
+    "p99_latency_seconds": 0.786647321
   },
   "two_card": {
     "device_ids": [
@@ -24,16 +24,16 @@
     "sample_count": 3,
     "request_count": 96,
     "token_count": 1920,
-    "aggregate_tokens_per_second": 560.6308989845617,
+    "aggregate_tokens_per_second": 722.4472805047268,
     "per_card_tokens_per_second": {
-      "0": 280.31544949228083,
-      "1": 280.31544949228083
+      "0": 361.2236402523634,
+      "1": 361.2236402523634
     },
-    "p50_latency_seconds": 0.34435887,
-    "p99_latency_seconds": 1.991243829
+    "p50_latency_seconds": 0.130656944,
+    "p99_latency_seconds": 0.976464036
   },
-  "dual_card_speedup": 1.4924591117651091,
-  "scaling_efficiency": 0.7462295558825546,
-  "p99_latency_regression_fraction": 1.084927367376163,
-  "identity_blake3": "18ff4e30b252e70e890f4b34d5dcdf4ccd041f887d1c7f87f950f7d303d47ed8"
+  "dual_card_speedup": 1.6494731551938797,
+  "scaling_efficiency": 0.8247365775969399,
+  "p99_latency_regression_fraction": 0.24129836831923815,
+  "identity_blake3": "d3b62e350d8297eb3a8515fa4adffcb0c7cbd631eaeba374281bf3a5fa248829"
 }

@@ -48,6 +48,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -123,6 +124,14 @@ constexpr std::string_view kFastDeviceArgument = "--device";
 constexpr std::string_view kFastRequestsArgument = "--requests";
 constexpr std::string_view kFastOutputArgument = "--output";
 constexpr std::string_view kWkvPolicyArgument = "--wkv-policy";
+constexpr std::string_view kFastInitializationReadyBarrierArgument =
+    "--initialization-ready-barrier";
+constexpr std::string_view kFastWarmupStartBarrierArgument =
+    "--warmup-start-barrier";
+constexpr std::string_view kFastTimedReadyBarrierArgument =
+    "--timed-ready-barrier";
+constexpr std::string_view kFastTimedStartBarrierArgument =
+    "--timed-start-barrier";
 constexpr std::string_view kProductionWkvPolicy = "production";
 constexpr std::string_view kFusedCandidateWkvPolicy = "fused-candidate";
 constexpr std::string_view kTokensArgument = "--tokens";
@@ -141,7 +150,7 @@ constexpr std::string_view kProfilerCsvRelativePath =
     "profiler/.logs/profile_log_device.csv";
 constexpr std::size_t kSelfTestArgumentCount = 2U;
 constexpr std::size_t kRuntimeArgumentCount = 7U;
-constexpr std::size_t kFastWorkerArgumentCount = 10U;
+constexpr std::size_t kFastWorkerArgumentCount = 18U;
 constexpr std::size_t kSimulatorSmokeArgumentCount = 4U;
 constexpr std::size_t kSimulatorOutputNameIndex = 2U;
 constexpr std::size_t kSimulatorOutputValueIndex = 3U;
@@ -153,6 +162,16 @@ constexpr std::size_t kFastOutputNameIndex = 6U;
 constexpr std::size_t kFastOutputValueIndex = 7U;
 constexpr std::size_t kWkvPolicyNameIndex = 8U;
 constexpr std::size_t kWkvPolicyValueIndex = 9U;
+constexpr std::size_t kFastInitializationReadyBarrierNameIndex = 10U;
+constexpr std::size_t kFastInitializationReadyBarrierValueIndex = 11U;
+constexpr std::size_t kFastWarmupStartBarrierNameIndex = 12U;
+constexpr std::size_t kFastWarmupStartBarrierValueIndex = 13U;
+constexpr std::size_t kFastTimedReadyBarrierNameIndex = 14U;
+constexpr std::size_t kFastTimedReadyBarrierValueIndex = 15U;
+constexpr std::size_t kFastTimedStartBarrierNameIndex = 16U;
+constexpr std::size_t kFastTimedStartBarrierValueIndex = 17U;
+constexpr auto kFastBarrierPollInterval = std::chrono::milliseconds(1);
+constexpr auto kFastBarrierTimeout = std::chrono::seconds(120);
 constexpr std::size_t kFastPerCardSlotCount = 4U;
 constexpr std::uint32_t kFastWarmupTokenCount = 4U;
 constexpr std::uint32_t kFastMaximumGeneratedTokens = 64U;
@@ -1792,6 +1811,10 @@ struct FastWorkerArguments {
   std::filesystem::path requests_path;
   std::filesystem::path output_path;
   WkvExecutionPolicy wkv_execution_policy;
+  std::filesystem::path initialization_ready_barrier_path;
+  std::filesystem::path warmup_start_barrier_path;
+  std::filesystem::path timed_ready_barrier_path;
+  std::filesystem::path timed_start_barrier_path;
 };
 
 struct FastSlot {
@@ -1877,7 +1900,19 @@ parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
   require(arguments[kFastOutputNameIndex] == kFastOutputArgument,
           "fast worker invocation must place --output third");
   require(arguments[kWkvPolicyNameIndex] == kWkvPolicyArgument,
-          "fast worker invocation must place --wkv-policy last");
+          "fast worker invocation must place --wkv-policy fourth");
+  require(arguments[kFastInitializationReadyBarrierNameIndex] ==
+              kFastInitializationReadyBarrierArgument,
+          "fast worker invocation must place --initialization-ready-barrier fifth");
+  require(arguments[kFastWarmupStartBarrierNameIndex] ==
+              kFastWarmupStartBarrierArgument,
+          "fast worker invocation must place --warmup-start-barrier sixth");
+  require(arguments[kFastTimedReadyBarrierNameIndex] ==
+              kFastTimedReadyBarrierArgument,
+          "fast worker invocation must place --timed-ready-barrier seventh");
+  require(arguments[kFastTimedStartBarrierNameIndex] ==
+              kFastTimedStartBarrierArgument,
+          "fast worker invocation must place --timed-start-barrier last");
   const std::uint32_t device_id =
       parse_u32(arguments[kFastDeviceValueIndex], "fast worker device");
   require(device_id <= static_cast<std::uint32_t>(kPhysicalDeviceOne),
@@ -1895,8 +1930,41 @@ parse_fast_worker_arguments(const std::vector<std::string> &arguments) {
           "fast worker output must be outside the Nix store");
   const WkvExecutionPolicy wkv_execution_policy =
       parse_wkv_execution_policy(arguments[kWkvPolicyValueIndex]);
-  return FastWorkerArguments{static_cast<int>(device_id), requests_path,
-                             output_path, wkv_execution_policy};
+  const std::filesystem::path initialization_ready_barrier_path(
+      arguments[kFastInitializationReadyBarrierValueIndex]);
+  const std::filesystem::path warmup_start_barrier_path(
+      arguments[kFastWarmupStartBarrierValueIndex]);
+  const std::filesystem::path timed_ready_barrier_path(
+      arguments[kFastTimedReadyBarrierValueIndex]);
+  const std::filesystem::path timed_start_barrier_path(
+      arguments[kFastTimedStartBarrierValueIndex]);
+  const std::array barrier_paths{
+      initialization_ready_barrier_path, warmup_start_barrier_path,
+      timed_ready_barrier_path, timed_start_barrier_path};
+  for (const std::filesystem::path &barrier_path : barrier_paths) {
+    require(barrier_path.is_absolute(),
+            "fast worker barrier path must be absolute");
+    require(!std::filesystem::exists(barrier_path),
+            "fast worker barrier path already exists");
+    require(barrier_path != output_path,
+            "fast worker barrier path must differ from the output path");
+    require(std::filesystem::is_directory(barrier_path.parent_path()),
+            "fast worker barrier parent is not a directory");
+    require(!barrier_path.string().starts_with("/nix/store/"),
+            "fast worker barrier must be outside the Nix store");
+  }
+  for (std::size_t left = 0U; left < barrier_paths.size(); ++left) {
+    for (std::size_t right = left + 1U; right < barrier_paths.size();
+         ++right) {
+      require(barrier_paths[left] != barrier_paths[right],
+              "fast worker barrier paths must be distinct");
+    }
+  }
+  return FastWorkerArguments{
+      static_cast<int>(device_id), requests_path, output_path,
+      wkv_execution_policy, initialization_ready_barrier_path,
+      warmup_start_barrier_path, timed_ready_barrier_path,
+      timed_start_barrier_path};
 }
 
 FastWorkerRequest read_fast_worker_request(
@@ -2107,6 +2175,46 @@ void write_json(const std::filesystem::path &path, const Json &value) {
   output << value.dump(2) << '\n';
   output.flush();
   require(output.good(), "failed to write runtime receipt");
+}
+
+void signal_fast_barrier(const std::filesystem::path &path,
+                         std::string_view name) {
+  std::error_code error;
+  const bool created = std::filesystem::create_directory(path, error);
+  require(created && !error,
+          "failed to signal fast worker " + std::string(name) +
+              " barrier: " + error.message());
+}
+
+void wait_for_fast_barrier(const std::filesystem::path &path,
+                           std::string_view name) {
+  const auto deadline = std::chrono::steady_clock::now() + kFastBarrierTimeout;
+  while (true) {
+    std::error_code error;
+    const bool exists = std::filesystem::exists(path, error);
+    require(!error,
+            "failed to inspect fast worker " + std::string(name) +
+                " barrier: " + error.message());
+    if (exists) {
+      require(std::filesystem::is_directory(path),
+              "fast worker " + std::string(name) +
+                  " barrier is not a directory");
+      return;
+    }
+    require(std::chrono::steady_clock::now() < deadline,
+            "fast worker timed out waiting for " + std::string(name) +
+                " barrier");
+    std::this_thread::sleep_for(kFastBarrierPollInterval);
+  }
+}
+
+std::uint64_t monotonic_nanoseconds(
+    std::chrono::steady_clock::time_point time_point) {
+  const auto count = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         time_point.time_since_epoch())
+                         .count();
+  require(count >= 0, "monotonic clock returned a negative timestamp");
+  return static_cast<std::uint64_t>(count);
 }
 
 std::string_view visible_device_value(int physical_device_id) {
@@ -2514,6 +2622,10 @@ void run_fused_wkv_probe(const std::filesystem::path &output_path) {
 }
 
 void run_fast_worker(const FastWorkerArguments &arguments) {
+  const char *const inspector_value = std::getenv("TT_METAL_INSPECTOR");
+  require(inspector_value != nullptr &&
+              std::string_view(inspector_value) == kDisabledEnvironmentValue,
+          "fast worker requires TT_METAL_INSPECTOR=0");
   select_single_card_device(arguments.physical_device_id);
   const char *const profiler_value = std::getenv("TT_METAL_DEVICE_PROFILER");
   const bool profiler_attributed =
@@ -2537,6 +2649,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const std::size_t max_slot_count =
       request.capacity.per_card_slot_count;
 
+  signal_fast_barrier(arguments.initialization_ready_barrier_path,
+                      "initialization ready");
+  wait_for_fast_barrier(arguments.warmup_start_barrier_path,
+                        "warmup start");
   ModelState warmup_state =
       zero_fast_model_state(context, batch_size, max_slot_count);
   std::vector<std::uint32_t> warmup_tokens(
@@ -2561,7 +2677,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   std::vector<bool> completed(slots.size(), false);
   Json request_metrics = Json::array();
+  signal_fast_barrier(arguments.timed_ready_barrier_path, "timed ready");
+  wait_for_fast_barrier(arguments.timed_start_barrier_path, "timed start");
   const auto timed_start = std::chrono::steady_clock::now();
+  const std::uint64_t timed_start_monotonic_ns =
+      monotonic_nanoseconds(timed_start);
   for (FastSlot &slot : slots) {
     slot.started_at = timed_start;
   }
@@ -2634,6 +2754,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     }
   }
   const auto timed_end = std::chrono::steady_clock::now();
+  const std::uint64_t timed_end_monotonic_ns = monotonic_nanoseconds(timed_end);
+  require(timed_end_monotonic_ns > timed_start_monotonic_ns,
+          "fast worker monotonic timing range is not positive");
   const double elapsed_seconds =
       std::chrono::duration<double>(timed_end - timed_start).count();
   require(std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0,
@@ -2663,6 +2786,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["physical_hardware"] = true;
   receipt["profiler_attributed"] = profiler_attributed;
   receipt["elapsed_seconds"] = elapsed_seconds;
+  receipt["timed_start_monotonic_ns"] = timed_start_monotonic_ns;
+  receipt["timed_end_monotonic_ns"] = timed_end_monotonic_ns;
   receipt["capacity"] = {
       {"id", request.capacity.id},
       {"per_card_slot_count", max_slot_count},
@@ -2696,6 +2821,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"profiler_flush_during_timing", false},
       {"control_replay_during_timing", false},
       {"artifact_writes_during_timing", false},
+      {"inspector_during_timing", false},
+      {"synchronized_timed_start", true},
       {"wkv_execution_policy",
        wkv_execution_policy_name(arguments.wkv_execution_policy)},
       {"production_physically_admitted", kFusedWkvPhysicallyAdmitted}};

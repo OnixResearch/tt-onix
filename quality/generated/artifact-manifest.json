@@ -28,14 +28,14 @@
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-ab-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 1390,
-      "blake3": "65f61ab1095779ea2d7f9e4fc0d39ff45f3f1d72ac0e2a61ba71ce156ebad44b"
+      "byte_count": 1387,
+      "blake3": "fe3a75330d9b08861784e0fd04bde9b505c085265c792fec9b9633ec0d697798"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-admission.json",
       "class": "portable_evidence",
-      "byte_count": 244,
-      "blake3": "d2ff6f60e773e999f9acbdec4f488193b651668d400a8742d3f91aed5f60202c"
+      "byte_count": 255,
+      "blake3": "abd70eceee2f51ff7bbbd124b120d9ab5b66c914c52cad7db4400936c29e4180"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-memory-facts.json",
@@ -52,8 +52,8 @@
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-physical-throughput-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 1100,
-      "blake3": "da9f81ed9d0d5d1faa990813cf6fef8e398a3749ab6e071ef37752b14088967f"
+      "byte_count": 1103,
+      "blake3": "28fa6499db15f380e4953368dc1527d2970666bc63fe5054d41707154385a36b"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-attestation.json",
@@ -65,13 +65,13 @@
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-signature-dual-card0.json",
       "class": "portable_evidence",
       "byte_count": 1353,
-      "blake3": "1d3c48fc6e3dd24ab6cd773c2bba8ade315dd0e7bb07498bb4c87ccab20c11b2"
+      "blake3": "be967271ec5b9e05d5cc8460d7423359233c61d8d75953a77cfbd52a5cf75ef8"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-profiler-signature-single.json",
       "class": "portable_evidence",
       "byte_count": 1353,
-      "blake3": "a883d5ce7c6fc91180c624aa8f2d4dbf82541b92f6de28474c37e1e701ae774b"
+      "blake3": "deaca663f8e15e3dcd2abb055874abee65877f43d70fd325aa2c560fb3f8be81"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-simulator-receipt.json",
@@ -80,28 +80,34 @@
       "blake3": "16c3edd79d63fd83e34fbe9f64c6e20662b32e0e29827f6eab2ced20d8fc6e88"
     },
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-synchronized-timing.json",
+      "class": "portable_evidence",
+      "byte_count": 1470,
+      "blake3": "c7eb8f27444bc15581693e8dee647bf0e322d2c1734c34a4f32e60b69d2331e7"
+    },
+    {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-physical-throughput-receipt.json",
       "class": "portable_evidence",
       "byte_count": 1102,
-      "blake3": "bff12343cd9c41b3e47f8feaaa3d4ec4e9e6c68c3bd223ba1ee7d11d0bcabf9d"
+      "blake3": "4dba8f05b6b9773078bcccc05818fd0b2655e05e76ea1b8bb7217e6830a75139"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-profiler-signature-dual-card0.json",
       "class": "portable_evidence",
       "byte_count": 1355,
-      "blake3": "780ca7785bf8b7b35d391698ffcfbac170370b9e257f63631bb1d593391eb0f5"
+      "blake3": "968ef531a7153eaf1c82374ef883deccb818db35533c37f1be1e07e3a1bed332"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-generic-wkv-profiler-signature-single.json",
       "class": "portable_evidence",
       "byte_count": 1355,
-      "blake3": "8927b257dd1adaeb71598e979e2d546a4bfc44f73aad4bacef65750d9748264a"
+      "blake3": "3e973c7350c767e6b8a31aafc65331f2130604adbaf2d5d8666ea45e8937b43b"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-physical-acceptance.md",
       "class": "portable_evidence",
-      "byte_count": 3957,
-      "blake3": "b47f35d3041deb40711d694c20d43e921ce473b1dacda34597c5ddb1ae10851f"
+      "byte_count": 5457,
+      "blake3": "7b2add449d449dbe40c359d046c543f348335d06ddb869f27a66f01a0202ea3d"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-planning-cores.md",

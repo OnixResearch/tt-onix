@@ -10,7 +10,15 @@ Do not use evidence-mode elapsed time as an inference-throughput result.
 
 ## Fast worker mode
 
-`--fast-worker` opens one exact physical card as a `1x1` mesh. Each worker loads one complete model replica. The benchmark launcher runs card 0 and card 1 workers at the same time. Requests do not cross cards.
+`--fast-worker` opens one exact physical card as a `1x1` mesh. Each worker loads one complete model replica. Requests do not cross cards.
+
+After initialization, each worker signals readiness. The launcher then starts warmup on all active workers.
+
+After warmup, each worker signals timed readiness. The launcher releases the timed start only after all workers reach this second barrier.
+
+Worker receipts include monotonic start and end times. The launcher rejects start skew above 10 milliseconds and measures the full synchronized wave interval.
+
+The launcher disables TT-Metal Inspector for benchmark workers. This prevents Inspector RPC collisions and Inspector artifact writes during timed execution.
 
 Each worker sets `TT_VISIBLE_DEVICES` to its physical card. It uses the pinned single-card P150 descriptor and opens filtered logical device 0. This isolation prevents one worker from reconfiguring the other card.
 
@@ -22,7 +30,9 @@ The saturated benchmark supports at most two process waves. It never assigns mor
 
 Nickel owns the typed capacity candidates B4, B16, B32, and B64 (`throughput-capacity-profile.ncl` in the evidence package). The pure planner (`rwkv7-p150x2-throughput capacity-plan`) validates every candidate device-free: it derives FP32 recurrent-state bytes, BF16 token-shift bytes, temporary tensor estimates, and a safety reserve with checked arithmetic, and it rejects overflow or an insufficient device budget before any device opens.
 
-The benchmark launcher writes the admitted capacity and its checked memory bounds into each worker request. The worker re-runs the same checked derivation before opening its device. It records the effective batch size, queue occupancy, memory plan, per-request latency, and host gap (host-only batch-step scheduling time) in its receipt.
+The benchmark launcher writes the admitted capacity and its checked memory bounds into each worker request. The worker re-runs the same checked derivation before opening its device.
+
+The receipt records batch size, queue occupancy, memory bounds, per-request latency, host gap, and synchronized timing bounds.
 
 A capacity above four becomes the default only after simulator, exact-parity, stable A/B, and strict two-card physical evidence pass. See the change `cairn/changes/scale-rwkv7-card-local-batching/`.
 
@@ -59,9 +69,9 @@ Production dispatch remains closed. `generic_wkv_step` remains authoritative unt
 
 The standalone `--fused-wkv-probe` runs the candidate at batch 16 for two recurrent steps. It does not enable production dispatch.
 
-Physical B16 evidence shows a stable `1.219842945222559x` one-card gain and a stable `1.2570555673783517x` two-card gain. Exact generated-token parity passed.
+Physical B16 evidence shows stable one-card and two-card paired gains. Fused throughput was `437.98668576683207` tokens/s on one card. It was `722.4472805047268` tokens/s on two cards. Exact generated-token parity passed.
 
-Strict scaling admission remains blocked. The measured two-card scaling was `1.4924591117651091`; the profile requires `1.5`. Simulator results cannot supply physical performance evidence.
+Synchronized fused scaling was `1.6494731551938797`, above the required `1.5`. Strict admission remains blocked. The p99 latency regression was `0.24129836831923815`; the profile permits at most `0.10`. Simulator results cannot supply physical performance evidence.
 
 The timed region contains warmed prompt and decode operations. It excludes:
 

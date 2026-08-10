@@ -55,6 +55,16 @@ const STATE_CARRY_GUARD: &str = "require(state_changed_after_carry,";
 const RESET_CONTROL_GUARD: &str = "require(carried_state_differs_from_reset_control,";
 const PHYSICAL_WORKER_POLICY_PARSE: &str =
     "parse_wkv_execution_policy(arguments[kWkvPolicyValueIndex]);";
+const INITIALIZATION_READY_SIGNAL: &str =
+    "signal_fast_barrier(arguments.initialization_ready_barrier_path,";
+const SYNCHRONIZED_WARMUP_START: &str =
+    "wait_for_fast_barrier(arguments.warmup_start_barrier_path,";
+const TIMED_READY_SIGNAL: &str =
+    "signal_fast_barrier(arguments.timed_ready_barrier_path, \"timed ready\");";
+const SYNCHRONIZED_WORKER_START: &str =
+    "wait_for_fast_barrier(arguments.timed_start_barrier_path, \"timed start\");";
+const DISABLED_WORKER_INSPECTOR: &str =
+    "std::string_view(inspector_value) == kDisabledEnvironmentValue";
 const STATE_RANK_VALIDATION: &str = "bool has_state_shape(const Tensor &tensor, std::uint32_t batch_size) {\n  const auto &shape = tensor.logical_shape();\n  return shape.rank() == kTensorRank &&";
 const STATE_DTYPE_VALIDATION: &str = "inputs.state.dtype() != tt::tt_metal::DataType::FLOAT32";
 const VECTOR_DTYPE_VALIDATION: &str = "vector->dtype() != tt::tt_metal::DataType::BFLOAT16";
@@ -419,6 +429,23 @@ pub fn validate_fused_program_source(
             "explicit physical worker WKV policy",
             PHYSICAL_WORKER_POLICY_PARSE,
         ),
+        (
+            "physical worker initialization-ready signal",
+            INITIALIZATION_READY_SIGNAL,
+        ),
+        (
+            "synchronized physical worker warmup start",
+            SYNCHRONIZED_WARMUP_START,
+        ),
+        ("physical worker timed-ready signal", TIMED_READY_SIGNAL),
+        (
+            "synchronized physical worker start",
+            SYNCHRONIZED_WORKER_START,
+        ),
+        (
+            "disabled physical worker Inspector",
+            DISABLED_WORKER_INSPECTOR,
+        ),
     ] {
         require_once(runtime_source, name, pattern)?;
     }
@@ -705,6 +732,30 @@ mod tests {
             .expect_err("physical worker without an explicit WKV policy");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("explicit physical worker WKV policy"));
+    }
+
+    #[test]
+    fn rejects_a_physical_worker_without_a_synchronized_start() {
+        let invalid = RUNTIME_SOURCE.replace(
+            SYNCHRONIZED_WORKER_START,
+            "static_cast<void>(arguments.timed_start_barrier_path);",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("physical worker without a synchronized start");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("synchronized physical worker start"));
+    }
+
+    #[test]
+    fn rejects_a_physical_worker_with_inspector_enabled() {
+        let invalid = RUNTIME_SOURCE.replace(
+            DISABLED_WORKER_INSPECTOR,
+            "std::string_view(inspector_value) != kDisabledEnvironmentValue",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("physical worker with Inspector enabled");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("disabled physical worker Inspector"));
     }
 
     #[test]

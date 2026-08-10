@@ -32,7 +32,7 @@
 - [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H2 Run stable alternating A/B measurements at each admitted batch capacity. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H3 Run strict one-card and two-card admission. Select the fused path only after all gates pass. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 
-  Blocker: the fused two-card speedup was `1.4924591117651091`; the profile requires `1.5`. Production admission remains closed.
+  Blocker: synchronized launch raised fused two-card speedup to `1.6494731551938797`, above the required `1.5`. Its p99 latency regression is `0.24129836831923815`, above the permitted `0.10`. Production admission remains closed.
 
 ## Phase 6: Documentation and gates
 

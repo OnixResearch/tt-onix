@@ -3,48 +3,48 @@
   "data_row_count": 2347646,
   "logical_card_id": 0,
   "physical_card_id": 0,
-  "program_signature_blake3": "8c9c46f22739fb13e5a5551d3bd647eeddca0d328e337af97d0a9190cd9dc8ad",
-  "raw_blake3": "c73ab1f1e6853f9500cc365f1896452eef89fbb3044440b2a67e5d8fef251524",
+  "program_signature_blake3": "9f87a4634ad983a0e69224d3b992bf2519b26cc8775601a15fff66df1954d978",
+  "raw_blake3": "d715f0d4948417b3abbf8c2f329991cad2e105ea6a4ba990f22ac58750b654db",
   "schema_version": 1,
-  "total_zone_cycles": 18974047641,
+  "total_zone_cycles": 19137518519,
   "unmatched_end_count": 0,
   "unmatched_start_count": 0,
   "zones": {
     "BRISC-FW": {
       "complete_count": 130000,
-      "maximum_cycles": 772234,
+      "maximum_cycles": 774681,
       "start_count": 130000,
-      "total_cycles": 3594820072
+      "total_cycles": 3628916165
     },
     "BRISC-KERNEL": {
       "complete_count": 129871,
-      "maximum_cycles": 433514,
+      "maximum_cycles": 432898,
       "start_count": 129871,
-      "total_cycles": 989129450
+      "total_cycles": 988249674
     },
     "NCRISC-FW": {
       "complete_count": 130000,
-      "maximum_cycles": 771210,
+      "maximum_cycles": 773154,
       "start_count": 130000,
-      "total_cycles": 3416638165
+      "total_cycles": 3450983451
     },
     "NCRISC-KERNEL": {
       "complete_count": 130000,
-      "maximum_cycles": 432773,
+      "maximum_cycles": 432059,
       "start_count": 130000,
-      "total_cycles": 890928733
+      "total_cycles": 890410016
     },
     "TRISC-FW": {
       "complete_count": 326976,
-      "maximum_cycles": 771264,
+      "maximum_cycles": 773715,
       "start_count": 326976,
-      "total_cycles": 8050645717
+      "total_cycles": 8147681781
     },
     "TRISC-KERNEL": {
       "complete_count": 326976,
-      "maximum_cycles": 432950,
+      "maximum_cycles": 432251,
       "start_count": 326976,
-      "total_cycles": 2031885504
+      "total_cycles": 2031277432
     }
   }
 }

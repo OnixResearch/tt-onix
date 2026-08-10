@@ -8,6 +8,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use rwkv7_p150x2_evidence::throughput::{
     ExecutionEvidence, MachineFactsEvidence, RawThroughputEvidence, RequestMeasurement,
@@ -54,6 +56,15 @@ const MAX_PROFILER_LINE_BYTES: usize = KIBIBYTE * KIBIBYTE;
 const WORKER_CAPACITY_TEMPORARY_BYTES_PER_SLOT: u64 = 5 * 1024 * 1024;
 const WORKER_CAPACITY_DEVICE_BUDGET_BYTES: u64 = 3 * 1024 * 1024 * 1024;
 const WORKER_CAPACITY_SAFETY_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
+const WORKER_INITIALIZATION_READY_BARRIER_NAME: &str = "initialization-ready.barrier";
+const WORKER_WARMUP_START_BARRIER_NAME: &str = "warmup-start.barrier";
+const WORKER_TIMED_READY_BARRIER_NAME: &str = "timed-ready.barrier";
+const WORKER_TIMED_START_BARRIER_NAME: &str = "timed-start.barrier";
+const WORKER_BARRIER_TIMEOUT: Duration = Duration::from_secs(120);
+const WORKER_BARRIER_POLL_INTERVAL: Duration = Duration::from_millis(1);
+const MAXIMUM_WORKER_START_SKEW_SECONDS: f64 = 0.010;
+const WORKER_ELAPSED_TOLERANCE_SECONDS: f64 = 0.001;
+const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WkvPolicy {
@@ -163,6 +174,8 @@ struct WorkerReceipt {
     physical_hardware: bool,
     profiler_attributed: bool,
     elapsed_seconds: f64,
+    timed_start_monotonic_ns: u64,
+    timed_end_monotonic_ns: u64,
     capacity: WorkerReceiptCapacity,
     effective_batch_size: usize,
     queue_occupancy_fraction: f64,
@@ -214,6 +227,8 @@ struct WorkerExecution {
     profiler_flush_during_timing: bool,
     control_replay_during_timing: bool,
     artifact_writes_during_timing: bool,
+    inspector_during_timing: bool,
+    synchronized_timed_start: bool,
     wkv_execution_policy: String,
     production_physically_admitted: bool,
 }
@@ -223,7 +238,63 @@ struct WorkerProcess {
     wave_index: usize,
     root: PathBuf,
     output_path: PathBuf,
+    initialization_ready_barrier_path: PathBuf,
+    warmup_start_barrier_path: PathBuf,
+    timed_ready_barrier_path: PathBuf,
+    timed_start_barrier_path: PathBuf,
     child: std::process::Child,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+struct WorkerTiming {
+    start_monotonic_ns: u64,
+    end_monotonic_ns: u64,
+    elapsed_seconds: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SynchronizedWaveTiming {
+    elapsed_seconds: f64,
+    start_skew_seconds: f64,
+}
+
+fn synchronized_wave_timing(timings: &[WorkerTiming]) -> Result<SynchronizedWaveTiming, String> {
+    let first = timings
+        .first()
+        .ok_or_else(|| "synchronized wave has no worker timings".to_owned())?;
+    let mut minimum_start = first.start_monotonic_ns;
+    let mut maximum_start = first.start_monotonic_ns;
+    let mut maximum_end = first.end_monotonic_ns;
+    for timing in timings {
+        if timing.end_monotonic_ns <= timing.start_monotonic_ns
+            || !timing.elapsed_seconds.is_finite()
+            || timing.elapsed_seconds <= 0.0
+        {
+            return Err("worker timing range must be finite and positive".to_owned());
+        }
+        let measured_elapsed =
+            (timing.end_monotonic_ns - timing.start_monotonic_ns) as f64 / NANOSECONDS_PER_SECOND;
+        if (measured_elapsed - timing.elapsed_seconds).abs() > WORKER_ELAPSED_TOLERANCE_SECONDS {
+            return Err("worker elapsed time differs from its monotonic timing range".to_owned());
+        }
+        minimum_start = minimum_start.min(timing.start_monotonic_ns);
+        maximum_start = maximum_start.max(timing.start_monotonic_ns);
+        maximum_end = maximum_end.max(timing.end_monotonic_ns);
+    }
+    let start_skew_seconds = (maximum_start - minimum_start) as f64 / NANOSECONDS_PER_SECOND;
+    if start_skew_seconds > MAXIMUM_WORKER_START_SKEW_SECONDS {
+        return Err(format!(
+            "worker start skew is {start_skew_seconds}, maximum is {MAXIMUM_WORKER_START_SKEW_SECONDS}"
+        ));
+    }
+    let elapsed_seconds = (maximum_end - minimum_start) as f64 / NANOSECONDS_PER_SECOND;
+    if !elapsed_seconds.is_finite() || elapsed_seconds <= 0.0 {
+        return Err("synchronized wave elapsed time must be finite and positive".to_owned());
+    }
+    Ok(SynchronizedWaveTiming {
+        elapsed_seconds,
+        start_skew_seconds,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -475,15 +546,19 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         collect_profiler,
         wkv_policy,
     } = request;
-    let worker_root = run_root
-        .join(format!("wave-{wave_index}"))
-        .join(format!("card-{card_id}"));
+    let wave_root = run_root.join(format!("wave-{wave_index}"));
+    let worker_root = wave_root.join(format!("card-{card_id}"));
     fs::create_dir_all(worker_root.join("profiler"))
         .map_err(|error| format!("cannot create worker root: {error}"))?;
     fs::create_dir_all(worker_root.join("logs"))
         .map_err(|error| format!("cannot create worker logs: {error}"))?;
     let request_path = worker_root.join("request.json");
     let output_path = worker_root.join("receipt.json");
+    let initialization_ready_barrier_path =
+        worker_root.join(WORKER_INITIALIZATION_READY_BARRIER_NAME);
+    let warmup_start_barrier_path = wave_root.join(WORKER_WARMUP_START_BARRIER_NAME);
+    let timed_ready_barrier_path = worker_root.join(WORKER_TIMED_READY_BARRIER_NAME);
+    let timed_start_barrier_path = wave_root.join(WORKER_TIMED_START_BARRIER_NAME);
     write_new_json(
         &request_path,
         &worker_request(run_id, card_id, wave_index, card_ids, workload, profile)?,
@@ -503,8 +578,20 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         .arg(&output_path)
         .arg("--wkv-policy")
         .arg(wkv_policy.as_str())
+        .arg("--initialization-ready-barrier")
+        .arg(&initialization_ready_barrier_path)
+        .arg("--warmup-start-barrier")
+        .arg(&warmup_start_barrier_path)
+        .arg("--timed-ready-barrier")
+        .arg(&timed_ready_barrier_path)
+        .arg("--timed-start-barrier")
+        .arg(&timed_start_barrier_path)
         .env("TT_METAL_LOGS_PATH", worker_root.join("logs"))
         .env("TT_METAL_PROFILER_DIR", worker_root.join("profiler"))
+        .env("TT_METAL_INSPECTOR", "0")
+        .env("TT_METAL_INSPECTOR_INITIALIZATION_IS_IMPORTANT", "0")
+        .env("TT_METAL_INSPECTOR_LOG_RUNTIME_ENTRIES", "0")
+        .env("TT_METAL_INSPECTOR_RPC", "0")
         .env_remove("TT_METAL_WATCHER")
         .env_remove("TT_METAL_DPRINT_CORES");
     if collect_profiler {
@@ -526,8 +613,151 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         wave_index,
         root: worker_root,
         output_path,
+        initialization_ready_barrier_path,
+        warmup_start_barrier_path,
+        timed_ready_barrier_path,
+        timed_start_barrier_path,
         child,
     })
+}
+
+fn wait_for_worker_barriers(
+    workers: &mut [WorkerProcess],
+    barrier_name: &str,
+    barrier_path: fn(&WorkerProcess) -> &Path,
+) -> Result<(), String> {
+    if workers.is_empty() {
+        return Err("cannot synchronize an empty worker set".to_owned());
+    }
+    let deadline = Instant::now() + WORKER_BARRIER_TIMEOUT;
+    loop {
+        let mut ready_count = 0_usize;
+        for worker in workers.iter_mut() {
+            let path = barrier_path(worker);
+            if path.is_dir() {
+                ready_count = ready_count
+                    .checked_add(1)
+                    .ok_or_else(|| "ready worker count overflowed".to_owned())?;
+                continue;
+            }
+            if path.exists() {
+                return Err(format!(
+                    "card {} {barrier_name} barrier is not a directory",
+                    worker.card_id
+                ));
+            }
+            if let Some(status) = worker
+                .child
+                .try_wait()
+                .map_err(|error| format!("cannot poll card {} worker: {error}", worker.card_id))?
+            {
+                return Err(format!(
+                    "card {} exited before its {barrier_name} barrier with {status}",
+                    worker.card_id
+                ));
+            }
+        }
+        if ready_count == workers.len() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "workers did not reach the {barrier_name} barrier within {} seconds",
+                WORKER_BARRIER_TIMEOUT.as_secs()
+            ));
+        }
+        thread::sleep(WORKER_BARRIER_POLL_INTERVAL);
+    }
+}
+
+fn initialization_ready_barrier_path(worker: &WorkerProcess) -> &Path {
+    &worker.initialization_ready_barrier_path
+}
+
+fn timed_ready_barrier_path(worker: &WorkerProcess) -> &Path {
+    &worker.timed_ready_barrier_path
+}
+
+fn release_worker_barrier(
+    workers: &[WorkerProcess],
+    barrier_name: &str,
+    barrier_path: fn(&WorkerProcess) -> &Path,
+) -> Result<(), String> {
+    let first = workers
+        .first()
+        .ok_or_else(|| "cannot release an empty worker set".to_owned())?;
+    let first_path = barrier_path(first);
+    if workers
+        .iter()
+        .any(|worker| barrier_path(worker) != first_path)
+    {
+        return Err(format!("workers do not share one {barrier_name} barrier"));
+    }
+    fs::create_dir(first_path).map_err(|error| {
+        format!(
+            "cannot release worker {barrier_name} barrier {}: {error}",
+            first_path.display()
+        )
+    })
+}
+
+fn warmup_start_barrier_path(worker: &WorkerProcess) -> &Path {
+    &worker.warmup_start_barrier_path
+}
+
+fn timed_start_barrier_path(worker: &WorkerProcess) -> &Path {
+    &worker.timed_start_barrier_path
+}
+
+fn stop_workers(workers: &mut [WorkerProcess]) {
+    for worker in workers.iter_mut() {
+        if matches!(worker.child.try_wait(), Ok(None)) {
+            let _ = worker.child.kill();
+        }
+    }
+    for worker in workers.iter_mut() {
+        let _ = worker.child.wait();
+    }
+}
+
+fn synchronize_workers(workers: &mut [WorkerProcess]) -> Result<(), String> {
+    let result = (|| {
+        wait_for_worker_barriers(
+            workers,
+            "initialization ready",
+            initialization_ready_barrier_path,
+        )?;
+        release_worker_barrier(workers, "warmup start", warmup_start_barrier_path)?;
+        wait_for_worker_barriers(workers, "timed ready", timed_ready_barrier_path)?;
+        release_worker_barrier(workers, "timed start", timed_start_barrier_path)
+    })();
+    if result.is_err() {
+        stop_workers(workers);
+    }
+    result
+}
+
+fn wait_for_workers(workers: &mut [WorkerProcess]) -> Result<(), String> {
+    for index in 0..workers.len() {
+        let result = {
+            let worker = &mut workers[index];
+            match worker.child.wait() {
+                Ok(status) if status.success() => Ok(()),
+                Ok(status) => Err(format!(
+                    "card {} wave {} worker failed with {status}; see {}",
+                    worker.card_id,
+                    worker.wave_index,
+                    worker.root.display()
+                )),
+                Err(error) => Err(format!("cannot wait for card {}: {error}", worker.card_id)),
+            }
+        };
+        if let Err(error) = result {
+            stop_workers(workers);
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usize>, String> {
@@ -823,6 +1053,8 @@ fn validate_worker(
         || receipt.execution.profiler_flush_during_timing
         || receipt.execution.control_replay_during_timing
         || receipt.execution.artifact_writes_during_timing
+        || receipt.execution.inspector_during_timing
+        || !receipt.execution.synchronized_timed_start
         || receipt.execution.wkv_execution_policy != wkv_policy.as_str()
         || receipt.execution.production_physically_admitted
     {
@@ -953,39 +1185,34 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
             .filter(|assignment| assignment.wave_index == wave_index)
             .map(|assignment| assignment.card_id)
             .collect::<std::collections::BTreeSet<_>>();
-        let mut workers = card_ids
+        let mut workers = Vec::with_capacity(active_cards.len());
+        for card_id in card_ids
             .iter()
             .filter(|card_id| active_cards.contains(card_id))
-            .map(|card_id| {
-                launch_worker(WorkerLaunchRequest {
-                    runtime,
-                    run_root: &run_root,
-                    run_id: &run_id,
-                    card_id: *card_id,
-                    wave_index,
-                    card_ids,
-                    workload,
-                    profile,
-                    collect_profiler,
-                    wkv_policy,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        for worker in &mut workers {
-            let status = worker
-                .child
-                .wait()
-                .map_err(|error| format!("cannot wait for card {}: {error}", worker.card_id))?;
-            if !status.success() {
-                return Err(format!(
-                    "card {} wave {} worker failed with {status}; see {}",
-                    worker.card_id,
-                    worker.wave_index,
-                    worker.root.display()
-                ));
+        {
+            let result = launch_worker(WorkerLaunchRequest {
+                runtime,
+                run_root: &run_root,
+                run_id: &run_id,
+                card_id: *card_id,
+                wave_index,
+                card_ids,
+                workload,
+                profile,
+                collect_profiler,
+                wkv_policy,
+            });
+            match result {
+                Ok(worker) => workers.push(worker),
+                Err(error) => {
+                    stop_workers(&mut workers);
+                    return Err(error);
+                }
             }
         }
-        let mut wave_elapsed_seconds = 0.0_f64;
+        synchronize_workers(&mut workers)?;
+        wait_for_workers(&mut workers)?;
+        let mut worker_timings = Vec::with_capacity(workers.len());
         for worker in &workers {
             let receipt: WorkerReceipt = read_json(&worker.output_path)?;
             validate_worker(
@@ -996,14 +1223,31 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
                 collect_profiler,
                 wkv_policy,
             )?;
-            wave_elapsed_seconds = wave_elapsed_seconds.max(receipt.elapsed_seconds);
+            worker_timings.push(WorkerTiming {
+                start_monotonic_ns: receipt.timed_start_monotonic_ns,
+                end_monotonic_ns: receipt.timed_end_monotonic_ns,
+                elapsed_seconds: receipt.elapsed_seconds,
+            });
             requests.extend(receipt.requests.into_iter().map(|request| {
                 let mut measurement = request.measurement;
                 measurement.wave_index = worker.wave_index;
                 measurement
             }));
         }
-        elapsed_seconds += wave_elapsed_seconds;
+        let wave_timing = synchronized_wave_timing(&worker_timings)?;
+        write_new_json(
+            &run_root
+                .join(format!("wave-{wave_index}"))
+                .join("synchronized-timing.json"),
+            &json!({
+                "schema_version": SCHEMA_VERSION,
+                "synchronized_timed_start": true,
+                "elapsed_seconds": wave_timing.elapsed_seconds,
+                "start_skew_seconds": wave_timing.start_skew_seconds,
+                "workers": worker_timings,
+            }),
+        )?;
+        elapsed_seconds += wave_timing.elapsed_seconds;
     }
     requests.sort_by(|left, right| left.request_id.cmp(&right.request_id));
     Ok(ThroughputRun {
@@ -1417,6 +1661,69 @@ mod tests {
         assert!(paired_speedups(&[10.0], &[10.0, 20.0]).is_err());
         assert!(paired_speedups(&[0.0], &[10.0]).is_err());
         assert!(paired_speedups(&[10.0], &[f64::NAN]).is_err());
+    }
+
+    #[test]
+    fn synchronized_wave_timing_accepts_overlapping_workers() {
+        const FIRST_START_NS: u64 = 1_000_000_000;
+        const SECOND_START_NS: u64 = FIRST_START_NS + 1_000_000;
+        const FIRST_ELAPSED_NS: u64 = 800_000_000;
+        const SECOND_ELAPSED_NS: u64 = 810_000_000;
+        const FIRST_ELAPSED_SECONDS: f64 = 0.8;
+        const SECOND_ELAPSED_SECONDS: f64 = 0.81;
+        const EXPECTED_WAVE_SECONDS: f64 = 0.811;
+        const EXPECTED_SKEW_SECONDS: f64 = 0.001;
+        let timing = synchronized_wave_timing(&[
+            WorkerTiming {
+                start_monotonic_ns: FIRST_START_NS,
+                end_monotonic_ns: FIRST_START_NS + FIRST_ELAPSED_NS,
+                elapsed_seconds: FIRST_ELAPSED_SECONDS,
+            },
+            WorkerTiming {
+                start_monotonic_ns: SECOND_START_NS,
+                end_monotonic_ns: SECOND_START_NS + SECOND_ELAPSED_NS,
+                elapsed_seconds: SECOND_ELAPSED_SECONDS,
+            },
+        ])
+        .expect("synchronized worker timing");
+        assert!((timing.elapsed_seconds - EXPECTED_WAVE_SECONDS).abs() < f64::EPSILON);
+        assert!((timing.start_skew_seconds - EXPECTED_SKEW_SECONDS).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn synchronized_wave_timing_rejects_excessive_start_skew() {
+        const FIRST_START_NS: u64 = 1_000_000_000;
+        const SECOND_START_NS: u64 = FIRST_START_NS + 20_000_000;
+        const ELAPSED_NS: u64 = 800_000_000;
+        const ELAPSED_SECONDS: f64 = 0.8;
+        assert!(
+            synchronized_wave_timing(&[
+                WorkerTiming {
+                    start_monotonic_ns: FIRST_START_NS,
+                    end_monotonic_ns: FIRST_START_NS + ELAPSED_NS,
+                    elapsed_seconds: ELAPSED_SECONDS,
+                },
+                WorkerTiming {
+                    start_monotonic_ns: SECOND_START_NS,
+                    end_monotonic_ns: SECOND_START_NS + ELAPSED_NS,
+                    elapsed_seconds: ELAPSED_SECONDS,
+                },
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn synchronized_wave_timing_rejects_malformed_ranges() {
+        const START_NS: u64 = 1_000_000_000;
+        assert!(
+            synchronized_wave_timing(&[WorkerTiming {
+                start_monotonic_ns: START_NS,
+                end_monotonic_ns: START_NS,
+                elapsed_seconds: 0.0,
+            }])
+            .is_err()
+        );
     }
 
     #[test]

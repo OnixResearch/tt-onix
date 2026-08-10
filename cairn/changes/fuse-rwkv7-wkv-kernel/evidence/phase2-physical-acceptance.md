@@ -6,7 +6,7 @@ Date: 2026-08-10
 
 The Blackhole fused WKV candidate passed physical tensor correctness, exact generated-token parity, and stable B16 A/B gain.
 
-Strict P150x2 scaling admission did not pass. Production dispatch stays closed, and `generic_wkv_step` stays authoritative.
+Strict P150x2 latency admission did not pass. Production dispatch stays closed, and `generic_wkv_step` stays authoritative.
 
 ## Physical maximum-batch probe
 
@@ -29,13 +29,13 @@ Every generated token matched the pinned FP32 CPU reference. The timed A/B sampl
 
 | Topology | Generic tokens/s | Fused tokens/s | Aggregate gain |
 | --- | ---: | ---: | ---: |
-| One card | 307.94323614990446 | 375.6423841464654 | 1.219842945222559x |
-| Two cards | 445.98736406997796 | 560.6308989845617 | 1.2570555673783517x |
+| One card | 358.0837631395328 | 437.98668576683207 | 1.223x |
+| Two cards | 337.3229076103619 | 722.4472805047268 | 2.142x |
 
 Every paired result improved:
 
-- one-card speedups: `1.1739560208517679`, `1.2825253935028924`, `1.2044758611722342`;
-- two-card speedups: `1.033296863270333`, `1.7587348393203222`, `1.3301446381676707`.
+- one-card speedups: `1.2508837408212021`, `1.2300160498287833`, `1.187905183992303`;
+- two-card speedups: `2.219560350366525`, `4.732432255516413`, `1.4038548119232248`.
 
 The A/B receipt reports `stable_gain: true` and `status: stable_physical_gain`.
 
@@ -55,14 +55,14 @@ The summaries have no unmatched start or end events.
 | --- | ---: | ---: | ---: |
 | Complete zone events | 1,173,823 | 1,155,480 | -18,343 (-1.5627%) |
 | TRISC kernel starts | 326,976 | 317,805 | -9,171 (-2.8048%) |
-| Summed zone cycles | 18,960,886,000 | 6,782,786,846 | -64.2275% |
+| Summed zone cycles | 19,070,035,058 | 6,870,320,814 | -63.97% |
 
 Summed zone cycles include nested zones and many cores. Do not read this value as wall time.
 
 The generic and fused program signatures differ. The retained single-card signatures are:
 
-- generic: `e8d5f28dd8430da5ada418d5e407787dbaab7930a343470d19be4e48ddd1575c`;
-- fused: `cefd6f52d0b6c7466ab1d20b3dc925c7cc160bbfe5de07ad4fe7864f48a46164`.
+- generic: `50454000942601883e95f951fa2ec7172754d2b427a7be7bad9c1d3069fbff3b`;
+- fused: `db0593434141cf62a38262e7b2b35e71e4c69c159841a2f3afb141cc463377b7`.
 
 The dual-card card-0 signatures are also retained. The profiler attestation binds physical device IDs 0 and 1.
 
@@ -83,16 +83,47 @@ Receipt: `phase2-fused-wkv-physical-memory-facts.json`.
 
 `tt-smi -s --snapshot_no_tty` captured devices 0 and 1 before and after the run.
 
-- before BLAKE3: `6b41bdf65dd6653fe7e97f647fac66f4f5971fba9d6d0f39b7c1627140b28579`;
-- after BLAKE3: `9cc4abd70f8d5fd4d78ec8a923309c02809b24586338a9bd24c14af8a1ba7251`.
+- before BLAKE3: `4920c7ab31d91bdfb64adfc20f0bf2d5cd33deca60055f5bee4659c3b36563cb`;
+- after BLAKE3: `074d3390032c15affca875d953e29c3df0f239c8878f2e6844e6bc918210e8fa`.
 
 The complete temporary run root was not retained. The portable receipts in this directory are the retained evidence.
 
+## H3 stall investigation
+
+The first physical A/B launcher let the two card workers enter warmup and timed decode independently. The corrected launcher now:
+
+- waits for both workers after initialization;
+- releases one shared warmup-start barrier;
+- waits for both workers before timed decode;
+- releases one shared timed-start barrier;
+- records monotonic worker start and end times;
+- rejects a wave when start skew exceeds `0.01` seconds;
+- disables TT-Metal Inspector in benchmark workers.
+
+The corrected dual-card samples had start skews from `0.000145062` to `0.000586911` seconds.
+
+| Sample | Generic wave seconds | Fused wave seconds |
+| --- | ---: | ---: |
+| 0 | 2.167732937 | 0.976649694 |
+| 1 | 4.211254129 | 0.88987098 |
+| 2 | 1.133233418 | 0.807229785 |
+
+The slow card changed between runs and policies. This pattern does not isolate the stall to the fused WKV kernel.
+
+The retained profiler sample was normal: the fused dual-card wave took `0.742919984` seconds. Timed admission samples did not flush device profiles. Therefore, the current evidence cannot assign the rare slow wave to one device zone. No kernel optimization was selected without that correlation.
+
+Two host-side alternatives were rejected:
+
+- parity and contiguous CPU-affinity partitions made dual fused execution slower;
+- Ethernet dispatch failed on the installed `1.4.2` Ethernet firmware because `idle_erisc.elf` exceeded the available code region.
+
+Bounded timing evidence: `phase2-fused-wkv-synchronized-timing.json`.
+
 ## Strict admission blocker
 
-The fused candidate reached a two-card speedup of `1.4924591117651091`. The profile requires at least `1.5`.
+The synchronized fused candidate reached a two-card speedup of `1.6494731551938797`. This passes the required minimum of `1.5`.
 
-Its p99 latency regression was `1.084927367376163`. The profile permits at most `0.10`.
+Its p99 latency regression was `0.24129836831923815`. The profile permits at most `0.10`.
 
 The retained admission result is `fused_candidate_scaling_rejected`. The runtime constant `kFusedWkvPhysicallyAdmitted` remains `false`.
 
