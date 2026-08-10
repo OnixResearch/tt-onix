@@ -2,9 +2,9 @@
 
 ## Phase 1: Contract and reference
 
-- [ ] [serial] B1 Capture the accepted decomposed WKV equation, tensor shapes, precision boundaries, launch profile, and token streams. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] B2 Add a pure fused-equation reference and typed capability contract. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
-- [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] B3 Add checked shape, dtype, layout, architecture, and state-ownership validation. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [serial] B1 Capture the accepted decomposed WKV equation, tensor shapes, precision boundaries, launch profile, and token streams. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] B2 Add a pure fused-equation reference and typed capability contract. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
+- [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] B3 Add checked shape, dtype, layout, architecture, and state-ownership validation. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 
 ## Phase 2: Kernel implementation
 

@@ -1,4 +1,5 @@
 pub mod capacity;
+pub mod fused_wkv;
 mod generated_model_target_identity;
 pub mod throughput;
 
