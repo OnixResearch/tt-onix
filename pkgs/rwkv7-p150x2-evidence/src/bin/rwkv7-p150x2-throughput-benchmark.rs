@@ -34,8 +34,12 @@ const STALL_CAPTURE_PROFILE_ARGUMENT_INDEX: usize = 2;
 const STALL_CAPTURE_REQUESTS_ARGUMENT_INDEX: usize = 3;
 const STALL_CAPTURE_OUTPUT_ARGUMENT_INDEX: usize = 4;
 const MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT: usize = 16;
+const MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE: usize = 2;
 const STALL_CAPTURE_TOPOLOGY: &str = "stall-profiler-dual";
 const STALL_PROBE_ENVIRONMENT: &str = "RWKV7_STALL_PROBE_STEPS";
+const PRIMARY_THREAD_CPUS_ENVIRONMENT: &str = "RWKV7_PRIMARY_THREAD_CPUS";
+const PRIMARY_THREAD_CPU_ENVIRONMENT: &str = "RWKV7_PRIMARY_THREAD_CPU";
+const PRIMARY_THREAD_FIFO_PRIORITY_ENVIRONMENT: &str = "RWKV7_PRIMARY_THREAD_FIFO_PRIORITY";
 const FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT: &str = "TT_METAL_FETCH_QUEUE_DIAGNOSTICS";
 const PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT: &str = "TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT";
 // TT-Metal defaults to 1,000 programs. Prompt setup exceeded that limit.
@@ -91,11 +95,16 @@ const BOUNDARY_TIMING_TOLERANCE_SECONDS: f64 = 0.0001;
 const MAXIMUM_FETCH_QUEUE_WAIT_CHECKS_PER_RESERVE: u64 = 2;
 const RWKV7_LAYER_COUNT: usize = 12;
 const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000.0;
+const MINIMUM_HARDWARE_COUNTER_RUNNING_FRACTION: f64 = 0.99;
+const HARDWARE_COUNTER_SCOPE: &str = "primary_worker_thread_timed_decode";
+const ADMITTED_PRIMARY_THREAD_CPUS: [usize; 2] = [2, 6];
+const ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WkvPolicy {
     Production,
     FusedCandidate,
+    GenericReference,
 }
 
 impl WkvPolicy {
@@ -103,8 +112,30 @@ impl WkvPolicy {
         match self {
             Self::Production => "production",
             Self::FusedCandidate => "fused-candidate",
+            Self::GenericReference => "generic-reference",
         }
     }
+}
+
+fn production_worker_physically_admitted(
+    policy: WkvPolicy,
+    card_id: usize,
+    primary_thread_cpu_affinity: Option<usize>,
+    primary_thread_fifo_priority: Option<u32>,
+) -> bool {
+    policy == WkvPolicy::Production
+        && ADMITTED_PRIMARY_THREAD_CPUS.get(card_id).copied() == primary_thread_cpu_affinity
+        && primary_thread_fifo_priority == Some(ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY)
+}
+
+fn production_run_physically_admitted(
+    policy: WkvPolicy,
+    primary_thread_cpu_affinities: Option<&[usize]>,
+    primary_thread_fifo_priority: Option<u32>,
+) -> bool {
+    policy == WkvPolicy::Production
+        && primary_thread_cpu_affinities == Some(ADMITTED_PRIMARY_THREAD_CPUS.as_slice())
+        && primary_thread_fifo_priority == Some(ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY)
 }
 
 fn profiler_program_support_count(
@@ -135,6 +166,73 @@ fn parse_stall_capture_sample_count(arguments: &[String]) -> Result<Option<usize
     Ok(Some(sample_count))
 }
 
+fn parse_primary_thread_cpus(value: Option<&str>) -> Result<Option<Vec<usize>>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let cpus = value
+        .split(',')
+        .map(|field| {
+            field
+                .parse::<usize>()
+                .map_err(|_| "primary thread CPU must be an unsigned integer".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if cpus.len() != TWO_CARD_IDS.len() {
+        return Err(format!(
+            "primary thread CPU list must contain exactly {} entries",
+            TWO_CARD_IDS.len()
+        ));
+    }
+    if cpus[0] == cpus[1] {
+        return Err("primary threads must use distinct CPUs".to_owned());
+    }
+    Ok(Some(cpus))
+}
+
+fn primary_thread_cpus() -> Result<Option<Vec<usize>>, String> {
+    match std::env::var(PRIMARY_THREAD_CPUS_ENVIRONMENT) {
+        Ok(value) => parse_primary_thread_cpus(Some(&value)),
+        Err(std::env::VarError::NotPresent) => parse_primary_thread_cpus(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err("primary thread CPU list is not UTF-8".to_owned())
+        }
+    }
+}
+
+fn parse_primary_thread_fifo_priority(value: Option<&str>) -> Result<Option<u32>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let priority = value
+        .parse::<u32>()
+        .map_err(|_| "primary thread FIFO priority must be an unsigned integer".to_owned())?;
+    if priority == 0 {
+        return Err("primary thread FIFO priority must be positive".to_owned());
+    }
+    Ok(Some(priority))
+}
+
+fn primary_thread_fifo_priority() -> Result<Option<u32>, String> {
+    match std::env::var(PRIMARY_THREAD_FIFO_PRIORITY_ENVIRONMENT) {
+        Ok(value) => parse_primary_thread_fifo_priority(Some(&value)),
+        Err(std::env::VarError::NotPresent) => parse_primary_thread_fifo_priority(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err("primary thread FIFO priority is not UTF-8".to_owned())
+        }
+    }
+}
+
+fn validate_primary_thread_scheduling(
+    primary_thread_cpu_affinity: Option<usize>,
+    primary_thread_fifo_priority: Option<u32>,
+) -> Result<(), String> {
+    if primary_thread_fifo_priority.is_some() && primary_thread_cpu_affinity.is_none() {
+        return Err("primary thread FIFO scheduling requires CPU affinity".to_owned());
+    }
+    Ok(())
+}
+
 fn parse_wkv_policy(arguments: &[String]) -> Result<(WkvPolicy, usize), String> {
     if arguments.len() == EXPECTED_ARGUMENT_COUNT {
         return Ok((WkvPolicy::Production, PROFILE_ARGUMENT_INDEX));
@@ -149,9 +247,9 @@ fn parse_wkv_policy(arguments: &[String]) -> Result<(WkvPolicy, usize), String> 
 
 fn order_balanced_wkv_policies(sample_index: usize) -> [WkvPolicy; ORDER_BALANCE_PERIOD] {
     if sample_index.is_multiple_of(ORDER_BALANCE_PERIOD) {
-        return [WkvPolicy::Production, WkvPolicy::FusedCandidate];
+        return [WkvPolicy::GenericReference, WkvPolicy::FusedCandidate];
     }
-    [WkvPolicy::FusedCandidate, WkvPolicy::Production]
+    [WkvPolicy::FusedCandidate, WkvPolicy::GenericReference]
 }
 
 fn paired_speedups(baseline_rates: &[f64], candidate_rates: &[f64]) -> Result<Vec<f64>, String> {
@@ -227,6 +325,39 @@ struct FetchQueueDiagnostics {
     maximum_wait_nanoseconds: u64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct HardwareCounterReading {
+    value: u64,
+    time_enabled_nanoseconds: u64,
+    time_running_nanoseconds: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct HardwareCounterDiagnostics {
+    scope: String,
+    cycles: HardwareCounterReading,
+    instructions: HardwareCounterReading,
+    cache_references: HardwareCounterReading,
+    cache_misses: HardwareCounterReading,
+    aperf: HardwareCounterReading,
+    mperf: HardwareCounterReading,
+    task_clock_nanoseconds: HardwareCounterReading,
+    context_switches: HardwareCounterReading,
+    cpu_migrations: HardwareCounterReading,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+struct HardwareCounterMetrics {
+    instructions_per_cycle: f64,
+    cache_miss_fraction: f64,
+    aperf_mperf_ratio: f64,
+    average_core_ghz: f64,
+    instruction_rate_giga_per_second: f64,
+    scheduled_fraction: f64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StallProbeStepBoundaryTiming {
@@ -263,9 +394,12 @@ struct WorkerReceipt {
     queue_occupancy_fraction: f64,
     batch_step_count: usize,
     host_gap_accumulated_seconds: f64,
+    primary_thread_cpu_affinity: Option<usize>,
+    primary_thread_fifo_priority: Option<u32>,
     stall_probe_step_wall_seconds: Option<Vec<f64>>,
     stall_probe_step_boundary_timings: Option<Vec<StallProbeStepBoundaryTiming>>,
     fetch_queue_diagnostics: Option<FetchQueueDiagnostics>,
+    hardware_counter_diagnostics: Option<HardwareCounterDiagnostics>,
     requests: Vec<WorkerRequestMeasurement>,
     execution: WorkerExecution,
 }
@@ -314,6 +448,9 @@ struct WorkerExecution {
     artifact_writes_during_timing: bool,
     inspector_during_timing: bool,
     fetch_queue_diagnostics_during_timing: bool,
+    hardware_counters_during_timing: bool,
+    primary_thread_only_affinity: bool,
+    primary_thread_fifo_scheduling: bool,
     synchronized_timed_start: bool,
     wkv_execution_policy: String,
     production_physically_admitted: bool,
@@ -328,6 +465,8 @@ struct WorkerProcess {
     warmup_start_barrier_path: PathBuf,
     timed_ready_barrier_path: PathBuf,
     timed_start_barrier_path: PathBuf,
+    primary_thread_cpu_affinity: Option<usize>,
+    primary_thread_fifo_priority: Option<u32>,
     child: std::process::Child,
 }
 
@@ -429,6 +568,7 @@ struct StallCaptureWorker {
     timed_start_unix_ns: u64,
     timed_end_unix_ns: u64,
     host_gap_accumulated_seconds: f64,
+    primary_thread_cpu_affinity: Option<usize>,
     batch_step_count: usize,
     maximum_step_index: usize,
     maximum_step_wall_seconds: f64,
@@ -436,6 +576,8 @@ struct StallCaptureWorker {
     step_wall_seconds: Vec<f64>,
     step_boundary_timings: Vec<StallProbeStepBoundaryTiming>,
     fetch_queue_diagnostics: FetchQueueDiagnostics,
+    hardware_counter_diagnostics: HardwareCounterDiagnostics,
+    hardware_counter_metrics: HardwareCounterMetrics,
     profiler: ProfilerProgramSignature,
 }
 
@@ -474,6 +616,25 @@ struct StallCaptureFetchQueueComparison {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct StallCaptureHardwareCounterComparison {
+    cycles_ratio: f64,
+    instructions_ratio: f64,
+    cache_references_ratio: f64,
+    cache_misses_ratio: Option<f64>,
+    aperf_ratio: f64,
+    mperf_ratio: f64,
+    task_clock_ratio: f64,
+    context_switch_ratio: Option<f64>,
+    cpu_migration_ratio: Option<f64>,
+    instructions_per_cycle_ratio: f64,
+    cache_miss_fraction_ratio: Option<f64>,
+    aperf_mperf_ratio_ratio: f64,
+    average_core_ghz_ratio: f64,
+    instruction_rate_ratio: f64,
+    scheduled_fraction_ratio: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 struct StallCaptureCardComparison {
     physical_card_id: usize,
     total_zone_cycle_ratio: f64,
@@ -481,6 +642,7 @@ struct StallCaptureCardComparison {
     summed_step_wall_ratio: f64,
     boundary: StallCaptureBoundaryComparison,
     fetch_queue: StallCaptureFetchQueueComparison,
+    hardware_counters: StallCaptureHardwareCounterComparison,
     zone_total_cycle_ratios: BTreeMap<String, f64>,
 }
 
@@ -579,12 +741,192 @@ fn validate_fetch_queue_diagnostics(diagnostics: FetchQueueDiagnostics) -> Resul
     Ok(())
 }
 
+fn validate_hardware_counter_reading(
+    reading: HardwareCounterReading,
+    name: &str,
+    require_nonzero_value: bool,
+) -> Result<(), String> {
+    if require_nonzero_value && reading.value == 0 {
+        return Err(format!("{name} hardware counter is zero"));
+    }
+    if reading.time_enabled_nanoseconds == 0
+        || reading.time_running_nanoseconds == 0
+        || reading.time_running_nanoseconds > reading.time_enabled_nanoseconds
+    {
+        return Err(format!("{name} hardware counter has invalid running time"));
+    }
+    let running_fraction =
+        reading.time_running_nanoseconds as f64 / reading.time_enabled_nanoseconds as f64;
+    if running_fraction < MINIMUM_HARDWARE_COUNTER_RUNNING_FRACTION {
+        return Err(format!(
+            "{name} hardware counter was multiplexed below the bound"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_hardware_counter_diagnostics(
+    diagnostics: &HardwareCounterDiagnostics,
+) -> Result<(), String> {
+    if diagnostics.scope != HARDWARE_COUNTER_SCOPE {
+        return Err("hardware counter scope is invalid".to_owned());
+    }
+    for (name, reading, require_nonzero_value) in [
+        ("cycles", diagnostics.cycles, true),
+        ("instructions", diagnostics.instructions, true),
+        ("cache references", diagnostics.cache_references, true),
+        ("cache misses", diagnostics.cache_misses, false),
+        ("APERF", diagnostics.aperf, true),
+        ("MPERF", diagnostics.mperf, true),
+        ("task clock", diagnostics.task_clock_nanoseconds, true),
+        ("context switches", diagnostics.context_switches, false),
+        ("CPU migrations", diagnostics.cpu_migrations, false),
+    ] {
+        validate_hardware_counter_reading(reading, name, require_nonzero_value)?;
+    }
+    if diagnostics.cache_misses.value > diagnostics.cache_references.value {
+        return Err("hardware counter cache misses exceed references".to_owned());
+    }
+    Ok(())
+}
+
+fn hardware_counter_metrics(
+    diagnostics: &HardwareCounterDiagnostics,
+    elapsed_seconds: f64,
+) -> Result<HardwareCounterMetrics, String> {
+    validate_hardware_counter_diagnostics(diagnostics)?;
+    if !elapsed_seconds.is_finite() || elapsed_seconds <= 0.0 {
+        return Err("hardware counter elapsed time must be finite and positive".to_owned());
+    }
+    let instructions_per_cycle =
+        diagnostics.instructions.value as f64 / diagnostics.cycles.value as f64;
+    let cache_miss_fraction =
+        diagnostics.cache_misses.value as f64 / diagnostics.cache_references.value as f64;
+    let aperf_mperf_ratio = diagnostics.aperf.value as f64 / diagnostics.mperf.value as f64;
+    let average_core_ghz =
+        diagnostics.cycles.value as f64 / diagnostics.task_clock_nanoseconds.value as f64;
+    let instruction_rate_giga_per_second =
+        diagnostics.instructions.value as f64 / diagnostics.task_clock_nanoseconds.value as f64;
+    let elapsed_nanoseconds = elapsed_seconds * NANOSECONDS_PER_SECOND;
+    let scheduled_fraction = diagnostics.task_clock_nanoseconds.value as f64 / elapsed_nanoseconds;
+    let metrics = HardwareCounterMetrics {
+        instructions_per_cycle,
+        cache_miss_fraction,
+        aperf_mperf_ratio,
+        average_core_ghz,
+        instruction_rate_giga_per_second,
+        scheduled_fraction,
+    };
+    let values = [
+        metrics.instructions_per_cycle,
+        metrics.cache_miss_fraction,
+        metrics.aperf_mperf_ratio,
+        metrics.average_core_ghz,
+        metrics.instruction_rate_giga_per_second,
+        metrics.scheduled_fraction,
+    ];
+    if values
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+        || metrics.instructions_per_cycle == 0.0
+        || metrics.aperf_mperf_ratio == 0.0
+        || metrics.average_core_ghz == 0.0
+        || metrics.instruction_rate_giga_per_second == 0.0
+        || metrics.scheduled_fraction == 0.0
+    {
+        return Err("derived hardware counter metrics are invalid".to_owned());
+    }
+    Ok(metrics)
+}
+
 fn optional_counter_ratio(numerator: u64, denominator: u64) -> Option<f64> {
     if denominator == 0 {
         None
     } else {
         Some(numerator as f64 / denominator as f64)
     }
+}
+
+fn optional_positive_f64_ratio(numerator: f64, denominator: f64) -> Option<f64> {
+    if !numerator.is_finite() || numerator < 0.0 || !denominator.is_finite() || denominator <= 0.0 {
+        None
+    } else {
+        Some(numerator / denominator)
+    }
+}
+
+fn compare_hardware_counter_diagnostics(
+    normal: &HardwareCounterDiagnostics,
+    slow: &HardwareCounterDiagnostics,
+    normal_elapsed_seconds: f64,
+    slow_elapsed_seconds: f64,
+) -> Result<StallCaptureHardwareCounterComparison, String> {
+    let normal_metrics = hardware_counter_metrics(normal, normal_elapsed_seconds)?;
+    let slow_metrics = hardware_counter_metrics(slow, slow_elapsed_seconds)?;
+    let counter_ratio = |slow_value: u64, normal_value: u64, name: &str| {
+        positive_ratio(slow_value as f64, normal_value as f64, name)
+    };
+    Ok(StallCaptureHardwareCounterComparison {
+        cycles_ratio: counter_ratio(slow.cycles.value, normal.cycles.value, "cycles")?,
+        instructions_ratio: counter_ratio(
+            slow.instructions.value,
+            normal.instructions.value,
+            "instructions",
+        )?,
+        cache_references_ratio: counter_ratio(
+            slow.cache_references.value,
+            normal.cache_references.value,
+            "cache references",
+        )?,
+        cache_misses_ratio: optional_counter_ratio(
+            slow.cache_misses.value,
+            normal.cache_misses.value,
+        ),
+        aperf_ratio: counter_ratio(slow.aperf.value, normal.aperf.value, "APERF")?,
+        mperf_ratio: counter_ratio(slow.mperf.value, normal.mperf.value, "MPERF")?,
+        task_clock_ratio: counter_ratio(
+            slow.task_clock_nanoseconds.value,
+            normal.task_clock_nanoseconds.value,
+            "task clock",
+        )?,
+        context_switch_ratio: optional_counter_ratio(
+            slow.context_switches.value,
+            normal.context_switches.value,
+        ),
+        cpu_migration_ratio: optional_counter_ratio(
+            slow.cpu_migrations.value,
+            normal.cpu_migrations.value,
+        ),
+        instructions_per_cycle_ratio: positive_ratio(
+            slow_metrics.instructions_per_cycle,
+            normal_metrics.instructions_per_cycle,
+            "instructions per cycle",
+        )?,
+        cache_miss_fraction_ratio: optional_positive_f64_ratio(
+            slow_metrics.cache_miss_fraction,
+            normal_metrics.cache_miss_fraction,
+        ),
+        aperf_mperf_ratio_ratio: positive_ratio(
+            slow_metrics.aperf_mperf_ratio,
+            normal_metrics.aperf_mperf_ratio,
+            "APERF MPERF ratio",
+        )?,
+        average_core_ghz_ratio: positive_ratio(
+            slow_metrics.average_core_ghz,
+            normal_metrics.average_core_ghz,
+            "average core GHz",
+        )?,
+        instruction_rate_ratio: positive_ratio(
+            slow_metrics.instruction_rate_giga_per_second,
+            normal_metrics.instruction_rate_giga_per_second,
+            "instruction rate",
+        )?,
+        scheduled_fraction_ratio: positive_ratio(
+            slow_metrics.scheduled_fraction,
+            normal_metrics.scheduled_fraction,
+            "scheduled fraction",
+        )?,
+    })
 }
 
 fn compare_fetch_queue_diagnostics(
@@ -894,6 +1236,12 @@ fn compare_stall_capture_samples(
                 normal_worker.summed_step_wall_seconds,
                 slow_worker.summed_step_wall_seconds,
             )?,
+            hardware_counters: compare_hardware_counter_diagnostics(
+                &normal_worker.hardware_counter_diagnostics,
+                &slow_worker.hardware_counter_diagnostics,
+                normal_worker.elapsed_seconds,
+                slow_worker.elapsed_seconds,
+            )?,
             zone_total_cycle_ratios,
         });
     }
@@ -1164,6 +1512,15 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         stall_probe,
         wkv_policy,
     } = request;
+    let primary_thread_cpu_affinity = primary_thread_cpus()?
+        .map(|cpus| {
+            cpus.get(card_id)
+                .copied()
+                .ok_or_else(|| "primary thread CPU has no card entry".to_owned())
+        })
+        .transpose()?;
+    let primary_thread_fifo_priority = primary_thread_fifo_priority()?;
+    validate_primary_thread_scheduling(primary_thread_cpu_affinity, primary_thread_fifo_priority)?;
     let wave_root = run_root.join(format!("wave-{wave_index}"));
     let worker_root = wave_root.join(format!("card-{card_id}"));
     fs::create_dir_all(worker_root.join("profiler"))
@@ -1232,6 +1589,14 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
             .env_remove(STALL_PROBE_ENVIRONMENT)
             .env_remove(FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT);
     }
+    match primary_thread_cpu_affinity {
+        Some(cpu) => {
+            command.env(PRIMARY_THREAD_CPU_ENVIRONMENT, cpu.to_string());
+        }
+        None => {
+            command.env_remove(PRIMARY_THREAD_CPU_ENVIRONMENT);
+        }
+    }
     match profiler_program_support_count {
         Some(count) => {
             command.env(
@@ -1257,6 +1622,8 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         warmup_start_barrier_path,
         timed_ready_barrier_path,
         timed_start_barrier_path,
+        primary_thread_cpu_affinity,
+        primary_thread_fifo_priority,
         child,
     })
 }
@@ -1710,6 +2077,12 @@ fn validate_worker(
 ) -> Result<(), String> {
     let wall_clock_elapsed =
         wall_clock_elapsed_seconds(receipt.timed_start_unix_ns, receipt.timed_end_unix_ns)?;
+    let expected_production_physically_admitted = production_worker_physically_admitted(
+        wkv_policy,
+        worker.card_id,
+        worker.primary_thread_cpu_affinity,
+        worker.primary_thread_fifo_priority,
+    );
     if receipt.schema_version != SCHEMA_VERSION
         || receipt.run_id.is_empty()
         || receipt.physical_device_ids != vec![worker.card_id]
@@ -1717,6 +2090,8 @@ fn validate_worker(
         || receipt.logical_device_ids != vec![FILTERED_WORKER_LOGICAL_CARD_ID]
         || !receipt.physical_hardware
         || receipt.profiler_attributed != collect_profiler
+        || receipt.primary_thread_cpu_affinity != worker.primary_thread_cpu_affinity
+        || receipt.primary_thread_fifo_priority != worker.primary_thread_fifo_priority
         || !receipt.elapsed_seconds.is_finite()
         || receipt.elapsed_seconds <= 0.0
         || (wall_clock_elapsed - receipt.elapsed_seconds).abs()
@@ -1732,21 +2107,31 @@ fn validate_worker(
         receipt.stall_probe_step_wall_seconds.as_deref(),
         receipt.stall_probe_step_boundary_timings.as_deref(),
         receipt.fetch_queue_diagnostics,
+        receipt.hardware_counter_diagnostics.as_ref(),
     ) {
-        (true, Some(steps), Some(boundaries), Some(diagnostics))
+        (true, Some(steps), Some(boundaries), Some(diagnostics), Some(hardware_counters))
             if steps.len() == receipt.batch_step_count =>
         {
             maximum_step(steps)?;
             validate_step_boundary_timings(boundaries, receipt.batch_step_count)?;
             validate_fetch_queue_diagnostics(diagnostics)?;
+            hardware_counter_metrics(hardware_counters, receipt.elapsed_seconds)?;
         }
-        (false, None, None, None) => {}
+        (false, None, None, None, None) => {}
         _ => {
             return Err(format!(
                 "card {} returned malformed stall step evidence",
                 worker.card_id
             ));
         }
+    }
+    if receipt.execution.production_physically_admitted != expected_production_physically_admitted {
+        return Err(format!(
+            "card {} production admission was {}, expected {}",
+            worker.card_id,
+            receipt.execution.production_physically_admitted,
+            expected_production_physically_admitted,
+        ));
     }
     let expected_warmup_token_count = if stall_probe {
         PROFILER_WARMUP_TOKEN_COUNT
@@ -1767,22 +2152,64 @@ fn validate_worker(
         receipt.execution.recurrent_state_residency.as_str(),
         receipt.execution.timed_region.as_str(),
     );
-    if actual_execution != expected_execution
-        || receipt.execution.warmup_token_count != expected_warmup_token_count
-        || !receipt.execution.program_cache_stable
-        || !receipt.execution.dynamic_token_and_state_bindings_validated
-        || receipt.execution.state_readback_during_timing
-        || receipt.execution.profiler_flush_during_timing
-        || receipt.execution.control_replay_during_timing
-        || receipt.execution.artifact_writes_during_timing
-        || receipt.execution.inspector_during_timing
-        || receipt.execution.fetch_queue_diagnostics_during_timing != stall_probe
-        || !receipt.execution.synchronized_timed_start
-        || receipt.execution.wkv_execution_policy != wkv_policy.as_str()
-        || receipt.execution.production_physically_admitted
-    {
+    let contamination_checks = [
+        ("execution contract", actual_execution != expected_execution),
+        (
+            "warmup token count",
+            receipt.execution.warmup_token_count != expected_warmup_token_count,
+        ),
+        ("program cache", !receipt.execution.program_cache_stable),
+        (
+            "dynamic bindings",
+            !receipt.execution.dynamic_token_and_state_bindings_validated,
+        ),
+        (
+            "state readback",
+            receipt.execution.state_readback_during_timing,
+        ),
+        (
+            "profiler flush",
+            receipt.execution.profiler_flush_during_timing,
+        ),
+        (
+            "control replay",
+            receipt.execution.control_replay_during_timing,
+        ),
+        (
+            "artifact writes",
+            receipt.execution.artifact_writes_during_timing,
+        ),
+        ("Inspector", receipt.execution.inspector_during_timing),
+        (
+            "fetch queue diagnostics",
+            receipt.execution.fetch_queue_diagnostics_during_timing != stall_probe,
+        ),
+        (
+            "hardware counters",
+            receipt.execution.hardware_counters_during_timing != stall_probe,
+        ),
+        (
+            "primary thread affinity",
+            receipt.execution.primary_thread_only_affinity
+                != worker.primary_thread_cpu_affinity.is_some(),
+        ),
+        (
+            "primary thread FIFO scheduling",
+            receipt.execution.primary_thread_fifo_scheduling
+                != worker.primary_thread_fifo_priority.is_some(),
+        ),
+        (
+            "synchronized start",
+            !receipt.execution.synchronized_timed_start,
+        ),
+        (
+            "WKV execution policy",
+            receipt.execution.wkv_execution_policy != wkv_policy.as_str(),
+        ),
+    ];
+    if let Some((name, _)) = contamination_checks.iter().find(|(_, failed)| *failed) {
         return Err(format!(
-            "card {} contaminated its timed region",
+            "card {} contaminated its timed region: {name}",
             worker.card_id
         ));
     }
@@ -2024,6 +2451,11 @@ fn load_stall_capture_sample(
             .fetch_queue_diagnostics
             .ok_or_else(|| "profiled stall capture omitted fetch queue diagnostics".to_owned())?;
         validate_fetch_queue_diagnostics(fetch_queue_diagnostics)?;
+        let hardware_counter_diagnostics = receipt
+            .hardware_counter_diagnostics
+            .ok_or_else(|| "profiled stall capture omitted hardware counters".to_owned())?;
+        let hardware_counter_metrics =
+            hardware_counter_metrics(&hardware_counter_diagnostics, receipt.elapsed_seconds)?;
         let profiler: ProfilerProgramSignature =
             read_json(&worker_root.join(PROFILER_PROGRAM_SIGNATURE_FILENAME))?;
         if profiler.schema_version != SCHEMA_VERSION
@@ -2043,6 +2475,7 @@ fn load_stall_capture_sample(
             timed_start_unix_ns: receipt.timed_start_unix_ns,
             timed_end_unix_ns: receipt.timed_end_unix_ns,
             host_gap_accumulated_seconds: receipt.host_gap_accumulated_seconds,
+            primary_thread_cpu_affinity: receipt.primary_thread_cpu_affinity,
             batch_step_count: receipt.batch_step_count,
             maximum_step_index,
             maximum_step_wall_seconds,
@@ -2050,6 +2483,8 @@ fn load_stall_capture_sample(
             step_wall_seconds,
             step_boundary_timings,
             fetch_queue_diagnostics,
+            hardware_counter_diagnostics,
+            hardware_counter_metrics,
             profiler,
         });
     }
@@ -2064,6 +2499,72 @@ fn load_stall_capture_sample(
         start_skew_seconds: wave_timing.start_skew_seconds,
         workers,
     })
+}
+
+fn validate_stall_capture_attempt_counts(
+    attempt_counts: &[usize],
+    expected_sample_count: usize,
+) -> Result<(), String> {
+    if attempt_counts.len() != expected_sample_count {
+        return Err("stall capture attempt count differs from sample count".to_owned());
+    }
+    if attempt_counts.iter().any(|attempt_count| {
+        *attempt_count == 0 || *attempt_count > MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE
+    }) {
+        return Err("stall capture attempt count is outside its bound".to_owned());
+    }
+    Ok(())
+}
+
+fn run_stall_capture_sample(
+    runtime: &Path,
+    output_root: &Path,
+    sample_index: usize,
+    workload: &BenchmarkWorkload,
+    profile: &ThroughputProfile,
+) -> Result<(StallCaptureSample, usize), String> {
+    let run_root = output_root.join(format!("{STALL_CAPTURE_TOPOLOGY}-{sample_index}"));
+    let mut last_error = None;
+    for attempt_index in 0..MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE {
+        if attempt_index > 0 && run_root.exists() {
+            fs::remove_dir_all(&run_root).map_err(|error| {
+                format!(
+                    "cannot remove rejected stall sample {}: {error}",
+                    run_root.display()
+                )
+            })?;
+        }
+        match run_sample(SampleRequest {
+            runtime,
+            root: output_root,
+            topology: STALL_CAPTURE_TOPOLOGY,
+            sample_index,
+            card_ids: &TWO_CARD_IDS,
+            workload,
+            profile,
+            collect_profiler: true,
+            stall_probe: true,
+            profiler_attested: true,
+            wkv_policy: WkvPolicy::FusedCandidate,
+        }) {
+            Ok(run) => {
+                match load_stall_capture_sample(output_root, sample_index, run.elapsed_seconds) {
+                    Ok(sample) => {
+                        let attempt_count = attempt_index
+                            .checked_add(1)
+                            .ok_or_else(|| "stall capture attempt count overflowed".to_owned())?;
+                        return Ok((sample, attempt_count));
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(format!(
+        "stall sample {sample_index} failed after {MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE} attempts: {}",
+        last_error.unwrap_or_else(|| "no attempt error was recorded".to_owned())
+    ))
 }
 
 fn run_stall_capture(arguments: &[String], sample_count: usize) -> Result<(), String> {
@@ -2093,30 +2594,20 @@ fn run_stall_capture(arguments: &[String], sample_count: usize) -> Result<(), St
         ));
     }
     let profile_identity_blake3 = profile_identity(&profile).map_err(|error| error.to_string())?;
+    let primary_thread_cpu_affinities = primary_thread_cpus()?;
+    let primary_thread_fifo_priority = primary_thread_fifo_priority()?;
     let runtime = diagnostic_runtime_executable()?;
     let tt_smi = tt_smi_executable()?;
     let machine_facts_before = capture_machine_snapshot(&tt_smi, &output_root, "before")?;
     let mut samples = Vec::with_capacity(sample_count);
+    let mut sample_attempt_counts = Vec::with_capacity(sample_count);
     for sample_index in 0..sample_count {
-        let run = run_sample(SampleRequest {
-            runtime: &runtime,
-            root: &output_root,
-            topology: STALL_CAPTURE_TOPOLOGY,
-            sample_index,
-            card_ids: &TWO_CARD_IDS,
-            workload: &workload,
-            profile: &profile,
-            collect_profiler: true,
-            stall_probe: true,
-            profiler_attested: true,
-            wkv_policy: WkvPolicy::FusedCandidate,
-        })?;
-        samples.push(load_stall_capture_sample(
-            &output_root,
-            sample_index,
-            run.elapsed_seconds,
-        )?);
+        let (sample, attempt_count) =
+            run_stall_capture_sample(&runtime, &output_root, sample_index, &workload, &profile)?;
+        samples.push(sample);
+        sample_attempt_counts.push(attempt_count);
     }
+    validate_stall_capture_attempt_counts(&sample_attempt_counts, sample_count)?;
     let machine_facts_after = capture_machine_snapshot(&tt_smi, &output_root, "after")?;
     let elapsed_seconds = samples
         .iter()
@@ -2136,7 +2627,12 @@ fn run_stall_capture(arguments: &[String], sample_count: usize) -> Result<(), St
             "wkv_execution_policy": WkvPolicy::FusedCandidate.as_str(),
             "production_physically_admitted": false,
             "profile_identity_blake3": profile_identity_blake3,
+            "primary_thread_cpu_affinities": primary_thread_cpu_affinities,
+            "primary_thread_fifo_priority": primary_thread_fifo_priority,
             "sample_count": sample_count,
+            "maximum_attempts_per_sample": MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE,
+            "sample_attempt_counts": sample_attempt_counts,
+            "failed_attempt_artifacts_retained": false,
             "timed_samples_profiled": true,
             "warmup_token_count": PROFILER_WARMUP_TOKEN_COUNT,
             "generated_token_count": PROFILER_GENERATED_TOKEN_COUNT,
@@ -2173,6 +2669,13 @@ fn run() -> Result<(), String> {
     let workload: BenchmarkWorkload = read_json(&workload_path)?;
     validate_workload(&workload, &profile)?;
     let identity = profile_identity(&profile).map_err(|error| error.to_string())?;
+    let primary_thread_cpu_affinities = primary_thread_cpus()?;
+    let primary_thread_fifo_priority = primary_thread_fifo_priority()?;
+    let production_physically_admitted = production_run_physically_admitted(
+        wkv_policy,
+        primary_thread_cpu_affinities.as_deref(),
+        primary_thread_fifo_priority,
+    );
     let profiler_workload = bounded_profiler_workload(&workload)?;
     let runtime = runtime_executable()?;
     let diagnostic_runtime = diagnostic_runtime_executable()?;
@@ -2217,7 +2720,7 @@ fn run() -> Result<(), String> {
             collect_profiler: true,
             stall_probe: true,
             profiler_attested: true,
-            wkv_policy: WkvPolicy::Production,
+            wkv_policy: WkvPolicy::GenericReference,
         })?)
     } else {
         None
@@ -2234,7 +2737,7 @@ fn run() -> Result<(), String> {
             collect_profiler: true,
             stall_probe: true,
             profiler_attested: true,
-            wkv_policy: WkvPolicy::Production,
+            wkv_policy: WkvPolicy::GenericReference,
         })?)
     } else {
         None
@@ -2257,7 +2760,9 @@ fn run() -> Result<(), String> {
             "dropped_profiler_markers": false,
             "program_signature_filename": PROFILER_PROGRAM_SIGNATURE_FILENAME,
             "wkv_execution_policy": wkv_policy.as_str(),
-            "production_physically_admitted": false,
+            "primary_thread_cpu_affinities": primary_thread_cpu_affinities.clone(),
+            "primary_thread_fifo_priority": primary_thread_fifo_priority,
+            "production_physically_admitted": production_physically_admitted,
         }),
     )?;
 
@@ -2273,11 +2778,9 @@ fn run() -> Result<(), String> {
         };
         for sample_policy in policies {
             let topology = match sample_policy {
-                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
-                    "single-generic"
-                }
                 WkvPolicy::Production => "single",
                 WkvPolicy::FusedCandidate => "single-fused",
+                WkvPolicy::GenericReference => "single-generic",
             };
             let run = run_sample(SampleRequest {
                 runtime: &runtime,
@@ -2293,9 +2796,7 @@ fn run() -> Result<(), String> {
                 wkv_policy: sample_policy,
             })?;
             match sample_policy {
-                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
-                    baseline_one_card_runs.push(run);
-                }
+                WkvPolicy::GenericReference => baseline_one_card_runs.push(run),
                 WkvPolicy::Production | WkvPolicy::FusedCandidate => one_card_runs.push(run),
             }
         }
@@ -2308,9 +2809,9 @@ fn run() -> Result<(), String> {
         };
         for sample_policy in policies {
             let topology = match sample_policy {
-                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => "dual-generic",
                 WkvPolicy::Production => "dual",
                 WkvPolicy::FusedCandidate => "dual-fused",
+                WkvPolicy::GenericReference => "dual-generic",
             };
             let run = run_sample(SampleRequest {
                 runtime: &runtime,
@@ -2326,9 +2827,7 @@ fn run() -> Result<(), String> {
                 wkv_policy: sample_policy,
             })?;
             match sample_policy {
-                WkvPolicy::Production if wkv_policy == WkvPolicy::FusedCandidate => {
-                    baseline_two_card_runs.push(run);
-                }
+                WkvPolicy::GenericReference => baseline_two_card_runs.push(run),
                 WkvPolicy::Production | WkvPolicy::FusedCandidate => two_card_runs.push(run),
             }
         }
@@ -2390,7 +2889,7 @@ fn run() -> Result<(), String> {
                     "fused_candidate_scaling_pass"
                 },
                 "wkv_execution_policy": wkv_policy.as_str(),
-                "production_physically_admitted": false,
+                "production_physically_admitted": production_physically_admitted,
                 "identity_blake3": admission.identity_blake3,
                 "dual_card_speedup": admission.dual_card_speedup,
                 "scaling_efficiency": admission.scaling_efficiency,
@@ -2477,6 +2976,8 @@ fn run() -> Result<(), String> {
                 "batch_capacity": profile.scheduler.per_card_slot_count,
                 "repeat_count": profile.repeat_count,
                 "order_schedule": order_schedule,
+                "primary_thread_cpu_affinities": primary_thread_cpu_affinities,
+                "primary_thread_fifo_priority": primary_thread_fifo_priority,
                 "exact_generated_token_parity": true,
                 "cpu_reference_profile_blake3": workload.cpu_reference_profile_blake3,
                 "generic_receipt_identity_blake3": baseline_receipt.identity_blake3,
@@ -2521,6 +3022,33 @@ mod tests {
     const TEST_RATIO_ULP_MARGIN: f64 = 2.0;
     const TEST_RATIO_TOLERANCE: f64 = TEST_RATIO_ULP_MARGIN * f64::EPSILON;
 
+    fn test_hardware_counter_diagnostics(elapsed_nanoseconds: u64) -> HardwareCounterDiagnostics {
+        const TEST_CYCLE_FACTOR: u64 = 4;
+        const TEST_INSTRUCTION_FACTOR: u64 = 2;
+        const TEST_CACHE_REFERENCE_DIVISOR: u64 = 10;
+        const TEST_CACHE_MISS_DIVISOR: u64 = 4;
+        const TEST_MPERF_FACTOR: u64 = 3;
+        const TEST_CONTEXT_SWITCHES: u64 = 10;
+        let reading = |value| HardwareCounterReading {
+            value,
+            time_enabled_nanoseconds: elapsed_nanoseconds,
+            time_running_nanoseconds: elapsed_nanoseconds,
+        };
+        let cache_references = elapsed_nanoseconds / TEST_CACHE_REFERENCE_DIVISOR;
+        HardwareCounterDiagnostics {
+            scope: HARDWARE_COUNTER_SCOPE.to_owned(),
+            cycles: reading(elapsed_nanoseconds * TEST_CYCLE_FACTOR),
+            instructions: reading(elapsed_nanoseconds * TEST_INSTRUCTION_FACTOR),
+            cache_references: reading(cache_references),
+            cache_misses: reading(cache_references / TEST_CACHE_MISS_DIVISOR),
+            aperf: reading(elapsed_nanoseconds * TEST_CYCLE_FACTOR),
+            mperf: reading(elapsed_nanoseconds * TEST_MPERF_FACTOR),
+            task_clock_nanoseconds: reading(elapsed_nanoseconds),
+            context_switches: reading(TEST_CONTEXT_SWITCHES),
+            cpu_migrations: reading(1),
+        }
+    }
+
     fn stall_capture_worker(
         physical_card_id: usize,
         total_zone_cycles: u64,
@@ -2545,12 +3073,17 @@ mod tests {
             maximum_step_wall_seconds * TEST_READBACK_COMPONENT_FRACTION;
         let selection_model_seconds =
             maximum_step_wall_seconds - readback_component_seconds * TEST_READBACK_COMPONENT_COUNT;
+        let hardware_counter_diagnostics = test_hardware_counter_diagnostics(elapsed_ns);
+        let hardware_counter_metrics =
+            hardware_counter_metrics(&hardware_counter_diagnostics, summed_step_wall_seconds)
+                .expect("test hardware counters");
         StallCaptureWorker {
             physical_card_id,
             elapsed_seconds: summed_step_wall_seconds,
             timed_start_unix_ns: TEST_START_UNIX_NS,
             timed_end_unix_ns: TEST_START_UNIX_NS + elapsed_ns,
             host_gap_accumulated_seconds: TEST_HOST_GAP_SECONDS,
+            primary_thread_cpu_affinity: None,
             batch_step_count: TEST_BATCH_STEP_COUNT,
             maximum_step_index: 1,
             maximum_step_wall_seconds,
@@ -2624,6 +3157,8 @@ mod tests {
                     / TEST_FETCH_QUEUE_WAIT_DIVISOR
                     / TEST_FETCH_QUEUE_WAIT_DIVISOR,
             },
+            hardware_counter_diagnostics,
+            hardware_counter_metrics,
             profiler: ProfilerProgramSignature {
                 schema_version: SCHEMA_VERSION,
                 logical_card_id: FILTERED_WORKER_LOGICAL_CARD_ID,
@@ -2646,6 +3181,41 @@ mod tests {
                 program_signature_blake3: "b".repeat(BLAKE3_HEX_LENGTH),
             },
         }
+    }
+
+    #[test]
+    fn hardware_counter_metrics_accept_complete_nonmultiplexed_counts() {
+        const TEST_ELAPSED_NANOSECONDS: u64 = 1_000_000;
+        let diagnostics = test_hardware_counter_diagnostics(TEST_ELAPSED_NANOSECONDS);
+        let elapsed_seconds = TEST_ELAPSED_NANOSECONDS as f64 / NANOSECONDS_PER_SECOND;
+        let metrics = hardware_counter_metrics(&diagnostics, elapsed_seconds)
+            .expect("valid hardware counters");
+        assert_eq!(metrics.instructions_per_cycle, 0.5);
+        assert_eq!(metrics.cache_miss_fraction, 0.25);
+        assert_eq!(metrics.average_core_ghz, 4.0);
+        assert_eq!(metrics.instruction_rate_giga_per_second, 2.0);
+        assert_eq!(metrics.scheduled_fraction, 1.0);
+    }
+
+    #[test]
+    fn hardware_counter_metrics_reject_zero_and_multiplexed_counts() {
+        const TEST_ELAPSED_NANOSECONDS: u64 = 1_000_000;
+        const TEST_MULTIPLEXED_RUNNING_NANOSECONDS: u64 = 1;
+        let valid = test_hardware_counter_diagnostics(TEST_ELAPSED_NANOSECONDS);
+        let elapsed_seconds = TEST_ELAPSED_NANOSECONDS as f64 / NANOSECONDS_PER_SECOND;
+        let mut zero_instructions = valid.clone();
+        zero_instructions.instructions.value = 0;
+        assert!(hardware_counter_metrics(&zero_instructions, elapsed_seconds).is_err());
+        let mut multiplexed = valid;
+        multiplexed.cycles.time_running_nanoseconds = TEST_MULTIPLEXED_RUNNING_NANOSECONDS;
+        assert!(hardware_counter_metrics(&multiplexed, elapsed_seconds).is_err());
+        assert!(
+            hardware_counter_metrics(
+                &test_hardware_counter_diagnostics(TEST_ELAPSED_NANOSECONDS),
+                0.0,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -2699,6 +3269,80 @@ mod tests {
         })
         .expect_err("wait without a poll must fail");
         assert!(error.contains("too few poll iterations"));
+    }
+
+    #[test]
+    fn primary_thread_cpu_parser_accepts_distinct_card_cpus() {
+        assert_eq!(parse_primary_thread_cpus(Some("2,6")), Ok(Some(vec![2, 6])));
+        assert_eq!(parse_primary_thread_cpus(None), Ok(None));
+    }
+
+    #[test]
+    fn primary_thread_cpu_parser_rejects_bad_layouts() {
+        for value in ["2", "2,2", "2,6,10", "2,not-a-cpu"] {
+            assert!(parse_primary_thread_cpus(Some(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn primary_thread_fifo_parser_accepts_a_positive_priority() {
+        assert_eq!(parse_primary_thread_fifo_priority(Some("1")), Ok(Some(1)));
+        assert_eq!(parse_primary_thread_fifo_priority(None), Ok(None));
+    }
+
+    #[test]
+    fn primary_thread_fifo_parser_rejects_bad_priorities() {
+        for value in ["", "0", "not-a-priority"] {
+            assert!(parse_primary_thread_fifo_priority(Some(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn primary_thread_scheduling_requires_affinity_for_fifo() {
+        assert_eq!(validate_primary_thread_scheduling(Some(2), Some(1)), Ok(()));
+        assert_eq!(validate_primary_thread_scheduling(None, None), Ok(()));
+        assert!(validate_primary_thread_scheduling(None, Some(1)).is_err());
+    }
+
+    #[test]
+    fn production_admission_accepts_only_the_measured_scheduler_contract() {
+        assert!(production_worker_physically_admitted(
+            WkvPolicy::Production,
+            0,
+            Some(ADMITTED_PRIMARY_THREAD_CPUS[0]),
+            Some(ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY),
+        ));
+        assert!(production_run_physically_admitted(
+            WkvPolicy::Production,
+            Some(ADMITTED_PRIMARY_THREAD_CPUS.as_slice()),
+            Some(ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY),
+        ));
+        assert!(!production_worker_physically_admitted(
+            WkvPolicy::FusedCandidate,
+            0,
+            Some(ADMITTED_PRIMARY_THREAD_CPUS[0]),
+            Some(ADMITTED_PRIMARY_THREAD_FIFO_PRIORITY),
+        ));
+        assert!(!production_run_physically_admitted(
+            WkvPolicy::Production,
+            Some(ADMITTED_PRIMARY_THREAD_CPUS.as_slice()),
+            None,
+        ));
+    }
+
+    #[test]
+    fn stall_capture_attempt_counts_accept_the_bounded_retry() {
+        assert_eq!(validate_stall_capture_attempt_counts(&[1, 2], 2), Ok(()));
+    }
+
+    #[test]
+    fn stall_capture_attempt_counts_reject_bad_counts() {
+        let above_maximum = MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE
+            .checked_add(1)
+            .expect("attempt test bound");
+        for counts in [vec![1], vec![0, 1], vec![above_maximum, 1]] {
+            assert!(validate_stall_capture_attempt_counts(&counts, 2).is_err());
+        }
     }
 
     #[test]
@@ -2887,6 +3531,10 @@ mod tests {
             (comparison.cards[0].boundary.summed_total_ratio - EXPECTED_SUMMED_STEP_RATIO).abs()
                 <= TEST_RATIO_TOLERANCE
         );
+        assert!(
+            (comparison.cards[0].hardware_counters.cycles_ratio - EXPECTED_SUMMED_STEP_RATIO).abs()
+                <= TEST_RATIO_TOLERANCE
+        );
         assert_eq!(
             comparison.cards[0].boundary.layer_submission_ratios.len(),
             RWKV7_LAYER_COUNT
@@ -2953,6 +3601,12 @@ mod tests {
             .fetch_queue_diagnostics
             .poll_iterations = 0;
         assert!(compare_stall_capture_samples(&normal, &malformed_fetch_queue).is_err());
+        let mut malformed_hardware_counters = normal.clone();
+        malformed_hardware_counters.workers[0]
+            .hardware_counter_diagnostics
+            .instructions
+            .value = 0;
+        assert!(compare_stall_capture_samples(&normal, &malformed_hardware_counters).is_err());
     }
 
     #[test]
@@ -2993,11 +3647,11 @@ mod tests {
     fn ab_order_and_speedup_core_accepts_a_stable_gain() {
         assert_eq!(
             order_balanced_wkv_policies(0),
-            [WkvPolicy::Production, WkvPolicy::FusedCandidate]
+            [WkvPolicy::GenericReference, WkvPolicy::FusedCandidate]
         );
         assert_eq!(
             order_balanced_wkv_policies(1),
-            [WkvPolicy::FusedCandidate, WkvPolicy::Production]
+            [WkvPolicy::FusedCandidate, WkvPolicy::GenericReference]
         );
         assert_eq!(
             paired_speedups(&[10.0, 20.0], &[15.0, 30.0]),

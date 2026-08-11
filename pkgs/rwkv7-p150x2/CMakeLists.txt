@@ -25,6 +25,13 @@ add_executable(
   src/fused_wkv_program.cpp
   src/main.cpp
 )
+if(RWKV7_FETCH_QUEUE_DIAGNOSTICS)
+  target_sources(
+    rwkv7-p150x2-runtime
+    PRIVATE
+      src/hardware_counter_diagnostics.cpp
+  )
+endif()
 target_compile_features(rwkv7-p150x2-runtime PRIVATE cxx_std_20)
 target_compile_definitions(
   rwkv7-p150x2-runtime

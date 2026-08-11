@@ -23,6 +23,8 @@ let
       ../rwkv7-p150x2/kernel/fused_wkv_reader.cpp
       ../rwkv7-p150x2/kernel/fused_wkv_writer.cpp
       ../rwkv7-p150x2/src/fused_wkv_program.cpp
+      ../rwkv7-p150x2/src/hardware_counter_diagnostics.cpp
+      ../rwkv7-p150x2/src/hardware_counter_diagnostics.hpp
       ../rwkv7-p150x2/src/main.cpp
     ];
   };

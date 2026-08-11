@@ -189,5 +189,5 @@ The receipt also records these non-claims:
 The bounded source hazard verdict is `SAFE` after the two corrections.
 The simulator fixture passes at the maximum supported batch.
 
-Production admission remains closed.
-Physical parity, generated-token A/B, repeated measurements, and performance thresholds are still required.
+Production admission was closed when this hazard audit completed.
+Later physical parity and performance evidence opened dispatch only under the measured CPU and FIFO scheduler contract.

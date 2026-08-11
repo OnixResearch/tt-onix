@@ -1,5 +1,8 @@
 #include "config.hpp"
 #include "fused_wkv_program.hpp"
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+#include "hardware_counter_diagnostics.hpp"
+#endif
 
 #include <blake3.h>
 #include <nlohmann/json.hpp>
@@ -58,6 +61,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <sched.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -121,6 +125,8 @@ constexpr std::string_view kEvidenceAdapter = RWKV7_PINNED_EVIDENCE_ADAPTER;
 constexpr std::string_view kTopologyId = RWKV7_PINNED_TOPOLOGY_ID;
 constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kSelfTestArgument = "--self-test";
+constexpr std::string_view kHardwareCounterSmokeArgument =
+    "--hardware-counter-smoke";
 constexpr std::string_view kFastWorkerArgument = "--fast-worker";
 constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
 constexpr std::string_view kFusedWkvLayerSmokeArgument =
@@ -140,6 +146,7 @@ constexpr std::string_view kFastTimedStartBarrierArgument =
     "--timed-start-barrier";
 constexpr std::string_view kProductionWkvPolicy = "production";
 constexpr std::string_view kFusedCandidateWkvPolicy = "fused-candidate";
+constexpr std::string_view kGenericReferenceWkvPolicy = "generic-reference";
 constexpr std::string_view kTokensArgument = "--tokens";
 constexpr std::string_view kMaxNewArgument = "--max-new";
 constexpr std::string_view kEvidenceRootArgument = "--evidence-root";
@@ -147,9 +154,16 @@ constexpr std::string_view kEnabledEnvironmentValue = "1";
 constexpr std::string_view kDisabledEnvironmentValue = "0";
 constexpr std::string_view kFetchQueueDiagnosticsEnvironment =
     "TT_METAL_FETCH_QUEUE_DIAGNOSTICS";
+constexpr std::string_view kPrimaryThreadCpuEnvironment =
+    "RWKV7_PRIMARY_THREAD_CPU";
+constexpr std::string_view kPrimaryThreadFifoPriorityEnvironment =
+    "RWKV7_PRIMARY_THREAD_FIFO_PRIORITY";
 constexpr std::string_view kFusedWkvKernelRootEnvironment =
     "RWKV7_FUSED_WKV_KERNEL_ROOT";
-constexpr bool kFusedWkvPhysicallyAdmitted = false;
+constexpr bool kFusedWkvPhysicallyAdmitted = true;
+constexpr std::uint32_t kAdmittedCardZeroPrimaryThreadCpu = 2U;
+constexpr std::uint32_t kAdmittedCardOnePrimaryThreadCpu = 6U;
+constexpr int kAdmittedPrimaryThreadFifoPriority = 1;
 constexpr std::string_view kLogsDirectoryName = "logs";
 constexpr std::string_view kProfilerDirectoryName = "profiler";
 constexpr std::string_view kInspectorRelativeDirectory =
@@ -270,6 +284,69 @@ std::uint32_t parse_positive_u32(std::string_view text, std::string_view name) {
   const std::uint32_t value = parse_u32(text, name);
   require(value > 0U, std::string(name) + " must be positive");
   return value;
+}
+
+void validate_primary_thread_cpu(std::uint32_t cpu) {
+  require(cpu < static_cast<std::uint32_t>(CPU_SETSIZE),
+          "primary thread CPU exceeds CPU_SETSIZE");
+}
+
+std::optional<std::uint32_t> parse_primary_thread_cpu_affinity() {
+  const char *const value = std::getenv(kPrimaryThreadCpuEnvironment.data());
+  if (value == nullptr) {
+    return std::nullopt;
+  }
+  const std::uint32_t cpu = parse_u32(value, "primary thread CPU");
+  validate_primary_thread_cpu(cpu);
+  return cpu;
+}
+
+void validate_primary_thread_fifo_priority(std::uint32_t priority) {
+  const int minimum_priority = sched_get_priority_min(SCHED_FIFO);
+  const int maximum_priority = sched_get_priority_max(SCHED_FIFO);
+  require(minimum_priority >= 0 && maximum_priority >= minimum_priority,
+          "failed to read FIFO priority bounds");
+  require(priority >= static_cast<std::uint32_t>(minimum_priority) &&
+              priority <= static_cast<std::uint32_t>(maximum_priority),
+          "primary thread FIFO priority is outside the scheduler bounds");
+}
+
+std::optional<int> parse_primary_thread_fifo_priority() {
+  const char *const value =
+      std::getenv(kPrimaryThreadFifoPriorityEnvironment.data());
+  if (value == nullptr) {
+    return std::nullopt;
+  }
+  const std::uint32_t priority =
+      parse_positive_u32(value, "primary thread FIFO priority");
+  validate_primary_thread_fifo_priority(priority);
+  return static_cast<int>(priority);
+}
+
+void configure_current_thread_fifo(int priority) {
+  const sched_param parameters{.sched_priority = priority};
+  require(sched_setscheduler(0, SCHED_FIFO, &parameters) == 0,
+          "failed to set primary thread FIFO scheduling");
+  require(sched_getscheduler(0) == SCHED_FIFO,
+          "primary thread did not enter FIFO scheduling");
+}
+
+void restore_current_thread_normal_scheduling() {
+  const sched_param parameters{.sched_priority = 0};
+  require(sched_setscheduler(0, SCHED_OTHER, &parameters) == 0,
+          "failed to restore primary thread normal scheduling");
+  require(sched_getscheduler(0) == SCHED_OTHER,
+          "primary thread did not restore normal scheduling");
+}
+
+void pin_current_thread(std::uint32_t cpu) {
+  cpu_set_t cpu_set;
+  CPU_ZERO(&cpu_set);
+  CPU_SET(static_cast<int>(cpu), &cpu_set);
+  require(sched_setaffinity(0, sizeof(cpu_set), &cpu_set) == 0,
+          "failed to set primary thread CPU affinity");
+  require(sched_getcpu() == static_cast<int>(cpu),
+          "primary thread did not move to its configured CPU");
 }
 
 std::vector<std::uint32_t> parse_tokens(std::string_view text) {
@@ -1285,15 +1362,20 @@ TimePreparation prepare_time_mix(DeviceContext &context,
 
 enum class WkvExecutionPolicy {
   Production,
+  ProductionPhysicallyAdmitted,
   RequireFusedCandidate,
+  RequireGenericReference,
 };
 
 std::string_view wkv_execution_policy_name(WkvExecutionPolicy policy) {
   switch (policy) {
   case WkvExecutionPolicy::Production:
+  case WkvExecutionPolicy::ProductionPhysicallyAdmitted:
     return kProductionWkvPolicy;
   case WkvExecutionPolicy::RequireFusedCandidate:
     return kFusedCandidateWkvPolicy;
+  case WkvExecutionPolicy::RequireGenericReference:
+    return kGenericReferenceWkvPolicy;
   }
   fail("unsupported WKV execution policy");
 }
@@ -1305,7 +1387,45 @@ WkvExecutionPolicy parse_wkv_execution_policy(std::string_view policy) {
   if (policy == kFusedCandidateWkvPolicy) {
     return WkvExecutionPolicy::RequireFusedCandidate;
   }
-  fail("WKV execution policy must be production or fused-candidate");
+  if (policy == kGenericReferenceWkvPolicy) {
+    return WkvExecutionPolicy::RequireGenericReference;
+  }
+  fail("WKV execution policy must be production, fused-candidate, or generic-reference");
+}
+
+bool production_scheduling_physically_admitted(
+    int physical_device_id,
+    const std::optional<std::uint32_t> &primary_thread_cpu_affinity,
+    const std::optional<int> &primary_thread_fifo_priority) {
+  if (!kFusedWkvPhysicallyAdmitted ||
+      !primary_thread_fifo_priority.has_value() ||
+      *primary_thread_fifo_priority != kAdmittedPrimaryThreadFifoPriority ||
+      !primary_thread_cpu_affinity.has_value()) {
+    return false;
+  }
+  if (physical_device_id == kPhysicalDeviceZero) {
+    return *primary_thread_cpu_affinity ==
+           kAdmittedCardZeroPrimaryThreadCpu;
+  }
+  if (physical_device_id == kPhysicalDeviceOne) {
+    return *primary_thread_cpu_affinity ==
+           kAdmittedCardOnePrimaryThreadCpu;
+  }
+  return false;
+}
+
+WkvExecutionPolicy effective_wkv_execution_policy(
+    WkvExecutionPolicy requested_policy, bool production_physically_admitted) {
+  if (requested_policy == WkvExecutionPolicy::Production &&
+      production_physically_admitted) {
+    return WkvExecutionPolicy::ProductionPhysicallyAdmitted;
+  }
+  return requested_policy;
+}
+
+bool execution_policy_is_production_physically_admitted(
+    WkvExecutionPolicy policy) {
+  return policy == WkvExecutionPolicy::ProductionPhysicallyAdmitted;
 }
 
 struct WkvOutput {
@@ -1378,9 +1498,15 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
       gate_rows,
       state,
   };
+  const bool production_physically_admitted =
+      execution_policy_is_production_physically_admitted(execution_policy);
   const rwkv7::fused_wkv::DispatchDecision decision =
-      rwkv7::fused_wkv::select_dispatch(
-          fused_inputs, kFusedWkvPhysicallyAdmitted);
+      rwkv7::fused_wkv::select_dispatch(fused_inputs,
+                                        production_physically_admitted);
+  const auto run_generic_reference = [&]() {
+    return generic_wkv_step(context, state, a_rows, b_rows, w_rows, v_rows,
+                            k_rows, r_rows);
+  };
   const auto run_fused_candidate = [&]() {
     const char *const kernel_root =
         std::getenv(kFusedWkvKernelRootEnvironment.data());
@@ -1401,11 +1527,13 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
                 decision.reason);
     return run_fused_candidate();
   }
+  if (execution_policy == WkvExecutionPolicy::RequireGenericReference) {
+    return run_generic_reference();
+  }
   if (decision.use_fused_path) {
     return run_fused_candidate();
   }
-  return generic_wkv_step(context, state, a_rows, b_rows, w_rows, v_rows,
-                          k_rows, r_rows);
+  return run_generic_reference();
 }
 
 Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
@@ -1607,6 +1735,38 @@ void validate_fetch_queue_diagnostics(
             "fetch queue diagnostics omit data for a recorded wait");
   }
 }
+
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+Json hardware_counter_reading_json(
+    const rwkv7::hardware_counter::Reading &reading) {
+  return Json{{"value", reading.value},
+              {"time_enabled_nanoseconds",
+               reading.time_enabled_nanoseconds},
+              {"time_running_nanoseconds",
+               reading.time_running_nanoseconds}};
+}
+
+Json hardware_counter_diagnostics_json(
+    const rwkv7::hardware_counter::Diagnostics &diagnostics) {
+  return Json{{"scope", "primary_worker_thread_timed_decode"},
+              {"cycles", hardware_counter_reading_json(diagnostics.cycles)},
+              {"instructions",
+               hardware_counter_reading_json(diagnostics.instructions)},
+              {"cache_references",
+               hardware_counter_reading_json(diagnostics.cache_references)},
+              {"cache_misses",
+               hardware_counter_reading_json(diagnostics.cache_misses)},
+              {"aperf", hardware_counter_reading_json(diagnostics.aperf)},
+              {"mperf", hardware_counter_reading_json(diagnostics.mperf)},
+              {"task_clock_nanoseconds",
+               hardware_counter_reading_json(
+                   diagnostics.task_clock_nanoseconds)},
+              {"context_switches",
+               hardware_counter_reading_json(diagnostics.context_switches)},
+              {"cpu_migrations",
+               hardware_counter_reading_json(diagnostics.cpu_migrations)}};
+}
+#endif
 
 double elapsed_seconds_between(std::chrono::steady_clock::time_point begin,
                                std::chrono::steady_clock::time_point end) {
@@ -2654,7 +2814,7 @@ void run_simulator_smoke(const std::filesystem::path &output_path,
       {"carried_state_differs_from_reset_control",
        carried_state_differs_from_reset_control},
       {"fused_wkv_candidate_requested", fused_candidate_requested},
-      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted},
+      {"production_physically_admitted", false},
       {"output_projection_outside_fused_wkv", true},
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
@@ -2871,7 +3031,7 @@ void run_fused_wkv_probe(const std::filesystem::path &output_path) {
         {"second_output",
          fixture_summary(second_output_values, vector_elements)}}},
       {"candidate_dispatch", true},
-      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted},
+      {"production_physically_admitted", false},
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
   write_json(output_path, receipt);
@@ -2903,6 +3063,23 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           kEnabledEnvironmentValue;
   require(fetch_queue_diagnostics_enabled == stall_probe_enabled,
           "fetch queue diagnostics must match stall-probe mode");
+  const std::optional<std::uint32_t> primary_thread_cpu_affinity =
+      parse_primary_thread_cpu_affinity();
+  const std::optional<int> primary_thread_fifo_priority =
+      parse_primary_thread_fifo_priority();
+  require(!primary_thread_fifo_priority.has_value() ||
+              primary_thread_cpu_affinity.has_value(),
+          "primary thread FIFO scheduling requires CPU affinity");
+  const bool scheduling_physically_admitted =
+      production_scheduling_physically_admitted(
+          arguments.physical_device_id, primary_thread_cpu_affinity,
+          primary_thread_fifo_priority);
+  const WkvExecutionPolicy effective_execution_policy =
+      effective_wkv_execution_policy(arguments.wkv_execution_policy,
+                                     scheduling_physically_admitted);
+  const bool production_physically_admitted =
+      execution_policy_is_production_physically_admitted(
+          effective_execution_policy);
   const std::uint32_t warmup_token_count =
       stall_probe_enabled ? kStallProbeWarmupTokenCount
                           : kFastWarmupTokenCount;
@@ -2935,7 +3112,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   for (std::uint32_t index = 0U; index < warmup_token_count; ++index) {
     const auto selected = advance_tokens_fast(
         context, weights, warmup_state, warmup_tokens, true, index,
-        max_slot_count, arguments.wkv_execution_policy);
+        max_slot_count, effective_execution_policy);
     require(selected.has_value(),
             "fast worker warmup did not select tokens");
     warmup_tokens = *selected;
@@ -2944,6 +3121,12 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const std::size_t cache_after_warmup = context.program_cache_entries();
   require(cache_after_warmup > 0U,
           "fast worker warmup did not populate the program cache");
+  if (primary_thread_cpu_affinity.has_value()) {
+    pin_current_thread(*primary_thread_cpu_affinity);
+  }
+  if (primary_thread_fifo_priority.has_value()) {
+    configure_current_thread_fifo(*primary_thread_fifo_priority);
+  }
 
   std::vector<FastSlot> slots;
   slots.reserve(request.requests.size());
@@ -2952,11 +3135,25 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   std::vector<bool> completed(slots.size(), false);
   Json request_metrics = Json::array();
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  std::unique_ptr<rwkv7::hardware_counter::Session> hardware_counter_session;
+#endif
   if (stall_probe_enabled) {
     reset_fetch_queue_diagnostics();
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+    hardware_counter_session =
+        std::make_unique<rwkv7::hardware_counter::Session>();
+#endif
   }
   signal_fast_barrier(arguments.timed_ready_barrier_path, "timed ready");
   wait_for_fast_barrier(arguments.timed_start_barrier_path, "timed start");
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  if (stall_probe_enabled) {
+    require(hardware_counter_session != nullptr,
+            "stall probe omitted its hardware counter session");
+    hardware_counter_session->start();
+  }
+#endif
   const auto timed_start_wall_clock = std::chrono::system_clock::now();
   const auto timed_start = std::chrono::steady_clock::now();
   const std::uint64_t timed_start_monotonic_ns =
@@ -2993,7 +3190,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     const auto selected = advance_tokens_fast(
         context, weights, state, plan.input_tokens,
         plan.any_selection_required, batch_step_count, max_slot_count,
-        arguments.wkv_execution_policy, step_boundary_timing_output);
+        effective_execution_policy, step_boundary_timing_output);
     const auto device_end = std::chrono::steady_clock::now();
     const auto apply_begin = device_end;
     apply_fast_batch_step(slots, completed, plan, selected);
@@ -3037,6 +3234,22 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   const auto timed_end = std::chrono::steady_clock::now();
   const auto timed_end_wall_clock = std::chrono::system_clock::now();
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  std::optional<rwkv7::hardware_counter::Diagnostics>
+      hardware_counter_diagnostics;
+  if (stall_probe_enabled) {
+    require(hardware_counter_session != nullptr,
+            "stall probe lost its hardware counter session");
+    hardware_counter_diagnostics = hardware_counter_session->stop();
+    if (primary_thread_cpu_affinity.has_value()) {
+      require(hardware_counter_diagnostics->cpu_migrations.value == 0U,
+              "pinned primary thread migrated during timed decode");
+    }
+  }
+#endif
+  if (primary_thread_fifo_priority.has_value()) {
+    restore_current_thread_normal_scheduling();
+  }
   std::optional<FetchQueueDiagnostics> fetch_queue_diagnostics;
   if (stall_probe_enabled) {
     fetch_queue_diagnostics = read_fetch_queue_diagnostics();
@@ -3099,6 +3312,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["batch_step_count"] = batch_step_count;
   receipt["host_gap_accumulated_seconds"] =
       host_gap_accumulated_seconds;
+  receipt["primary_thread_cpu_affinity"] =
+      primary_thread_cpu_affinity.has_value()
+          ? Json(*primary_thread_cpu_affinity)
+          : Json(nullptr);
+  receipt["primary_thread_fifo_priority"] =
+      primary_thread_fifo_priority.has_value()
+          ? Json(*primary_thread_fifo_priority)
+          : Json(nullptr);
   if (stall_probe_enabled) {
     receipt["stall_probe_step_wall_seconds"] = step_wall_seconds;
     Json boundary_timings = Json::array();
@@ -3134,6 +3355,12 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
          fetch_queue_diagnostics->total_wait_nanoseconds},
         {"maximum_wait_nanoseconds",
          fetch_queue_diagnostics->maximum_wait_nanoseconds}};
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+    require(hardware_counter_diagnostics.has_value(),
+            "stall probe omitted hardware counter diagnostics");
+    receipt["hardware_counter_diagnostics"] =
+        hardware_counter_diagnostics_json(*hardware_counter_diagnostics);
+#endif
   }
   receipt["requests"] = std::move(request_metrics);
   receipt["execution"] = {
@@ -3152,10 +3379,15 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"artifact_writes_during_timing", false},
       {"inspector_during_timing", false},
       {"fetch_queue_diagnostics_during_timing", stall_probe_enabled},
+      {"hardware_counters_during_timing", stall_probe_enabled},
+      {"primary_thread_only_affinity",
+       primary_thread_cpu_affinity.has_value()},
+      {"primary_thread_fifo_scheduling",
+       primary_thread_fifo_priority.has_value()},
       {"synchronized_timed_start", true},
       {"wkv_execution_policy",
-       wkv_execution_policy_name(arguments.wkv_execution_policy)},
-      {"production_physically_admitted", kFusedWkvPhysicallyAdmitted}};
+       wkv_execution_policy_name(effective_execution_policy)},
+      {"production_physically_admitted", production_physically_admitted}};
   write_json(arguments.output_path, receipt);
   std::cout << arguments.output_path << '\n';
 }
@@ -3428,9 +3660,36 @@ void run_self_test() {
   require(parse_wkv_execution_policy(kFusedCandidateWkvPolicy) ==
               WkvExecutionPolicy::RequireFusedCandidate,
           "fused candidate WKV policy parser changed");
+  require(parse_wkv_execution_policy(kGenericReferenceWkvPolicy) ==
+              WkvExecutionPolicy::RequireGenericReference,
+          "generic reference WKV policy parser changed");
   expect_operation_failure(
       []() { static_cast<void>(parse_wkv_execution_policy("invalid")); },
-      "must be production or fused-candidate");
+      "must be production, fused-candidate, or generic-reference");
+  require(production_scheduling_physically_admitted(
+              kPhysicalDeviceZero, kAdmittedCardZeroPrimaryThreadCpu,
+              kAdmittedPrimaryThreadFifoPriority),
+          "admitted card-zero scheduling contract changed");
+  require(production_scheduling_physically_admitted(
+              kPhysicalDeviceOne, kAdmittedCardOnePrimaryThreadCpu,
+              kAdmittedPrimaryThreadFifoPriority),
+          "admitted card-one scheduling contract changed");
+  require(!production_scheduling_physically_admitted(
+              kPhysicalDeviceZero, kAdmittedCardOnePrimaryThreadCpu,
+              kAdmittedPrimaryThreadFifoPriority),
+          "wrong primary CPU entered production admission");
+  require(!production_scheduling_physically_admitted(
+              kPhysicalDeviceZero, kAdmittedCardZeroPrimaryThreadCpu,
+              std::nullopt),
+          "missing FIFO priority entered production admission");
+  require(effective_wkv_execution_policy(WkvExecutionPolicy::Production,
+                                         true) ==
+              WkvExecutionPolicy::ProductionPhysicallyAdmitted,
+          "production scheduling did not open admitted dispatch");
+  require(effective_wkv_execution_policy(
+              WkvExecutionPolicy::RequireFusedCandidate, true) ==
+              WkvExecutionPolicy::RequireFusedCandidate,
+          "candidate policy changed under production admission");
   require(mesh_descriptor_for_device_count(1U) ==
               RWKV7_PINNED_SINGLE_CARD_MESH_DESCRIPTOR_PATH,
           "single-card descriptor selection changed");
@@ -3654,6 +3913,63 @@ void run_self_test() {
       },
       "too few poll iterations");
 
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  constexpr std::uint64_t kCounterTestValue = 100U;
+  constexpr std::uint64_t kCounterTestMissValue = 25U;
+  constexpr std::uint64_t kCounterTestTimeNanoseconds = 1'000U;
+  const rwkv7::hardware_counter::Reading counter_test_reading{
+      kCounterTestValue, kCounterTestTimeNanoseconds,
+      kCounterTestTimeNanoseconds};
+  rwkv7::hardware_counter::Diagnostics valid_hardware_counters{
+      counter_test_reading,
+      counter_test_reading,
+      counter_test_reading,
+      rwkv7::hardware_counter::Reading{kCounterTestMissValue,
+                                       kCounterTestTimeNanoseconds,
+                                       kCounterTestTimeNanoseconds},
+      counter_test_reading,
+      counter_test_reading,
+      counter_test_reading,
+      counter_test_reading,
+      counter_test_reading};
+  rwkv7::hardware_counter::validate(valid_hardware_counters);
+  auto invalid_hardware_counters = valid_hardware_counters;
+  invalid_hardware_counters.instructions.value = 0U;
+  expect_operation_failure(
+      [&invalid_hardware_counters]() {
+        rwkv7::hardware_counter::validate(invalid_hardware_counters);
+      },
+      "instructions counter is zero");
+  invalid_hardware_counters = valid_hardware_counters;
+  invalid_hardware_counters.cycles.time_running_nanoseconds = 0U;
+  expect_operation_failure(
+      [&invalid_hardware_counters]() {
+        rwkv7::hardware_counter::validate(invalid_hardware_counters);
+      },
+      "cycles counter has invalid running time");
+#endif
+
+  validate_primary_thread_cpu(0U);
+  expect_operation_failure(
+      []() {
+        validate_primary_thread_cpu(
+            static_cast<std::uint32_t>(CPU_SETSIZE));
+      },
+      "primary thread CPU exceeds CPU_SETSIZE");
+  const int minimum_fifo_priority = sched_get_priority_min(SCHED_FIFO);
+  const int maximum_fifo_priority = sched_get_priority_max(SCHED_FIFO);
+  require(minimum_fifo_priority > 0 &&
+              maximum_fifo_priority >= minimum_fifo_priority,
+          "FIFO priority self-test bounds are invalid");
+  validate_primary_thread_fifo_priority(
+      static_cast<std::uint32_t>(minimum_fifo_priority));
+  expect_operation_failure(
+      [maximum_fifo_priority]() {
+        validate_primary_thread_fifo_priority(
+            static_cast<std::uint32_t>(maximum_fifo_priority) + 1U);
+      },
+      "primary thread FIFO priority is outside the scheduler bounds");
+
   // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
   // All four supported candidate capacities plan without a device.
   for (const std::string_view capacity_id :
@@ -3729,6 +4045,25 @@ void run_self_test() {
   std::cout << "rwkv7 P150x2 runtime self-test: PASS\n";
 }
 
+void run_hardware_counter_smoke() {
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  constexpr std::size_t kSmokeIterationCount = 10'000U;
+  rwkv7::hardware_counter::Session session;
+  session.start();
+  double clock_sum = 0.0;
+  for (std::size_t index = 0U; index < kSmokeIterationCount; ++index) {
+    clock_sum += read_cpu_seconds(CLOCK_MONOTONIC);
+  }
+  const rwkv7::hardware_counter::Diagnostics diagnostics = session.stop();
+  require(std::isfinite(clock_sum) && clock_sum > 0.0,
+          "hardware counter smoke workload is invalid");
+  std::cout << hardware_counter_diagnostics_json(diagnostics).dump(2) << '\n';
+#else
+  throw std::runtime_error(
+      "hardware counter smoke is unavailable in the production runtime");
+#endif
+}
+
 std::vector<std::string> collect_arguments(int argc, char **argv) {
   require(argc > 0, "process argument count is invalid");
   std::vector<std::string> arguments;
@@ -3748,6 +4083,11 @@ int main(int argc, char **argv) {
     if (arguments.size() == kSelfTestArgumentCount &&
         arguments[kModeArgumentIndex] == kSelfTestArgument) {
       run_self_test();
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSelfTestArgumentCount &&
+        arguments[kModeArgumentIndex] == kHardwareCounterSmokeArgument) {
+      run_hardware_counter_smoke();
       return EXIT_SUCCESS;
     }
     if (arguments.size() == kFastWorkerArgumentCount &&

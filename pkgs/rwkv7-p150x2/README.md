@@ -65,13 +65,19 @@ The device kernel includes recurrence, per-head group normalization, the `r_k` c
 
 Each `(request, head)` work item has one deterministic core owner. Each state page has one writer, and requests never share state.
 
-Production dispatch remains closed. `generic_wkv_step` remains authoritative until physical parity and performance admission pass.
+Production fused dispatch requires the measured host scheduler contract. Card 0 uses CPU 2, card 1 uses CPU 6, and both use FIFO priority 1.
+
+If this contract is absent, production uses `generic_wkv_step`. Explicit `generic-reference` workers also keep the authoritative fallback available for A/B checks.
 
 The standalone `--fused-wkv-probe` runs the candidate at batch 16 for two recurrent steps. It does not enable production dispatch.
 
-Physical B16 evidence shows stable one-card and two-card paired gains. Fused throughput was `437.98668576683207` tokens/s on one card. It was `722.4472805047268` tokens/s on two cards. Exact generated-token parity passed.
+The final B16 evidence passed exact generated-token parity and all strict performance gates. Fused throughput was `502.27251306237105` tokens/s on one card.
 
-Synchronized fused scaling was `1.6494731551938797`, above the required `1.5`. Strict admission remains blocked. The p99 latency regression was `0.24129836831923815`; the profile permits at most `0.10`. Simulator results cannot supply physical performance evidence.
+Two-card fused throughput was `954.5668543729688` tokens/s. Scaling was `1.9004959052068073`, and p99 regression was `0.06701184998181789`.
+
+All three one-card and two-card fused-versus-generic pairs improved. A later production-policy smoke confirmed admitted fused dispatch on both cards.
+
+Simulator results do not supply physical performance evidence.
 
 The timed region contains warmed prompt and decode operations. It excludes:
 
@@ -129,7 +135,41 @@ A root eBPF capture found stable call counts across eight waves. Measured TT-NN 
 
 `enqueue_mesh_workload` remained about `18%` of total time in both selected waves. No smaller blocking host call dominates the slowdown.
 
-Additional off-CPU time explained only `6.0-10.4%` of the excess. Hardware counters must now distinguish instructions, frequency, and cache effects.
+Additional off-CPU time explained only `6.0-10.4%` of the excess.
+
+A later eight-sample hardware-counter capture found a `2.38536978179575x` slow wave. Instructions changed by only `1.003-1.009x`.
+
+Task-clock counts increased by `2.209-2.228x`. IPC fell to `0.490-0.497x`, and instruction rate fell to `0.450-0.457x`.
+
+Average core frequency fell by about `8%`. Cache misses increased by `2.120-2.155x`, while cache references increased by only `1.204-1.221x`.
+
+Context switches increased by `5.41-11.17x`. CPU migrations increased by `14.16-15.79x`.
+
+The stall is lower host CPU throughput, not extra instructions.
+
+A primary-thread-only test pinned cards 0 and 1 to CPUs 2 and 6. All measured CPU migrations fell to zero.
+
+The maximum wave ratio fell from `2.38536978179575` to `1.1594243666397046`. Median wall time fell by `19.39%`.
+
+Wall-time standard deviation fell from `0.2604570536328125` to `0.036949182658166574` seconds. Process-wide TT-Metal threads remained unpinned.
+
+A split-CCD test moved card 1 to CPU 10. Its maximum wave ratio increased to `2.339356316019673`.
+
+Median wall time increased by `15.85%`. Standard deviation increased by `7.62x`, so the split-CCD layout was rejected.
+
+A full same-CCD A/B rerun reached `1.7248059373131326x` dual-card fused scaling. It still failed the p99 gate at `0.381053554753073`.
+
+One dual fused pair lost to generic at `0.9091285937922943x`. Primary-thread pinning alone is not sufficient for production admission.
+
+A helper-thread exclusion control produced a rejected `4.785382972`-second wave. It had 1,736 context switches and incomplete profiler pairing.
+
+The helper-thread exclusion code was removed.
+
+A bounded root test then used FIFO priority 1 for only the pinned primary threads. All eight waves passed complete profiler validation.
+
+The maximum wave ratio fell to `1.0865249230572205`. Instructions changed by less than `0.22%`, and migrations remained zero.
+
+The FIFO mode restores normal scheduling after timed decode. It requires root or `CAP_SYS_NICE`.
 
 The summarizer deletes each raw profiler CSV. This mode is diagnostic only. It cannot enable production admission.
 
@@ -150,7 +190,7 @@ Run the same layer with the fused WKV candidate explicitly required:
   /absolute/new/fused-wkv-layer-simulator-root
 ```
 
-This smoke fails if the fused capability contract rejects the layer. It reads the FP32 matrix after both steps and compares the carried result with a reset-matrix control. All states must be finite, and the carried state must differ from the control. Production admission remains closed.
+This smoke fails if the fused capability contract rejects the layer. It reads the FP32 matrix after both steps and compares the carried result with a reset-matrix control. All states must be finite, and the carried state must differ from the control. Simulator evidence cannot open production admission.
 
 The retained receipt is `cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-layer-simulator-receipt.json`. Its BLAKE3 is `eb25c84e9b8eec860bdf7649c9c59a0b98d322dd2a950cd85b5008a069574f6d`.
 
@@ -185,12 +225,16 @@ Use the explicit candidate mode for fused-versus-generic physical evidence:
 ```sh
 FUSED_PROFILE="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-physical-profile.json"
 FUSED_WORKLOAD="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-physical-workload.json"
+RWKV7_PRIMARY_THREAD_CPUS=2,6 \
+RWKV7_PRIMARY_THREAD_FIFO_PRIORITY=1 \
 "$EVIDENCE/bin/rwkv7-p150x2-throughput-benchmark" \
   --fused-wkv-candidate "$FUSED_PROFILE" "$FUSED_WORKLOAD" \
   /absolute/new/ab-evidence-root
 ```
 
-The fused profile runs three A/B pairs at the admitted B16 capacity. Candidate mode alternates generic and fused runs for each sample. It checks every generated token against the pinned FP32 reference. It retains profiler samples for both paths. This mode does not open production admission.
+The fused profile runs three A/B pairs at the admitted B16 capacity. Candidate mode alternates `generic-reference` and fused workers. It checks every generated token against the pinned FP32 reference. It retains profiler samples for both paths. Candidate receipts cannot open production admission.
+
+FIFO scheduling requires root or `CAP_SYS_NICE`. Production fails closed to the generic path unless CPUs 2 and 6 and FIFO priority 1 are active.
 
 Set `EVIDENCE` to the built `rwkv7-p150x2-evidence` store path. The benchmark first runs matching one-card and two-card profiler attestations. It then runs the unprofiled one-card and two-card samples from the selected profile.
 

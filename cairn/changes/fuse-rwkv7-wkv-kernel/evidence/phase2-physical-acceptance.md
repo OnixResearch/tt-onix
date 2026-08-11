@@ -1,12 +1,12 @@
 # Fused WKV physical acceptance evidence
 
-Date: 2026-08-10
+Date: 2026-08-11
 
 ## Verdict
 
-The Blackhole fused WKV candidate passed physical tensor correctness, exact generated-token parity, and stable B16 A/B gain.
+The Blackhole fused WKV candidate passed physical tensor correctness, exact generated-token parity, stable B16 A/B gain, and strict P150x2 admission.
 
-Strict P150x2 latency admission did not pass. Production dispatch stays closed, and `generic_wkv_step` stays authoritative.
+Production fused dispatch requires CPUs 2 and 6 with FIFO priority 1. All other production configurations fail closed to `generic_wkv_step`.
 
 ## Physical maximum-batch probe
 
@@ -174,7 +174,67 @@ Migration and switch counts increased. Probe overhead prevents a causal schedule
 
 The direct uprobe boundaries identify broad host-duration scaling without sampled-stack symbols. No smaller blocking TT-NN or TT-Metal subphase dominates the stall.
 
-The next discriminator is gated per-thread instructions, cycles, effective frequency, LLC misses, and cache-reference counters.
+A fourth eight-sample capture used pinned, nonmultiplexed Linux hardware counters. Sample 6 was fastest, and sample 1 was slowest.
+
+The wall slowdown was `2.38536978179575`. Instruction counts changed by only `1.0030606612412043` and `1.0094673558406875`.
+
+Task-clock counts increased by `2.2284258192332365` and `2.208739315233314`. IPC fell to `0.48960730185785767` and `0.49662296641146986`.
+
+Instruction rate fell to `0.45012073212575704` and `0.4570332718209687`. Average core frequency fell to `0.9193505293277583` and `0.9202821913843998`.
+
+Cache misses increased by `2.155221719594046` and `2.120324652123489`. Cache references increased by only `1.2207529772552914` and `1.204381348800584`.
+
+Context-switch ratios were `11.166666666666666` and `5.411504424778761`. CPU-migration ratios were `14.155172413793103` and `15.788461538461538`.
+
+Device-zone cycles fell to `0.8789044762706084` and `0.8835978448227058`. Fetch-queue waits covered less than `0.034%` of excess time.
+
+The slow wave executes the same host instructions at much lower throughput. Frequency, cache, and scheduler effects combine in the measured loss.
+
+This result justified a primary-thread-only affinity test. It did not justify another fused-kernel or fetch-queue change.
+
+The first affinity test pinned card 0 to CPU 2 and card 1 to CPU 6. Both CPUs use the 96 MiB L3 CCD.
+
+All measured CPU migrations fell to zero. The fastest wave was `0.598603319` seconds, and the slowest was `0.694035274` seconds.
+
+The maximum wave ratio fell to `1.1594243666397046`. Median wall time fell from `0.7576579765` to `0.6107231615` seconds.
+
+Population standard deviation fell from `0.2604570536328125` to `0.036949182658166574` seconds. The ratio was `0.1418628604708738`.
+
+This test pinned only each primary submission thread. Process-wide TT-Metal worker threads kept their normal CPU freedom.
+
+A split-CCD control moved card 1 from CPU 6 to CPU 10. Its maximum wave ratio increased to `2.339356316019673`.
+
+Its median wall time was `0.707549031` seconds, which was `1.1585429792153052x` the same-CCD median.
+
+Its wall-time standard deviation was `0.28169732485257454` seconds. This was `7.623912210959646x` the same-CCD result.
+
+The split placement exposed substantial off-CPU time on the 32 MiB L3 CCD. The same-CCD CPU 2 and 6 layout remained the candidate.
+
+A full B16 A/B rerun then used the same-CCD placement. Exact generated-token parity passed.
+
+Fused one-card throughput was `463.7091348870274` tokens/s. Fused two-card throughput was `799.8082690394812` tokens/s.
+
+The fused scaling ratio increased to `1.7248059373131326`. However, the p99 regression increased to `0.381053554753073`.
+
+One two-card fused-versus-generic pair was only `0.9091285937922943`. Therefore, primary-thread affinity alone failed admission.
+
+A helper-thread exclusion control then reserved each primary CPU and its SMT sibling. The control produced a rejected `4.785382972`-second wave.
+
+The primary thread consumed only `1.566409136` seconds of task clock. It had 1,736 context switches and zero migrations.
+
+The corresponding profiler summary had two unmatched starts and two unmatched ends. The control was rejected, and its implementation was removed.
+
+A bounded root control then tested FIFO priority 1 for only the pinned primary threads. Normal helper threads retained default scheduling.
+
+All eight waves passed complete profiler validation. The fastest wave was `0.595375554` seconds, and the slowest was `0.646890378` seconds.
+
+The maximum wave ratio fell to `1.0865249230572205`. The selected card instruction ratios were `0.9978448175303972` and `0.9979924993718348`.
+
+Cache misses increased by only `1.0244258802180406` and `1.0824105095176326`. CPU migrations remained zero.
+
+This result supports bounded real-time scheduling for the primary submission threads. It does not admit production without a full B16 A/B pass.
+
+The runtime restores normal scheduling immediately after timed decode. FIFO use requires root or `CAP_SYS_NICE`.
 
 Real-time-profiler synchronization logs did not overlap the timed normal or slow windows. Therefore, an attribution-removing runtime variant was not built.
 
@@ -189,14 +249,40 @@ Bounded evidence:
 - `phase2-fused-wkv-stall-capture.json`;
 - `phase2-fused-wkv-fetch-queue-stall-capture.json`;
 - `phase2-fused-wkv-host-cpu-stall-capture.json`;
-- `phase2-fused-wkv-ebpf-host-subphase-capture.json`.
+- `phase2-fused-wkv-ebpf-host-subphase-capture.json`;
+- `phase2-fused-wkv-hardware-counter-stall-capture.json`;
+- `phase2-fused-wkv-primary-thread-affinity-stall-capture.json`;
+- `phase2-fused-wkv-split-ccd-affinity-stall-capture.json`;
+- `phase2-fused-wkv-primary-thread-affinity-throughput-receipt.json`;
+- `phase2-fused-wkv-primary-thread-affinity-throughput-admission.json`;
+- `phase2-fused-wkv-primary-thread-affinity-fused-wkv-ab-receipt.json`;
+- `phase2-fused-wkv-primary-thread-affinity-generic-throughput-receipt.json`;
+- `phase2-fused-wkv-primary-thread-affinity-generic-throughput-admission.json`;
+- `phase2-fused-wkv-primary-thread-fifo-stall-capture.json`;
+- `phase2-fused-wkv-primary-thread-fifo-throughput-receipt.json`;
+- `phase2-fused-wkv-primary-thread-fifo-throughput-admission.json`;
+- `phase2-fused-wkv-primary-thread-fifo-fused-wkv-ab-receipt.json`;
+- `phase2-fused-wkv-primary-thread-fifo-generic-throughput-receipt.json`;
+- `phase2-fused-wkv-primary-thread-fifo-generic-throughput-admission.json`;
+- `phase2-fused-wkv-primary-thread-fifo-profiler-attestation.json`;
+- `phase2-fused-wkv-conditioned-production-dispatch-smoke.json`.
 
-## Strict admission blocker
+## Strict admission resolution
 
-The synchronized fused candidate reached a two-card speedup of `1.6494731551938797`. This passes the required minimum of `1.5`.
+The final fused candidate reached a two-card speedup of `1.9004959052068073`. This passes the required minimum of `1.5`.
 
-Its p99 latency regression was `0.24129836831923815`. The profile permits at most `0.10`.
+Its p99 latency regression was `0.06701184998181789`. This passes the maximum of `0.10`.
 
-The retained admission result is `fused_candidate_scaling_rejected`. The runtime constant `kFusedWkvPhysicallyAdmitted` remains `false`.
+Fused one-card and two-card throughput were `502.27251306237105` and `954.5668543729688` tokens/s.
 
-This result does not admit production dispatch. It does not remove the observed intermittent device stall risk.
+Every fused-versus-generic pair improved. Exact generated-token parity passed, and no profiler markers were dropped.
+
+The retained admission status is `fused_candidate_scaling_pass`. Its receipt identity is `7e716eb826b8e889e0def2c8f22d922de868fd9580d1fb5f39fe4462b1a47a58`.
+
+The runtime constant `kFusedWkvPhysicallyAdmitted` is `true`. Production still requires the measured per-card CPU and FIFO scheduling contract.
+
+Workers without that exact contract use `generic_wkv_step`. Explicit `generic-reference` workers preserve the authoritative A/B fallback.
+
+A bounded production-policy smoke confirmed `production_physically_admitted: true` on both physical cards. Exact token parity and profiler validation passed.
+
+The smoke used a shortened diagnostic profile, so its p99 result is not admission evidence. The full B16 A/B receipt remains authoritative.

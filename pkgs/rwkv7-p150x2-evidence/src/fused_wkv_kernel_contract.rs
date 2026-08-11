@@ -73,6 +73,14 @@ const STALL_PROBE_BOUNDARY_RECEIPT: &str = "receipt[\"stall_probe_step_boundary_
 const FETCH_QUEUE_DIAGNOSTICS_ENABLE: &str =
     "std::getenv(kFetchQueueDiagnosticsEnvironment.data());";
 const FETCH_QUEUE_DIAGNOSTICS_RECEIPT: &str = "receipt[\"fetch_queue_diagnostics\"] = {";
+const HARDWARE_COUNTER_SESSION_START: &str = "hardware_counter_session->start();";
+const HARDWARE_COUNTER_SESSION_STOP: &str =
+    "hardware_counter_diagnostics = hardware_counter_session->stop();";
+const HARDWARE_COUNTER_RECEIPT: &str = "receipt[\"hardware_counter_diagnostics\"] =";
+const PRIMARY_THREAD_AFFINITY: &str = "sched_setaffinity(0, sizeof(cpu_set), &cpu_set)";
+const PRIMARY_THREAD_AFFINITY_RECEIPT: &str = "receipt[\"primary_thread_cpu_affinity\"] =";
+const PRIMARY_THREAD_FIFO_SCHEDULING: &str = "sched_setscheduler(0, SCHED_FIFO, &parameters)";
+const PRIMARY_THREAD_FIFO_RECEIPT: &str = "receipt[\"primary_thread_fifo_priority\"] =";
 const PROCESS_CPU_TIMING_RECEIPT: &str = "{\"model_submission_process_cpu_seconds\",";
 const STALL_PROBE_BOUNDED_WARMUP: &str = "stall_probe_enabled ? kStallProbeWarmupTokenCount";
 const WALL_CLOCK_CORRELATION_RECEIPT: &str =
@@ -418,8 +426,20 @@ pub fn validate_fused_program_source(
 
     for (name, pattern) in [
         (
-            "closed physical admission",
-            "constexpr bool kFusedWkvPhysicallyAdmitted = false;",
+            "measured physical admission",
+            "constexpr bool kFusedWkvPhysicallyAdmitted = true;",
+        ),
+        (
+            "FIFO-bound production admission",
+            "*primary_thread_fifo_priority != kAdmittedPrimaryThreadFifoPriority",
+        ),
+        (
+            "card-bound production admission",
+            "constexpr std::uint32_t kAdmittedCardZeroPrimaryThreadCpu = 2U;",
+        ),
+        (
+            "explicit generic reference policy",
+            "kGenericReferenceWkvPolicy = \"generic-reference\"",
         ),
         ("capability selection", "rwkv7::fused_wkv::select_dispatch("),
         ("fused dispatch branch", "if (decision.use_fused_path)"),
@@ -480,6 +500,28 @@ pub fn validate_fused_program_source(
             FETCH_QUEUE_DIAGNOSTICS_RECEIPT,
         ),
         (
+            "diagnostic timed hardware counter start",
+            HARDWARE_COUNTER_SESSION_START,
+        ),
+        (
+            "diagnostic timed hardware counter stop",
+            HARDWARE_COUNTER_SESSION_STOP,
+        ),
+        (
+            "physical worker hardware counter receipt",
+            HARDWARE_COUNTER_RECEIPT,
+        ),
+        ("primary-thread-only CPU affinity", PRIMARY_THREAD_AFFINITY),
+        (
+            "primary thread CPU affinity receipt",
+            PRIMARY_THREAD_AFFINITY_RECEIPT,
+        ),
+        (
+            "primary thread FIFO scheduling",
+            PRIMARY_THREAD_FIFO_SCHEDULING,
+        ),
+        ("primary thread FIFO receipt", PRIMARY_THREAD_FIFO_RECEIPT),
+        (
             "physical worker process CPU timing receipt",
             PROCESS_CPU_TIMING_RECEIPT,
         ),
@@ -494,11 +536,47 @@ pub fn validate_fused_program_source(
     ] {
         require_once(runtime_source, name, pattern)?;
     }
-    if runtime_source.contains("kFusedWkvPhysicallyAdmitted = true") {
-        return Err(KernelContractError::new(
-            "unadmitted_fused_dispatch",
-            "the production runtime must stay on the generic path before physical admission",
-        ));
+    Ok(())
+}
+
+pub fn validate_hardware_counter_diagnostics_source(
+    source: &str,
+) -> Result<(), KernelContractError> {
+    for (name, pattern) in [
+        ("Linux perf event syscall", "SYS_perf_event_open"),
+        (
+            "simultaneous task counter enable",
+            "PR_TASK_PERF_EVENTS_ENABLE",
+        ),
+        (
+            "simultaneous task counter disable",
+            "if (::prctl(PR_TASK_PERF_EVENTS_DISABLE) != 0)",
+        ),
+        ("CPU cycle counter", "PERF_COUNT_HW_CPU_CYCLES"),
+        ("instruction counter", "PERF_COUNT_HW_INSTRUCTIONS"),
+        ("cache reference counter", "PERF_COUNT_HW_CACHE_REFERENCES"),
+        ("cache miss counter", "PERF_COUNT_HW_CACHE_MISSES"),
+        ("task clock counter", "PERF_COUNT_SW_TASK_CLOCK"),
+        ("context switch counter", "PERF_COUNT_SW_CONTEXT_SWITCHES"),
+        ("CPU migration counter", "PERF_COUNT_SW_CPU_MIGRATIONS"),
+        (
+            "APERF event",
+            "constexpr std::uint64_t kAperfEventConfig = 0x01U;",
+        ),
+        (
+            "MPERF event",
+            "constexpr std::uint64_t kMperfEventConfig = 0x02U;",
+        ),
+        (
+            "counter running-time bound",
+            "constexpr double kMinimumRunningFraction = 0.99;",
+        ),
+        (
+            "counter multiplex validation",
+            "counter was multiplexed below the bound",
+        ),
+    ] {
+        require_once(source, name, pattern)?;
     }
     Ok(())
 }
@@ -512,10 +590,28 @@ mod tests {
     const WRITER_SOURCE: &str = include_str!("../../rwkv7-p150x2/kernel/fused_wkv_writer.cpp");
     const PROGRAM_SOURCE: &str = include_str!("../../rwkv7-p150x2/src/fused_wkv_program.cpp");
     const RUNTIME_SOURCE: &str = include_str!("../../rwkv7-p150x2/src/main.cpp");
+    const HARDWARE_COUNTER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/src/hardware_counter_diagnostics.cpp");
 
     #[test]
     fn accepts_the_reviewed_compute_source() {
         validate_fused_compute_source(COMPUTE_SOURCE).expect("reviewed compute source");
+    }
+
+    #[test]
+    fn accepts_the_reviewed_hardware_counter_source() {
+        validate_hardware_counter_diagnostics_source(HARDWARE_COUNTER_SOURCE)
+            .expect("reviewed hardware counter source");
+    }
+
+    #[test]
+    fn rejects_a_hardware_counter_source_without_instruction_counts() {
+        let invalid = HARDWARE_COUNTER_SOURCE
+            .replace("PERF_COUNT_HW_INSTRUCTIONS", "REMOVED_INSTRUCTION_COUNTER");
+        let error = validate_hardware_counter_diagnostics_source(&invalid)
+            .expect_err("hardware counters without instructions");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("instruction counter"));
     }
 
     #[test]
@@ -836,6 +932,30 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_stall_probe_without_primary_thread_affinity_receipt() {
+        let invalid = RUNTIME_SOURCE.replace(
+            PRIMARY_THREAD_AFFINITY_RECEIPT,
+            "receipt[\"primary_thread_cpu_affinity_removed\"] =",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without primary thread affinity receipt");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("primary thread CPU affinity receipt"));
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_primary_thread_fifo_receipt() {
+        let invalid = RUNTIME_SOURCE.replace(
+            PRIMARY_THREAD_FIFO_RECEIPT,
+            "receipt[\"primary_thread_fifo_priority_removed\"] =",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without primary thread FIFO receipt");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("primary thread FIFO receipt"));
+    }
+
+    #[test]
     fn rejects_a_stall_probe_without_fetch_queue_diagnostics() {
         let invalid = RUNTIME_SOURCE.replace(
             FETCH_QUEUE_DIAGNOSTICS_RECEIPT,
@@ -900,15 +1020,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_production_runtime_that_admits_fused_dispatch() {
+    fn rejects_production_runtime_without_fifo_bound_admission() {
         let invalid = RUNTIME_SOURCE.replace(
-            "constexpr bool kFusedWkvPhysicallyAdmitted = false;",
-            "constexpr bool kFusedWkvPhysicallyAdmitted = true;",
+            "*primary_thread_fifo_priority != kAdmittedPrimaryThreadFifoPriority",
+            "*primary_thread_fifo_priority == kAdmittedPrimaryThreadFifoPriority",
         );
         let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
-            .expect_err("unadmitted runtime");
+            .expect_err("production runtime without FIFO-bound admission");
         assert_eq!(error.code, "source_pattern_count");
-        assert!(error.detail.contains("closed physical admission"));
+        assert!(error.detail.contains("FIFO-bound production admission"));
     }
 
     #[test]

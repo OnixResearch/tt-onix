@@ -217,6 +217,7 @@
           ''
             set -eu
             runtime_source=${../pkgs/rwkv7-p150x2/src/main.cpp}
+            hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
             benchmark_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-throughput-benchmark.rs}
@@ -254,8 +255,13 @@
             grep -F 'STALL_CAPTURE_MODE' "$benchmark_source"
             grep -F 'STALL_PROBE_ENVIRONMENT' "$benchmark_source"
             grep -F 'FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT' "$benchmark_source"
+            grep -F 'PRIMARY_THREAD_CPUS_ENVIRONMENT' "$benchmark_source"
+            grep -F 'PRIMARY_THREAD_CPU_ENVIRONMENT' "$benchmark_source"
+            grep -F 'PRIMARY_THREAD_FIFO_PRIORITY_ENVIRONMENT' "$benchmark_source"
             grep -F 'PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT' "$benchmark_source"
             grep -F 'STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT' "$benchmark_source"
+            grep -F 'MAXIMUM_STALL_CAPTURE_ATTEMPTS_PER_SAMPLE' "$benchmark_source"
+            grep -F '"failed_attempt_artifacts_retained": false' "$benchmark_source"
             grep -F 'PROFILER_GENERATED_TOKEN_COUNT' "$benchmark_source"
             grep -F 'PROFILER_WARMUP_TOKEN_COUNT' "$benchmark_source"
             grep -F 'PROFILER_DROPPED_MARKER' "$benchmark_source"
@@ -263,17 +269,30 @@
             grep -F 'compare_stall_capture_samples' "$benchmark_source"
             grep -F 'compare_boundary_timings' "$benchmark_source"
             grep -F 'compare_fetch_queue_diagnostics' "$benchmark_source"
+            grep -F 'compare_hardware_counter_diagnostics' "$benchmark_source"
             grep -F 'diagnostic_runtime_executable' "$benchmark_source"
             grep -F 'stall_probe_step_boundary_timings' "$runtime_source"
             grep -F 'blocking_readback_seconds' "$runtime_source"
             grep -F 'model_submission_process_cpu_seconds' "$runtime_source"
             grep -F 'fetch_queue_diagnostics' "$runtime_source"
+            grep -F 'hardware_counter_diagnostics' "$runtime_source"
+            grep -F 'sched_setaffinity(0, sizeof(cpu_set), &cpu_set)' "$runtime_source"
+            grep -F 'sched_setscheduler(0, SCHED_FIFO, &parameters)' "$runtime_source"
+            grep -F 'primary_thread_cpu_affinity' "$runtime_source"
+            grep -F 'primary_thread_fifo_priority' "$runtime_source"
+            grep -F 'SYS_perf_event_open' "$hardware_counter_source"
+            grep -F 'PR_TASK_PERF_EVENTS_ENABLE' "$hardware_counter_source"
+            grep -F 'PERF_COUNT_HW_INSTRUCTIONS' "$hardware_counter_source"
+            grep -F 'PERF_COUNT_HW_CACHE_MISSES' "$hardware_counter_source"
+            grep -F 'attributes.pinned = spec.pinned' "$hardware_counter_source"
             grep -F './fetch-queue-diagnostics.patch' "$diagnostic_tt_metal_package_source"
             if grep -F './fetch-queue-diagnostics.patch' "$production_tt_metal_package_source"; then
               echo 'production TT-Metal includes diagnostic-only fetch-queue counters' >&2
               exit 1
             fi
             grep -F 'RWKV7_FETCH_QUEUE_DIAGNOSTICS' "$runtime_cmake_source"
+            grep -F 'if(RWKV7_FETCH_QUEUE_DIAGNOSTICS)' "$runtime_cmake_source"
+            grep -F 'src/hardware_counter_diagnostics.cpp' "$runtime_cmake_source"
             grep -F 'fetchQueueDiagnostics ? false' "$runtime_package_source"
             grep -F 'diagnosticDeviceRuntime' "$evidence_package_source"
             grep -F 'ZoneScopedN("wait_for_fetch_q_space")' "$fetch_queue_patch"
