@@ -11,11 +11,12 @@ let Blake3C = std.contract.from_predicate (fun value =>
 let ExactC = fun expected => std.contract.from_predicate (fun value =>
   value == expected
 ) in
-let admitted_maximum_decode_steps = 2 in
+let admitted_decode_window_values = [2, 4] in
+let admitted_maximum_decode_steps = 4 in
 let admitted_maximum_elapsed_milliseconds = 60000 in
 let admitted_queue_depth = 4 in
 let admitted_cancellation_poll_interval_steps = 2 in
-let admitted_output_capacity_tokens = 2 in
+let admitted_output_capacity_tokens = 4 in
 let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
   std.is_record value
   && std.array.length (std.record.fields value) == std.array.length allowed
@@ -30,6 +31,7 @@ let LimitsC = {
   queue_depth | PositiveIntC | ExactC admitted_queue_depth,
   cancellation_poll_interval_steps | PositiveIntC | ExactC admitted_cancellation_poll_interval_steps,
   output_capacity_tokens | PositiveIntC | ExactC admitted_output_capacity_tokens,
+  admitted_decode_windows | ExactC admitted_decode_window_values,
 } in
 let LimitsClosedC = ClosedRecordC [
   "maximum_decode_steps",
@@ -37,6 +39,7 @@ let LimitsClosedC = ClosedRecordC [
   "queue_depth",
   "cancellation_poll_interval_steps",
   "output_capacity_tokens",
+  "admitted_decode_windows",
 ] in
 let AdmissionC = {
   require_exact_parity | ExactC true,
@@ -72,6 +75,7 @@ let ProfileSemanticC = std.contract.from_predicate (fun value =>
   value.limits.cancellation_poll_interval_steps > 1
   && value.limits.cancellation_poll_interval_steps <= value.limits.maximum_decode_steps
   && value.limits.output_capacity_tokens >= value.limits.maximum_decode_steps
+  && std.array.length value.limits.admitted_decode_windows > 1
 ) in
 {
   Profile = ProfileC,
@@ -82,4 +86,5 @@ let ProfileSemanticC = std.contract.from_predicate (fun value =>
   QueueDepth = admitted_queue_depth,
   CancellationPollIntervalSteps = admitted_cancellation_poll_interval_steps,
   OutputCapacityTokens = admitted_output_capacity_tokens,
+  AdmittedDecodeWindows = admitted_decode_window_values,
 }

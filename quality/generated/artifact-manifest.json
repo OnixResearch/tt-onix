@@ -2,6 +2,60 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2508,
+      "blake3": "4c821e15b207a495692c37ec68f1a3308b2e45f2f755384ff41f3c86d165b47c"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/fallback-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4721,
+      "blake3": "424b9c872e575f7e8d723442625712a5e772a1e2128788890a4fdac4957901ac"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/physical-acceptance.json",
+      "class": "portable_evidence",
+      "byte_count": 7298,
+      "blake3": "7f4bee6af25e9d7203ec6e9e747497dfab51a5ed1320f557b6bcea6e7ad1d2bf"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/production-profiled-worker-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6731,
+      "blake3": "dd8420bc227a54c47330c1208d4cad93051953dea9d9381e295856f788cf5089"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/short-window-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6625,
+      "blake3": "70a9628ec6cfd4f2f4880082fa31b8e562f011ca0f72524c25c4aa002bf665ef"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1489,
+      "blake3": "fe253e1ab3352864716bd61ee2b5a217199e3c4fd3e73e7d98069efadca718ae"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/terminal-cancel-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6427,
+      "blake3": "639c1056818e43124a8fcd7217c5e8ad378307f59c982929ed74d91b88a55184"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/terminal-failure-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6491,
+      "blake3": "be943a963e0bb29a47d0f86e0255920c5cb8dfdedd5b9131a0bddea4b4e8ff9d"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/terminal-timeout-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6428,
+      "blake3": "690d7b9f781060e06dac737e1406a0671189b07b055360c16daeb8b56822c3e2"
+    },
+    {
       "path": "cairn/archive/2026-08-11-fuse-rwkv7-wkv-kernel/evidence/b1-equation-baseline.md",
       "class": "portable_evidence",
       "byte_count": 4142,

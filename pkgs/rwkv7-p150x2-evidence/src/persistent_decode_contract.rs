@@ -34,7 +34,7 @@ const HEADER_PATTERNS: [&str; 7] = [
     "maximum_elapsed_milliseconds",
     "cancellation_poll_interval_steps",
 ];
-const CORE_PATTERNS: [&str; 8] = [
+const CORE_PATTERNS: [&str; 10] = [
     "rwkv7-persistent-decode-binding-v1",
     "derive_binding_identity",
     "validate_bindings",
@@ -42,9 +42,11 @@ const CORE_PATTERNS: [&str; 8] = [
     "output_overflow",
     "slot_releasable",
     "select_execution_mode",
+    "select_window_limits",
     "ProfileNotAdmitted",
+    "WindowNotAdmitted",
 ];
-const SELF_TEST_PATTERNS: [&str; 8] = [
+const SELF_TEST_PATTERNS: [&str; 9] = [
     "test_normal_completion",
     "test_maximum_length_completion",
     "test_cancel_timeout_and_failure",
@@ -53,8 +55,9 @@ const SELF_TEST_PATTERNS: [&str; 8] = [
     "test_slot_admission_and_recycling",
     "test_binding_drift_and_receipts",
     "test_fail_closed_mode_selection",
+    "test_window_selection",
 ];
-const RUNTIME_PATTERNS: [&str; 19] = [
+const RUNTIME_PATTERNS: [&str; 22] = [
     "derive_fast_worker_bindings",
     "persistent decode profile targets a different model profile",
     "begin_trace_capture",
@@ -74,14 +77,18 @@ const RUNTIME_PATTERNS: [&str; 19] = [
     "\"zero_per_token_host_submissions_proven\"",
     "\"selected_token_device_resident_inside_region\"",
     "\"selected_token_readback_inside_region\"",
+    "persistent_workload_limits",
+    "\"admitted_decode_windows\"",
+    "\"selected_decode_window_steps\"",
 ];
-const PROFILE_PATTERNS: [&str; 6] = [
+const PROFILE_PATTERNS: [&str; 7] = [
     "bounded_metal_trace_chunk",
-    "physically_admitted = true",
+    "physically_admitted =",
     "maximum_decode_steps",
     "maximum_elapsed_milliseconds",
     "cancellation_poll_interval_steps",
     "output_capacity_tokens",
+    "admitted_decode_windows",
 ];
 
 fn require_patterns(
@@ -152,12 +159,27 @@ struct WorkerReceipt {
 
 #[derive(Debug, Deserialize)]
 struct PersistentSection {
+    profile_id: String,
     profile_blake3: String,
+    #[serde(default)]
+    admitted_decode_windows: Vec<u32>,
+    #[serde(default)]
+    selected_decode_window_steps: Option<u32>,
     model_profile_blake3: String,
     hash_algorithm: String,
     simulated: bool,
     physically_admitted: bool,
     candidate_requested: bool,
+    #[serde(default)]
+    terminal_probe: String,
+    #[serde(default)]
+    terminal_event_poll_step: Option<u32>,
+    #[serde(default)]
+    cancellation_poll_interval_steps: u32,
+    #[serde(default)]
+    pre_replay_terminal_event: bool,
+    #[serde(default)]
+    window_admitted: bool,
     workload_eligible: bool,
     prompt_prefill_outside_timed_region: bool,
     binding_identities: BTreeMap<String, String>,
@@ -187,6 +209,12 @@ struct PersistentSection {
 struct LifecycleReceipt {
     slot: u32,
     phase: String,
+    #[serde(default)]
+    terminal_reason: String,
+    #[serde(default)]
+    completed_steps: u32,
+    #[serde(default)]
+    failure_code: String,
     slot_releasable: bool,
     receipt_blake3: String,
 }
@@ -196,6 +224,10 @@ const SINGLE_TRACE_SUBMISSION: u64 = 1;
 const MAXIMUM_TRACE_REGION_BYTES: usize = 268_435_456;
 const MAXIMUM_TRACE_EXECUTION_SECONDS: f64 = 60.0;
 const MAXIMUM_RECEIPT_QUEUE_DEPTH: usize = 4;
+const WINDOW_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+const SHORT_DECODE_WINDOW: u32 = 2;
+const LONG_DECODE_WINDOW: u32 = 4;
+const CANCELLATION_POLL_STEP: u32 = 2;
 const REQUIRED_BINDINGS: [&str; 9] = [
     "token",
     "state",
@@ -229,6 +261,22 @@ pub fn validate_persistent_receipt(
         return Err(PersistentReceiptError::new(
             "invalid_profile_identity",
             "persistent profile identities must use BLAKE3",
+        ));
+    }
+    if persistent.profile_id == WINDOW_PROFILE_ID
+        && (persistent.admitted_decode_windows != [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
+            || persistent
+                .selected_decode_window_steps
+                .is_none_or(|window| !persistent.admitted_decode_windows.contains(&window))
+            || !persistent.window_admitted
+            || persistent.terminal_probe != "none"
+            || persistent.terminal_event_poll_step.is_some()
+            || persistent.cancellation_poll_interval_steps != CANCELLATION_POLL_STEP
+            || persistent.pre_replay_terminal_event)
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_decode_window",
+            "persistent decode window is not listed in the bound profile",
         ));
     }
     if persistent.binding_identities.len() != REQUIRED_BINDINGS.len()
@@ -319,6 +367,11 @@ pub fn validate_persistent_receipt(
     let mut slots = BTreeSet::new();
     for lifecycle in &persistent.lifecycle_receipts {
         if lifecycle.phase != "completed"
+            || (persistent.profile_id == WINDOW_PROFILE_ID
+                && (lifecycle.terminal_reason != "completed"
+                    || lifecycle.completed_steps
+                        != persistent.selected_decode_window_steps.unwrap_or_default()
+                    || !lifecycle.failure_code.is_empty()))
             || !lifecycle.slot_releasable
             || !valid_blake3(&lifecycle.receipt_blake3)
             || !slots.insert(lifecycle.slot)
@@ -356,6 +409,103 @@ pub fn validate_persistent_receipt(
     Ok(())
 }
 
+pub fn validate_persistent_terminal_probe_receipt(
+    receipt_json: &str,
+    expected_probe: &str,
+) -> Result<(), PersistentReceiptError> {
+    let receipt: WorkerReceipt = serde_json::from_str(receipt_json)
+        .map_err(|error| PersistentReceiptError::new("malformed_receipt", error.to_string()))?;
+    let persistent = &receipt.persistent_decode;
+    let (expected_phase, expected_reason, expected_failure_code) = match expected_probe {
+        "cancel" => ("cancelled", "cancelled", ""),
+        "timeout" => ("timed_out", "timed_out", ""),
+        "failure" => ("failed", "failed", "physical_terminal_probe"),
+        _ => {
+            return Err(PersistentReceiptError::new(
+                "invalid_terminal_probe",
+                "expected terminal probe must be cancel, timeout, or failure",
+            ));
+        }
+    };
+    let window_valid = persistent.profile_id == WINDOW_PROFILE_ID
+        && persistent.admitted_decode_windows == [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
+        && persistent.selected_decode_window_steps == Some(LONG_DECODE_WINDOW)
+        && persistent.window_admitted
+        && persistent.terminal_probe == expected_probe
+        && persistent.terminal_event_poll_step == Some(0)
+        && persistent.cancellation_poll_interval_steps == CANCELLATION_POLL_STEP
+        && persistent.pre_replay_terminal_event;
+    let execution_valid = receipt.physical_hardware
+        && !persistent.simulated
+        && persistent.candidate_requested
+        && persistent.workload_eligible
+        && persistent.selected_mode == "persistent_trace"
+        && persistent.fallback_reason == "none"
+        && !persistent.persistent_region_entered
+        && persistent.trace_region_bytes > 0
+        && persistent.trace_region_bytes <= MAXIMUM_TRACE_REGION_BYTES
+        && persistent.trace_capture_outside_timed_region
+        && persistent.prompt_prefill_outside_timed_region
+        && persistent.trace_execution_seconds == 0.0
+        && persistent.timed_host_model_submissions == 0
+        && !persistent.zero_per_token_host_submissions_proven
+        && !persistent.selected_token_device_resident_inside_region
+        && !persistent.selected_token_readback_inside_region
+        && !persistent.output_readback_after_region
+        && persistent.recurrent_state_dtype == "fp32";
+    let identity_valid = persistent.hash_algorithm == "blake3"
+        && valid_blake3(&persistent.profile_blake3)
+        && valid_blake3(&persistent.model_profile_blake3)
+        && persistent.binding_identities.len() == REQUIRED_BINDINGS.len()
+        && REQUIRED_BINDINGS.iter().all(|binding| {
+            persistent
+                .binding_identities
+                .get(*binding)
+                .is_some_and(|identity| valid_blake3(identity))
+        })
+        && persistent.bindings_validated;
+    let parity_valid = persistent.final_state_blake3.is_none()
+        && persistent
+            .reference_state_blake3
+            .as_deref()
+            .is_some_and(valid_blake3)
+        && !persistent.exact_generated_token_parity
+        && !persistent.exact_fp32_recurrent_state_parity
+        && persistent.reference_state_zeroed
+        && persistent.state_zeroed_before_slot_release;
+    if !window_valid || !execution_valid || !identity_valid || !parity_valid {
+        return Err(PersistentReceiptError::new(
+            "invalid_terminal_probe",
+            "physical terminal probe identity, execution, parity, or cleanup is invalid",
+        ));
+    }
+    if persistent.lifecycle_receipts.is_empty()
+        || persistent.lifecycle_receipts.len() > MAXIMUM_RECEIPT_QUEUE_DEPTH
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_terminal_probe_lifecycle",
+            "terminal probe lifecycle count is outside the queue bound",
+        ));
+    }
+    let mut slots = BTreeSet::new();
+    for lifecycle in &persistent.lifecycle_receipts {
+        if lifecycle.phase != expected_phase
+            || lifecycle.terminal_reason != expected_reason
+            || lifecycle.completed_steps != 0
+            || lifecycle.failure_code != expected_failure_code
+            || !lifecycle.slot_releasable
+            || !valid_blake3(&lifecycle.receipt_blake3)
+            || !slots.insert(lifecycle.slot)
+        {
+            return Err(PersistentReceiptError::new(
+                "invalid_terminal_probe_lifecycle",
+                "terminal probe did not acknowledge, zero, and release each slot",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PersistentAbReceipt {
@@ -375,6 +525,9 @@ struct PersistentAbReceipt {
     dispatch: AbDispatch,
     profiler: AbProfiler,
     simulator: AbSimulator,
+    terminal_probes: AbTerminalProbes,
+    slot_recycling: AbSlotRecycling,
+    fallback: AbFallback,
     machine_snapshot_blake3: String,
     stable_gain: bool,
     production_physically_admitted: bool,
@@ -437,8 +590,11 @@ struct AbCorrectness {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AbDispatch {
-    normal_host_model_submissions_for_two_tokens: u64,
-    persistent_trace_replay_submissions_for_two_tokens: u64,
+    admitted_decode_windows: Vec<u32>,
+    selected_decode_window_steps: u32,
+    short_window_receipt_blake3: String,
+    normal_host_model_submissions_for_admitted_window: u64,
+    persistent_trace_replay_submissions_for_admitted_window: u64,
     per_token_host_submissions_inside_persistent_region: u64,
     trace_capture_outside_timed_region: bool,
     trace_region_bytes: usize,
@@ -464,19 +620,49 @@ struct AbSimulator {
     retained_receipt_blake3: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbTerminalProbes {
+    pre_replay: bool,
+    cancellation_poll_interval_steps: u32,
+    cancel_receipt_blake3: String,
+    timeout_receipt_blake3: String,
+    failure_receipt_blake3: String,
+    all_acknowledged_zeroed_and_released: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbSlotRecycling {
+    cycle_count: usize,
+    slot_ids: Vec<u32>,
+    persistent_receipt_blake3: Vec<String>,
+    all_completed_zeroed_and_released: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbFallback {
+    unlisted_window_steps: u32,
+    selected_mode: String,
+    fallback_reason: String,
+    receipt_blake3: String,
+}
+
 const PHYSICAL_ACCEPTANCE_KIND: &str = "rwkv7_p150x2_persistent_decode_physical_acceptance";
 const PHYSICAL_ACCEPTANCE_STATUS: &str = "production_admitted";
-const PHYSICAL_ACCEPTANCE_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v1";
+const PHYSICAL_ACCEPTANCE_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
 const PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
 const PHYSICAL_ACCEPTANCE_SAMPLE_COUNT: usize = 5;
 const PHYSICAL_ACCEPTANCE_REQUEST_COUNT: usize = 4;
-const PHYSICAL_ACCEPTANCE_TOKEN_COUNT: usize = 2;
-const PHYSICAL_ACCEPTANCE_PROMPT: [u32; 2] = [0, 2];
-const PHYSICAL_ACCEPTANCE_REFERENCE: [u32; 2] = [2, 2];
+const PHYSICAL_ACCEPTANCE_TOKEN_COUNT: usize = 4;
+const PHYSICAL_ACCEPTANCE_PROMPT: [u32; 8] = [0, 24281, 59, 36786, 65530, 5585, 41693, 59];
+const PHYSICAL_ACCEPTANCE_REFERENCE: [u32; 4] = [36786, 34, 308, 459];
 const PHYSICAL_ACCEPTANCE_CAPACITY: &str = "B4";
-const NORMAL_SUBMISSION_COUNT: u64 = 2;
+const NORMAL_SUBMISSION_COUNT: u64 = 4;
 const PERSISTENT_SUBMISSION_COUNT: u64 = 1;
 const ORDER_PERIOD: usize = 2;
+const UNLISTED_WINDOW_STEPS: u32 = 1;
 const FLOAT_COMPARISON_TOLERANCE: f64 = 1.0e-12;
 
 fn approximately_equal(left: f64, right: f64) -> bool {
@@ -659,8 +845,11 @@ pub fn validate_persistent_ab_receipt(receipt_json: &str) -> Result<(), Persiste
         || !correctness.exact_fp32_recurrent_state_parity
         || !correctness.reference_state_zeroed
         || !correctness.persistent_state_zeroed_before_slot_release
-        || dispatch.normal_host_model_submissions_for_two_tokens != NORMAL_SUBMISSION_COUNT
-        || dispatch.persistent_trace_replay_submissions_for_two_tokens
+        || dispatch.admitted_decode_windows != [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
+        || dispatch.selected_decode_window_steps != LONG_DECODE_WINDOW
+        || !valid_blake3(&dispatch.short_window_receipt_blake3)
+        || dispatch.normal_host_model_submissions_for_admitted_window != NORMAL_SUBMISSION_COUNT
+        || dispatch.persistent_trace_replay_submissions_for_admitted_window
             != PERSISTENT_SUBMISSION_COUNT
         || dispatch.per_token_host_submissions_inside_persistent_region != 0
         || !dispatch.trace_capture_outside_timed_region
@@ -674,6 +863,32 @@ pub fn validate_persistent_ab_receipt(receipt_json: &str) -> Result<(), Persiste
     }
     let profiler = &receipt.profiler;
     let simulator = &receipt.simulator;
+    let terminal = &receipt.terminal_probes;
+    let recycling = &receipt.slot_recycling;
+    let fallback = &receipt.fallback;
+    if !terminal.pre_replay
+        || terminal.cancellation_poll_interval_steps != CANCELLATION_POLL_STEP
+        || !valid_blake3(&terminal.cancel_receipt_blake3)
+        || !valid_blake3(&terminal.timeout_receipt_blake3)
+        || !valid_blake3(&terminal.failure_receipt_blake3)
+        || !terminal.all_acknowledged_zeroed_and_released
+        || recycling.cycle_count != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
+        || recycling.slot_ids != [0, 1, 2, 3]
+        || !validate_ab_hashes(
+            &recycling.persistent_receipt_blake3,
+            PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
+        )
+        || !recycling.all_completed_zeroed_and_released
+        || fallback.unlisted_window_steps != UNLISTED_WINDOW_STEPS
+        || fallback.selected_mode != "normal_dispatch"
+        || fallback.fallback_reason != "window_not_admitted"
+        || !valid_blake3(&fallback.receipt_blake3)
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_ab_cleanup",
+            "terminal probes, slot recycling, or fallback evidence is invalid",
+        ));
+    }
     if !profiler.trace_only
         || profiler.trace_row_count == 0
         || profiler.dropped_marker_warning
@@ -708,7 +923,7 @@ mod tests {
     const INVALID_TRACE_SUBMISSIONS: u64 = 2;
 
     fn valid_candidate_receipt() -> serde_json::Value {
-        serde_json::json!({
+        let mut receipt = serde_json::json!({
             "physical_hardware": false,
             "profiler_attributed": false,
             "persistent_decode": {
@@ -757,7 +972,60 @@ mod tests {
                     "receipt_blake3": VALID_HASH
                 }]
             }
-        })
+        });
+        receipt["persistent_decode"]["profile_id"] = serde_json::json!(WINDOW_PROFILE_ID);
+        receipt["persistent_decode"]["admitted_decode_windows"] =
+            serde_json::json!([SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]);
+        receipt["persistent_decode"]["selected_decode_window_steps"] =
+            serde_json::json!(LONG_DECODE_WINDOW);
+        receipt["persistent_decode"]["terminal_probe"] = serde_json::json!("none");
+        receipt["persistent_decode"]["terminal_event_poll_step"] = serde_json::Value::Null;
+        receipt["persistent_decode"]["cancellation_poll_interval_steps"] =
+            serde_json::json!(CANCELLATION_POLL_STEP);
+        receipt["persistent_decode"]["pre_replay_terminal_event"] = serde_json::json!(false);
+        receipt["persistent_decode"]["window_admitted"] = serde_json::json!(true);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["terminal_reason"] =
+            serde_json::json!("completed");
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["completed_steps"] =
+            serde_json::json!(LONG_DECODE_WINDOW);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["failure_code"] =
+            serde_json::json!("");
+        receipt
+    }
+
+    fn valid_terminal_probe_receipt(probe: &str) -> serde_json::Value {
+        let mut receipt = valid_candidate_receipt();
+        let (phase, reason, failure_code) = match probe {
+            "cancel" => ("cancelled", "cancelled", ""),
+            "timeout" => ("timed_out", "timed_out", ""),
+            "failure" => ("failed", "failed", "physical_terminal_probe"),
+            _ => panic!("invalid test terminal probe"),
+        };
+        receipt["physical_hardware"] = serde_json::json!(true);
+        receipt["persistent_decode"]["simulated"] = serde_json::json!(false);
+        receipt["persistent_decode"]["terminal_probe"] = serde_json::json!(probe);
+        receipt["persistent_decode"]["terminal_event_poll_step"] = serde_json::json!(0);
+        receipt["persistent_decode"]["pre_replay_terminal_event"] = serde_json::json!(true);
+        receipt["persistent_decode"]["persistent_region_entered"] = serde_json::json!(false);
+        receipt["persistent_decode"]["trace_execution_seconds"] = serde_json::json!(0.0);
+        receipt["persistent_decode"]["timed_host_model_submissions"] = serde_json::json!(0);
+        receipt["persistent_decode"]["zero_per_token_host_submissions_proven"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["selected_token_device_resident_inside_region"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["output_readback_after_region"] = serde_json::json!(false);
+        receipt["persistent_decode"]["final_state_blake3"] = serde_json::Value::Null;
+        receipt["persistent_decode"]["exact_generated_token_parity"] = serde_json::json!(false);
+        receipt["persistent_decode"]["exact_fp32_recurrent_state_parity"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["phase"] = serde_json::json!(phase);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["terminal_reason"] =
+            serde_json::json!(reason);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["completed_steps"] =
+            serde_json::json!(0);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["failure_code"] =
+            serde_json::json!(failure_code);
+        receipt
     }
 
     fn valid_ab_receipt() -> serde_json::Value {
@@ -832,8 +1100,11 @@ mod tests {
                 "persistent_state_zeroed_before_slot_release": true
             },
             "dispatch": {
-                "normal_host_model_submissions_for_two_tokens": NORMAL_SUBMISSION_COUNT,
-                "persistent_trace_replay_submissions_for_two_tokens": PERSISTENT_SUBMISSION_COUNT,
+                "admitted_decode_windows": [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW],
+                "selected_decode_window_steps": LONG_DECODE_WINDOW,
+                "short_window_receipt_blake3": VALID_HASH,
+                "normal_host_model_submissions_for_admitted_window": NORMAL_SUBMISSION_COUNT,
+                "persistent_trace_replay_submissions_for_admitted_window": PERSISTENT_SUBMISSION_COUNT,
                 "per_token_host_submissions_inside_persistent_region": 0,
                 "trace_capture_outside_timed_region": true,
                 "trace_region_bytes": MAXIMUM_TRACE_REGION_BYTES
@@ -852,6 +1123,26 @@ mod tests {
                 "raw_receipt_blake3": VALID_HASH,
                 "retained_receipt_blake3": VALID_HASH
             },
+            "terminal_probes": {
+                "pre_replay": true,
+                "cancellation_poll_interval_steps": CANCELLATION_POLL_STEP,
+                "cancel_receipt_blake3": VALID_HASH,
+                "timeout_receipt_blake3": VALID_HASH,
+                "failure_receipt_blake3": VALID_HASH,
+                "all_acknowledged_zeroed_and_released": true
+            },
+            "slot_recycling": {
+                "cycle_count": PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
+                "slot_ids": [0, 1, 2, 3],
+                "persistent_receipt_blake3": [VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH],
+                "all_completed_zeroed_and_released": true
+            },
+            "fallback": {
+                "unlisted_window_steps": UNLISTED_WINDOW_STEPS,
+                "selected_mode": "normal_dispatch",
+                "fallback_reason": "window_not_admitted",
+                "receipt_blake3": VALID_HASH
+            },
             "machine_snapshot_blake3": VALID_HASH,
             "stable_gain": true,
             "production_physically_admitted": true
@@ -866,7 +1157,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_the_physically_admitted_sources() {
+    fn accepts_the_window_profile_sources() {
         validate_persistent_decode_sources(HEADER, CORE, SELF_TEST, RUNTIME, PROFILE)
             .expect("reviewed persistent decode sources");
     }
@@ -914,14 +1205,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_profile_that_removes_physical_admission() {
-        let invalid = PROFILE.replacen(
-            "physically_admitted = true",
-            "physically_admitted = false",
-            1,
-        );
+    fn rejects_a_profile_without_admitted_windows() {
+        let invalid = PROFILE.replacen("admitted_decode_windows", "removed_decode_windows", 1);
         let error = validate_persistent_decode_sources(HEADER, CORE, SELF_TEST, RUNTIME, &invalid)
-            .expect_err("removed physical admission");
+            .expect_err("removed admitted windows");
         assert_eq!(error.surface, "profile");
     }
 
@@ -940,6 +1227,35 @@ mod tests {
         production["persistent_decode"]["candidate_requested"] = serde_json::json!(false);
         validate_value(&production, PersistentReceiptPolicy::Production)
             .expect("physical production receipt");
+    }
+
+    #[test]
+    fn accepts_bounded_terminal_probe_cleanup_and_rejects_drift() {
+        for probe in ["cancel", "timeout", "failure"] {
+            let receipt = valid_terminal_probe_receipt(probe);
+            validate_persistent_terminal_probe_receipt(&receipt.to_string(), probe)
+                .expect("physical terminal probe receipt");
+        }
+
+        let mut invalid = valid_terminal_probe_receipt("cancel");
+        invalid["persistent_decode"]["lifecycle_receipts"][0]["slot_releasable"] =
+            serde_json::json!(false);
+        assert_eq!(
+            validate_persistent_terminal_probe_receipt(&invalid.to_string(), "cancel")
+                .expect_err("terminal probe released state before cleanup")
+                .code,
+            "invalid_terminal_probe_lifecycle"
+        );
+
+        invalid = valid_terminal_probe_receipt("timeout");
+        invalid["persistent_decode"]["terminal_event_poll_step"] =
+            serde_json::json!(CANCELLATION_POLL_STEP);
+        assert_eq!(
+            validate_persistent_terminal_probe_receipt(&invalid.to_string(), "timeout")
+                .expect_err("terminal probe moved beyond the polling boundary")
+                .code,
+            "invalid_terminal_probe"
+        );
     }
 
     #[test]
@@ -1038,6 +1354,16 @@ mod tests {
                 .expect_err("unbalanced A/B order")
                 .code,
             "invalid_ab_order"
+        );
+
+        invalid = valid_ab_receipt();
+        invalid["terminal_probes"]["all_acknowledged_zeroed_and_released"] =
+            serde_json::json!(false);
+        assert_eq!(
+            validate_persistent_ab_receipt(&invalid.to_string())
+                .expect_err("terminal cleanup drift")
+                .code,
+            "invalid_ab_cleanup"
         );
     }
 }

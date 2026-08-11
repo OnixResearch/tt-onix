@@ -17,7 +17,7 @@ namespace {
 
 constexpr std::uint32_t kProfileSchemaVersion = 1U;
 constexpr std::size_t kProfileFieldCount = 7U;
-constexpr std::size_t kLimitFieldCount = 5U;
+constexpr std::size_t kLimitFieldCount = 6U;
 constexpr std::size_t kAdmissionFieldCount = 4U;
 constexpr std::size_t kBlake3DigestBytes = 32U;
 constexpr std::size_t kHexCharactersPerByte = 2U;
@@ -198,6 +198,22 @@ std::string_view request_phase_name(RequestPhase phase) {
   return "invalid";
 }
 
+std::string_view terminal_reason_name(TerminalReason reason) {
+  switch (reason) {
+  case TerminalReason::None:
+    return "none";
+  case TerminalReason::Completed:
+    return "completed";
+  case TerminalReason::Cancelled:
+    return "cancelled";
+  case TerminalReason::TimedOut:
+    return "timed_out";
+  case TerminalReason::Failed:
+    return "failed";
+  }
+  return "invalid";
+}
+
 std::string_view execution_mode_name(ExecutionMode mode) {
   switch (mode) {
   case ExecutionMode::NormalDispatch:
@@ -226,6 +242,8 @@ std::string_view fallback_reason_name(FallbackReason reason) {
     return "stable_gain_missing";
   case FallbackReason::ProfileNotAdmitted:
     return "profile_not_admitted";
+  case FallbackReason::WindowNotAdmitted:
+    return "window_not_admitted";
   }
   return "invalid";
 }
@@ -239,7 +257,7 @@ Profile parse_profile(const nlohmann::json &document) {
   const nlohmann::json &admission = document.at("admission");
   if (!limits.is_object() || limits.size() != kLimitFieldCount) {
     throw std::invalid_argument(
-        "persistent decode limits must contain exactly five fields");
+        "persistent decode limits must contain exactly six fields");
   }
   if (!admission.is_object() || admission.size() != kAdmissionFieldCount) {
     throw std::invalid_argument(
@@ -256,7 +274,10 @@ Profile parse_profile(const nlohmann::json &document) {
              limits.at("queue_depth").get<std::uint32_t>(),
              limits.at("cancellation_poll_interval_steps")
                  .get<std::uint32_t>(),
-             limits.at("output_capacity_tokens").get<std::uint32_t>()},
+             limits.at("output_capacity_tokens").get<std::uint32_t>(),
+             limits.at("admitted_decode_windows")
+                 .get<std::vector<std::uint32_t>>()},
+
       AdmissionRequirements{
           admission.at("require_exact_parity").get<bool>(),
           admission.at("require_simulator_smoke").get<bool>(),
@@ -306,6 +327,22 @@ ValidationResult validate_profile(const Profile &profile) {
     return invalid_result(
         "persistent decode output capacity is below the step bound");
   }
+  if (profile.limits.admitted_decode_windows.empty() ||
+      profile.limits.admitted_decode_windows.back() !=
+          profile.limits.maximum_decode_steps) {
+    return invalid_result(
+        "persistent decode windows must end at the maximum step bound");
+  }
+  std::uint32_t previous_window = 0U;
+  for (const std::uint32_t window :
+       profile.limits.admitted_decode_windows) {
+    if (window <= previous_window ||
+        window % profile.limits.cancellation_poll_interval_steps != 0U) {
+      return invalid_result(
+          "persistent decode windows must be ordered, unique, and polling aligned");
+    }
+    previous_window = window;
+  }
   if (!profile.admission.require_exact_parity ||
       !profile.admission.require_simulator_smoke ||
       !profile.admission.require_zero_per_token_host_submissions ||
@@ -314,6 +351,26 @@ ValidationResult validate_profile(const Profile &profile) {
         "persistent decode admission requirements must remain fail closed");
   }
   return valid_result();
+}
+
+WindowLimitsResult select_window_limits(const Profile &profile,
+                                        std::uint32_t decode_steps) {
+  const ValidationResult validation = validate_profile(profile);
+  if (!validation.valid) {
+    return WindowLimitsResult{false, profile.limits, validation.reason};
+  }
+  if (!std::binary_search(profile.limits.admitted_decode_windows.begin(),
+                          profile.limits.admitted_decode_windows.end(),
+                          decode_steps)) {
+    return WindowLimitsResult{
+        false, profile.limits,
+        "persistent decode request window is not physically admitted"};
+  }
+  Limits selected = profile.limits;
+  selected.maximum_decode_steps = decode_steps;
+  selected.output_capacity_tokens = decode_steps;
+  selected.admitted_decode_windows = {decode_steps};
+  return WindowLimitsResult{true, std::move(selected), {}};
 }
 
 std::string blake3_hex(std::string_view bytes) {
@@ -538,6 +595,11 @@ select_execution_mode(const Profile &profile,
     return ExecutionDecision{ExecutionMode::NormalDispatch,
                              FallbackReason::ProfileNotAdmitted,
                              "the persistent candidate is not physically admitted"};
+  }
+  if (!evidence.window_admitted) {
+    return ExecutionDecision{
+        ExecutionMode::NormalDispatch, FallbackReason::WindowNotAdmitted,
+        "the requested persistent decode window is not admitted"};
   }
   if (!evidence.trace_available) {
     return ExecutionDecision{ExecutionMode::NormalDispatch,

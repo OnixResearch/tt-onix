@@ -75,6 +75,7 @@ rustPlatform.buildRustPackage {
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
       fixtures/persistent-decode-workload.json \
+      fixtures/persistent-decode-lifecycle-workload.json \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
       fixtures/fused-wkv-stall-workload.json \

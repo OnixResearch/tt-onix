@@ -12,6 +12,7 @@ let invalid_maximum_decode_steps = 0 in
     queue_depth = contracts.QueueDepth,
     cancellation_poll_interval_steps = contracts.CancellationPollIntervalSteps,
     output_capacity_tokens = contracts.OutputCapacityTokens,
+    admitted_decode_windows = contracts.AdmittedDecodeWindows,
   },
   admission = {
     require_exact_parity = true,

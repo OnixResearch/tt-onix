@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -75,6 +76,7 @@ enum class FallbackReason : std::uint8_t {
   ProfilerEvidenceMissing,
   StableGainMissing,
   ProfileNotAdmitted,
+  WindowNotAdmitted,
 };
 
 struct Limits {
@@ -83,6 +85,7 @@ struct Limits {
   std::uint32_t queue_depth;
   std::uint32_t cancellation_poll_interval_steps;
   std::uint32_t output_capacity_tokens;
+  std::vector<std::uint32_t> admitted_decode_windows;
 };
 
 struct AdmissionRequirements {
@@ -112,6 +115,12 @@ struct ValidationResult {
   std::string reason;
 };
 
+struct WindowLimitsResult {
+  bool accepted;
+  Limits limits;
+  std::string error;
+};
+
 struct RequestState {
   RequestPhase phase;
   TerminalReason terminal_reason;
@@ -137,6 +146,7 @@ struct TransitionResult {
 };
 
 struct CapabilityEvidence {
+  bool window_admitted;
   bool trace_available;
   bool exact_parity;
   bool simulator_smoke;
@@ -152,11 +162,14 @@ struct ExecutionDecision {
 
 [[nodiscard]] std::string_view binding_kind_name(BindingKind kind);
 [[nodiscard]] std::string_view request_phase_name(RequestPhase phase);
+[[nodiscard]] std::string_view terminal_reason_name(TerminalReason reason);
 [[nodiscard]] std::string_view execution_mode_name(ExecutionMode mode);
 [[nodiscard]] std::string_view fallback_reason_name(FallbackReason reason);
 
 [[nodiscard]] Profile parse_profile(const nlohmann::json &document);
 [[nodiscard]] ValidationResult validate_profile(const Profile &profile);
+[[nodiscard]] WindowLimitsResult
+select_window_limits(const Profile &profile, std::uint32_t decode_steps);
 
 [[nodiscard]] std::string blake3_hex(std::string_view bytes);
 [[nodiscard]] std::string derive_binding_identity(

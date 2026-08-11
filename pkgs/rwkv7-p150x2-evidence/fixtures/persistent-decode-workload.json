@@ -4,28 +4,28 @@
   "cpu_reference_method": "pinned_fp32_full_sequence_greedy_argmax",
   "requests": [
     {
-      "request_id": "persistent-request-0",
-      "prompt_token_ids": [0, 2],
-      "max_new_tokens": 2,
-      "expected_generated_token_ids": [2, 2]
+      "request_id": "persistent-hello-0",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 4,
+      "expected_generated_token_ids": [36786, 34, 308, 459]
     },
     {
-      "request_id": "persistent-request-1",
-      "prompt_token_ids": [0, 2],
-      "max_new_tokens": 2,
-      "expected_generated_token_ids": [2, 2]
+      "request_id": "persistent-hello-1",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 4,
+      "expected_generated_token_ids": [36786, 34, 308, 459]
     },
     {
-      "request_id": "persistent-request-2",
-      "prompt_token_ids": [0, 2],
-      "max_new_tokens": 2,
-      "expected_generated_token_ids": [2, 2]
+      "request_id": "persistent-hello-2",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 4,
+      "expected_generated_token_ids": [36786, 34, 308, 459]
     },
     {
-      "request_id": "persistent-request-3",
-      "prompt_token_ids": [0, 2],
-      "max_new_tokens": 2,
-      "expected_generated_token_ids": [2, 2]
+      "request_id": "persistent-hello-3",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 4,
+      "expected_generated_token_ids": [36786, 34, 308, 459]
     }
   ]
 }

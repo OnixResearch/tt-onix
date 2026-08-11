@@ -92,6 +92,7 @@ const WORKER_TIMED_START_BARRIER_NAME: &str = "timed-start.barrier";
 const NORMAL_WORKER_BARRIER_TIMEOUT_SECONDS: u64 = 120;
 const PERSISTENT_WORKER_BARRIER_TIMEOUT_SECONDS: u64 = 600;
 const PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT: &str = "RWKV7_PERSISTENT_DECODE_CANDIDATE";
+const PERSISTENT_DECODE_AB_ENVIRONMENT: &str = "RWKV7_PERSISTENT_DECODE_AB";
 const WORKER_BARRIER_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const MAXIMUM_WORKER_START_SKEW_SECONDS: f64 = 0.010;
 const WORKER_ELAPSED_TOLERANCE_SECONDS: f64 = 0.001;
@@ -110,6 +111,23 @@ enum WkvPolicy {
     Production,
     FusedCandidate,
     GenericReference,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PersistentDispatchControl {
+    Inherit,
+    Normal,
+    Candidate,
+}
+
+impl PersistentDispatchControl {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Inherit => "inherit",
+            Self::Normal => "normal_dispatch",
+            Self::Candidate => "persistent_trace",
+        }
+    }
 }
 
 impl WkvPolicy {
@@ -257,6 +275,21 @@ fn order_balanced_wkv_policies(sample_index: usize) -> [WkvPolicy; ORDER_BALANCE
     [WkvPolicy::FusedCandidate, WkvPolicy::GenericReference]
 }
 
+fn order_balanced_persistent_dispatches(
+    sample_index: usize,
+) -> [PersistentDispatchControl; ORDER_BALANCE_PERIOD] {
+    if sample_index.is_multiple_of(ORDER_BALANCE_PERIOD) {
+        return [
+            PersistentDispatchControl::Normal,
+            PersistentDispatchControl::Candidate,
+        ];
+    }
+    [
+        PersistentDispatchControl::Candidate,
+        PersistentDispatchControl::Normal,
+    ]
+}
+
 fn paired_speedups(baseline_rates: &[f64], candidate_rates: &[f64]) -> Result<Vec<f64>, String> {
     if baseline_rates.is_empty() || baseline_rates.len() != candidate_rates.len() {
         return Err("A/B rates must be non-empty and have equal lengths".to_owned());
@@ -389,6 +422,7 @@ struct WorkerReceipt {
     logical_device_ids: Vec<usize>,
     physical_hardware: bool,
     profiler_attributed: bool,
+    profiler_trace_only: bool,
     elapsed_seconds: f64,
     timed_start_monotonic_ns: u64,
     timed_end_monotonic_ns: u64,
@@ -473,6 +507,7 @@ struct WorkerProcess {
     timed_start_barrier_path: PathBuf,
     primary_thread_cpu_affinity: Option<usize>,
     primary_thread_fifo_priority: Option<u32>,
+    persistent_candidate: bool,
     child: std::process::Child,
 }
 
@@ -1271,6 +1306,7 @@ struct WorkerLaunchRequest<'a> {
     collect_profiler: bool,
     stall_probe: bool,
     wkv_policy: WkvPolicy,
+    persistent_dispatch: PersistentDispatchControl,
 }
 
 struct SampleRequest<'a> {
@@ -1285,6 +1321,7 @@ struct SampleRequest<'a> {
     stall_probe: bool,
     profiler_attested: bool,
     wkv_policy: WkvPolicy,
+    persistent_dispatch: PersistentDispatchControl,
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
@@ -1522,6 +1559,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         collect_profiler,
         stall_probe,
         wkv_policy,
+        persistent_dispatch,
     } = request;
     let primary_thread_cpu_affinity = primary_thread_cpus()?
         .map(|cpus| {
@@ -1580,6 +1618,17 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         .env("TT_METAL_INSPECTOR_RPC", "0")
         .env_remove("TT_METAL_WATCHER")
         .env_remove("TT_METAL_DPRINT_CORES");
+    let persistent_candidate = match persistent_dispatch {
+        PersistentDispatchControl::Inherit => persistent_candidate_requested()?,
+        PersistentDispatchControl::Normal => {
+            command.env(PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT, "0");
+            false
+        }
+        PersistentDispatchControl::Candidate => {
+            command.env(PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT, "1");
+            true
+        }
+    };
     let profiler_program_support_count =
         profiler_program_support_count(collect_profiler, stall_probe)?;
     if collect_profiler {
@@ -1635,6 +1684,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         timed_start_barrier_path,
         primary_thread_cpu_affinity,
         primary_thread_fifo_priority,
+        persistent_candidate,
         child,
     })
 }
@@ -1665,6 +1715,18 @@ fn persistent_candidate_requested() -> Result<bool, String> {
     }
 }
 
+fn persistent_ab_requested() -> Result<bool, String> {
+    match std::env::var(PERSISTENT_DECODE_AB_ENVIRONMENT) {
+        Ok(value) if value == "1" => Ok(true),
+        Ok(value) if value == "0" => Ok(false),
+        Ok(_) => Err(format!("{PERSISTENT_DECODE_AB_ENVIRONMENT} must be 0 or 1")),
+        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(error) => Err(format!(
+            "cannot read {PERSISTENT_DECODE_AB_ENVIRONMENT}: {error}"
+        )),
+    }
+}
+
 fn wait_for_worker_barriers(
     workers: &mut [WorkerProcess],
     barrier_name: &str,
@@ -1673,7 +1735,8 @@ fn wait_for_worker_barriers(
     if workers.is_empty() {
         return Err("cannot synchronize an empty worker set".to_owned());
     }
-    let barrier_timeout = worker_barrier_timeout(persistent_candidate_requested()?);
+    let barrier_timeout =
+        worker_barrier_timeout(workers.iter().any(|worker| worker.persistent_candidate));
     let deadline = Instant::now() + barrier_timeout;
     loop {
         let mut ready_count = 0_usize;
@@ -2128,6 +2191,7 @@ fn validate_worker(
         || receipt.logical_device_ids != vec![FILTERED_WORKER_LOGICAL_CARD_ID]
         || !receipt.physical_hardware
         || receipt.profiler_attributed != collect_profiler
+        || receipt.profiler_trace_only
         || receipt.primary_thread_cpu_affinity != worker.primary_thread_cpu_affinity
         || receipt.primary_thread_fifo_priority != worker.primary_thread_fifo_priority
         || !receipt.elapsed_seconds.is_finite()
@@ -2364,6 +2428,29 @@ fn throughput_run_rates(runs: &[ThroughputRun]) -> Result<Vec<f64>, String> {
     runs.iter().map(throughput_run_rate).collect()
 }
 
+fn paired_elapsed_speedups(
+    baseline_seconds: &[f64],
+    candidate_seconds: &[f64],
+) -> Result<Vec<f64>, String> {
+    if baseline_seconds.is_empty() || baseline_seconds.len() != candidate_seconds.len() {
+        return Err("A/B elapsed samples must be non-empty and have equal lengths".to_owned());
+    }
+    baseline_seconds
+        .iter()
+        .zip(candidate_seconds)
+        .map(|(baseline, candidate)| {
+            if !baseline.is_finite()
+                || !candidate.is_finite()
+                || *baseline <= 0.0
+                || *candidate <= 0.0
+            {
+                return Err("A/B elapsed times must be finite and positive".to_owned());
+            }
+            Ok(baseline / candidate)
+        })
+        .collect()
+}
+
 fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
     let SampleRequest {
         runtime,
@@ -2377,6 +2464,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
         stall_probe,
         profiler_attested,
         wkv_policy,
+        persistent_dispatch,
     } = request;
     let run_id = format!("{topology}-{sample_index}");
     let run_root = root.join(&run_id);
@@ -2417,6 +2505,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
                 collect_profiler,
                 stall_probe,
                 wkv_policy,
+                persistent_dispatch,
             });
             match result {
                 Ok(worker) => workers.push(worker),
@@ -2609,6 +2698,7 @@ fn run_stall_capture_sample(
             stall_probe: true,
             profiler_attested: true,
             wkv_policy: WkvPolicy::FusedCandidate,
+            persistent_dispatch: PersistentDispatchControl::Inherit,
         }) {
             Ok(run) => {
                 match load_stall_capture_sample(output_root, sample_index, run.elapsed_seconds) {
@@ -2725,6 +2815,13 @@ fn run() -> Result<(), String> {
         return run_stall_capture(&arguments, sample_count);
     }
     let (wkv_policy, argument_offset) = parse_wkv_policy(&arguments)?;
+    let persistent_ab = persistent_ab_requested()?;
+    let comparative_ab = persistent_ab || wkv_policy == WkvPolicy::FusedCandidate;
+    if persistent_ab && (wkv_policy != WkvPolicy::Production || persistent_candidate_requested()?) {
+        return Err(
+            "persistent A/B requires production WKV policy and no candidate override".to_owned(),
+        );
+    }
     let profile_path = require_input_file(&arguments[argument_offset + PROFILE_ARGUMENT_INDEX])?;
     let workload_path = require_input_file(&arguments[argument_offset + REQUESTS_ARGUMENT_INDEX])?;
     let output_root = require_new_output_root(&arguments[argument_offset + OUTPUT_ARGUMENT_INDEX])?;
@@ -2757,6 +2854,7 @@ fn run() -> Result<(), String> {
         stall_probe: true,
         profiler_attested: true,
         wkv_policy,
+        persistent_dispatch: PersistentDispatchControl::Inherit,
     })?;
     let profiler_dual = run_sample(SampleRequest {
         runtime: &diagnostic_runtime,
@@ -2770,6 +2868,7 @@ fn run() -> Result<(), String> {
         stall_probe: true,
         profiler_attested: true,
         wkv_policy,
+        persistent_dispatch: PersistentDispatchControl::Inherit,
     })?;
     let baseline_profiler_single = if wkv_policy == WkvPolicy::FusedCandidate {
         Some(run_sample(SampleRequest {
@@ -2784,6 +2883,7 @@ fn run() -> Result<(), String> {
             stall_probe: true,
             profiler_attested: true,
             wkv_policy: WkvPolicy::GenericReference,
+            persistent_dispatch: PersistentDispatchControl::Inherit,
         })?)
     } else {
         None
@@ -2801,6 +2901,7 @@ fn run() -> Result<(), String> {
             stall_probe: true,
             profiler_attested: true,
             wkv_policy: WkvPolicy::GenericReference,
+            persistent_dispatch: PersistentDispatchControl::Inherit,
         })?)
     } else {
         None
@@ -2834,16 +2935,28 @@ fn run() -> Result<(), String> {
     let mut baseline_one_card_runs = Vec::with_capacity(profile.repeat_count);
     let mut baseline_two_card_runs = Vec::with_capacity(profile.repeat_count);
     for sample_index in 0..profile.repeat_count {
-        let policies = if wkv_policy == WkvPolicy::FusedCandidate {
-            order_balanced_wkv_policies(sample_index).to_vec()
+        let variants = if persistent_ab {
+            order_balanced_persistent_dispatches(sample_index)
+                .into_iter()
+                .map(|dispatch| (WkvPolicy::Production, dispatch))
+                .collect::<Vec<_>>()
+        } else if wkv_policy == WkvPolicy::FusedCandidate {
+            order_balanced_wkv_policies(sample_index)
+                .into_iter()
+                .map(|policy| (policy, PersistentDispatchControl::Inherit))
+                .collect::<Vec<_>>()
         } else {
-            vec![WkvPolicy::Production]
+            vec![(wkv_policy, PersistentDispatchControl::Inherit)]
         };
-        for sample_policy in policies {
-            let topology = match sample_policy {
-                WkvPolicy::Production => "single",
-                WkvPolicy::FusedCandidate => "single-fused",
-                WkvPolicy::GenericReference => "single-generic",
+        for (sample_policy, persistent_dispatch) in variants {
+            let topology = match persistent_dispatch {
+                PersistentDispatchControl::Normal => "single-normal",
+                PersistentDispatchControl::Candidate => "single-persistent",
+                PersistentDispatchControl::Inherit => match sample_policy {
+                    WkvPolicy::Production => "single",
+                    WkvPolicy::FusedCandidate => "single-fused",
+                    WkvPolicy::GenericReference => "single-generic",
+                },
             };
             let run = run_sample(SampleRequest {
                 runtime: &runtime,
@@ -2857,24 +2970,47 @@ fn run() -> Result<(), String> {
                 stall_probe: false,
                 profiler_attested: true,
                 wkv_policy: sample_policy,
+                persistent_dispatch,
             })?;
-            match sample_policy {
-                WkvPolicy::GenericReference => baseline_one_card_runs.push(run),
-                WkvPolicy::Production | WkvPolicy::FusedCandidate => one_card_runs.push(run),
+            if persistent_ab {
+                match persistent_dispatch {
+                    PersistentDispatchControl::Normal => baseline_one_card_runs.push(run),
+                    PersistentDispatchControl::Candidate => one_card_runs.push(run),
+                    PersistentDispatchControl::Inherit => {
+                        return Err("persistent A/B inherited a dispatch mode".to_owned());
+                    }
+                }
+            } else {
+                match sample_policy {
+                    WkvPolicy::GenericReference => baseline_one_card_runs.push(run),
+                    WkvPolicy::Production | WkvPolicy::FusedCandidate => one_card_runs.push(run),
+                }
             }
         }
     }
     for sample_index in 0..profile.repeat_count {
-        let policies = if wkv_policy == WkvPolicy::FusedCandidate {
-            order_balanced_wkv_policies(sample_index).to_vec()
+        let variants = if persistent_ab {
+            order_balanced_persistent_dispatches(sample_index)
+                .into_iter()
+                .map(|dispatch| (WkvPolicy::Production, dispatch))
+                .collect::<Vec<_>>()
+        } else if wkv_policy == WkvPolicy::FusedCandidate {
+            order_balanced_wkv_policies(sample_index)
+                .into_iter()
+                .map(|policy| (policy, PersistentDispatchControl::Inherit))
+                .collect::<Vec<_>>()
         } else {
-            vec![WkvPolicy::Production]
+            vec![(wkv_policy, PersistentDispatchControl::Inherit)]
         };
-        for sample_policy in policies {
-            let topology = match sample_policy {
-                WkvPolicy::Production => "dual",
-                WkvPolicy::FusedCandidate => "dual-fused",
-                WkvPolicy::GenericReference => "dual-generic",
+        for (sample_policy, persistent_dispatch) in variants {
+            let topology = match persistent_dispatch {
+                PersistentDispatchControl::Normal => "dual-normal",
+                PersistentDispatchControl::Candidate => "dual-persistent",
+                PersistentDispatchControl::Inherit => match sample_policy {
+                    WkvPolicy::Production => "dual",
+                    WkvPolicy::FusedCandidate => "dual-fused",
+                    WkvPolicy::GenericReference => "dual-generic",
+                },
             };
             let run = run_sample(SampleRequest {
                 runtime: &runtime,
@@ -2888,10 +3024,21 @@ fn run() -> Result<(), String> {
                 stall_probe: false,
                 profiler_attested: true,
                 wkv_policy: sample_policy,
+                persistent_dispatch,
             })?;
-            match sample_policy {
-                WkvPolicy::GenericReference => baseline_two_card_runs.push(run),
-                WkvPolicy::Production | WkvPolicy::FusedCandidate => two_card_runs.push(run),
+            if persistent_ab {
+                match persistent_dispatch {
+                    PersistentDispatchControl::Normal => baseline_two_card_runs.push(run),
+                    PersistentDispatchControl::Candidate => two_card_runs.push(run),
+                    PersistentDispatchControl::Inherit => {
+                        return Err("persistent A/B inherited a dispatch mode".to_owned());
+                    }
+                }
+            } else {
+                match sample_policy {
+                    WkvPolicy::GenericReference => baseline_two_card_runs.push(run),
+                    WkvPolicy::Production | WkvPolicy::FusedCandidate => two_card_runs.push(run),
+                }
             }
         }
     }
@@ -2916,7 +3063,7 @@ fn run() -> Result<(), String> {
         control_replay_during_timing: false,
         artifact_writes_during_timing: false,
     };
-    let baseline_raw = if wkv_policy == WkvPolicy::FusedCandidate {
+    let baseline_raw = if comparative_ab {
         Some(RawThroughputEvidence {
             schema_version: SCHEMA_VERSION,
             profile_identity_blake3: identity.clone(),
@@ -2960,10 +3107,14 @@ fn run() -> Result<(), String> {
                 "aggregate_tokens_per_second": admission.aggregate_tokens_per_second,
             }),
         )?,
-        Err(rejection) if wkv_policy == WkvPolicy::FusedCandidate => write_new_json(
+        Err(rejection) if comparative_ab => write_new_json(
             &admission_path,
             &json!({
-                "status": "fused_candidate_scaling_rejected",
+                "status": if persistent_ab {
+                    "persistent_candidate_scaling_rejected"
+                } else {
+                    "fused_candidate_scaling_rejected"
+                },
                 "wkv_execution_policy": wkv_policy.as_str(),
                 "production_physically_admitted": false,
                 "rejection": rejection.to_string(),
@@ -2978,13 +3129,13 @@ fn run() -> Result<(), String> {
         ("profiler_attestation", profiler_attestation_path),
     ]);
     if let Some(baseline) = baseline_raw {
-        let baseline_raw_path = output_root.join("generic-raw-throughput-evidence.json");
+        let baseline_raw_path = output_root.join("baseline-raw-throughput-evidence.json");
         write_new_json(&baseline_raw_path, &baseline)?;
         let baseline_receipt =
             summarize_throughput(&baseline, &profile).map_err(|error| error.to_string())?;
-        let baseline_receipt_path = output_root.join("generic-throughput-receipt.json");
+        let baseline_receipt_path = output_root.join("baseline-throughput-receipt.json");
         write_new_json(&baseline_receipt_path, &baseline_receipt)?;
-        let baseline_admission_path = output_root.join("generic-throughput-admission.json");
+        let baseline_admission_path = output_root.join("baseline-throughput-admission.json");
         match admit_throughput_receipt(&baseline_receipt, &baseline, &profile) {
             Ok(baseline_admission) => write_new_json(
                 &baseline_admission_path,
@@ -3006,29 +3157,67 @@ fn run() -> Result<(), String> {
             )?,
         }
 
-        let one_card_speedups = paired_speedups(
-            &throughput_run_rates(&baseline.one_card_runs)?,
-            &throughput_run_rates(&raw.one_card_runs)?,
-        )?;
-        let two_card_speedups = paired_speedups(
-            &throughput_run_rates(&baseline.two_card_runs)?,
-            &throughput_run_rates(&raw.two_card_runs)?,
-        )?;
+        let one_card_speedups = if persistent_ab {
+            paired_elapsed_speedups(
+                &baseline
+                    .one_card_runs
+                    .iter()
+                    .map(|run| run.elapsed_seconds)
+                    .collect::<Vec<_>>(),
+                &raw.one_card_runs
+                    .iter()
+                    .map(|run| run.elapsed_seconds)
+                    .collect::<Vec<_>>(),
+            )?
+        } else {
+            paired_speedups(
+                &throughput_run_rates(&baseline.one_card_runs)?,
+                &throughput_run_rates(&raw.one_card_runs)?,
+            )?
+        };
+        let two_card_speedups = if persistent_ab {
+            paired_elapsed_speedups(
+                &baseline
+                    .two_card_runs
+                    .iter()
+                    .map(|run| run.elapsed_seconds)
+                    .collect::<Vec<_>>(),
+                &raw.two_card_runs
+                    .iter()
+                    .map(|run| run.elapsed_seconds)
+                    .collect::<Vec<_>>(),
+            )?
+        } else {
+            paired_speedups(
+                &throughput_run_rates(&baseline.two_card_runs)?,
+                &throughput_run_rates(&raw.two_card_runs)?,
+            )?
+        };
         let stable_gain = one_card_speedups.iter().all(|speedup| *speedup > 1.0)
             && two_card_speedups.iter().all(|speedup| *speedup > 1.0);
         let order_schedule = (0..profile.repeat_count)
             .map(|sample_index| {
-                order_balanced_wkv_policies(sample_index)
-                    .map(WkvPolicy::as_str)
-                    .to_vec()
+                if persistent_ab {
+                    order_balanced_persistent_dispatches(sample_index)
+                        .map(PersistentDispatchControl::as_str)
+                        .to_vec()
+                } else {
+                    order_balanced_wkv_policies(sample_index)
+                        .map(WkvPolicy::as_str)
+                        .to_vec()
+                }
             })
             .collect::<Vec<_>>();
-        let ab_receipt_path = output_root.join("fused-wkv-ab-receipt.json");
+        let ab_receipt_path = output_root.join("physical-ab-receipt.json");
         write_new_json(
             &ab_receipt_path,
             &json!({
                 "schema_version": SCHEMA_VERSION,
-                "kind": "rwkv7_fused_wkv_physical_ab",
+                "kind": if persistent_ab {
+                    "rwkv7_persistent_decode_window_physical_ab"
+                } else {
+                    "rwkv7_fused_wkv_physical_ab"
+                },
                 "status": if stable_gain {
                     "stable_physical_gain"
                 } else {
@@ -3043,12 +3232,14 @@ fn run() -> Result<(), String> {
                 "primary_thread_fifo_priority": primary_thread_fifo_priority,
                 "exact_generated_token_parity": true,
                 "cpu_reference_profile_blake3": workload.cpu_reference_profile_blake3,
-                "generic_receipt_identity_blake3": baseline_receipt.identity_blake3,
-                "fused_receipt_identity_blake3": receipt.identity_blake3,
-                "generic_one_card_tokens_per_second": baseline_receipt.one_card.aggregate_tokens_per_second,
-                "fused_one_card_tokens_per_second": receipt.one_card.aggregate_tokens_per_second,
-                "generic_two_card_tokens_per_second": baseline_receipt.two_card.aggregate_tokens_per_second,
-                "fused_two_card_tokens_per_second": receipt.two_card.aggregate_tokens_per_second,
+                "baseline_mode": if persistent_ab { "normal_dispatch" } else { "generic_reference" },
+                "candidate_mode": if persistent_ab { "persistent_trace" } else { "fused_candidate" },
+                "baseline_receipt_identity_blake3": baseline_receipt.identity_blake3,
+                "candidate_receipt_identity_blake3": receipt.identity_blake3,
+                "baseline_one_card_tokens_per_second": baseline_receipt.one_card.aggregate_tokens_per_second,
+                "candidate_one_card_tokens_per_second": receipt.one_card.aggregate_tokens_per_second,
+                "baseline_two_card_tokens_per_second": baseline_receipt.two_card.aggregate_tokens_per_second,
+                "candidate_two_card_tokens_per_second": receipt.two_card.aggregate_tokens_per_second,
                 "one_card_paired_speedups": one_card_speedups,
                 "two_card_paired_speedups": two_card_speedups,
                 "stable_gain": stable_gain,
@@ -3057,10 +3248,10 @@ fn run() -> Result<(), String> {
                 "machine_facts_after": "machine-after.json",
             }),
         )?;
-        manifest.insert("generic_raw", baseline_raw_path);
-        manifest.insert("generic_receipt", baseline_receipt_path);
-        manifest.insert("generic_admission", baseline_admission_path);
-        manifest.insert("fused_wkv_ab_receipt", ab_receipt_path);
+        manifest.insert("baseline_raw", baseline_raw_path);
+        manifest.insert("baseline_receipt", baseline_receipt_path);
+        manifest.insert("baseline_admission", baseline_admission_path);
+        manifest.insert("physical_ab_receipt", ab_receipt_path);
     }
     write_new_json(&output_root.join("manifest.json"), &manifest)?;
     println!("{}", output_root.display());
@@ -3717,8 +3908,26 @@ mod tests {
             [WkvPolicy::FusedCandidate, WkvPolicy::GenericReference]
         );
         assert_eq!(
+            order_balanced_persistent_dispatches(0),
+            [
+                PersistentDispatchControl::Normal,
+                PersistentDispatchControl::Candidate,
+            ]
+        );
+        assert_eq!(
+            order_balanced_persistent_dispatches(1),
+            [
+                PersistentDispatchControl::Candidate,
+                PersistentDispatchControl::Normal,
+            ]
+        );
+        assert_eq!(
             paired_speedups(&[10.0, 20.0], &[15.0, 30.0]),
             Ok(vec![1.5, 1.5])
+        );
+        assert_eq!(
+            paired_elapsed_speedups(&[3.0, 6.0], &[1.0, 2.0]),
+            Ok(vec![3.0, 3.0])
         );
     }
 
@@ -3728,6 +3937,10 @@ mod tests {
         assert!(paired_speedups(&[10.0], &[10.0, 20.0]).is_err());
         assert!(paired_speedups(&[0.0], &[10.0]).is_err());
         assert!(paired_speedups(&[10.0], &[f64::NAN]).is_err());
+        assert!(paired_elapsed_speedups(&[], &[]).is_err());
+        assert!(paired_elapsed_speedups(&[1.0], &[1.0, 2.0]).is_err());
+        assert!(paired_elapsed_speedups(&[1.0], &[0.0]).is_err());
+        assert!(paired_elapsed_speedups(&[f64::NAN], &[1.0]).is_err());
     }
 
     #[test]

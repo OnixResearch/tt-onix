@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_persistent_decode_physical_acceptance",
+  "status": "production_admitted",
+  "physical_hardware": true,
+  "physical_device_ids": [0, 1],
+  "profile_id": "rwkv7-p150x2-persistent-decode-v2",
+  "profile_blake3": "e41319204ddf36bda088afb8a4d55a367dc163951ea29c45738e3b11b815819a",
+  "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "workload": {
+    "capacity": "B4",
+    "request_count": 4,
+    "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+    "generated_token_count": 4,
+    "pinned_fp32_cpu_reference_tokens": [36786, 34, 308, 459],
+    "same_runtime": true,
+    "same_workload": true,
+    "prompt_prefill_outside_timed_region": true
+  },
+  "order_schedule": [
+    ["normal_dispatch", "persistent_trace"],
+    ["persistent_trace", "normal_dispatch"],
+    ["normal_dispatch", "persistent_trace"],
+    ["persistent_trace", "normal_dispatch"],
+    ["normal_dispatch", "persistent_trace"]
+  ],
+  "one_card": {
+    "repeat_count": 5,
+    "normal_elapsed_seconds": [0.067585876, 0.067136413, 0.066865145, 0.066572836, 0.067043599],
+    "persistent_elapsed_seconds": [0.023350707, 0.023346871, 0.023356067, 0.023364793, 0.023378018],
+    "paired_speedups": [2.894382427050282, 2.8756064570708424, 2.8628597871379626, 2.849279940121875, 2.867805089379262],
+    "minimum_paired_speedup": 2.849279940121875,
+    "median_paired_speedup": 2.867805089379262,
+    "normal_median_seconds": 0.067043599,
+    "persistent_median_seconds": 0.023356067,
+    "median_elapsed_ratio": 2.870500371488059,
+    "normal_receipt_blake3": [
+      "86ce5bec942f3faebbf7b67bfbf92c2e80222088f341df2023a4401fc0398027",
+      "aac1c55520dfe03be99237aec69d62c5421061f7754714e15422fe5a878b0ad2",
+      "1c1cf45cb250228aef9d973ce6c2b4dbe488ee941f88ac3cb1849bcae1eb9357",
+      "4afd649d057774d9e2714ec9f0e3373855bead47706a14bd8ccc086d6a8e6714",
+      "296d6d6cc0c2e76f5e4b51ef9d6e26ee6d3973b23d5578487779796a8a76d696"
+    ],
+    "persistent_receipt_blake3": [
+      "c864bfd28bd34ce955746996c4129dc864934c14cb2e17def81caccd07a8f3c9",
+      "dd747767dd7fae48eaeb4956b5b025dcd68c3d59219e7a6fb59e4cadd4fbd449",
+      "7f0ef767d82ca60df706366d5cee87018ef0e9899346868e04623a172c189f96",
+      "c86c74aaee9a36d9616f6413d79aaca684cfae9fbf32d98562638ea20712d198",
+      "799396bec6c981daaa4a6e316c1e36c2b84f6ffc9e84213402d4cd34127a24f8"
+    ]
+  },
+  "two_card": {
+    "repeat_count": 5,
+    "normal_wave_seconds": [0.067697115, 0.068715494, 0.068083019, 0.068227539, 0.067280954],
+    "persistent_wave_seconds": [0.021948698, 0.021768259, 0.021930704, 0.022540147, 0.022339391],
+    "paired_speedups": [3.084333977350274, 3.156683040200872, 3.1044611700563736, 3.0269340745648203, 3.011763122817449],
+    "minimum_paired_speedup": 3.011763122817449,
+    "median_paired_speedup": 3.084333977350274,
+    "normal_median_seconds": 0.068083019,
+    "persistent_median_seconds": 0.021948698,
+    "median_elapsed_ratio": 3.101916068096613,
+    "normal_receipt_blake3_by_sample_and_card": [
+      ["bfab903b6fb5f8bd57aa8c2e1254f0db40d91c56a087f12d0ad1a9046ebfdb5a", "27d33312e5f0744c2b0199dc54191ae3c943978ab816305564b3dc9b40e0c57d"],
+      ["b7c25f0ba364f3aca9918eb8245c16b8be360c939e624949749d5fe9bb287e8c", "26098353e1d0d34eb3e9f83919043c261173540d66d2a900cf97b19220b1d471"],
+      ["aaca502224c2fab726bc0c06199b095858d0c37b79deb132c457a765445a83dc", "28ab28dd2a3bfc3d504135932f06949a872fbfa048c14c0b9aa8ff72ba698e94"],
+      ["9da253d980fd25710de0d7b793e447345f1556e99f4d4b9ade87d3d799f13d8f", "918911b96d5dbcfc440b45d4c3de2873768e2add5a0dbaacd2fe8f83a23e67a0"],
+      ["4efffcdf949107c3092fbdf356af6c6af3ce1ccf2159668ff29165433cd51522", "fb59c83c175689363657cf4e0a732934bde314f376980b2b2636683f7904e26b"]
+    ],
+    "persistent_receipt_blake3_by_sample_and_card": [
+      ["c69b5bcf9c647cf2cb5e0c7f75b576d0bc6d8622f820d1e64080f3738dd8daf2", "9787bbf6a9557cd163f3feeba6847e79e8b3ca4b58ed852da56de5b4035319f1"],
+      ["90f34310beb15e6d515cbeae7873b4da9309a0d7673260e0611b9bf6488954ce", "904544453e04dc2e8381977b41164d8bb7aa824270bc70769bee6690279a34cb"],
+      ["710a8472488994e35fe1580c8fe0c21daf0bfcdbf75374ad953e79b8bfcc30f5", "8993dcd82f1285711479a9be5491cbb8e8a61a5dd4dd0d26f06d35723648f7dd"],
+      ["3d18bd3f90b1e11ca3e01c4ef821e7ac234c3ac5b97ab41e0c12c0e6c969b9e5", "f7146b0ff266cd842fd3dbce66eab066c43fa3a31e92058d2eb17e3163c11075"],
+      ["eebd8fe878ab4b6db08b5ea32fa637be00004205409c97ff33787d2d698f7cef", "afcb1b0af3a31f4bf1edc7348b018e75f712cd9a2829ed0e417d8d869b9de0c8"]
+    ]
+  },
+  "correctness": {
+    "exact_generated_token_parity": true,
+    "exact_fp32_recurrent_state_parity": true,
+    "reference_state_zeroed": true,
+    "persistent_state_zeroed_before_slot_release": true
+  },
+  "dispatch": {
+    "admitted_decode_windows": [2, 4],
+    "selected_decode_window_steps": 4,
+    "short_window_receipt_blake3": "70a9628ec6cfd4f2f4880082fa31b8e562f011ca0f72524c25c4aa002bf665ef",
+    "normal_host_model_submissions_for_admitted_window": 4,
+    "persistent_trace_replay_submissions_for_admitted_window": 1,
+    "per_token_host_submissions_inside_persistent_region": 0,
+    "trace_capture_outside_timed_region": true,
+    "trace_region_bytes": 268435456
+  },
+  "profiler": {
+    "trace_only": true,
+    "trace_row_count": 520,
+    "dropped_marker_warning": false,
+    "raw_csv_blake3": "9fadc80527a543365b287e2a6f3479299863f981fd6b468465709a2fd411f14c",
+    "production_worker_receipt_blake3": "dd8420bc227a54c47330c1208d4cad93051953dea9d9381e295856f788cf5089",
+    "retained_worker_receipt_blake3": "dd8420bc227a54c47330c1208d4cad93051953dea9d9381e295856f788cf5089"
+  },
+  "simulator": {
+    "performance_claim": false,
+    "determinism_claim": false,
+    "raw_receipt_blake3": "fe253e1ab3352864716bd61ee2b5a217199e3c4fd3e73e7d98069efadca718ae",
+    "retained_receipt_blake3": "fe253e1ab3352864716bd61ee2b5a217199e3c4fd3e73e7d98069efadca718ae"
+  },
+  "terminal_probes": {
+    "pre_replay": true,
+    "cancellation_poll_interval_steps": 2,
+    "cancel_receipt_blake3": "639c1056818e43124a8fcd7217c5e8ad378307f59c982929ed74d91b88a55184",
+    "timeout_receipt_blake3": "690d7b9f781060e06dac737e1406a0671189b07b055360c16daeb8b56822c3e2",
+    "failure_receipt_blake3": "be943a963e0bb29a47d0f86e0255920c5cb8dfdedd5b9131a0bddea4b4e8ff9d",
+    "all_acknowledged_zeroed_and_released": true
+  },
+  "slot_recycling": {
+    "cycle_count": 5,
+    "slot_ids": [0, 1, 2, 3],
+    "persistent_receipt_blake3": [
+      "c864bfd28bd34ce955746996c4129dc864934c14cb2e17def81caccd07a8f3c9",
+      "dd747767dd7fae48eaeb4956b5b025dcd68c3d59219e7a6fb59e4cadd4fbd449",
+      "7f0ef767d82ca60df706366d5cee87018ef0e9899346868e04623a172c189f96",
+      "c86c74aaee9a36d9616f6413d79aaca684cfae9fbf32d98562638ea20712d198",
+      "799396bec6c981daaa4a6e316c1e36c2b84f6ffc9e84213402d4cd34127a24f8"
+    ],
+    "all_completed_zeroed_and_released": true
+  },
+  "fallback": {
+    "unlisted_window_steps": 1,
+    "selected_mode": "normal_dispatch",
+    "fallback_reason": "window_not_admitted",
+    "receipt_blake3": "424b9c872e575f7e8d723442625712a5e772a1e2128788890a4fdac4957901ac"
+  },
+  "machine_snapshot_blake3": "825b0485fbb1951ec83d41115c825084245967d085592966111af71adaa82e27",
+  "stable_gain": true,
+  "production_physically_admitted": true
+}

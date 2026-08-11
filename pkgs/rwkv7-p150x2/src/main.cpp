@@ -168,6 +168,11 @@ constexpr std::string_view kFusedWkvKernelRootEnvironment =
     "RWKV7_FUSED_WKV_KERNEL_ROOT";
 constexpr std::string_view kPersistentDecodeCandidateEnvironment =
     "RWKV7_PERSISTENT_DECODE_CANDIDATE";
+constexpr std::string_view kPersistentDecodeTerminalProbeEnvironment =
+    "RWKV7_PERSISTENT_DECODE_TERMINAL_PROBE";
+constexpr std::string_view kPersistentDecodeCancelProbe = "cancel";
+constexpr std::string_view kPersistentDecodeTimeoutProbe = "timeout";
+constexpr std::string_view kPersistentDecodeFailureProbe = "failure";
 constexpr std::size_t kBytesPerKibibyte = 1024U;
 constexpr std::size_t kKibibytesPerMebibyte = 1024U;
 constexpr std::size_t kPersistentTraceRegionMebibytes = 256U;
@@ -3138,17 +3143,25 @@ void run_persistent_decode_simulator_smoke(
       zero_fast_model_state(context, 1U, 1U).layers[kFirstIndex];
   LayerState captured_state = initial_state;
   PersistentTraceLease trace(context.mesh());
-  Tensor first_output = execute_layer_step(
-      initial_hidden, captured_state, "persistent-simulator-trace/step-0");
-  Tensor second_output = execute_layer_step(
-      first_output, captured_state, "persistent-simulator-trace/step-1");
+  std::vector<Tensor> traced_outputs;
+  traced_outputs.reserve(kMaximumGeneratedTokens);
+  Tensor traced_hidden = initial_hidden;
+  for (std::uint32_t step = 0U; step < kMaximumGeneratedTokens; ++step) {
+    traced_hidden = execute_layer_step(
+        traced_hidden, captured_state,
+        "persistent-simulator-trace/step-" + std::to_string(step));
+    traced_outputs.push_back(traced_hidden);
+  }
   trace.finish_capture();
   trace.execute();
   trace.release();
   require(context.program_cache_entries() == cache_after_warmup,
           "persistent simulator trace compiled a new program");
-  require(first_output.dtype() == ttnn::DataType::BFLOAT16 &&
-              second_output.dtype() == ttnn::DataType::BFLOAT16 &&
+  const bool outputs_are_bf16 =
+      std::ranges::all_of(traced_outputs, [](const Tensor &output) {
+        return output.dtype() == ttnn::DataType::BFLOAT16;
+      });
+  require(outputs_are_bf16 &&
               captured_state.matrix.dtype() == ttnn::DataType::FLOAT32,
           "persistent simulator trace changed a precision boundary");
   const std::vector<float> final_state =
@@ -3183,7 +3196,10 @@ void run_persistent_decode_simulator_smoke(
       {"dispatch_mode", "fast_trace_required"},
       {"simulator_determinism_claim", false},
       {"layer_count_executed", 1U},
-      {"recurrent_steps", kMinimumGeneratedTokens},
+      {"admitted_decode_windows",
+       std::vector<std::uint32_t>{kMinimumGeneratedTokens,
+                                  kMaximumGeneratedTokens}},
+      {"recurrent_steps", kMaximumGeneratedTokens},
       {"trace_replay_host_submissions", kTraceReplayHostSubmissions},
       {"per_step_host_model_submissions_inside_trace", 0U},
       {"recurrent_matrix_residency", "device_fp32"},
@@ -3579,25 +3595,110 @@ PersistentDecodeControl persistent_decode_control() {
           : std::optional<std::string_view>(std::string_view(value)));
 }
 
-bool persistent_workload_eligible(
+enum class PersistentDecodeTerminalProbe {
+  None,
+  Cancel,
+  Timeout,
+  Failure,
+};
+
+PersistentDecodeTerminalProbe parse_persistent_decode_terminal_probe(
+    const std::optional<std::string_view> value) {
+  if (!value.has_value()) {
+    return PersistentDecodeTerminalProbe::None;
+  }
+  if (*value == kPersistentDecodeCancelProbe) {
+    return PersistentDecodeTerminalProbe::Cancel;
+  }
+  if (*value == kPersistentDecodeTimeoutProbe) {
+    return PersistentDecodeTerminalProbe::Timeout;
+  }
+  if (*value == kPersistentDecodeFailureProbe) {
+    return PersistentDecodeTerminalProbe::Failure;
+  }
+  throw std::invalid_argument(
+      "RWKV7_PERSISTENT_DECODE_TERMINAL_PROBE must be cancel, timeout, or failure");
+}
+
+PersistentDecodeTerminalProbe persistent_decode_terminal_probe() {
+  const char *const value =
+      std::getenv(kPersistentDecodeTerminalProbeEnvironment.data());
+  return parse_persistent_decode_terminal_probe(
+      value == nullptr
+          ? std::nullopt
+          : std::optional<std::string_view>(std::string_view(value)));
+}
+
+std::string_view persistent_decode_terminal_probe_name(
+    PersistentDecodeTerminalProbe probe) {
+  switch (probe) {
+  case PersistentDecodeTerminalProbe::None:
+    return "none";
+  case PersistentDecodeTerminalProbe::Cancel:
+    return kPersistentDecodeCancelProbe;
+  case PersistentDecodeTerminalProbe::Timeout:
+    return kPersistentDecodeTimeoutProbe;
+  case PersistentDecodeTerminalProbe::Failure:
+    return kPersistentDecodeFailureProbe;
+  }
+  return "invalid";
+}
+
+rwkv7::persistent_decode::Event persistent_decode_terminal_probe_event(
+    PersistentDecodeTerminalProbe probe,
+    const rwkv7::persistent_decode::Limits &limits,
+    std::uint64_t elapsed_milliseconds) {
+  switch (probe) {
+  case PersistentDecodeTerminalProbe::Cancel:
+    return rwkv7::persistent_decode::Event{
+        rwkv7::persistent_decode::EventKind::Cancel, 0U,
+        elapsed_milliseconds, 0U, {}};
+  case PersistentDecodeTerminalProbe::Timeout:
+    return rwkv7::persistent_decode::Event{
+        rwkv7::persistent_decode::EventKind::Timeout, 0U,
+        limits.maximum_elapsed_milliseconds, 0U, {}};
+  case PersistentDecodeTerminalProbe::Failure:
+    return rwkv7::persistent_decode::Event{
+        rwkv7::persistent_decode::EventKind::Fail, 0U,
+        elapsed_milliseconds, 0U, "physical_terminal_probe"};
+  case PersistentDecodeTerminalProbe::None:
+    break;
+  }
+  throw std::invalid_argument(
+      "persistent decode terminal probe event requires a terminal probe");
+}
+
+std::optional<rwkv7::persistent_decode::Limits>
+persistent_workload_limits(
     const FastWorkerRequest &request,
     const rwkv7::persistent_decode::Profile &profile) {
   if (request.requests.empty() ||
-      request.requests.size() > profile.limits.queue_depth ||
-      profile.limits.cancellation_poll_interval_steps !=
-          profile.limits.maximum_decode_steps) {
-    return false;
+      request.requests.size() > profile.limits.queue_depth) {
+    return std::nullopt;
   }
   const std::size_t prompt_length =
       request.requests[kFirstIndex].prompt_tokens.size();
+  const std::uint32_t decode_steps =
+      request.requests[kFirstIndex].max_new_tokens;
   for (const FastRequest &current : request.requests) {
     if (current.prompt_tokens.size() != prompt_length ||
-        current.max_new_tokens != profile.limits.maximum_decode_steps ||
+        current.max_new_tokens != decode_steps ||
         current.state_slot >= profile.limits.queue_depth) {
-      return false;
+      return std::nullopt;
     }
   }
-  return true;
+  const rwkv7::persistent_decode::WindowLimitsResult selected =
+      rwkv7::persistent_decode::select_window_limits(profile, decode_steps);
+  if (!selected.accepted) {
+    return std::nullopt;
+  }
+  return selected.limits;
+}
+
+bool persistent_workload_eligible(
+    const FastWorkerRequest &request,
+    const rwkv7::persistent_decode::Profile &profile) {
+  return persistent_workload_limits(request, profile).has_value();
 }
 
 void prefill_homogeneous_prompt_prefix(
@@ -3717,6 +3818,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "persistent decode bindings changed before device admission");
   const PersistentDecodeControl persistent_control =
       persistent_decode_control();
+  const PersistentDecodeTerminalProbe terminal_probe =
+      persistent_decode_terminal_probe();
+  const bool terminal_probe_enabled =
+      terminal_probe != PersistentDecodeTerminalProbe::None;
   const bool candidate_requested =
       persistent_control == PersistentDecodeControl::ForceCandidate;
   const bool force_normal =
@@ -3724,24 +3829,41 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const bool candidate_enabled =
       !force_normal &&
       (candidate_requested || persistent_profile.profile.physically_admitted);
-  const bool candidate_eligible =
-      persistent_workload_eligible(request, persistent_profile.profile) &&
-      !stall_probe_enabled;
+  const std::optional<rwkv7::persistent_decode::Limits>
+      selected_persistent_limits =
+          persistent_workload_limits(request, persistent_profile.profile);
+  const bool window_admitted = selected_persistent_limits.has_value();
+  const bool candidate_eligible = window_admitted && !stall_probe_enabled;
   const bool normal_ab_reference = force_normal && candidate_eligible;
   rwkv7::persistent_decode::Profile admission_profile =
       persistent_profile.profile;
   if (candidate_requested) {
     admission_profile.physically_admitted = true;
   }
+  rwkv7::persistent_decode::Profile persistent_request_profile =
+      persistent_profile.profile;
+  if (selected_persistent_limits.has_value()) {
+    persistent_request_profile.limits = *selected_persistent_limits;
+  }
   const rwkv7::persistent_decode::CapabilityEvidence candidate_evidence{
-      candidate_enabled && candidate_eligible, candidate_enabled,
-      candidate_enabled, candidate_enabled, candidate_enabled};
+      window_admitted, candidate_enabled && candidate_eligible,
+      candidate_enabled, candidate_enabled, candidate_enabled,
+      candidate_enabled};
   const rwkv7::persistent_decode::ExecutionDecision execution_decision =
       rwkv7::persistent_decode::select_execution_mode(
           admission_profile, binding_validation, candidate_evidence);
   const bool use_persistent_trace =
       execution_decision.mode ==
       rwkv7::persistent_decode::ExecutionMode::PersistentTrace;
+  require(!terminal_probe_enabled ||
+              (candidate_requested && use_persistent_trace),
+          "persistent decode terminal probes require an explicit trace candidate");
+  require(!terminal_probe_enabled ||
+              (selected_persistent_limits.has_value() &&
+               selected_persistent_limits->maximum_decode_steps >
+                   selected_persistent_limits
+                       ->cancellation_poll_interval_steps),
+          "persistent decode terminal probes require a window beyond the polling boundary");
   // The checked memory plan already ran inside the request read, before any
   // device opened. Recompute it here for the receipt so the reported numbers
   // are the exact same checked values the worker enforced.
@@ -3828,14 +3950,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           lifecycle,
           rwkv7::persistent_decode::Event{
               rwkv7::persistent_decode::EventKind::Admit, 0U, 0U, 0U, {}},
-          persistent_profile.profile);
+          persistent_request_profile);
       require(admitted.accepted,
               "persistent decode lifecycle rejected admission");
       auto started = rwkv7::persistent_decode::transition(
           admitted.state,
           rwkv7::persistent_decode::Event{
               rwkv7::persistent_decode::EventKind::Start, 0U, 0U, 0U, {}},
-          persistent_profile.profile);
+          persistent_request_profile);
       require(started.accepted,
               "persistent decode lifecycle rejected start");
       persistent_lifecycle_states.push_back(std::move(started.state));
@@ -3846,9 +3968,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     std::vector<std::uint32_t> reference_tokens =
         persistent_initial_tokens;
     persistent_reference_tokens_by_step.reserve(
-        persistent_profile.profile.limits.maximum_decode_steps);
+        persistent_request_profile.limits.maximum_decode_steps);
     for (std::uint32_t step = 0U;
-         step < persistent_profile.profile.limits.maximum_decode_steps;
+         step < persistent_request_profile.limits.maximum_decode_steps;
          ++step) {
       const auto selected = advance_tokens_fast(
           context, weights, reference_state, reference_tokens, true, step,
@@ -3869,7 +3991,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     context.set_profiler_flush_enabled(false);
     prepared_persistent_trace.emplace(prepare_persistent_decode_trace(
         context, weights, state, persistent_initial_tokens,
-        persistent_profile.profile.limits.maximum_decode_steps,
+        persistent_request_profile.limits.maximum_decode_steps,
         effective_execution_policy));
     std::cout << "persistent-decode-setup: trace-capture-finished\n"
               << std::flush;
@@ -3939,15 +4061,69 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   if (use_persistent_trace) {
     const auto apply_lifecycle_event =
-        [&persistent_profile](
+        [&persistent_request_profile](
             rwkv7::persistent_decode::RequestState &lifecycle,
             const rwkv7::persistent_decode::Event &event) {
           auto result = rwkv7::persistent_decode::transition(
-              lifecycle, event, persistent_profile.profile);
+              lifecycle, event, persistent_request_profile);
           require(result.accepted,
                   "persistent decode lifecycle rejected a runtime event");
           lifecycle = std::move(result.state);
         };
+    if (terminal_probe_enabled) {
+      require(prepared_persistent_trace.has_value(),
+              "persistent decode trace was not prepared before its terminal poll");
+      const rwkv7::persistent_decode::Event terminal_event =
+          persistent_decode_terminal_probe_event(
+              terminal_probe, persistent_request_profile.limits, 0U);
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        apply_lifecycle_event(lifecycle, terminal_event);
+        apply_lifecycle_event(
+            lifecycle,
+            rwkv7::persistent_decode::Event{
+                rwkv7::persistent_decode::EventKind::Acknowledge, 0U, 0U,
+                0U, {}});
+      }
+      prepared_persistent_trace->trace->release();
+      const auto terminal_poll_end = std::chrono::steady_clock::now();
+      persistent_trace_execution_end = terminal_poll_end;
+      persistent_trace_execution_end_wall_clock =
+          std::chrono::system_clock::now();
+      zero_persistent_model_state(
+          context, prepared_persistent_trace->initial_state);
+      zero_persistent_model_state(
+          context, prepared_persistent_trace->captured_state);
+      zero_persistent_model_state(context, state);
+      persistent_state_zeroed = true;
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        apply_lifecycle_event(
+            lifecycle,
+            rwkv7::persistent_decode::Event{
+                rwkv7::persistent_decode::EventKind::StateZeroed, 0U, 0U,
+                0U, {}});
+        require(rwkv7::persistent_decode::slot_releasable(lifecycle),
+                "persistent terminal probe did not release a zeroed slot");
+      }
+      for (std::size_t slot_index = 0U; slot_index < slots.size();
+           ++slot_index) {
+        FastSlot &slot = slots[slot_index];
+        slot.prompt_index = slot.request->prompt_tokens.size();
+        slot.processed_token_count =
+            static_cast<std::uint64_t>(slot.prompt_index);
+        completed[slot_index] = true;
+        request_metrics.push_back(
+            Json{{"request_id", slot.request->request_id},
+                 {"card_id", arguments.physical_device_id},
+                 {"state_slot", slot.request->state_slot},
+                 {"token_count", slot.processed_token_count},
+                 {"latency_seconds",
+                  std::chrono::duration<double>(terminal_poll_end -
+                                                slot.started_at)
+                      .count()},
+                 {"generated_token_ids", Json::array()}});
+        ++completed_count;
+      }
+    } else {
     try {
       require(prepared_persistent_trace.has_value(),
               "persistent decode trace was not prepared before timing");
@@ -3967,7 +4143,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       persistent_host_trace_submission_count =
           trace_result.host_trace_submission_count;
       require(trace_result.selected_tokens_by_step.size() ==
-                  persistent_profile.profile.limits.maximum_decode_steps,
+                  persistent_request_profile.limits.maximum_decode_steps,
               "persistent decode output step count changed");
       const auto elapsed_milliseconds_signed =
           std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -3979,15 +4155,18 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       const std::uint64_t elapsed_milliseconds = std::max<std::uint64_t>(
           1U, static_cast<std::uint64_t>(elapsed_milliseconds_signed));
       require(elapsed_milliseconds <
-                  persistent_profile.profile.limits
+                  persistent_request_profile.limits
                       .maximum_elapsed_milliseconds,
               "persistent decode trace exceeded its time limit");
-      for (std::uint32_t step = 1U;
-           step <= persistent_profile.profile.limits.maximum_decode_steps;
-           ++step) {
+      const std::uint32_t lifecycle_step_limit =
+          terminal_probe_enabled
+              ? persistent_request_profile.limits
+                    .cancellation_poll_interval_steps
+              : persistent_request_profile.limits.maximum_decode_steps;
+      for (std::uint32_t step = 1U; step <= lifecycle_step_limit; ++step) {
         const std::uint64_t step_elapsed =
             elapsed_milliseconds * step /
-            persistent_profile.profile.limits.maximum_decode_steps;
+            persistent_request_profile.limits.maximum_decode_steps;
         for (auto &lifecycle : persistent_lifecycle_states) {
           apply_lifecycle_event(
               lifecycle,
@@ -3996,10 +4175,16 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
                   step_elapsed, step, {}});
         }
       }
+      if (terminal_probe_enabled) {
+        const rwkv7::persistent_decode::Event terminal_event =
+            persistent_decode_terminal_probe_event(
+                terminal_probe, persistent_request_profile.limits,
+                elapsed_milliseconds);
+        for (auto &lifecycle : persistent_lifecycle_states) {
+          apply_lifecycle_event(lifecycle, terminal_event);
+        }
+      }
       for (auto &lifecycle : persistent_lifecycle_states) {
-        require(lifecycle.phase ==
-                    rwkv7::persistent_decode::RequestPhase::CompletionPending,
-                "persistent decode did not request completion acknowledgement");
         apply_lifecycle_event(
             lifecycle,
             rwkv7::persistent_decode::Event{
@@ -4025,7 +4210,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
              trace_result.selected_tokens_by_step) {
           require(step_tokens.size() == slots.size(),
                   "persistent decode output batch size changed");
-          slot.generated_tokens.push_back(step_tokens[slot_index]);
+          if (!terminal_probe_enabled) {
+            slot.generated_tokens.push_back(step_tokens[slot_index]);
+          }
         }
         slot.prompt_index = slot.request->prompt_tokens.size();
         slot.processed_token_count =
@@ -4047,7 +4234,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
         ++completed_count;
       }
       batch_step_count =
-          persistent_profile.profile.limits.maximum_decode_steps;
+          persistent_request_profile.limits.maximum_decode_steps;
     } catch (...) {
       for (auto &lifecycle : persistent_lifecycle_states) {
         if (lifecycle.phase ==
@@ -4091,6 +4278,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
         }
       }
       throw;
+    }
     }
   } else {
     while (completed_count < slots.size()) {
@@ -4295,6 +4483,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
              {"phase",
               std::string(rwkv7::persistent_decode::request_phase_name(
                   lifecycle.phase))},
+             {"terminal_reason",
+              std::string(rwkv7::persistent_decode::terminal_reason_name(
+                  lifecycle.terminal_reason))},
+             {"completed_steps", lifecycle.completed_steps},
+             {"failure_code", lifecycle.failure_code},
              {"slot_releasable",
               rwkv7::persistent_decode::slot_releasable(lifecycle)},
              {"receipt_blake3",
@@ -4312,6 +4505,12 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["persistent_decode"] = {
       {"profile_id", persistent_profile.profile.profile_id},
       {"profile_blake3", persistent_profile_identity},
+      {"admitted_decode_windows",
+       persistent_profile.profile.limits.admitted_decode_windows},
+      {"selected_decode_window_steps",
+       selected_persistent_limits.has_value()
+           ? Json(selected_persistent_limits->maximum_decode_steps)
+           : Json(nullptr)},
       {"model_profile_blake3",
        persistent_profile.profile.model_profile_blake3},
       {"hash_algorithm", "blake3"},
@@ -4320,6 +4519,15 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"physically_admitted",
        persistent_profile.profile.physically_admitted},
       {"candidate_requested", candidate_requested},
+      {"terminal_probe",
+       std::string(persistent_decode_terminal_probe_name(terminal_probe))},
+      {"terminal_event_poll_step",
+       terminal_probe_enabled ? Json(0U) : Json(nullptr)},
+      {"cancellation_poll_interval_steps",
+       persistent_request_profile.limits
+           .cancellation_poll_interval_steps},
+      {"pre_replay_terminal_event", terminal_probe_enabled},
+      {"window_admitted", window_admitted},
       {"workload_eligible", candidate_eligible},
       {"prompt_prefill_outside_timed_region",
        prompt_prefill_outside_timed_region},
@@ -4333,7 +4541,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
        std::string(rwkv7::persistent_decode::fallback_reason_name(
            execution_decision.fallback_reason))},
       {"fallback_detail", execution_decision.detail},
-      {"persistent_region_entered", use_persistent_trace},
+      {"persistent_region_entered",
+       use_persistent_trace && !terminal_probe_enabled},
       {"trace_region_bytes", trace_region_size},
       {"trace_capture_outside_timed_region", use_persistent_trace},
       {"trace_execution_seconds", persistent_trace_execution_seconds},
@@ -4341,9 +4550,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"zero_per_token_host_submissions_proven",
        zero_per_token_host_submissions_proven},
       {"selected_token_device_resident_inside_region",
-       use_persistent_trace},
+       use_persistent_trace && !terminal_probe_enabled},
       {"selected_token_readback_inside_region", false},
-      {"output_readback_after_region", use_persistent_trace},
+      {"output_readback_after_region",
+       use_persistent_trace && !terminal_probe_enabled},
       {"recurrent_state_dtype", "fp32"},
       {"final_state_blake3",
        final_state_blake3.empty() ? Json(nullptr) : Json(final_state_blake3)},
@@ -4351,8 +4561,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
        persistent_reference_state_blake3.empty()
            ? Json(nullptr)
            : Json(persistent_reference_state_blake3)},
-      {"exact_generated_token_parity", use_persistent_trace},
-      {"exact_fp32_recurrent_state_parity", use_persistent_trace},
+      {"exact_generated_token_parity",
+       use_persistent_trace && !terminal_probe_enabled},
+      {"exact_fp32_recurrent_state_parity",
+       use_persistent_trace && !terminal_probe_enabled},
       {"reference_state_zeroed", persistent_reference_state_zeroed},
       {"state_zeroed_before_slot_release", persistent_state_zeroed},
       {"lifecycle_receipts", std::move(persistent_lifecycle_receipts)}};
@@ -5051,6 +5263,24 @@ void run_self_test() {
         static_cast<void>(parse_persistent_decode_control("invalid"));
       },
       "must be 0 or 1");
+  require(parse_persistent_decode_terminal_probe(std::nullopt) ==
+              PersistentDecodeTerminalProbe::None &&
+              parse_persistent_decode_terminal_probe(
+                  kPersistentDecodeCancelProbe) ==
+                  PersistentDecodeTerminalProbe::Cancel &&
+              parse_persistent_decode_terminal_probe(
+                  kPersistentDecodeTimeoutProbe) ==
+                  PersistentDecodeTerminalProbe::Timeout &&
+              parse_persistent_decode_terminal_probe(
+                  kPersistentDecodeFailureProbe) ==
+                  PersistentDecodeTerminalProbe::Failure,
+          "persistent decode terminal probe parsing changed");
+  expect_operation_failure(
+      []() {
+        static_cast<void>(
+            parse_persistent_decode_terminal_probe("invalid"));
+      },
+      "must be cancel, timeout, or failure");
   const FastWorkerRequest eligible_persistent_request{
       "persistent-self-test",
       FastCardCapacity{"B4", kFastPerCardSlotCount, 1U, 1U, 1U},
@@ -5065,6 +5295,20 @@ void run_self_test() {
   require(persistent_workload_eligible(eligible_persistent_request,
                                        persistent_profile.profile),
           "persistent decode rejected an eligible homogeneous workload");
+  FastWorkerRequest short_persistent_request = eligible_persistent_request;
+  for (FastRequest &request : short_persistent_request.requests) {
+    request.max_new_tokens = kMinimumGeneratedTokens;
+  }
+  require(persistent_workload_eligible(short_persistent_request,
+                                       persistent_profile.profile),
+          "persistent decode rejected the shorter admitted window");
+  FastWorkerRequest unlisted_persistent_request = eligible_persistent_request;
+  for (FastRequest &request : unlisted_persistent_request.requests) {
+    request.max_new_tokens = kMaximumGeneratedTokens - 1U;
+  }
+  require(!persistent_workload_eligible(unlisted_persistent_request,
+                                        persistent_profile.profile),
+          "persistent decode accepted an unlisted window");
   FastWorkerRequest ineligible_persistent_request =
       eligible_persistent_request;
   ineligible_persistent_request.requests[kSecondIndex]

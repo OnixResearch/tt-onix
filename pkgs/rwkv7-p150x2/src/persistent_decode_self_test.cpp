@@ -14,6 +14,10 @@ constexpr std::uint32_t kSecondSlot = 1U;
 constexpr std::uint64_t kNominalElapsedMilliseconds = 1U;
 constexpr std::size_t kBindingComponentCount = 2U;
 constexpr std::size_t kConcurrentSlotCount = 2U;
+constexpr std::uint32_t kShortDecodeWindow = 2U;
+constexpr std::uint32_t kLongDecodeWindow = 4U;
+constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
+constexpr std::uint32_t kExcessiveDecodeWindow = 6U;
 constexpr std::string_view kFailureCode = "self_test_failure";
 
 void require(bool condition, std::string_view message) {
@@ -223,30 +227,34 @@ void test_binding_drift_and_receipts(const Profile &profile,
 void test_fail_closed_mode_selection(const Profile &profile) {
   const BindingSet bindings = sample_bindings(profile);
   const ValidationResult stable = validate_bindings(bindings, bindings);
-  const CapabilityEvidence complete{true, true, true, true, true};
+  const CapabilityEvidence complete{true, true, true, true, true, true};
   Profile admitted = profile;
   admitted.physically_admitted = true;
   require(select_execution_mode(admitted, stable, complete).mode ==
               ExecutionMode::PersistentTrace,
           "persistent decode rejected complete admission evidence");
 
-  const CapabilityEvidence no_trace{false, true, true, true, true};
+  const CapabilityEvidence no_window{false, true, true, true, true, true};
+  require(select_execution_mode(admitted, stable, no_window).fallback_reason ==
+              FallbackReason::WindowNotAdmitted,
+          "persistent decode did not reject an unlisted window");
+  const CapabilityEvidence no_trace{true, false, true, true, true, true};
   require(select_execution_mode(admitted, stable, no_trace).fallback_reason ==
               FallbackReason::TraceUnavailable,
           "persistent decode did not reject a missing trace mechanism");
-  const CapabilityEvidence no_parity{true, false, true, true, true};
+  const CapabilityEvidence no_parity{true, true, false, true, true, true};
   require(select_execution_mode(admitted, stable, no_parity).fallback_reason ==
               FallbackReason::ParityEvidenceMissing,
           "persistent decode did not reject missing parity evidence");
-  const CapabilityEvidence no_simulator{true, true, false, true, true};
+  const CapabilityEvidence no_simulator{true, true, true, false, true, true};
   require(select_execution_mode(admitted, stable, no_simulator)
               .fallback_reason == FallbackReason::SimulatorEvidenceMissing,
           "persistent decode did not reject missing simulator evidence");
-  const CapabilityEvidence no_profiler{true, true, true, false, true};
+  const CapabilityEvidence no_profiler{true, true, true, true, false, true};
   require(select_execution_mode(admitted, stable, no_profiler).fallback_reason ==
               FallbackReason::ProfilerEvidenceMissing,
           "persistent decode did not reject missing profiler evidence");
-  const CapabilityEvidence no_gain{true, true, true, true, false};
+  const CapabilityEvidence no_gain{true, true, true, true, true, false};
   require(select_execution_mode(admitted, stable, no_gain).fallback_reason ==
               FallbackReason::StableGainMissing,
           "persistent decode did not reject missing physical gain");
@@ -266,11 +274,49 @@ void test_fail_closed_mode_selection(const Profile &profile) {
           "persistent decode did not fail closed on binding drift");
 }
 
+void test_window_selection(const Profile &profile) {
+  const std::array<std::uint32_t, kConcurrentSlotCount> admitted_windows = {
+      kShortDecodeWindow, kLongDecodeWindow};
+  for (const std::uint32_t window : admitted_windows) {
+    const WindowLimitsResult selected = select_window_limits(profile, window);
+    require(selected.accepted &&
+                selected.limits.maximum_decode_steps == window &&
+                selected.limits.output_capacity_tokens == window &&
+                selected.limits.admitted_decode_windows ==
+                    std::vector<std::uint32_t>{window},
+            "persistent decode did not derive the selected window limits");
+    Profile request_profile = profile;
+    request_profile.limits = selected.limits;
+    test_maximum_length_completion(request_profile);
+  }
+  require(!select_window_limits(profile, kUnlistedDecodeWindow).accepted,
+          "persistent decode accepted an unlisted request window");
+}
+
 void test_invalid_profile(const Profile &profile) {
   Profile invalid = profile;
   invalid.limits.maximum_decode_steps = 0U;
   require(!validate_profile(invalid).valid,
           "persistent decode accepted an unbounded profile");
+  invalid = profile;
+  invalid.limits.admitted_decode_windows = {
+      kShortDecodeWindow, kShortDecodeWindow, kLongDecodeWindow};
+  require(!validate_profile(invalid).valid,
+          "persistent decode accepted duplicate windows");
+  invalid = profile;
+  invalid.limits.admitted_decode_windows = {kLongDecodeWindow,
+                                             kShortDecodeWindow};
+  require(!validate_profile(invalid).valid,
+          "persistent decode accepted unordered windows");
+  invalid = profile;
+  invalid.limits.admitted_decode_windows = {0U, kLongDecodeWindow};
+  require(!validate_profile(invalid).valid,
+          "persistent decode accepted a zero window");
+  invalid = profile;
+  invalid.limits.admitted_decode_windows = {kShortDecodeWindow,
+                                             kExcessiveDecodeWindow};
+  require(!validate_profile(invalid).valid,
+          "persistent decode accepted a window above the maximum");
   invalid = profile;
   invalid.admission.require_exact_parity = false;
   require(!validate_profile(invalid).valid,
@@ -293,6 +339,7 @@ void run_persistent_decode_self_test(const Profile &profile,
   test_slot_admission_and_recycling(profile);
   test_binding_drift_and_receipts(profile, profile_bytes);
   test_fail_closed_mode_selection(profile);
+  test_window_selection(profile);
   test_invalid_profile(profile);
 }
 
