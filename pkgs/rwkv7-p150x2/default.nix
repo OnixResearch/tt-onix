@@ -8,6 +8,7 @@
   symlinkJoin,
   libblake3,
   nlohmann_json,
+  nickel,
   enchantum,
   fmt,
   spdlog,
@@ -54,6 +55,7 @@ stdenv.mkDerivation {
     cmake
     makeWrapper
     ninja
+    nickel
     pkg-config
   ];
   buildInputs = [
@@ -68,12 +70,18 @@ stdenv.mkDerivation {
     xtensor
   ];
 
+  preConfigure = ''
+    nickel export --format json persistent-decode-profile.ncl >persistent-decode-profile.json
+  '';
+
   cmakeFlags = [
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
+    (lib.cmakeFeature "RWKV7_PERSISTENT_DECODE_PROFILE_PATH" "${placeholder "out"}/share/rwkv7-p150x2/persistent-decode-profile.json")
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
     (lib.cmakeFeature "RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH" singleCardMeshDescriptor)
     (lib.cmakeFeature "RWKV7_METALIUM_ROOT" metaliumRoot)
     (lib.cmakeFeature "RWKV7_TARGET_NAME" profile.target_name)
+    (lib.cmakeFeature "RWKV7_TARGET_PROFILE_BLAKE3" profile.profile_identity)
     (lib.cmakeFeature "RWKV7_MODEL_ID" profile.model.id)
     (lib.cmakeFeature "RWKV7_MODEL_REVISION" profile.model.revision)
     (lib.cmakeFeature "RWKV7_ARCHITECTURE_FAMILY" profile.model.architecture_family)
@@ -100,6 +108,8 @@ stdenv.mkDerivation {
       --set TT_METAL_RUNTIME_ROOT ${lib.escapeShellArg metaliumRoot} \
       --set TT_MESH_GRAPH_DESC_PATH ${lib.escapeShellArg meshDescriptor} \
       --set RWKV7_FUSED_WKV_KERNEL_ROOT "$out/share/rwkv7-p150x2/kernel"
+    install -Dm444 ../persistent-decode-profile.json \
+      "$out/share/rwkv7-p150x2/persistent-decode-profile.json"
     mkdir -p "$out/share/model-target"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
   '';
@@ -107,6 +117,13 @@ stdenv.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
+    nickel export --format json ../persistent-decode-profile.ncl >persistent-decode-profile-check.json
+    cmp persistent-decode-profile-check.json \
+      "$out/share/rwkv7-p150x2/persistent-decode-profile.json"
+    if nickel export --format json ../fixtures/invalid-persistent-decode-profile.ncl; then
+      echo 'invalid persistent decode profile passed validation' >&2
+      exit 1
+    fi
     "$out/bin/rwkv7-p150x2-runtime" --self-test >self-test.log
     grep -F 'rwkv7 P150x2 runtime self-test: PASS' self-test.log
     runHook postInstallCheck

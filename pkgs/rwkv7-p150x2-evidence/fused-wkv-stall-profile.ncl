@@ -20,6 +20,7 @@ let fused_maximum_p99_latency_regression_fraction = 0.10 in
     short_prompt_token_count = stall_short_prompt_token_count,
     long_prompt_token_count = stall_long_prompt_token_count,
     generated_token_count = stall_generated_token_count,
+    homogeneous_prompts = false,
   },
   scheduler = {
     mode = "deterministic_continuous_batching",

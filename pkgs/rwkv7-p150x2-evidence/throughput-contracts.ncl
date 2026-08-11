@@ -20,6 +20,7 @@ let WorkloadC = {
   short_prompt_token_count | PositiveIntC,
   long_prompt_token_count | PositiveIntC,
   generated_token_count | PositiveIntC,
+  homogeneous_prompts | Bool,
 } in
 let SchedulerC = {
   mode | ExactC "deterministic_continuous_batching",

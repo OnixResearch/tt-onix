@@ -217,6 +217,10 @@
           ''
             set -eu
             runtime_source=${../pkgs/rwkv7-p150x2/src/main.cpp}
+            persistent_decode_source=${../pkgs/rwkv7-p150x2/src/persistent_decode.cpp}
+            persistent_decode_test_source=${../pkgs/rwkv7-p150x2/src/persistent_decode_self_test.cpp}
+            persistent_decode_profile=${../pkgs/rwkv7-p150x2/persistent-decode-profile.ncl}
+            persistent_decode_evidence_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_contract.rs}
             hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
@@ -238,6 +242,17 @@
             grep -F 'simulated_single_card_layer_state_carry' "$runtime_source"
             grep -F 'simulated_single_card_fused_wkv_layer_state_carry' "$runtime_source"
             grep -F 'WkvExecutionPolicy::RequireFusedCandidate' "$runtime_source"
+            grep -F 'ttnn::operations::trace::begin_trace_capture' "$runtime_source"
+            grep -F 'ttnn::operations::trace::execute_trace' "$runtime_source"
+            grep -F 'trace_capture_outside_timed_region' "$runtime_source"
+            grep -F 'selected_token_device_resident_inside_region' "$runtime_source"
+            grep -F 'exact_fp32_recurrent_state_parity' "$runtime_source"
+            grep -F 'state_zeroed_before_slot_release' "$runtime_source"
+            grep -F 'rwkv7-persistent-decode-binding-v1' "$persistent_decode_source"
+            grep -F 'test_binding_drift_and_receipts' "$persistent_decode_test_source"
+            grep -F 'test_slot_admission_and_recycling' "$persistent_decode_test_source"
+            grep -F 'physically_admitted = true' "$persistent_decode_profile"
+            grep -F 'validate_persistent_receipt' "$persistent_decode_evidence_source"
             grep -F 'deterministic_slot_assignments' "$throughput_source"
             grep -F 'minimum_dual_card_speedup' "$throughput_source"
             grep -F 'maximum_p99_latency_regression_fraction' "$throughput_source"

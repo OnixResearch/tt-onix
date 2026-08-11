@@ -11,6 +11,9 @@ use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rwkv7_p150x2_evidence::persistent_decode_contract::{
+    PersistentReceiptPolicy, validate_persistent_receipt,
+};
 use rwkv7_p150x2_evidence::throughput::{
     ExecutionEvidence, MachineFactsEvidence, RawThroughputEvidence, RequestMeasurement,
     ThroughputProfile, ThroughputRun, admit_throughput_receipt, deterministic_slot_assignments,
@@ -86,7 +89,9 @@ const WORKER_INITIALIZATION_READY_BARRIER_NAME: &str = "initialization-ready.bar
 const WORKER_WARMUP_START_BARRIER_NAME: &str = "warmup-start.barrier";
 const WORKER_TIMED_READY_BARRIER_NAME: &str = "timed-ready.barrier";
 const WORKER_TIMED_START_BARRIER_NAME: &str = "timed-start.barrier";
-const WORKER_BARRIER_TIMEOUT: Duration = Duration::from_secs(120);
+const NORMAL_WORKER_BARRIER_TIMEOUT_SECONDS: u64 = 120;
+const PERSISTENT_WORKER_BARRIER_TIMEOUT_SECONDS: u64 = 600;
+const PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT: &str = "RWKV7_PERSISTENT_DECODE_CANDIDATE";
 const WORKER_BARRIER_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const MAXIMUM_WORKER_START_SKEW_SECONDS: f64 = 0.010;
 const WORKER_ELAPSED_TOLERANCE_SECONDS: f64 = 0.001;
@@ -402,6 +407,7 @@ struct WorkerReceipt {
     hardware_counter_diagnostics: Option<HardwareCounterDiagnostics>,
     requests: Vec<WorkerRequestMeasurement>,
     execution: WorkerExecution,
+    persistent_decode: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1415,12 +1421,17 @@ fn validate_workload(
                 "workload contains an empty, duplicate, or wrong-length request".to_owned(),
             );
         }
+        if profile.workload.homogeneous_prompts
+            && request.prompt_token_ids.len() != profile.workload.short_prompt_token_count
+        {
+            return Err("homogeneous workload contains a different prompt length".to_owned());
+        }
         saw_short_prompt |=
             request.prompt_token_ids.len() == profile.workload.short_prompt_token_count;
         saw_long_prompt |=
             request.prompt_token_ids.len() == profile.workload.long_prompt_token_count;
     }
-    if !saw_short_prompt || !saw_long_prompt {
+    if !profile.workload.homogeneous_prompts && (!saw_short_prompt || !saw_long_prompt) {
         return Err("workload does not contain both named short and long prompts".to_owned());
     }
     Ok(())
@@ -1628,6 +1639,32 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
     })
 }
 
+fn persistent_candidate_flag(value: Option<&str>) -> Result<bool, String> {
+    match value {
+        None | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(_) => Err("RWKV7_PERSISTENT_DECODE_CANDIDATE must be 0 or 1".to_owned()),
+    }
+}
+
+fn worker_barrier_timeout(persistent_candidate: bool) -> Duration {
+    Duration::from_secs(if persistent_candidate {
+        PERSISTENT_WORKER_BARRIER_TIMEOUT_SECONDS
+    } else {
+        NORMAL_WORKER_BARRIER_TIMEOUT_SECONDS
+    })
+}
+
+fn persistent_candidate_requested() -> Result<bool, String> {
+    match std::env::var(PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT) {
+        Ok(value) => persistent_candidate_flag(Some(&value)),
+        Err(std::env::VarError::NotPresent) => persistent_candidate_flag(None),
+        Err(error) => Err(format!(
+            "cannot read {PERSISTENT_DECODE_CANDIDATE_ENVIRONMENT}: {error}"
+        )),
+    }
+}
+
 fn wait_for_worker_barriers(
     workers: &mut [WorkerProcess],
     barrier_name: &str,
@@ -1636,7 +1673,8 @@ fn wait_for_worker_barriers(
     if workers.is_empty() {
         return Err("cannot synchronize an empty worker set".to_owned());
     }
-    let deadline = Instant::now() + WORKER_BARRIER_TIMEOUT;
+    let barrier_timeout = worker_barrier_timeout(persistent_candidate_requested()?);
+    let deadline = Instant::now() + barrier_timeout;
     loop {
         let mut ready_count = 0_usize;
         for worker in workers.iter_mut() {
@@ -1670,7 +1708,7 @@ fn wait_for_worker_barriers(
         if Instant::now() >= deadline {
             return Err(format!(
                 "workers did not reach the {barrier_name} barrier within {} seconds",
-                WORKER_BARRIER_TIMEOUT.as_secs()
+                barrier_timeout.as_secs()
             ));
         }
         thread::sleep(WORKER_BARRIER_POLL_INTERVAL);
@@ -2099,6 +2137,31 @@ fn validate_worker(
     {
         return Err(format!(
             "card {} returned malformed worker evidence",
+            worker.card_id
+        ));
+    }
+    let persistent_mode = receipt
+        .persistent_decode
+        .get("selected_mode")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            format!(
+                "card {} omitted its persistent-decode selection",
+                worker.card_id
+            )
+        })?;
+    if persistent_mode == "persistent_trace" {
+        let receipt_json = fs::read_to_string(&worker.output_path).map_err(|error| {
+            format!(
+                "cannot read persistent worker receipt {}: {error}",
+                worker.output_path.display()
+            )
+        })?;
+        validate_persistent_receipt(&receipt_json, PersistentReceiptPolicy::Candidate)
+            .map_err(|error| format!("card {} {error}", worker.card_id))?;
+    } else if persistent_mode != "normal_dispatch" {
+        return Err(format!(
+            "card {} selected unknown persistent mode '{persistent_mode}'",
             worker.card_id
         ));
     }
@@ -3788,6 +3851,26 @@ mod tests {
             FILTERED_WORKER_LOGICAL_CARD_ID,
             TWO_CARD_IDS.len()
         ));
+    }
+
+    #[test]
+    fn persistent_candidate_uses_a_bounded_setup_timeout() {
+        assert!(!persistent_candidate_flag(None).expect("absent flag"));
+        assert!(!persistent_candidate_flag(Some("0")).expect("disabled flag"));
+        assert!(persistent_candidate_flag(Some("1")).expect("enabled flag"));
+        assert_eq!(
+            worker_barrier_timeout(true).as_secs(),
+            PERSISTENT_WORKER_BARRIER_TIMEOUT_SECONDS
+        );
+    }
+
+    #[test]
+    fn persistent_candidate_rejects_an_invalid_flag() {
+        assert!(persistent_candidate_flag(Some("enabled")).is_err());
+        assert_eq!(
+            worker_barrier_timeout(false).as_secs(),
+            NORMAL_WORKER_BARRIER_TIMEOUT_SECONDS
+        );
     }
 
     #[test]

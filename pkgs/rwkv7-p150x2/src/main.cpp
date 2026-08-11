@@ -1,5 +1,6 @@
 #include "config.hpp"
 #include "fused_wkv_program.hpp"
+#include "persistent_decode_self_test.hpp"
 #ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
 #include "hardware_counter_diagnostics.hpp"
 #endif
@@ -17,6 +18,8 @@
 #include <ttnn/distributed/distributed_tensor.hpp>
 #include <ttnn/operations/core/core.hpp>
 #include <ttnn/operations/copy/typecast/typecast.hpp>
+#include <ttnn/operations/creation/creation.hpp>
+#include <ttnn/operations/data_movement/copy/copy.hpp>
 #include <ttnn/operations/data_movement/transpose/transpose.hpp>
 #include <ttnn/operations/data_movement/untilize/untilize.hpp>
 #include <ttnn/operations/eltwise/binary/binary.hpp>
@@ -28,6 +31,7 @@
 #include <ttnn/operations/normalization/layernorm/layernorm.hpp>
 #include <ttnn/operations/reduction/argmax/argmax.hpp>
 #include <ttnn/operations/reduction/generic/generic_reductions.hpp>
+#include <ttnn/operations/trace.hpp>
 #include <ttnn/tensor/shape/shape.hpp>
 #include <ttnn/tensor/tensor.hpp>
 #include <ttnn/types.hpp>
@@ -132,6 +136,8 @@ constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
 constexpr std::string_view kFusedWkvLayerSmokeArgument =
     "--fused-wkv-layer-smoke";
 constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
+constexpr std::string_view kPersistentDecodeSimulatorSmokeArgument =
+    "--persistent-decode-simulator-smoke";
 constexpr std::string_view kFastDeviceArgument = "--device";
 constexpr std::string_view kFastRequestsArgument = "--requests";
 constexpr std::string_view kFastOutputArgument = "--output";
@@ -160,6 +166,14 @@ constexpr std::string_view kPrimaryThreadFifoPriorityEnvironment =
     "RWKV7_PRIMARY_THREAD_FIFO_PRIORITY";
 constexpr std::string_view kFusedWkvKernelRootEnvironment =
     "RWKV7_FUSED_WKV_KERNEL_ROOT";
+constexpr std::string_view kPersistentDecodeCandidateEnvironment =
+    "RWKV7_PERSISTENT_DECODE_CANDIDATE";
+constexpr std::size_t kBytesPerKibibyte = 1024U;
+constexpr std::size_t kKibibytesPerMebibyte = 1024U;
+constexpr std::size_t kPersistentTraceRegionMebibytes = 256U;
+constexpr std::size_t kPersistentTraceRegionBytes =
+    kPersistentTraceRegionMebibytes * kKibibytesPerMebibyte *
+    kBytesPerKibibyte;
 constexpr bool kFusedWkvPhysicallyAdmitted = true;
 constexpr std::uint32_t kAdmittedCardZeroPrimaryThreadCpu = 2U;
 constexpr std::uint32_t kAdmittedCardOnePrimaryThreadCpu = 6U;
@@ -194,6 +208,8 @@ constexpr std::size_t kFastTimedStartBarrierNameIndex = 16U;
 constexpr std::size_t kFastTimedStartBarrierValueIndex = 17U;
 constexpr auto kFastBarrierPollInterval = std::chrono::milliseconds(1);
 constexpr auto kFastBarrierTimeout = std::chrono::seconds(120);
+constexpr auto kProfilerCsvPollInterval = std::chrono::milliseconds(10);
+constexpr auto kProfilerCsvWaitTimeout = std::chrono::seconds(60);
 constexpr double kFastBoundaryTimingToleranceSeconds = 1.0e-4;
 constexpr std::size_t kFastPerCardSlotCount = 4U;
 constexpr std::uint32_t kFastWarmupTokenCount = 4U;
@@ -718,19 +734,28 @@ std::string_view mesh_descriptor_for_device_count(std::size_t device_count) {
 class DeviceContext {
 public:
   DeviceContext()
-      : DeviceContext({kPhysicalDeviceZero, kPhysicalDeviceOne}) {
+      : DeviceContext(
+            std::vector<int>{kPhysicalDeviceZero, kPhysicalDeviceOne}) {
     require(expected_device_count_ == kExpectedDeviceCount,
             "evidence context must open both physical cards");
   }
 
   explicit DeviceContext(int physical_device_id)
-      : DeviceContext(std::vector<int>{physical_device_id}) {
+      : DeviceContext(physical_device_id, DEFAULT_TRACE_REGION_SIZE) {}
+
+  DeviceContext(int physical_device_id, std::size_t trace_region_size)
+      : DeviceContext(std::vector<int>{physical_device_id}, trace_region_size) {
     require(physical_device_id == kPhysicalDeviceZero ||
                 physical_device_id == kPhysicalDeviceOne,
             "fast worker device must be physical device 0 or 1");
   }
 
   explicit DeviceContext(std::vector<int> physical_device_ids)
+      : DeviceContext(std::move(physical_device_ids),
+                      DEFAULT_TRACE_REGION_SIZE) {}
+
+  DeviceContext(std::vector<int> physical_device_ids,
+                std::size_t trace_region_size)
       : physical_device_ids_(std::move(physical_device_ids)),
         expected_device_count_(physical_device_ids_.size()) {
     require(!physical_device_ids_.empty(),
@@ -751,7 +776,7 @@ public:
         static_cast<std::uint32_t>(expected_device_count_);
     mesh_ = ttnn::distributed::open_mesh_device(
         ttnn::distributed::MeshShape{kMeshRows, mesh_columns},
-        DEFAULT_L1_SMALL_SIZE, DEFAULT_TRACE_REGION_SIZE, 1U,
+        DEFAULT_L1_SMALL_SIZE, trace_region_size, 1U,
         tt::tt_metal::DispatchCoreConfig{}, std::nullopt,
         physical_device_ids_);
     require(mesh_ != nullptr, "failed to open the selected P150 mesh");
@@ -806,7 +831,8 @@ public:
     operation_recording_enabled_ = enabled;
   }
 
-  void flush_profiler(std::string stage) {
+  void flush_profiler(std::string stage,
+                      bool close_device_after_read = false) {
     if (!profiler_flush_enabled_) {
       return;
     }
@@ -816,12 +842,24 @@ public:
     // per-device detail::ReadDeviceProfilerResults only enqueues the
     // processor to that pool and returns before the file is written.
     tt::tt_metal::ReadMeshDeviceProfilerResults(*mesh_);
-    require(std::filesystem::exists(profiler_csv_path_),
-            "device profiler did not create its raw CSV");
-    const std::uint64_t end_byte =
-        std::filesystem::file_size(profiler_csv_path_);
+    if (close_device_after_read) {
+      ttnn::distributed::close_mesh_device(mesh_);
+      mesh_.reset();
+    }
+    const auto deadline =
+        std::chrono::steady_clock::now() + kProfilerCsvWaitTimeout;
+    std::uint64_t end_byte = profiler_cursor_;
+    while (end_byte <= profiler_cursor_ &&
+           std::chrono::steady_clock::now() < deadline) {
+      if (std::filesystem::exists(profiler_csv_path_)) {
+        end_byte = std::filesystem::file_size(profiler_csv_path_);
+      }
+      if (end_byte <= profiler_cursor_) {
+        std::this_thread::sleep_for(kProfilerCsvPollInterval);
+      }
+    }
     require(end_byte > profiler_cursor_,
-            "device profiler flush appended no raw CSV evidence");
+            "device profiler flush appended no raw CSV evidence before its bounded deadline");
     profiler_ranges_.push_back(ProfilerRange{sanitize_stage(std::move(stage)),
                                              profiler_cursor_, end_byte});
     profiler_cursor_ = end_byte;
@@ -1129,6 +1167,31 @@ ModelState zero_fast_model_state(DeviceContext &context,
             {batch_size, kHeadCount, kHeadSize, kHeadSize})});
   }
   return ModelState{std::move(layers)};
+}
+
+void zero_tensor_in_place(DeviceContext &context, Tensor &tensor,
+                          std::string_view operation) {
+  const Tensor zeroed = ttnn::zeros_like(
+      tensor, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+      tensor);
+  tensor = context.checked(zeroed, operation);
+}
+
+void zero_layer_state_in_place(DeviceContext &context, LayerState &layer) {
+  zero_tensor_in_place(context, layer.attention_previous,
+                       "persistent-zero-attention-state");
+  zero_tensor_in_place(context, layer.ffn_previous,
+                       "persistent-zero-ffn-state");
+  zero_tensor_in_place(context, layer.matrix,
+                       "persistent-zero-recurrent-state");
+}
+
+void zero_persistent_model_state(DeviceContext &context, ModelState &state) {
+  require(state.layers.size() == kLayerCount,
+          "persistent decode cleanup has the wrong layer count");
+  for (LayerState &layer : state.layers) {
+    zero_layer_state_in_place(context, layer);
+  }
 }
 
 Tensor op_reshape(DeviceContext &context, const Tensor &input,
@@ -2579,6 +2642,205 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   return values;
 }
 
+void submit_persistent_decode_step(
+    DeviceContext &context, const ModelWeights &weights, ModelState &state,
+    const Tensor &input_token, std::uint32_t batch_size,
+    std::uint64_t step_index, WkvExecutionPolicy wkv_execution_policy,
+    std::vector<Tensor> &retained_intermediates, Tensor &selected_output) {
+  require(batch_size > 0U,
+          "persistent decode batch size must be positive");
+  require(state.layers.size() == kLayerCount,
+          "persistent decode state has the wrong layer count");
+  if (step_index == kFirstIndex) {
+    require(state.layers[kFirstIndex].matrix.dtype() ==
+                ttnn::DataType::FLOAT32,
+            "persistent decode recurrent state must remain FP32");
+    require(input_token.dtype() == ttnn::DataType::UINT32,
+            "persistent decode token input must be UINT32");
+    require(input_token.logical_shape()[0] == batch_size,
+            "persistent decode token count differs from its batch size");
+  }
+  const std::string step_name =
+      "persistent-decode-step-" + std::to_string(step_index);
+  context.set_stage(step_name + "/embedding");
+  Tensor hidden = context.checked(
+      ttnn::embedding(input_token, weights.embeddings, std::nullopt,
+                      ttnn::Layout::TILE),
+      "persistent-embedding");
+  hidden = op_reshape(context, hidden, {1U, 1U, batch_size, kHiddenSize});
+  std::optional<Tensor> value_anchor;
+  for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
+       ++layer_index) {
+    const std::string stage_prefix =
+        step_name + "/layer-" + std::to_string(layer_index);
+    hidden = execute_layer(context, weights.layers[layer_index], hidden,
+                           state.layers[layer_index], value_anchor,
+                           stage_prefix, wkv_execution_policy);
+  }
+  require(value_anchor.has_value(),
+          "persistent decode did not establish its value anchor");
+  context.set_stage(step_name + "/final-normalization");
+  const Tensor final_hidden =
+      op_layer_norm(context, hidden, weights.final_norm_weight,
+                    weights.final_norm_bias, kLayerNormEpsilon);
+  context.set_stage(step_name + "/language-model-head");
+  const Tensor logits = op_matmul(context, final_hidden, weights.head);
+  const Tensor logits_row_major =
+      context.checked(ttnn::untilize(logits), "persistent-untilize-logits");
+  context.set_stage(step_name + "/greedy-selection");
+  const Tensor selected_keepdim = context.checked(
+      ttnn::argmax(logits_row_major, kLastDimension, true),
+      "persistent-argmax");
+  selected_output =
+      op_reshape(context, selected_keepdim, {batch_size, 1U});
+  retained_intermediates.push_back(hidden);
+  retained_intermediates.push_back(value_anchor.value());
+  retained_intermediates.push_back(final_hidden);
+  retained_intermediates.push_back(logits);
+  retained_intermediates.push_back(logits_row_major);
+  retained_intermediates.push_back(selected_keepdim);
+}
+
+class PersistentTraceLease {
+public:
+  explicit PersistentTraceLease(MeshDevice &device) : device_(&device) {
+    trace_id_ =
+        ttnn::operations::trace::begin_trace_capture(device_, std::nullopt);
+  }
+
+  PersistentTraceLease(const PersistentTraceLease &) = delete;
+  PersistentTraceLease &operator=(const PersistentTraceLease &) = delete;
+
+  ~PersistentTraceLease() {
+    try {
+      release();
+    } catch (...) {
+    }
+  }
+
+  void finish_capture() {
+    require(trace_id_.has_value(),
+            "persistent decode trace capture did not start");
+    require(!capture_finished_,
+            "persistent decode trace capture finished more than once");
+    ttnn::operations::trace::end_trace_capture(device_, *trace_id_,
+                                               std::nullopt);
+    capture_finished_ = true;
+  }
+
+  void execute() {
+    require(trace_id_.has_value() && capture_finished_,
+            "persistent decode trace executed before capture completed");
+    ttnn::operations::trace::execute_trace(device_, *trace_id_, std::nullopt,
+                                           true);
+  }
+
+  void release() {
+    if (!trace_id_.has_value()) {
+      return;
+    }
+    require(capture_finished_,
+            "persistent decode released an unfinished trace");
+    ttnn::operations::trace::release_trace(device_, *trace_id_);
+    trace_id_.reset();
+  }
+
+private:
+  MeshDevice *device_;
+  std::optional<ttnn::MeshTraceId> trace_id_;
+  bool capture_finished_ = false;
+};
+
+struct PreparedPersistentTrace {
+  std::unique_ptr<PersistentTraceLease> trace;
+  Tensor initial_token;
+  ModelState initial_state;
+  ModelState captured_state;
+  std::vector<Tensor> selected_outputs;
+  std::vector<Tensor> retained_intermediates;
+  std::size_t batch_size;
+};
+
+struct PersistentTraceResult {
+  std::vector<std::vector<std::uint32_t>> selected_tokens_by_step;
+  ModelState final_state;
+  double execution_seconds;
+  std::chrono::steady_clock::time_point execution_end;
+  std::chrono::system_clock::time_point execution_end_wall_clock;
+  std::uint64_t host_trace_submission_count;
+};
+
+PreparedPersistentTrace prepare_persistent_decode_trace(
+    DeviceContext &context, const ModelWeights &weights,
+    const ModelState &initial_state,
+    const std::vector<std::uint32_t> &initial_tokens,
+    std::uint32_t step_count, WkvExecutionPolicy wkv_execution_policy) {
+  require(!initial_tokens.empty(),
+          "persistent decode trace needs an initial token");
+  require(step_count > 0U,
+          "persistent decode trace step count must be positive");
+  const auto batch_size =
+      static_cast<std::uint32_t>(initial_tokens.size());
+  require(initial_state.layers[kFirstIndex].matrix.logical_shape()[0] ==
+              batch_size,
+          "persistent decode initial state differs from its batch size");
+
+  const Tensor initial_token =
+      context.uint32_tensor(initial_tokens, {batch_size, 1U});
+  Tensor current_token = initial_token;
+  ModelState retained_initial_state = initial_state;
+  ModelState captured_state = retained_initial_state;
+  std::vector<Tensor> selected_outputs;
+  selected_outputs.reserve(step_count);
+  constexpr std::size_t kRetainedIntermediatesPerStep = 6U;
+  std::vector<Tensor> retained_intermediates;
+  retained_intermediates.reserve(step_count * kRetainedIntermediatesPerStep);
+  auto trace = std::make_unique<PersistentTraceLease>(context.mesh());
+  for (std::uint32_t step = 0U; step < step_count; ++step) {
+    selected_outputs.emplace_back();
+    submit_persistent_decode_step(
+        context, weights, captured_state, current_token, batch_size, step,
+        wkv_execution_policy, retained_intermediates,
+        selected_outputs.back());
+    current_token = selected_outputs.back();
+  }
+  trace->finish_capture();
+  return PreparedPersistentTrace{
+      std::move(trace), initial_token, std::move(retained_initial_state),
+      std::move(captured_state), std::move(selected_outputs),
+      std::move(retained_intermediates), initial_tokens.size()};
+}
+
+PersistentTraceResult execute_persistent_decode_trace(
+    DeviceContext &context, PreparedPersistentTrace &prepared) {
+  require(prepared.trace != nullptr,
+          "persistent decode lost its prepared trace");
+  require(!prepared.selected_outputs.empty() && prepared.batch_size > 0U,
+          "persistent decode prepared an empty trace");
+  const auto execute_begin = std::chrono::steady_clock::now();
+  prepared.trace->execute();
+  const auto execute_end = std::chrono::steady_clock::now();
+  const auto execute_end_wall_clock = std::chrono::system_clock::now();
+  prepared.trace->release();
+  const double execution_seconds =
+      elapsed_seconds_between(execute_begin, execute_end);
+  require(std::isfinite(execution_seconds) && execution_seconds > 0.0,
+          "persistent decode trace time is not finite and positive");
+
+  std::vector<std::vector<std::uint32_t>> selected_tokens_by_step;
+  selected_tokens_by_step.reserve(prepared.selected_outputs.size());
+  for (const Tensor &selected : prepared.selected_outputs) {
+    selected_tokens_by_step.push_back(read_fast_u32(
+        context, selected, prepared.batch_size, prepared.batch_size,
+        nullptr));
+  }
+  constexpr std::uint64_t kSingleTraceSubmission = 1U;
+  return PersistentTraceResult{
+      std::move(selected_tokens_by_step),
+      std::move(prepared.captured_state), execution_seconds, execute_end,
+      execute_end_wall_clock, kSingleTraceSubmission};
+}
+
 void write_json(const std::filesystem::path &path, const Json &value) {
   std::ofstream output(path, std::ios::trunc);
   require(output.good(), "failed to create runtime receipt");
@@ -2695,6 +2957,13 @@ std::filesystem::path parse_fused_wkv_probe_output(
     const std::vector<std::string> &arguments) {
   return parse_new_output(arguments, kFusedWkvProbeArgument,
                           "fused WKV probe");
+}
+
+std::filesystem::path parse_persistent_decode_simulator_smoke_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments,
+                          kPersistentDecodeSimulatorSmokeArgument,
+                          "persistent decode simulator smoke");
 }
 
 template <typename Value>
@@ -2822,6 +3091,114 @@ void run_simulator_smoke(const std::filesystem::path &output_path,
   std::cout << output_path << '\n';
 }
 
+void run_persistent_decode_simulator_smoke(
+    const std::filesystem::path &output_path) {
+  select_single_card_device(kPhysicalDeviceZero);
+  const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
+  const CheckpointIndex checkpoint(checkpoint_file);
+  DeviceContext context(kPhysicalDeviceZero, kPersistentTraceRegionBytes);
+  context.set_profiler_flush_enabled(false);
+  const ModelWeights weights = load_model(context, checkpoint);
+  const auto make_hidden = [&context, &weights]() {
+    const Tensor token =
+        context.uint32_tensor({kGenerationEosToken}, {1U, 1U});
+    Tensor hidden = context.checked(
+        ttnn::embedding(token, weights.embeddings, std::nullopt,
+                        ttnn::Layout::TILE),
+        "persistent-simulator-embedding");
+    return op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
+  };
+  const auto execute_layer_step =
+      [&context, &weights](const Tensor &input, LayerState &layer_state,
+                           std::string_view stage) {
+        std::optional<Tensor> value_anchor;
+        Tensor output = execute_layer(
+            context, weights.layers[kFirstIndex], input, layer_state,
+            value_anchor, stage,
+            WkvExecutionPolicy::RequireFusedCandidate);
+        require(value_anchor.has_value(),
+                "persistent simulator layer omitted its value anchor");
+        require(output.dtype() == ttnn::DataType::BFLOAT16,
+                "persistent simulator layer output is not BF16");
+        return output;
+      };
+
+  LayerState warmup_state =
+      zero_fast_model_state(context, 1U, 1U).layers[kFirstIndex];
+  Tensor warmup_output = execute_layer_step(
+      make_hidden(), warmup_state, "persistent-simulator-warmup/step-0");
+  static_cast<void>(execute_layer_step(
+      warmup_output, warmup_state, "persistent-simulator-warmup/step-1"));
+  const std::size_t cache_after_warmup = context.program_cache_entries();
+  require(cache_after_warmup > 0U,
+          "persistent simulator warmup did not populate the program cache");
+
+  const Tensor initial_hidden = make_hidden();
+  const LayerState initial_state =
+      zero_fast_model_state(context, 1U, 1U).layers[kFirstIndex];
+  LayerState captured_state = initial_state;
+  PersistentTraceLease trace(context.mesh());
+  Tensor first_output = execute_layer_step(
+      initial_hidden, captured_state, "persistent-simulator-trace/step-0");
+  Tensor second_output = execute_layer_step(
+      first_output, captured_state, "persistent-simulator-trace/step-1");
+  trace.finish_capture();
+  trace.execute();
+  trace.release();
+  require(context.program_cache_entries() == cache_after_warmup,
+          "persistent simulator trace compiled a new program");
+  require(first_output.dtype() == ttnn::DataType::BFLOAT16 &&
+              second_output.dtype() == ttnn::DataType::BFLOAT16 &&
+              captured_state.matrix.dtype() == ttnn::DataType::FLOAT32,
+          "persistent simulator trace changed a precision boundary");
+  const std::vector<float> final_state =
+      read_fused_wkv_probe_values<float>(context, captured_state.matrix,
+                                         false);
+  const bool state_finite =
+      std::ranges::all_of(final_state,
+                          [](float value) { return std::isfinite(value); });
+  const bool state_nonzero =
+      std::ranges::any_of(final_state,
+                          [](float value) { return value != 0.0F; });
+  require(state_finite && state_nonzero,
+          "persistent simulator trace did not carry recurrent state");
+  zero_layer_state_in_place(context, captured_state);
+  const std::vector<float> zeroed_state =
+      read_fused_wkv_probe_values<float>(context, captured_state.matrix,
+                                         false);
+  const bool state_zeroed =
+      std::ranges::all_of(zeroed_state,
+                          [](float value) { return value == 0.0F; });
+  require(state_zeroed,
+          "persistent simulator trace did not zero recurrent state");
+  constexpr std::uint64_t kTraceReplayHostSubmissions = 1U;
+  const Json receipt{
+      {"schema_version", kSchemaVersion},
+      {"outcome", "simulated_persistent_decode_layer_trace"},
+      {"simulated", true},
+      {"physical_hardware", false},
+      {"architecture", "blackhole"},
+      {"mesh_shape", {kMeshRows, kMeshRows}},
+      {"selection_ordinal", kPhysicalDeviceZero},
+      {"dispatch_mode", "fast_trace_required"},
+      {"simulator_determinism_claim", false},
+      {"layer_count_executed", 1U},
+      {"recurrent_steps", kMinimumGeneratedTokens},
+      {"trace_replay_host_submissions", kTraceReplayHostSubmissions},
+      {"per_step_host_model_submissions_inside_trace", 0U},
+      {"recurrent_matrix_residency", "device_fp32"},
+      {"trace_output_dtype", "bf16"},
+      {"state_finite", state_finite},
+      {"state_nonzero", state_nonzero},
+      {"state_zeroed_before_release", state_zeroed},
+      {"program_cache_stable", true},
+      {"production_physically_admitted", false},
+      {"performance_claim", false},
+      {"operation_counts", map_to_json(context.operation_counts())}};
+  write_json(output_path, receipt);
+  std::cout << output_path << '\n';
+}
+
 template <typename Value>
 std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
                                                 const Tensor &input,
@@ -2837,6 +3214,40 @@ std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
   require(shards.size() == 1U,
           "fused WKV probe readback must contain one device shard");
   return shards[kFirstIndex].to_vector<Value>();
+}
+
+std::string persistent_model_state_blake3(DeviceContext &context,
+                                          const ModelState &state) {
+  require(state.layers.size() == kLayerCount,
+          "persistent state hash has the wrong layer count");
+  constexpr std::string_view kStateHashDomain =
+      "rwkv7-persistent-device-state-v1";
+  blake3_hasher hasher;
+  blake3_hasher_init(&hasher);
+  blake3_hasher_update(&hasher, kStateHashDomain.data(),
+                       kStateHashDomain.size());
+  const auto hash_values = [&hasher]<typename Value>(
+                               const std::vector<Value> &values) {
+    require(!values.empty(),
+            "persistent state hash received an empty tensor");
+    blake3_hasher_update(&hasher, values.data(),
+                         values.size() * sizeof(Value));
+  };
+  for (const LayerState &layer : state.layers) {
+    require(layer.attention_previous.dtype() == ttnn::DataType::BFLOAT16 &&
+                layer.ffn_previous.dtype() == ttnn::DataType::BFLOAT16 &&
+                layer.matrix.dtype() == ttnn::DataType::FLOAT32,
+            "persistent state hash found a precision mismatch");
+    hash_values(read_fused_wkv_probe_values<bfloat16>(
+        context, layer.attention_previous, true));
+    hash_values(read_fused_wkv_probe_values<bfloat16>(
+        context, layer.ffn_previous, true));
+    hash_values(read_fused_wkv_probe_values<float>(context, layer.matrix,
+                                                   false));
+  }
+  std::array<std::uint8_t, kBlake3DigestBytes> digest{};
+  blake3_hasher_finalize(&hasher, digest.data(), digest.size());
+  return digest_hex(digest);
 }
 
 template <typename Value>
@@ -3040,16 +3451,215 @@ void run_fused_wkv_probe(const std::filesystem::path &output_path) {
   std::cout << output_path << '\n';
 }
 
+struct LoadedPersistentDecodeProfile {
+  rwkv7::persistent_decode::Profile profile;
+  std::string bytes;
+};
+
+LoadedPersistentDecodeProfile load_persistent_decode_profile() {
+  std::ifstream input(RWKV7_PERSISTENT_DECODE_PROFILE_PATH);
+  require(input.good(), "failed to open the persistent decode profile");
+  std::ostringstream buffer;
+  buffer << input.rdbuf();
+  require(input.good() || input.eof(),
+          "failed to read the persistent decode profile");
+  std::string bytes = buffer.str();
+  require(!bytes.empty(), "persistent decode profile is empty");
+  const Json document = Json::parse(bytes);
+  return LoadedPersistentDecodeProfile{
+      rwkv7::persistent_decode::parse_profile(document), std::move(bytes)};
+}
+
+std::vector<std::string_view>
+binding_component_views(const std::vector<std::string> &components) {
+  std::vector<std::string_view> views;
+  views.reserve(components.size());
+  for (const std::string &component : components) {
+    views.push_back(component);
+  }
+  return views;
+}
+
+std::string binding_identity(
+    rwkv7::persistent_decode::BindingKind kind,
+    const std::vector<std::string> &components) {
+  const std::vector<std::string_view> views =
+      binding_component_views(components);
+  return rwkv7::persistent_decode::derive_binding_identity(kind, views);
+}
+
+rwkv7::persistent_decode::BindingSet derive_fast_worker_bindings(
+    const rwkv7::persistent_decode::Profile &profile,
+    std::string_view profile_bytes, const FastWorkerRequest &request,
+    int physical_device_id, WkvExecutionPolicy execution_policy) {
+  using rwkv7::persistent_decode::BindingKind;
+  rwkv7::persistent_decode::BindingSet bindings{};
+
+  std::vector<std::string> token_components = {"token-ring-v1",
+                                               request.run_id};
+  std::vector<std::string> state_components = {
+      "recurrent-state-v1", "fp32", std::to_string(kLayerCount),
+      std::to_string(kHeadCount), std::to_string(kHeadSize)};
+  std::vector<std::string> slot_components = {
+      "slot-map-v1", request.capacity.id,
+      std::to_string(request.capacity.per_card_slot_count)};
+  std::vector<std::string> output_components = {
+      "output-ring-v1",
+      std::to_string(profile.limits.output_capacity_tokens)};
+  for (const FastRequest &current : request.requests) {
+    token_components.push_back(current.request_id);
+    token_components.push_back(std::to_string(current.prompt_tokens.size()));
+    for (const std::uint32_t token : current.prompt_tokens) {
+      token_components.push_back(std::to_string(token));
+    }
+    state_components.push_back(current.request_id);
+    state_components.push_back(std::to_string(current.state_slot));
+    slot_components.push_back(current.request_id);
+    slot_components.push_back(std::to_string(current.state_slot));
+    output_components.push_back(current.request_id);
+    output_components.push_back(std::to_string(current.max_new_tokens));
+  }
+
+  bindings.identities[static_cast<std::size_t>(BindingKind::Token)] =
+      binding_identity(BindingKind::Token, token_components);
+  bindings.identities[static_cast<std::size_t>(BindingKind::State)] =
+      binding_identity(BindingKind::State, state_components);
+  bindings.identities[static_cast<std::size_t>(BindingKind::Slot)] =
+      binding_identity(BindingKind::Slot, slot_components);
+  bindings.identities[static_cast<std::size_t>(BindingKind::Weight)] =
+      binding_identity(BindingKind::Weight,
+                       {RWKV7_PINNED_ARTIFACT_BLAKE3_JSON,
+                        RWKV7_PINNED_MODEL_REVISION});
+  bindings.identities[static_cast<std::size_t>(BindingKind::Program)] =
+      binding_identity(BindingKind::Program,
+                       {profile.mechanism, request.capacity.id,
+                        std::string(wkv_execution_policy_name(execution_policy))});
+  bindings.identities[static_cast<std::size_t>(BindingKind::Runtime)] =
+      binding_identity(BindingKind::Runtime,
+                       {RWKV7_PINNED_TARGET_NAME, RWKV7_PINNED_METALIUM_ROOT,
+                        std::to_string(physical_device_id)});
+  bindings.identities[static_cast<std::size_t>(BindingKind::Checkpoint)] =
+      binding_identity(BindingKind::Checkpoint,
+                       {RWKV7_PINNED_CHECKPOINT_BLAKE3,
+                        RWKV7_PINNED_MODEL_REVISION});
+  bindings.identities[static_cast<std::size_t>(BindingKind::Output)] =
+      binding_identity(BindingKind::Output, output_components);
+  bindings.identities[static_cast<std::size_t>(BindingKind::Profile)] =
+      binding_identity(BindingKind::Profile,
+                       {rwkv7::persistent_decode::blake3_hex(profile_bytes),
+                        profile.model_profile_blake3});
+  return bindings;
+}
+
+enum class PersistentDecodeControl {
+  ProfileDefault,
+  ForceNormal,
+  ForceCandidate,
+};
+
+PersistentDecodeControl parse_persistent_decode_control(
+    const std::optional<std::string_view> value) {
+  if (!value.has_value()) {
+    return PersistentDecodeControl::ProfileDefault;
+  }
+  require(*value == kEnabledEnvironmentValue ||
+              *value == kDisabledEnvironmentValue,
+          "RWKV7_PERSISTENT_DECODE_CANDIDATE must be 0 or 1");
+  return *value == kEnabledEnvironmentValue
+             ? PersistentDecodeControl::ForceCandidate
+             : PersistentDecodeControl::ForceNormal;
+}
+
+PersistentDecodeControl persistent_decode_control() {
+  const char *const value =
+      std::getenv(kPersistentDecodeCandidateEnvironment.data());
+  return parse_persistent_decode_control(
+      value == nullptr
+          ? std::nullopt
+          : std::optional<std::string_view>(std::string_view(value)));
+}
+
+bool persistent_workload_eligible(
+    const FastWorkerRequest &request,
+    const rwkv7::persistent_decode::Profile &profile) {
+  if (request.requests.empty() ||
+      request.requests.size() > profile.limits.queue_depth ||
+      profile.limits.cancellation_poll_interval_steps !=
+          profile.limits.maximum_decode_steps) {
+    return false;
+  }
+  const std::size_t prompt_length =
+      request.requests[kFirstIndex].prompt_tokens.size();
+  for (const FastRequest &current : request.requests) {
+    if (current.prompt_tokens.size() != prompt_length ||
+        current.max_new_tokens != profile.limits.maximum_decode_steps ||
+        current.state_slot >= profile.limits.queue_depth) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void prefill_homogeneous_prompt_prefix(
+    DeviceContext &context, const ModelWeights &weights, ModelState &state,
+    const FastWorkerRequest &request, std::size_t max_slot_count,
+    WkvExecutionPolicy execution_policy) {
+  const std::size_t prompt_length =
+      request.requests[kFirstIndex].prompt_tokens.size();
+  require(prompt_length > 0U,
+          "persistent decode prompt must not be empty");
+  for (std::size_t prompt_index = 0U;
+       prompt_index + 1U < prompt_length; ++prompt_index) {
+    std::vector<std::uint32_t> prompt_tokens;
+    prompt_tokens.reserve(request.requests.size());
+    for (const FastRequest &current : request.requests) {
+      prompt_tokens.push_back(current.prompt_tokens[prompt_index]);
+    }
+    const auto ignored_selection = advance_tokens_fast(
+        context, weights, state, prompt_tokens, false,
+        static_cast<std::uint64_t>(prompt_index), max_slot_count,
+        execution_policy);
+    require(!ignored_selection.has_value(),
+            "persistent decode prefill selected an early token");
+  }
+}
+
+Json persistent_binding_json(
+    const rwkv7::persistent_decode::BindingSet &bindings) {
+  Json document = Json::object();
+  for (std::size_t index = 0U;
+       index < rwkv7::persistent_decode::kBindingKindCount; ++index) {
+    const auto kind =
+        static_cast<rwkv7::persistent_decode::BindingKind>(index);
+    document[std::string(rwkv7::persistent_decode::binding_kind_name(kind))] =
+        bindings.identities[index];
+  }
+  return document;
+}
+
 void run_fast_worker(const FastWorkerArguments &arguments) {
   const char *const inspector_value = std::getenv("TT_METAL_INSPECTOR");
   require(inspector_value != nullptr &&
               std::string_view(inspector_value) == kDisabledEnvironmentValue,
           "fast worker requires TT_METAL_INSPECTOR=0");
   select_single_card_device(arguments.physical_device_id);
+  const char *const simulator_value = std::getenv("TT_METAL_SIMULATOR");
+  const bool simulated = simulator_value != nullptr;
   const char *const profiler_value = std::getenv("TT_METAL_DEVICE_PROFILER");
   const bool profiler_attributed =
       profiler_value != nullptr &&
       std::string_view(profiler_value) == kEnabledEnvironmentValue;
+  const char *const trace_profiler_value =
+      std::getenv("TT_METAL_TRACE_PROFILER");
+  require(trace_profiler_value == nullptr ||
+              std::string_view(trace_profiler_value) ==
+                  kEnabledEnvironmentValue ||
+              std::string_view(trace_profiler_value) ==
+                  kDisabledEnvironmentValue,
+          "TT_METAL_TRACE_PROFILER must be 0 or 1");
+  const bool profiler_trace_only =
+      profiler_attributed && trace_profiler_value != nullptr &&
+      std::string_view(trace_profiler_value) == kEnabledEnvironmentValue;
   const char *const stall_probe_value =
       std::getenv("RWKV7_STALL_PROBE_STEPS");
   const bool stall_probe_enabled =
@@ -3085,6 +3695,53 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
                           : kFastWarmupTokenCount;
   const FastWorkerRequest request =
       read_fast_worker_request(arguments.requests_path);
+  const LoadedPersistentDecodeProfile persistent_profile =
+      load_persistent_decode_profile();
+  require(persistent_profile.profile.model_profile_blake3 ==
+              RWKV7_PINNED_TARGET_PROFILE_BLAKE3,
+          "persistent decode profile targets a different model profile");
+  const std::string persistent_profile_identity =
+      rwkv7::persistent_decode::blake3_hex(persistent_profile.bytes);
+  const rwkv7::persistent_decode::BindingSet expected_persistent_bindings =
+      derive_fast_worker_bindings(
+          persistent_profile.profile, persistent_profile.bytes, request,
+          arguments.physical_device_id, effective_execution_policy);
+  const rwkv7::persistent_decode::BindingSet actual_persistent_bindings =
+      derive_fast_worker_bindings(
+          persistent_profile.profile, persistent_profile.bytes, request,
+          arguments.physical_device_id, effective_execution_policy);
+  const rwkv7::persistent_decode::ValidationResult binding_validation =
+      rwkv7::persistent_decode::validate_bindings(
+          expected_persistent_bindings, actual_persistent_bindings);
+  require(binding_validation.valid,
+          "persistent decode bindings changed before device admission");
+  const PersistentDecodeControl persistent_control =
+      persistent_decode_control();
+  const bool candidate_requested =
+      persistent_control == PersistentDecodeControl::ForceCandidate;
+  const bool force_normal =
+      persistent_control == PersistentDecodeControl::ForceNormal;
+  const bool candidate_enabled =
+      !force_normal &&
+      (candidate_requested || persistent_profile.profile.physically_admitted);
+  const bool candidate_eligible =
+      persistent_workload_eligible(request, persistent_profile.profile) &&
+      !stall_probe_enabled;
+  const bool normal_ab_reference = force_normal && candidate_eligible;
+  rwkv7::persistent_decode::Profile admission_profile =
+      persistent_profile.profile;
+  if (candidate_requested) {
+    admission_profile.physically_admitted = true;
+  }
+  const rwkv7::persistent_decode::CapabilityEvidence candidate_evidence{
+      candidate_enabled && candidate_eligible, candidate_enabled,
+      candidate_enabled, candidate_enabled, candidate_enabled};
+  const rwkv7::persistent_decode::ExecutionDecision execution_decision =
+      rwkv7::persistent_decode::select_execution_mode(
+          admission_profile, binding_validation, candidate_evidence);
+  const bool use_persistent_trace =
+      execution_decision.mode ==
+      rwkv7::persistent_decode::ExecutionMode::PersistentTrace;
   // The checked memory plan already ran inside the request read, before any
   // device opened. Recompute it here for the receipt so the reported numbers
   // are the exact same checked values the worker enforced.
@@ -3092,7 +3749,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       plan_fast_card_memory(request.capacity);
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
-  DeviceContext context(kFilteredLogicalDevice);
+  const std::size_t trace_region_size =
+      use_persistent_trace ? kPersistentTraceRegionBytes
+                           : DEFAULT_TRACE_REGION_SIZE;
+  DeviceContext context(kFilteredLogicalDevice, trace_region_size);
   context.set_profiler_flush_enabled(false);
   context.set_operation_recording_enabled(false);
   const ModelWeights weights = load_model(context, checkpoint);
@@ -3105,6 +3765,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
                       "initialization ready");
   wait_for_fast_barrier(arguments.warmup_start_barrier_path,
                         "warmup start");
+  if (profiler_attributed && use_persistent_trace &&
+      !profiler_trace_only) {
+    context.set_profiler_flush_enabled(true);
+  }
   ModelState warmup_state =
       zero_fast_model_state(context, batch_size, max_slot_count);
   std::vector<std::uint32_t> warmup_tokens(
@@ -3134,6 +3798,98 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     slots.push_back(FastSlot{&current, 0U, {}, 0U, {}});
   }
   std::vector<bool> completed(slots.size(), false);
+  std::vector<std::uint32_t> persistent_initial_tokens;
+  std::vector<rwkv7::persistent_decode::RequestState>
+      persistent_lifecycle_states;
+  std::vector<std::vector<std::uint32_t>>
+      persistent_reference_tokens_by_step;
+  std::string persistent_reference_state_blake3;
+  bool persistent_reference_state_zeroed = false;
+  std::optional<PreparedPersistentTrace> prepared_persistent_trace;
+  std::optional<std::chrono::steady_clock::time_point>
+      persistent_trace_execution_end;
+  std::optional<std::chrono::system_clock::time_point>
+      persistent_trace_execution_end_wall_clock;
+  const bool prompt_prefill_outside_timed_region =
+      use_persistent_trace || normal_ab_reference;
+  if (prompt_prefill_outside_timed_region) {
+    prefill_homogeneous_prompt_prefix(
+        context, weights, state, request, max_slot_count,
+        effective_execution_policy);
+  }
+  if (use_persistent_trace) {
+    persistent_initial_tokens.reserve(request.requests.size());
+    persistent_lifecycle_states.reserve(request.requests.size());
+    for (const FastRequest &current : request.requests) {
+      persistent_initial_tokens.push_back(current.prompt_tokens.back());
+      auto lifecycle = rwkv7::persistent_decode::initial_state(
+          static_cast<std::uint32_t>(current.state_slot));
+      auto admitted = rwkv7::persistent_decode::transition(
+          lifecycle,
+          rwkv7::persistent_decode::Event{
+              rwkv7::persistent_decode::EventKind::Admit, 0U, 0U, 0U, {}},
+          persistent_profile.profile);
+      require(admitted.accepted,
+              "persistent decode lifecycle rejected admission");
+      auto started = rwkv7::persistent_decode::transition(
+          admitted.state,
+          rwkv7::persistent_decode::Event{
+              rwkv7::persistent_decode::EventKind::Start, 0U, 0U, 0U, {}},
+          persistent_profile.profile);
+      require(started.accepted,
+              "persistent decode lifecycle rejected start");
+      persistent_lifecycle_states.push_back(std::move(started.state));
+    }
+    std::cout << "persistent-decode-setup: reference-start\n"
+              << std::flush;
+    ModelState reference_state = state;
+    std::vector<std::uint32_t> reference_tokens =
+        persistent_initial_tokens;
+    persistent_reference_tokens_by_step.reserve(
+        persistent_profile.profile.limits.maximum_decode_steps);
+    for (std::uint32_t step = 0U;
+         step < persistent_profile.profile.limits.maximum_decode_steps;
+         ++step) {
+      const auto selected = advance_tokens_fast(
+          context, weights, reference_state, reference_tokens, true, step,
+          max_slot_count, effective_execution_policy);
+      require(selected.has_value(),
+              "persistent decode reference did not select a token");
+      persistent_reference_tokens_by_step.push_back(*selected);
+      reference_tokens = *selected;
+    }
+    persistent_reference_state_blake3 =
+        persistent_model_state_blake3(context, reference_state);
+    zero_persistent_model_state(context, reference_state);
+    persistent_reference_state_zeroed = true;
+    std::cout << "persistent-decode-setup: reference-finished\n"
+              << std::flush;
+    std::cout << "persistent-decode-setup: trace-capture-start\n"
+              << std::flush;
+    context.set_profiler_flush_enabled(false);
+    prepared_persistent_trace.emplace(prepare_persistent_decode_trace(
+        context, weights, state, persistent_initial_tokens,
+        persistent_profile.profile.limits.maximum_decode_steps,
+        effective_execution_policy));
+    std::cout << "persistent-decode-setup: trace-capture-finished\n"
+              << std::flush;
+    if (profiler_attributed && !profiler_trace_only) {
+      context.set_profiler_flush_enabled(true);
+      context.flush_profiler("persistent-decode-setup");
+      context.set_profiler_flush_enabled(false);
+    }
+  } else if (normal_ab_reference) {
+    const std::size_t consumed_prefix_tokens =
+        request.requests[kFirstIndex].prompt_tokens.size() - 1U;
+    for (FastSlot &slot : slots) {
+      slot.prompt_index = consumed_prefix_tokens;
+      slot.processed_token_count =
+          static_cast<std::uint64_t>(consumed_prefix_tokens);
+    }
+  }
+  const std::size_t cache_before_timed = context.program_cache_entries();
+  require(cache_before_timed >= cache_after_warmup,
+          "persistent decode preflight lost cached programs");
   Json request_metrics = Json::array();
 #ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
   std::unique_ptr<rwkv7::hardware_counter::Session> hardware_counter_session;
@@ -3173,67 +3929,234 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   // step's wall time so an intermittent slow step becomes attributable.
   std::vector<double> step_wall_seconds;
   std::vector<FastStepBoundaryTiming> step_boundary_timings;
+  double persistent_trace_execution_seconds = 0.0;
+  std::uint64_t persistent_host_trace_submission_count = 0U;
+  bool persistent_state_zeroed = false;
+  std::string final_state_blake3;
   if (stall_probe_enabled) {
     step_wall_seconds.reserve(kFastMaximumGeneratedTokens);
     step_boundary_timings.reserve(kFastMaximumGeneratedTokens);
   }
-  while (completed_count < slots.size()) {
-    const std::vector<bool> completed_before = completed;
-    const auto plan_begin = std::chrono::steady_clock::now();
-    const FastBatchStepPlan plan =
-        plan_fast_batch_step(slots, completed, max_slot_count);
-    const auto plan_end = std::chrono::steady_clock::now();
-    const auto device_begin = plan_end;
-    FastStepBoundaryTiming step_boundary_timing;
-    FastStepBoundaryTiming *const step_boundary_timing_output =
-        stall_probe_enabled ? &step_boundary_timing : nullptr;
-    const auto selected = advance_tokens_fast(
-        context, weights, state, plan.input_tokens,
-        plan.any_selection_required, batch_step_count, max_slot_count,
-        effective_execution_policy, step_boundary_timing_output);
-    const auto device_end = std::chrono::steady_clock::now();
-    const auto apply_begin = device_end;
-    apply_fast_batch_step(slots, completed, plan, selected);
-    ++batch_step_count;
-    const auto apply_end = std::chrono::steady_clock::now();
-    if (stall_probe_enabled) {
-      step_wall_seconds.push_back(std::chrono::duration<double>(
-          device_end - device_begin)
-                                      .count());
-      require(std::isfinite(step_wall_seconds.back()) &&
-                  step_wall_seconds.back() >= 0.0,
-              "stall probe step wall time is not finite and non-negative");
-      step_boundary_timings.push_back(std::move(step_boundary_timing));
-    }
-    const double host_gap_seconds =
-        std::chrono::duration<double>(plan_end - plan_begin).count() +
-        std::chrono::duration<double>(apply_end - apply_begin).count();
-    require(std::isfinite(host_gap_seconds) && host_gap_seconds >= 0.0,
-            "fast host gap is not finite and non-negative");
-    host_gap_accumulated_seconds += host_gap_seconds;
-    const auto completed_at = apply_end;
-    for (std::size_t slot_index = 0U; slot_index < slots.size();
-         ++slot_index) {
-      if (completed_before[slot_index] || !completed[slot_index]) {
-        continue;
+  if (use_persistent_trace) {
+    const auto apply_lifecycle_event =
+        [&persistent_profile](
+            rwkv7::persistent_decode::RequestState &lifecycle,
+            const rwkv7::persistent_decode::Event &event) {
+          auto result = rwkv7::persistent_decode::transition(
+              lifecycle, event, persistent_profile.profile);
+          require(result.accepted,
+                  "persistent decode lifecycle rejected a runtime event");
+          lifecycle = std::move(result.state);
+        };
+    try {
+      require(prepared_persistent_trace.has_value(),
+              "persistent decode trace was not prepared before timing");
+      PersistentTraceResult trace_result = execute_persistent_decode_trace(
+          context, *prepared_persistent_trace);
+      state = std::move(trace_result.final_state);
+      final_state_blake3 = persistent_model_state_blake3(context, state);
+      require(trace_result.selected_tokens_by_step ==
+                  persistent_reference_tokens_by_step,
+              "persistent decode token sequence differs from normal dispatch");
+      require(final_state_blake3 == persistent_reference_state_blake3,
+              "persistent decode FP32 recurrent state differs from normal dispatch");
+      persistent_trace_execution_seconds = trace_result.execution_seconds;
+      persistent_trace_execution_end = trace_result.execution_end;
+      persistent_trace_execution_end_wall_clock =
+          trace_result.execution_end_wall_clock;
+      persistent_host_trace_submission_count =
+          trace_result.host_trace_submission_count;
+      require(trace_result.selected_tokens_by_step.size() ==
+                  persistent_profile.profile.limits.maximum_decode_steps,
+              "persistent decode output step count changed");
+      const auto elapsed_milliseconds_signed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration<double>(
+                  persistent_trace_execution_seconds))
+              .count();
+      require(elapsed_milliseconds_signed >= 0,
+              "persistent decode elapsed time became negative");
+      const std::uint64_t elapsed_milliseconds = std::max<std::uint64_t>(
+          1U, static_cast<std::uint64_t>(elapsed_milliseconds_signed));
+      require(elapsed_milliseconds <
+                  persistent_profile.profile.limits
+                      .maximum_elapsed_milliseconds,
+              "persistent decode trace exceeded its time limit");
+      for (std::uint32_t step = 1U;
+           step <= persistent_profile.profile.limits.maximum_decode_steps;
+           ++step) {
+        const std::uint64_t step_elapsed =
+            elapsed_milliseconds * step /
+            persistent_profile.profile.limits.maximum_decode_steps;
+        for (auto &lifecycle : persistent_lifecycle_states) {
+          apply_lifecycle_event(
+              lifecycle,
+              rwkv7::persistent_decode::Event{
+                  rwkv7::persistent_decode::EventKind::StepCompleted, step,
+                  step_elapsed, step, {}});
+        }
       }
-      FastSlot &slot = slots[slot_index];
-      const double latency_seconds =
-          std::chrono::duration<double>(completed_at - slot.started_at).count();
-      require(std::isfinite(latency_seconds) && latency_seconds > 0.0,
-              "fast request latency is not finite and positive");
-      request_metrics.push_back(
-          Json{{"request_id", slot.request->request_id},
-               {"card_id", arguments.physical_device_id},
-               {"state_slot", slot.request->state_slot},
-               {"token_count", slot.processed_token_count},
-               {"latency_seconds", latency_seconds},
-               {"generated_token_ids", slot.generated_tokens}});
-      ++completed_count;
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        require(lifecycle.phase ==
+                    rwkv7::persistent_decode::RequestPhase::CompletionPending,
+                "persistent decode did not request completion acknowledgement");
+        apply_lifecycle_event(
+            lifecycle,
+            rwkv7::persistent_decode::Event{
+                rwkv7::persistent_decode::EventKind::Acknowledge, 0U, 0U,
+                0U, {}});
+      }
+      zero_persistent_model_state(context, state);
+      persistent_state_zeroed = true;
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        apply_lifecycle_event(
+            lifecycle,
+            rwkv7::persistent_decode::Event{
+                rwkv7::persistent_decode::EventKind::StateZeroed, 0U, 0U,
+                0U, {}});
+        require(rwkv7::persistent_decode::slot_releasable(lifecycle),
+                "persistent decode did not release a zeroed slot");
+      }
+      const auto completed_at = std::chrono::steady_clock::now();
+      for (std::size_t slot_index = 0U; slot_index < slots.size();
+           ++slot_index) {
+        FastSlot &slot = slots[slot_index];
+        for (const auto &step_tokens :
+             trace_result.selected_tokens_by_step) {
+          require(step_tokens.size() == slots.size(),
+                  "persistent decode output batch size changed");
+          slot.generated_tokens.push_back(step_tokens[slot_index]);
+        }
+        slot.prompt_index = slot.request->prompt_tokens.size();
+        slot.processed_token_count =
+            static_cast<std::uint64_t>(slot.prompt_index) +
+            slot.generated_tokens.size();
+        completed[slot_index] = true;
+        const double latency_seconds = std::chrono::duration<double>(
+                                           completed_at - slot.started_at)
+                                           .count();
+        require(std::isfinite(latency_seconds) && latency_seconds > 0.0,
+                "persistent request latency is not finite and positive");
+        request_metrics.push_back(
+            Json{{"request_id", slot.request->request_id},
+                 {"card_id", arguments.physical_device_id},
+                 {"state_slot", slot.request->state_slot},
+                 {"token_count", slot.processed_token_count},
+                 {"latency_seconds", latency_seconds},
+                 {"generated_token_ids", slot.generated_tokens}});
+        ++completed_count;
+      }
+      batch_step_count =
+          persistent_profile.profile.limits.maximum_decode_steps;
+    } catch (...) {
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        if (lifecycle.phase ==
+            rwkv7::persistent_decode::RequestPhase::DeviceActive) {
+          apply_lifecycle_event(
+              lifecycle,
+              rwkv7::persistent_decode::Event{
+                  rwkv7::persistent_decode::EventKind::Fail, 0U, 0U, 0U,
+                  "persistent_trace_failure"});
+        }
+        if (lifecycle.phase ==
+                rwkv7::persistent_decode::RequestPhase::CompletionPending ||
+            lifecycle.phase ==
+                rwkv7::persistent_decode::RequestPhase::FailurePending ||
+            lifecycle.phase ==
+                rwkv7::persistent_decode::RequestPhase::TimeoutPending ||
+            lifecycle.phase ==
+                rwkv7::persistent_decode::RequestPhase::CancellationPending) {
+          apply_lifecycle_event(
+              lifecycle,
+              rwkv7::persistent_decode::Event{
+                  rwkv7::persistent_decode::EventKind::Acknowledge, 0U, 0U,
+                  0U, {}});
+        }
+      }
+      if (prepared_persistent_trace.has_value() &&
+          prepared_persistent_trace->captured_state.layers.size() ==
+              kLayerCount) {
+        zero_persistent_model_state(
+            context, prepared_persistent_trace->captured_state);
+      }
+      zero_persistent_model_state(context, state);
+      for (auto &lifecycle : persistent_lifecycle_states) {
+        if (lifecycle.phase ==
+            rwkv7::persistent_decode::RequestPhase::Zeroing) {
+          apply_lifecycle_event(
+              lifecycle,
+              rwkv7::persistent_decode::Event{
+                  rwkv7::persistent_decode::EventKind::StateZeroed, 0U, 0U,
+                  0U, {}});
+        }
+      }
+      throw;
+    }
+  } else {
+    while (completed_count < slots.size()) {
+      const std::vector<bool> completed_before = completed;
+      const auto plan_begin = std::chrono::steady_clock::now();
+      const FastBatchStepPlan plan =
+          plan_fast_batch_step(slots, completed, max_slot_count);
+      const auto plan_end = std::chrono::steady_clock::now();
+      const auto device_begin = plan_end;
+      FastStepBoundaryTiming step_boundary_timing;
+      FastStepBoundaryTiming *const step_boundary_timing_output =
+          stall_probe_enabled ? &step_boundary_timing : nullptr;
+      const auto selected = advance_tokens_fast(
+          context, weights, state, plan.input_tokens,
+          plan.any_selection_required, batch_step_count, max_slot_count,
+          effective_execution_policy, step_boundary_timing_output);
+      const auto device_end = std::chrono::steady_clock::now();
+      const auto apply_begin = device_end;
+      apply_fast_batch_step(slots, completed, plan, selected);
+      ++batch_step_count;
+      const auto apply_end = std::chrono::steady_clock::now();
+      if (stall_probe_enabled) {
+        step_wall_seconds.push_back(std::chrono::duration<double>(
+            device_end - device_begin)
+                                        .count());
+        require(std::isfinite(step_wall_seconds.back()) &&
+                    step_wall_seconds.back() >= 0.0,
+                "stall probe step wall time is not finite and non-negative");
+        step_boundary_timings.push_back(std::move(step_boundary_timing));
+      }
+      const double host_gap_seconds =
+          std::chrono::duration<double>(plan_end - plan_begin).count() +
+          std::chrono::duration<double>(apply_end - apply_begin).count();
+      require(std::isfinite(host_gap_seconds) && host_gap_seconds >= 0.0,
+              "fast host gap is not finite and non-negative");
+      host_gap_accumulated_seconds += host_gap_seconds;
+      const auto completed_at = apply_end;
+      for (std::size_t slot_index = 0U; slot_index < slots.size();
+           ++slot_index) {
+        if (completed_before[slot_index] || !completed[slot_index]) {
+          continue;
+        }
+        FastSlot &slot = slots[slot_index];
+        const double latency_seconds = std::chrono::duration<double>(
+                                           completed_at - slot.started_at)
+                                           .count();
+        require(std::isfinite(latency_seconds) && latency_seconds > 0.0,
+                "fast request latency is not finite and positive");
+        request_metrics.push_back(
+            Json{{"request_id", slot.request->request_id},
+                 {"card_id", arguments.physical_device_id},
+                 {"state_slot", slot.request->state_slot},
+                 {"token_count", slot.processed_token_count},
+                 {"latency_seconds", latency_seconds},
+                 {"generated_token_ids", slot.generated_tokens}});
+        ++completed_count;
+      }
     }
   }
-  const auto timed_end = std::chrono::steady_clock::now();
-  const auto timed_end_wall_clock = std::chrono::system_clock::now();
+  const auto timed_end = use_persistent_trace
+                             ? persistent_trace_execution_end.value()
+                             : std::chrono::steady_clock::now();
+  const auto timed_end_wall_clock =
+      use_persistent_trace
+          ? persistent_trace_execution_end_wall_clock.value()
+          : std::chrono::system_clock::now();
 #ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
   std::optional<rwkv7::hardware_counter::Diagnostics>
       hardware_counter_diagnostics;
@@ -3266,7 +4189,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       std::chrono::duration<double>(timed_end - timed_start).count();
   require(std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0,
           "fast worker elapsed time is not finite and positive");
-  require(context.program_cache_entries() == cache_after_warmup,
+  require(context.program_cache_entries() == cache_before_timed,
           "fast worker compiled a new program during timed decode");
   if (stall_probe_enabled) {
     require(step_wall_seconds.size() == batch_step_count,
@@ -3283,15 +4206,17 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "fast queue occupancy is not within (0, 1]");
 
   context.set_profiler_flush_enabled(profiler_attributed);
-  context.flush_profiler("fast-worker-post-timing-attribution");
+  context.flush_profiler("fast-worker-post-timing-attribution",
+                         profiler_trace_only);
   Json receipt = Json::object();
   receipt["schema_version"] = kSchemaVersion;
   receipt["run_id"] = request.run_id;
   receipt["physical_device_ids"] = {arguments.physical_device_id};
   receipt["visible_physical_device_ids"] = {arguments.physical_device_id};
   receipt["logical_device_ids"] = {kFilteredLogicalDevice};
-  receipt["physical_hardware"] = true;
+  receipt["physical_hardware"] = !simulated;
   receipt["profiler_attributed"] = profiler_attributed;
+  receipt["profiler_trace_only"] = profiler_trace_only;
   receipt["elapsed_seconds"] = elapsed_seconds;
   receipt["timed_start_monotonic_ns"] = timed_start_monotonic_ns;
   receipt["timed_end_monotonic_ns"] = timed_end_monotonic_ns;
@@ -3363,6 +4288,74 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
 #endif
   }
   receipt["requests"] = std::move(request_metrics);
+  Json persistent_lifecycle_receipts = Json::array();
+  for (const auto &lifecycle : persistent_lifecycle_states) {
+    persistent_lifecycle_receipts.push_back(
+        Json{{"slot", lifecycle.slot},
+             {"phase",
+              std::string(rwkv7::persistent_decode::request_phase_name(
+                  lifecycle.phase))},
+             {"slot_releasable",
+              rwkv7::persistent_decode::slot_releasable(lifecycle)},
+             {"receipt_blake3",
+              rwkv7::persistent_decode::derive_receipt_identity(
+                  persistent_profile_identity, actual_persistent_bindings,
+                  lifecycle)}});
+  }
+  const std::uint64_t timed_host_model_submissions =
+      use_persistent_trace ? persistent_host_trace_submission_count
+                           : batch_step_count;
+  const bool zero_per_token_host_submissions_proven =
+      use_persistent_trace &&
+      persistent_host_trace_submission_count == 1U &&
+      batch_step_count > persistent_host_trace_submission_count;
+  receipt["persistent_decode"] = {
+      {"profile_id", persistent_profile.profile.profile_id},
+      {"profile_blake3", persistent_profile_identity},
+      {"model_profile_blake3",
+       persistent_profile.profile.model_profile_blake3},
+      {"hash_algorithm", "blake3"},
+      {"mechanism", persistent_profile.profile.mechanism},
+      {"simulated", simulated},
+      {"physically_admitted",
+       persistent_profile.profile.physically_admitted},
+      {"candidate_requested", candidate_requested},
+      {"workload_eligible", candidate_eligible},
+      {"prompt_prefill_outside_timed_region",
+       prompt_prefill_outside_timed_region},
+      {"binding_identities",
+       persistent_binding_json(actual_persistent_bindings)},
+      {"bindings_validated", binding_validation.valid},
+      {"selected_mode",
+       std::string(rwkv7::persistent_decode::execution_mode_name(
+           execution_decision.mode))},
+      {"fallback_reason",
+       std::string(rwkv7::persistent_decode::fallback_reason_name(
+           execution_decision.fallback_reason))},
+      {"fallback_detail", execution_decision.detail},
+      {"persistent_region_entered", use_persistent_trace},
+      {"trace_region_bytes", trace_region_size},
+      {"trace_capture_outside_timed_region", use_persistent_trace},
+      {"trace_execution_seconds", persistent_trace_execution_seconds},
+      {"timed_host_model_submissions", timed_host_model_submissions},
+      {"zero_per_token_host_submissions_proven",
+       zero_per_token_host_submissions_proven},
+      {"selected_token_device_resident_inside_region",
+       use_persistent_trace},
+      {"selected_token_readback_inside_region", false},
+      {"output_readback_after_region", use_persistent_trace},
+      {"recurrent_state_dtype", "fp32"},
+      {"final_state_blake3",
+       final_state_blake3.empty() ? Json(nullptr) : Json(final_state_blake3)},
+      {"reference_state_blake3",
+       persistent_reference_state_blake3.empty()
+           ? Json(nullptr)
+           : Json(persistent_reference_state_blake3)},
+      {"exact_generated_token_parity", use_persistent_trace},
+      {"exact_fp32_recurrent_state_parity", use_persistent_trace},
+      {"reference_state_zeroed", persistent_reference_state_zeroed},
+      {"state_zeroed_before_slot_release", persistent_state_zeroed},
+      {"lifecycle_receipts", std::move(persistent_lifecycle_receipts)}};
   receipt["execution"] = {
       {"scheduler_mode", "deterministic_continuous_batching"},
       {"scheduler_tie_break",
@@ -4042,6 +5035,51 @@ void run_self_test() {
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
   validate_checkpoint_schema(checkpoint);
+  const LoadedPersistentDecodeProfile persistent_profile =
+      load_persistent_decode_profile();
+  require(parse_persistent_decode_control(std::nullopt) ==
+              PersistentDecodeControl::ProfileDefault,
+          "persistent decode omitted the profile-default control");
+  require(parse_persistent_decode_control(kDisabledEnvironmentValue) ==
+              PersistentDecodeControl::ForceNormal,
+          "persistent decode did not accept the normal A/B control");
+  require(parse_persistent_decode_control(kEnabledEnvironmentValue) ==
+              PersistentDecodeControl::ForceCandidate,
+          "persistent decode did not accept the candidate control");
+  expect_operation_failure(
+      []() {
+        static_cast<void>(parse_persistent_decode_control("invalid"));
+      },
+      "must be 0 or 1");
+  const FastWorkerRequest eligible_persistent_request{
+      "persistent-self-test",
+      FastCardCapacity{"B4", kFastPerCardSlotCount, 1U, 1U, 1U},
+      {FastRequest{"persistent-first",
+                   {kFirstPromptToken, kSecondPromptToken},
+                   persistent_profile.profile.limits.maximum_decode_steps,
+                   kFirstIndex},
+       FastRequest{"persistent-second",
+                   {kFirstPromptToken, kSecondPromptToken},
+                   persistent_profile.profile.limits.maximum_decode_steps,
+                   kSecondIndex}}};
+  require(persistent_workload_eligible(eligible_persistent_request,
+                                       persistent_profile.profile),
+          "persistent decode rejected an eligible homogeneous workload");
+  FastWorkerRequest ineligible_persistent_request =
+      eligible_persistent_request;
+  ineligible_persistent_request.requests[kSecondIndex]
+      .prompt_tokens.push_back(kThirdPromptToken);
+  require(!persistent_workload_eligible(ineligible_persistent_request,
+                                        persistent_profile.profile),
+          "persistent decode accepted mixed prompt lengths");
+  ineligible_persistent_request = eligible_persistent_request;
+  ineligible_persistent_request.requests[kSecondIndex].max_new_tokens =
+      persistent_profile.profile.limits.maximum_decode_steps - 1U;
+  require(!persistent_workload_eligible(ineligible_persistent_request,
+                                        persistent_profile.profile),
+          "persistent decode accepted a mismatched output bound");
+  rwkv7::persistent_decode::run_persistent_decode_self_test(
+      persistent_profile.profile, persistent_profile.bytes);
   std::cout << "rwkv7 P150x2 runtime self-test: PASS\n";
 }
 
@@ -4110,6 +5148,13 @@ int main(int argc, char **argv) {
     if (arguments.size() == kSimulatorSmokeArgumentCount &&
         arguments[kModeArgumentIndex] == kFusedWkvProbeArgument) {
       run_fused_wkv_probe(parse_fused_wkv_probe_output(arguments));
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] ==
+            kPersistentDecodeSimulatorSmokeArgument) {
+      run_persistent_decode_simulator_smoke(
+          parse_persistent_decode_simulator_smoke_output(arguments));
       return EXIT_SUCCESS;
     }
     const RuntimeRequest request = parse_runtime_request(arguments);

@@ -72,6 +72,8 @@ pub struct WorkloadProfile {
     pub short_prompt_token_count: usize,
     pub long_prompt_token_count: usize,
     pub generated_token_count: usize,
+    #[serde(default)]
+    pub homogeneous_prompts: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -313,6 +315,15 @@ fn finite_non_negative(value: f64, field: &str) -> Result<f64, Rejection> {
     Ok(value)
 }
 
+fn prompt_bounds_valid(workload: &WorkloadProfile) -> bool {
+    workload.short_prompt_token_count > 0
+        && if workload.homogeneous_prompts {
+            workload.long_prompt_token_count == workload.short_prompt_token_count
+        } else {
+            workload.long_prompt_token_count > workload.short_prompt_token_count
+        }
+}
+
 fn validate_profile(profile: &ThroughputProfile) -> Result<(), Rejection> {
     if profile.schema_version != THROUGHPUT_SCHEMA_VERSION {
         return Err(Rejection::new(
@@ -344,8 +355,7 @@ fn validate_profile(profile: &ThroughputProfile) -> Result<(), Rejection> {
         .saturating_mul(MAXIMUM_SCHEDULER_WAVE_COUNT);
     if profile.workload.request_count < TWO_CARD_DEVICE_COUNT
         || profile.workload.request_count > bounded_one_card_capacity
-        || profile.workload.short_prompt_token_count == 0
-        || profile.workload.long_prompt_token_count <= profile.workload.short_prompt_token_count
+        || !prompt_bounds_valid(&profile.workload)
         || profile.workload.generated_token_count == 0
     {
         return Err(Rejection::new(
@@ -875,6 +885,7 @@ mod tests {
                 short_prompt_token_count: TWO_CARD_DEVICE_COUNT,
                 long_prompt_token_count: TOKEN_COUNT,
                 generated_token_count: TOKEN_COUNT,
+                homogeneous_prompts: false,
             },
             scheduler: SchedulerProfile {
                 mode: EXPECTED_SCHEDULER_MODE.to_owned(),
@@ -1045,6 +1056,23 @@ mod tests {
                     wave_index: 0
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn accepts_homogeneous_prompt_bounds_and_rejects_drift() {
+        let mut homogeneous = profile();
+        homogeneous.workload.homogeneous_prompts = true;
+        homogeneous.workload.long_prompt_token_count =
+            homogeneous.workload.short_prompt_token_count;
+        validate_profile(&homogeneous).expect("homogeneous prompt profile");
+
+        homogeneous.workload.long_prompt_token_count += 1;
+        assert_eq!(
+            validate_profile(&homogeneous)
+                .expect_err("homogeneous prompt drift")
+                .code,
+            "invalid_workload_profile"
         );
     }
 

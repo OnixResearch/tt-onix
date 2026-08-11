@@ -26,6 +26,12 @@ let
       ../rwkv7-p150x2/src/hardware_counter_diagnostics.cpp
       ../rwkv7-p150x2/src/hardware_counter_diagnostics.hpp
       ../rwkv7-p150x2/src/main.cpp
+      ../rwkv7-p150x2/src/persistent_decode.cpp
+      ../rwkv7-p150x2/src/persistent_decode.hpp
+      ../rwkv7-p150x2/src/persistent_decode_self_test.cpp
+      ../rwkv7-p150x2/src/persistent_decode_self_test.hpp
+      ../rwkv7-p150x2/persistent-decode-contracts.ncl
+      ../rwkv7-p150x2/persistent-decode-profile.ncl
     ];
   };
 in
@@ -64,9 +70,11 @@ rustPlatform.buildRustPackage {
     mkdir -p "$out/share/model-target" "$out/share/rwkv7-p150x2-throughput"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp throughput-contracts.ncl throughput-profile.ncl \
+      persistent-decode-throughput-profile.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
+      fixtures/persistent-decode-workload.json \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
       fixtures/fused-wkv-stall-workload.json \
@@ -74,6 +82,8 @@ rustPlatform.buildRustPackage {
       "$out/share/rwkv7-p150x2-throughput/"
     nickel export --format json throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-profile.json"
+    nickel export --format json persistent-decode-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-throughput-profile.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     nickel export --format json throughput-capacity-profile.ncl \
@@ -97,10 +107,16 @@ rustPlatform.buildRustPackage {
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
       --replace-fail '@timeout@' ${lib.escapeShellArg "${coreutils}/bin/timeout"} \
       --replace-fail '@runtime@' ${lib.escapeShellArg (toString deviceRuntime)}
+    substitute run-persistent-decode-simulator-smoke.sh \
+      "$out/bin/rwkv7-p150x2-persistent-decode-simulator-smoke" \
+      --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
+      --replace-fail '@timeout@' ${lib.escapeShellArg "${coreutils}/bin/timeout"} \
+      --replace-fail '@runtime@' ${lib.escapeShellArg (toString deviceRuntime)}
     chmod +x \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
       "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke" \
-      "$out/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke"
+      "$out/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke" \
+      "$out/bin/rwkv7-p150x2-persistent-decode-simulator-smoke"
   '';
 
   doCheck = true;
@@ -116,6 +132,7 @@ rustPlatform.buildRustPackage {
     bash -n "$out/bin/rwkv7-p150x2-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke"
+    bash -n "$out/bin/rwkv7-p150x2-persistent-decode-simulator-smoke"
     if "$out/bin/rwkv7-p150x2-throughput-benchmark" \
       >missing-benchmark-args.out 2>missing-benchmark-args.err; then
       echo "throughput benchmark accepted missing arguments" >&2

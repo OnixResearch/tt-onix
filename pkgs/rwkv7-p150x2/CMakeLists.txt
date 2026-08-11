@@ -13,7 +13,7 @@ find_package(TT-NN REQUIRED)
 find_package(nlohmann_json REQUIRED)
 pkg_check_modules(BLAKE3 REQUIRED IMPORTED_TARGET libblake3)
 
-foreach(required_path IN ITEMS RWKV7_CHECKPOINT_PATH RWKV7_MESH_DESCRIPTOR_PATH RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH RWKV7_METALIUM_ROOT)
+foreach(required_path IN ITEMS RWKV7_CHECKPOINT_PATH RWKV7_MESH_DESCRIPTOR_PATH RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH RWKV7_METALIUM_ROOT RWKV7_PERSISTENT_DECODE_PROFILE_PATH)
   if(NOT DEFINED ${required_path})
     message(FATAL_ERROR "${required_path} is required")
   endif()
@@ -24,6 +24,8 @@ add_executable(
   rwkv7-p150x2-runtime
   src/fused_wkv_program.cpp
   src/main.cpp
+  src/persistent_decode.cpp
+  src/persistent_decode_self_test.cpp
 )
 if(RWKV7_FETCH_QUEUE_DIAGNOSTICS)
   target_sources(

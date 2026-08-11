@@ -2,6 +2,7 @@ pub mod capacity;
 pub mod fused_wkv;
 pub mod fused_wkv_kernel_contract;
 mod generated_model_target_identity;
+pub mod persistent_decode_contract;
 pub mod throughput;
 
 use half::bf16;

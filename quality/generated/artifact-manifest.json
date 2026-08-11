@@ -236,6 +236,30 @@
       "blake3": "f00b601d1c838be40398040d60eaa5acdff0762321020940e65308c0a327304e"
     },
     {
+      "path": "cairn/changes/persist-rwkv7-device-decode/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 3581,
+      "blake3": "dd3a45099aa18cd970bfe77598fe7c3bd4f43c3a534bf959db320ae4ade2191c"
+    },
+    {
+      "path": "cairn/changes/persist-rwkv7-device-decode/evidence/physical-acceptance.json",
+      "class": "portable_evidence",
+      "byte_count": 5852,
+      "blake3": "097efde9df9bb8111761f972a4a10aca68816d9c5bbd23eddb97902e69f09d4f"
+    },
+    {
+      "path": "cairn/changes/persist-rwkv7-device-decode/evidence/production-profiled-worker-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5492,
+      "blake3": "1b8eebae225914ddc89845ee3c093dc7d97dad9b40f45143bc6ab8cc9af8bffa"
+    },
+    {
+      "path": "cairn/changes/persist-rwkv7-device-decode/evidence/simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1425,
+      "blake3": "0d978eadd1add35cdbbc0eebc1edebf3a8f231a240ce52915b3cfda7c9158181"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,

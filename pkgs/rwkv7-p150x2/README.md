@@ -173,6 +173,41 @@ The FIFO mode restores normal scheduling after timed decode. It requires root or
 
 The summarizer deletes each raw profiler CSV. This mode is diagnostic only. It cannot enable production admission.
 
+## Persistent decode
+
+The fast worker has an admitted, bounded Metal Trace path for homogeneous workloads up to B4. Each request must use the same prompt length and two output steps.
+
+The worker processes each prompt prefix before the trace. The trace consumes the final prompt token and chains two device-selected tokens.
+
+One `execute_trace` call submits the complete decode region. Token selection and FP32 recurrent-state carry stay on the device inside that region.
+
+Before trace capture, the worker runs the same request through normal dispatch. It requires exact generated-token and FP32 state BLAKE3 parity.
+
+The worker reads outputs only after trace replay. It then acknowledges completion, zeros all state tensors in place, and releases each slot.
+
+All token, state, slot, weight, program, runtime, checkpoint, output, and profile bindings use BLAKE3 identities.
+
+The installed Nickel profile sets `physically_admitted = true` after all retained gates passed. Eligible requests use persistent trace by default.
+
+Normal dispatch remains the fail-closed path for ineligible workloads, stale bindings, invalid profiles, stall probes, or failed capability evidence.
+
+Five order-balanced physical samples measured a `2.6697484573326276x` one-card median paired speedup. Every paired speedup was at least `2.59883139510804x`.
+
+The four-request P150x2 split measured a `3.1922345786773345x` median paired speedup. Every paired speedup was at least `3.133407266069899x`.
+
+Normal dispatch used two timed host model submissions for two output tokens. Persistent trace used one bounded replay submission.
+
+Set `RWKV7_PERSISTENT_DECODE_CANDIDATE=1` only to test a non-admitted profile. Set it to `0` for a timing-matched normal-dispatch A/B reference. Omit it for profile-owned production selection.
+
+Run the representative Blackhole simulator trace before a physical test:
+
+```sh
+"$EVIDENCE/bin/rwkv7-p150x2-persistent-decode-simulator-smoke" \
+  /absolute/new/persistent-decode-simulator-root
+```
+
+The simulator receipt covers real weight loading, two traced layer steps, FP32 state carry, one trace replay submission, and state zeroing. Metal Trace does not support slow dispatch, so this smoke uses simulator fast dispatch. It makes no determinism or performance claim.
+
 ## Simulator smoke
 
 Run the bounded Blackhole `1x1` smoke before a new physical attempt:
