@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "event_kind": "rwkv7_persistent_decode_monitoring",
+  "hash_algorithm": "blake3",
+  "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v1",
+  "policy_blake3": "1f7d19e70df728919350b7b5f8242b2592fb2037366b2d88398b945698c0100e",
+  "source": {
+    "event_count": 8,
+    "accepted_event_count": 8,
+    "rejected_event_count": 0,
+    "event_blake3": [
+      "d574da0323e768d35155ee36ef62ca5eba66f04a262585c5f464b1cb0a1c22ef",
+      "59b6b9d788666327381794d6f0a567463627cbfc6a5e72df0dd19521a3573ca6",
+      "96e97c9ba08de31dcd6105b96649bc5f803118b20fa769f7142197b949d642a2",
+      "5389ca96de940e272e49e2cf0ff129a65084a99e73bdae2ab9b57002b1c3c4bb",
+      "01f3eff16162cc5d4aa981f9a144d0f53ecb0107cba825cf0c58ce1553e4bc16",
+      "6fba957c737cf933c713d7a61c5bc05ff10ce26845e7824b93424321d272719a",
+      "057f6bb2aece6132324dfb2cc84c9623fac53b49d7daf977c8b734405ecd85f2",
+      "c21fb5901c67f28bf7f62778620f9f6a21145ad3cfa3de2322d423d783140363"
+    ],
+    "batch_blake3": "64472adbc6f9c26c1179958b0233fbc18de4686737596d4421bfc4206d620203"
+  },
+  "metrics": {
+    "eligibility": {
+      "window_admitted": 0,
+      "workload_eligible": 0,
+      "bindings_validated": 8,
+      "profile_physically_admitted": 8,
+      "candidate_requested": 0
+    },
+    "dispatch": {
+      "persistent_trace": 0,
+      "normal_dispatch": 8,
+      "selected_windows": {
+        "2": 0,
+        "4": 0,
+        "none": 8
+      }
+    },
+    "fallback": {
+      "count": 8,
+      "rate": 1.0,
+      "reasons": {
+        "binding_mismatch": 0,
+        "parity_evidence_missing": 0,
+        "profile_not_admitted": 0,
+        "profiler_evidence_missing": 0,
+        "simulator_evidence_missing": 0,
+        "stable_gain_missing": 0,
+        "trace_unavailable": 0,
+        "window_not_admitted": 8
+      }
+    },
+    "terminal": {
+      "completed": 0,
+      "cancelled": 0,
+      "timed_out": 0,
+      "failed": 0
+    },
+    "parity": {
+      "passed": 0,
+      "not_applicable": 8
+    },
+    "cleanup": {
+      "complete": 0,
+      "not_applicable": 8
+    },
+    "timing": {
+      "trace_setup": {
+        "sum_seconds": 0.0,
+        "maximum_seconds": 0.0
+      },
+      "trace_replay": {
+        "sum_seconds": 0.0,
+        "maximum_seconds": 0.0
+      },
+      "cleanup": {
+        "sum_seconds": 0.0,
+        "maximum_seconds": 0.0
+      }
+    }
+  },
+  "alerts": [
+    {
+      "code": "fallback_rate_high",
+      "severity": "warning",
+      "count": 8,
+      "action": "investigate_fallback_rate"
+    }
+  ],
+  "verdict": "warning",
+  "persistent_admission_recommendation": "retain",
+  "non_claims": [
+    "the receipt does not deliver network metrics or pages",
+    "the receipt does not mutate persistent admission",
+    "the receipt does not control canary traffic",
+    "the receipt does not prove telemetry producer correctness",
+    "the receipt does not replace worker process supervision"
+  ]
+}

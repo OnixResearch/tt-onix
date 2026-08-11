@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "event_kind": "rwkv7_persistent_decode_monitoring",
+  "hash_algorithm": "blake3",
+  "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v1",
+  "policy_blake3": "1f7d19e70df728919350b7b5f8242b2592fb2037366b2d88398b945698c0100e",
+  "source": {
+    "event_count": 3,
+    "accepted_event_count": 3,
+    "rejected_event_count": 0,
+    "event_blake3": [
+      "6f77ab9ce02766494a4af8e776221c03074e03beccd1c2cf7705f7f017eadf49",
+      "fed28308270888ac6011b2b7c5a2783433c342fa460d9cec60303c041e4deee8",
+      "a715fdaba01485b21d4f2fc8eff2fc1ca6ae4990ba2a323b48a265d44f9bdfca"
+    ],
+    "batch_blake3": "95cd863b1af9f932670bd1db327b4015f0645b3e5c614a355adf57a7246deb70"
+  },
+  "metrics": {
+    "eligibility": {
+      "window_admitted": 2,
+      "workload_eligible": 2,
+      "bindings_validated": 3,
+      "profile_physically_admitted": 3,
+      "candidate_requested": 1
+    },
+    "dispatch": {
+      "persistent_trace": 2,
+      "normal_dispatch": 1,
+      "selected_windows": {
+        "2": 1,
+        "4": 1,
+        "none": 1
+      }
+    },
+    "fallback": {
+      "count": 1,
+      "rate": 0.3333333333333333,
+      "reasons": {
+        "binding_mismatch": 0,
+        "parity_evidence_missing": 0,
+        "profile_not_admitted": 0,
+        "profiler_evidence_missing": 0,
+        "simulator_evidence_missing": 0,
+        "stable_gain_missing": 0,
+        "trace_unavailable": 0,
+        "window_not_admitted": 1
+      }
+    },
+    "terminal": {
+      "completed": 4,
+      "cancelled": 4,
+      "timed_out": 0,
+      "failed": 0
+    },
+    "parity": {
+      "passed": 1,
+      "not_applicable": 2
+    },
+    "cleanup": {
+      "complete": 2,
+      "not_applicable": 1
+    },
+    "timing": {
+      "trace_setup": {
+        "sum_seconds": 0.20368615,
+        "maximum_seconds": 0.137646253
+      },
+      "trace_replay": {
+        "sum_seconds": 0.011725462,
+        "maximum_seconds": 0.011725462
+      },
+      "cleanup": {
+        "sum_seconds": 0.004870124,
+        "maximum_seconds": 0.003837858
+      }
+    }
+  },
+  "alerts": [],
+  "verdict": "clean",
+  "persistent_admission_recommendation": "retain",
+  "non_claims": [
+    "the receipt does not deliver network metrics or pages",
+    "the receipt does not mutate persistent admission",
+    "the receipt does not control canary traffic",
+    "the receipt does not prove telemetry producer correctness",
+    "the receipt does not replace worker process supervision"
+  ]
+}

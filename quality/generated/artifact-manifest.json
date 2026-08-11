@@ -2,6 +2,30 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-monitoring/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 3248,
+      "blake3": "e0ea88816fc1e3b5caf559343fca2c32bfcea45424c8790021b9655054523c98"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-monitoring/evidence/clean-monitoring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2457,
+      "blake3": "9fb1595677d4443956a12975c023e19316053d8a6a6e540cf6cc3f06de839485"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-monitoring/evidence/critical-duplicate-monitoring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2516,
+      "blake3": "97dcfd0b5de255762ea121fb03fe608f7bde9b0b5d8e0dd01ddc39737ee6892e"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-monitoring/evidence/warning-fallback-monitoring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2909,
+      "blake3": "e139324a2a91532752bcdf07526298af0e81a185d9ab950ec1dd3afd664df746"
+    },
+    {
       "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-telemetry/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2554,

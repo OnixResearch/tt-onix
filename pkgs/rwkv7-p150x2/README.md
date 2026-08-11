@@ -230,6 +230,36 @@ Validate the telemetry contract with this command:
 
 A fatal worker error can stop receipt creation. Process supervision must report that error because this event is not a failure transport.
 
+### Production monitoring and alerts
+
+Collect an explicit bounded receipt batch with the installed monitoring policy:
+
+```sh
+MONITORING_POLICY="$EVIDENCE/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
+"$EVIDENCE/bin/rwkv7-p150x2-persistent-decode-monitor" \
+  "$MONITORING_POLICY" \
+  /absolute/path/to/worker-receipt-1.json \
+  /absolute/path/to/worker-receipt-2.json \
+  >persistent-decode-monitoring.json
+```
+
+The command does not scan directories or watch files. It accepts only explicit paths and reads at most the policy byte limit.
+
+The output binds the policy and ordered event batch with BLAKE3. It contains bounded metrics and fixed alert codes. It does not contain the source paths.
+
+The command uses these process statuses:
+
+- Status `0`: clean batch.
+- Status `2`: fallback-rate warning. Persistent admission remains retained.
+- Status `3`: critical safety alert. Disable persistent admission for the affected profile.
+- Status `64`: invalid policy, arguments, or bounded input.
+
+Critical alerts cover invalid telemetry, duplicate events, parity failure, cleanup failure, replay timeout, terminal failure, and unsupported admission. The warning threshold requires eight accepted samples and a fallback rate above `0.25`.
+
+The receipt recommends `disable` after any critical alert. The command does not mutate the installed profile. A production controller or operator must apply that recommendation.
+
+This command is a local collector and alert classifier. It does not provide a network exporter, paging provider, daemon, or canary traffic controller.
+
 Run the representative Blackhole simulator trace before a physical test:
 
 ```sh

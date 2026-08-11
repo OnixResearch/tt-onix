@@ -71,6 +71,8 @@ rustPlatform.buildRustPackage {
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp throughput-contracts.ncl throughput-profile.ncl \
       persistent-decode-throughput-profile.ncl \
+      persistent-decode-monitoring-contracts.ncl \
+      persistent-decode-monitoring-policy.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
@@ -85,6 +87,8 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/throughput-profile.json"
     nickel export --format json persistent-decode-throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-throughput-profile.json"
+    nickel export --format json persistent-decode-monitoring-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     nickel export --format json throughput-capacity-profile.ncl \
@@ -140,6 +144,78 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     grep -F 'usage:' missing-benchmark-args.err
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
+    nickel export --format json persistent-decode-monitoring-policy.ncl \
+      >monitoring-policy-first.json
+    nickel export --format json persistent-decode-monitoring-policy.ncl \
+      >monitoring-policy-second.json
+    cmp monitoring-policy-first.json monitoring-policy-second.json
+    if nickel export --format json \
+      fixtures/invalid-persistent-decode-monitoring-policy.ncl \
+      >invalid-monitoring-policy.out 2>invalid-monitoring-policy.err; then
+      echo "invalid monitoring policy passed its Nickel contract" >&2
+      exit 1
+    fi
+    test -s invalid-monitoring-policy.err
+
+    monitoring="$out/bin/rwkv7-p150x2-persistent-decode-monitor"
+    persistent_fixture=fixtures/monitoring/physical-persistent-telemetry-receipt.json
+    fallback_fixture=fixtures/monitoring/physical-fallback-telemetry-receipt.json
+    critical_status=3
+    warning_status=2
+    input_error_status=64
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.collect]
+    "$monitoring" monitoring-policy-first.json \
+      "$persistent_fixture" "$fallback_fixture" >monitoring-clean.json
+    grep -F '"verdict": "clean"' monitoring-clean.json
+    grep -F '"persistent_admission_recommendation": "retain"' monitoring-clean.json
+    if grep -F 'fixtures/monitoring' monitoring-clean.json; then
+      echo "monitoring receipt disclosed an input path" >&2
+      exit 1
+    fi
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.critical]
+    if "$monitoring" monitoring-policy-first.json \
+      "$persistent_fixture" "$persistent_fixture" >monitoring-critical.json; then
+      echo "duplicate monitoring event returned a clean status" >&2
+      exit 1
+    else
+      test "$?" -eq "$critical_status"
+    fi
+    grep -F '"code": "duplicate_event"' monitoring-critical.json
+    grep -F '"persistent_admission_recommendation": "disable"' \
+      monitoring-critical.json
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.fallback]
+    minimum_samples="$(jq -r '.minimum_fallback_samples' monitoring-policy-first.json)"
+    warning_inputs=""
+    for ordinal in $(seq 1 "$minimum_samples"); do
+      output="monitoring-fallback-$ordinal.json"
+      jq --argjson ordinal "$ordinal" '.monitoring_fixture_ordinal = $ordinal' \
+        "$fallback_fixture" >"$output"
+      warning_inputs="$warning_inputs $output"
+    done
+    if "$monitoring" monitoring-policy-first.json $warning_inputs \
+      >monitoring-warning.json; then
+      echo "high fallback rate returned a clean status" >&2
+      exit 1
+    else
+      test "$?" -eq "$warning_status"
+    fi
+    grep -F '"code": "fallback_rate_high"' monitoring-warning.json
+    grep -F '"persistent_admission_recommendation": "retain"' \
+      monitoring-warning.json
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.invalid]
+    if "$monitoring" >monitoring-missing.out 2>monitoring-missing.err; then
+      echo "monitoring command accepted missing arguments" >&2
+      exit 1
+    else
+      test "$?" -eq "$input_error_status"
+    fi
+    grep -F 'monitoring_usage' monitoring-missing.err
 
     # r[verify tenstorrent.rwkv7_p150x2.throughput_profile.valid]
     nickel export --format json throughput-profile.ncl >throughput-profile-first.json

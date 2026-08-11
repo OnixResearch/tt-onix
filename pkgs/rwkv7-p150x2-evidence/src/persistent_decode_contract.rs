@@ -4,7 +4,7 @@
 //! that source drift cannot remove admission, typed limits, BLAKE3 bindings,
 //! cleanup handshakes, or normal-dispatch fallback without a Rust test failure.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -288,6 +288,28 @@ struct TelemetryParity {
     fp32_recurrent_state: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ValidatedPersistentTelemetry {
+    pub window_admitted: bool,
+    pub workload_eligible: bool,
+    pub bindings_validated: bool,
+    pub profile_physically_admitted: bool,
+    pub candidate_requested: bool,
+    pub selected_mode: String,
+    pub selected_window_steps: Option<u32>,
+    pub fallback_reason: String,
+    pub terminal_completed: u32,
+    pub terminal_cancelled: u32,
+    pub terminal_timed_out: u32,
+    pub terminal_failed: u32,
+    pub trace_setup_seconds: f64,
+    pub trace_replay_seconds: f64,
+    pub cleanup_seconds: f64,
+    pub generated_token_parity: String,
+    pub fp32_recurrent_state_parity: String,
+    pub cleanup_status: String,
+}
+
 const BLAKE3_HEX_LENGTH: usize = 64;
 const SINGLE_TRACE_SUBMISSION: u64 = 1;
 const MAXIMUM_TRACE_REGION_BYTES: usize = 268_435_456;
@@ -488,12 +510,12 @@ fn validate_persistent_telemetry_value(
     Ok(())
 }
 
-pub fn validate_persistent_telemetry_receipt(
+pub fn validated_persistent_telemetry(
     receipt_json: &str,
-) -> Result<(), PersistentReceiptError> {
+) -> Result<ValidatedPersistentTelemetry, PersistentReceiptError> {
     let receipt: WorkerReceipt = serde_json::from_str(receipt_json)
         .map_err(|error| PersistentReceiptError::new("malformed_receipt", error.to_string()))?;
-    let telemetry = receipt
+    let telemetry_value = receipt
         .persistent_decode_telemetry
         .as_ref()
         .ok_or_else(|| {
@@ -502,7 +524,37 @@ pub fn validate_persistent_telemetry_receipt(
                 "worker receipt omitted persistent decode telemetry",
             )
         })?;
-    validate_persistent_telemetry_value(telemetry, &receipt.persistent_decode)
+    validate_persistent_telemetry_value(telemetry_value, &receipt.persistent_decode)?;
+    let telemetry: PersistentTelemetry =
+        serde_json::from_value(telemetry_value.clone()).map_err(|error| {
+            PersistentReceiptError::new("invalid_persistent_telemetry", error.to_string())
+        })?;
+    Ok(ValidatedPersistentTelemetry {
+        window_admitted: telemetry.eligibility.window_admitted,
+        workload_eligible: telemetry.eligibility.workload_eligible,
+        bindings_validated: telemetry.eligibility.bindings_validated,
+        profile_physically_admitted: telemetry.eligibility.profile_physically_admitted,
+        candidate_requested: telemetry.eligibility.candidate_requested,
+        selected_mode: telemetry.dispatch.selected_mode,
+        selected_window_steps: telemetry.dispatch.selected_window_steps,
+        fallback_reason: telemetry.dispatch.fallback_reason,
+        terminal_completed: telemetry.terminal_outcomes.completed,
+        terminal_cancelled: telemetry.terminal_outcomes.cancelled,
+        terminal_timed_out: telemetry.terminal_outcomes.timed_out,
+        terminal_failed: telemetry.terminal_outcomes.failed,
+        trace_setup_seconds: telemetry.timing.trace_setup_seconds,
+        trace_replay_seconds: telemetry.timing.trace_replay_seconds,
+        cleanup_seconds: telemetry.timing.cleanup_seconds,
+        generated_token_parity: telemetry.parity.generated_tokens,
+        fp32_recurrent_state_parity: telemetry.parity.fp32_recurrent_state,
+        cleanup_status: telemetry.cleanup_status,
+    })
+}
+
+pub fn validate_persistent_telemetry_receipt(
+    receipt_json: &str,
+) -> Result<(), PersistentReceiptError> {
+    validated_persistent_telemetry(receipt_json).map(|_| ())
 }
 
 pub fn validate_persistent_receipt(

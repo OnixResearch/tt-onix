@@ -221,6 +221,9 @@
             persistent_decode_test_source=${../pkgs/rwkv7-p150x2/src/persistent_decode_self_test.cpp}
             persistent_decode_profile=${../pkgs/rwkv7-p150x2/persistent-decode-profile.ncl}
             persistent_decode_evidence_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_contract.rs}
+            persistent_decode_monitoring_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_monitoring.rs}
+            persistent_decode_monitoring_command=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-persistent-decode-monitor.rs}
+            persistent_decode_monitoring_policy=${../pkgs/rwkv7-p150x2-evidence/persistent-decode-monitoring-policy.ncl}
             hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
@@ -260,7 +263,19 @@
             grep -F 'physically_admitted = true' "$persistent_decode_profile"
             grep -F 'validate_persistent_receipt' "$persistent_decode_evidence_source"
             grep -F 'validate_persistent_telemetry_receipt' "$persistent_decode_evidence_source"
+            grep -F 'validated_persistent_telemetry' "$persistent_decode_evidence_source"
             grep -F 'deny_unknown_fields' "$persistent_decode_evidence_source"
+            grep -F 'collect_persistent_decode_monitoring' "$persistent_decode_monitoring_source"
+            grep -F 'ALERT_PARITY_FAILURE' "$persistent_decode_monitoring_source"
+            grep -F 'ALERT_CLEANUP_FAILURE' "$persistent_decode_monitoring_source"
+            grep -F 'ALERT_REPLAY_TIMEOUT' "$persistent_decode_monitoring_source"
+            grep -F 'ALERT_TERMINAL_FAILURE' "$persistent_decode_monitoring_source"
+            grep -F 'ALERT_UNSUPPORTED_ADMISSION' "$persistent_decode_monitoring_source"
+            grep -F 'PersistentAdmissionRecommendation::Disable' "$persistent_decode_monitoring_source"
+            grep -F 'read_bounded' "$persistent_decode_monitoring_command"
+            grep -F 'CRITICAL_EXIT_STATUS' "$persistent_decode_monitoring_command"
+            grep -F 'maximum_batch_events = 256' "$persistent_decode_monitoring_policy"
+            grep -F 'maximum_fallback_rate = 0.25' "$persistent_decode_monitoring_policy"
             grep -F 'deterministic_slot_assignments' "$throughput_source"
             grep -F 'minimum_dual_card_speedup' "$throughput_source"
             grep -F 'maximum_p99_latency_regression_fraction' "$throughput_source"
