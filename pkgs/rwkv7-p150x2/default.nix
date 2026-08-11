@@ -16,6 +16,7 @@
   tt-metal,
   tt-umd,
   targetContext,
+  fetchQueueDiagnostics ? false,
 }:
 let
   profile = targetContext.profile;
@@ -39,7 +40,11 @@ let
   singleCardMeshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto";
 in
 stdenv.mkDerivation {
-  pname = "rwkv7-p150x2-runtime";
+  pname =
+    if fetchQueueDiagnostics then
+      "rwkv7-p150x2-fetch-queue-diagnostic-runtime"
+    else
+      "rwkv7-p150x2-runtime";
   version = "0.1.0";
 
   src = lib.cleanSource ./.;
@@ -85,6 +90,7 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "RWKV7_HIDDEN_SIZE" (toString profile.resources.hidden_size))
     (lib.cmakeFeature "RWKV7_VOCABULARY_SIZE" (toString profile.resources.vocabulary_size))
     (lib.cmakeFeature "RWKV7_MAXIMUM_PROMPT_TOKENS" (toString profile.resources.maximum_prompt_tokens))
+    (lib.cmakeBool "RWKV7_FETCH_QUEUE_DIAGNOSTICS" fetchQueueDiagnostics)
   ];
 
   postInstall = ''

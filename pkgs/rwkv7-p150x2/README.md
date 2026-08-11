@@ -105,6 +105,10 @@ Each sample records step wall time and Unix time bounds in memory. These bounds 
 
 The diagnostic worker also records model-submission time and each layer-submission time. Normal workers do not collect these boundary timings.
 
+An isolated diagnostic runtime records bounded TT-Metal fetch-queue counters. The production TT-Metal package does not include these counters.
+
+The worker also records process and thread CPU time for model and layer submission.
+
 For selected steps, the worker separates the blocking device readback from host materialization and validation.
 
 The final receipt compares the fastest and slowest valid samples. It includes card ownership, boundary timing, zone cycles, and program signatures.
@@ -114,6 +118,12 @@ An eight-sample physical capture found a `3.521899865365418` slow wave. Model-su
 Blocking readback changed by only `0.98-1.27x`. Device profiler-zone cycles fell to `0.90x` of the normal sample.
 
 The measured boundary is the host-visible return from each layer submission. The capture does not identify a smaller TT-NN or TT-Metal call.
+
+A later complete capture falsified fetch-queue backpressure. Extra fetch-queue wait covered only `0.028-0.057%` of the slow-wave wall-time increase.
+
+A CPU-time capture found a `1.647x` slow wave. Model-submission process CPU time increased by `1.640-1.647x`.
+
+Model-submission thread CPU time increased by `1.623-1.625x`. The stall is on-CPU host work, not device work or an off-CPU queue wait.
 
 The summarizer deletes each raw profiler CSV. This mode is diagnostic only. It cannot enable production admission.
 

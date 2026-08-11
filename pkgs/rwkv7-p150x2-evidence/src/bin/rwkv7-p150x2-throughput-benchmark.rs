@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 const DEVICE_RUNTIME_PATH: Option<&str> = option_env!("RWKV7_DEVICE_RUNTIME");
+const DIAGNOSTIC_DEVICE_RUNTIME_PATH: Option<&str> = option_env!("RWKV7_DIAGNOSTIC_DEVICE_RUNTIME");
 const TT_SMI_PATH: Option<&str> = option_env!("TT_SMI_PATH");
 const MACHINE_FACT_SOURCE: &str = "tt-smi -s --snapshot_no_tty";
 const PROGRAM_ARGUMENT_COUNT: usize = 1;
@@ -35,6 +36,7 @@ const STALL_CAPTURE_OUTPUT_ARGUMENT_INDEX: usize = 4;
 const MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT: usize = 16;
 const STALL_CAPTURE_TOPOLOGY: &str = "stall-profiler-dual";
 const STALL_PROBE_ENVIRONMENT: &str = "RWKV7_STALL_PROBE_STEPS";
+const FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT: &str = "TT_METAL_FETCH_QUEUE_DIAGNOSTICS";
 const PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT: &str = "TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT";
 // TT-Metal defaults to 1,000 programs. Prompt setup exceeded that limit.
 // This fortyfold bound fits within the admitted device-memory margin.
@@ -86,6 +88,7 @@ const MAXIMUM_WORKER_START_SKEW_SECONDS: f64 = 0.010;
 const WORKER_ELAPSED_TOLERANCE_SECONDS: f64 = 0.001;
 const WALL_CLOCK_CORRELATION_TOLERANCE_SECONDS: f64 = 0.050;
 const BOUNDARY_TIMING_TOLERANCE_SECONDS: f64 = 0.0001;
+const MAXIMUM_FETCH_QUEUE_WAIT_CHECKS_PER_RESERVE: u64 = 2;
 const RWKV7_LAYER_COUNT: usize = 12;
 const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000.0;
 
@@ -214,12 +217,26 @@ struct WorkerRequestEntry {
     state_slot: usize,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct FetchQueueDiagnostics {
+    reserve_calls: u64,
+    wait_calls: u64,
+    poll_iterations: u64,
+    total_wait_nanoseconds: u64,
+    maximum_wait_nanoseconds: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StallProbeStepBoundaryTiming {
     selection_requested: bool,
     model_submission_seconds: f64,
     layer_submission_seconds: Vec<f64>,
+    model_submission_thread_cpu_seconds: f64,
+    layer_submission_thread_cpu_seconds: Vec<f64>,
+    model_submission_process_cpu_seconds: f64,
+    layer_submission_process_cpu_seconds: Vec<f64>,
     blocking_readback_seconds: f64,
     host_materialization_seconds: f64,
     readback_validation_seconds: f64,
@@ -248,6 +265,7 @@ struct WorkerReceipt {
     host_gap_accumulated_seconds: f64,
     stall_probe_step_wall_seconds: Option<Vec<f64>>,
     stall_probe_step_boundary_timings: Option<Vec<StallProbeStepBoundaryTiming>>,
+    fetch_queue_diagnostics: Option<FetchQueueDiagnostics>,
     requests: Vec<WorkerRequestMeasurement>,
     execution: WorkerExecution,
 }
@@ -295,6 +313,7 @@ struct WorkerExecution {
     control_replay_during_timing: bool,
     artifact_writes_during_timing: bool,
     inspector_during_timing: bool,
+    fetch_queue_diagnostics_during_timing: bool,
     synchronized_timed_start: bool,
     wkv_execution_policy: String,
     production_physically_admitted: bool,
@@ -416,6 +435,7 @@ struct StallCaptureWorker {
     summed_step_wall_seconds: f64,
     step_wall_seconds: Vec<f64>,
     step_boundary_timings: Vec<StallProbeStepBoundaryTiming>,
+    fetch_queue_diagnostics: FetchQueueDiagnostics,
     profiler: ProfilerProgramSignature,
 }
 
@@ -430,9 +450,27 @@ struct StallCaptureSample {
 #[derive(Clone, Debug, Serialize)]
 struct StallCaptureBoundaryComparison {
     summed_model_submission_ratio: f64,
+    summed_model_submission_thread_cpu_ratio: f64,
+    summed_model_submission_process_cpu_ratio: f64,
     summed_blocking_readback_ratio: f64,
     summed_total_ratio: f64,
     layer_submission_ratios: Vec<f64>,
+    layer_submission_thread_cpu_ratios: Vec<f64>,
+    layer_submission_process_cpu_ratios: Vec<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureFetchQueueComparison {
+    normal_total_wait_seconds: f64,
+    slow_total_wait_seconds: f64,
+    extra_wait_seconds: f64,
+    wall_time_extra_seconds: f64,
+    extra_wait_fraction_of_wall_time_extra: Option<f64>,
+    reserve_call_ratio: f64,
+    wait_call_ratio: Option<f64>,
+    total_wait_ratio: Option<f64>,
+    poll_iteration_ratio: Option<f64>,
+    maximum_wait_ratio: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -442,6 +480,7 @@ struct StallCaptureCardComparison {
     maximum_step_wall_ratio: f64,
     summed_step_wall_ratio: f64,
     boundary: StallCaptureBoundaryComparison,
+    fetch_queue: StallCaptureFetchQueueComparison,
     zone_total_cycle_ratios: BTreeMap<String, f64>,
 }
 
@@ -507,12 +546,102 @@ fn maximum_step(values: &[f64]) -> Result<(usize, f64), String> {
     Ok((maximum_index, maximum_value))
 }
 
+fn validate_fetch_queue_diagnostics(diagnostics: FetchQueueDiagnostics) -> Result<(), String> {
+    let maximum_wait_calls = diagnostics
+        .reserve_calls
+        .checked_mul(MAXIMUM_FETCH_QUEUE_WAIT_CHECKS_PER_RESERVE)
+        .ok_or_else(|| "fetch queue diagnostics wait bound overflowed".to_owned())?;
+    if diagnostics.reserve_calls == 0 {
+        return Err("fetch queue diagnostics contain no reserve calls".to_owned());
+    }
+    if diagnostics.wait_calls > maximum_wait_calls {
+        return Err("fetch queue diagnostics contain too many wait calls".to_owned());
+    }
+    if diagnostics.poll_iterations < diagnostics.wait_calls {
+        return Err("fetch queue diagnostics contain too few poll iterations".to_owned());
+    }
+    if diagnostics.maximum_wait_nanoseconds > diagnostics.total_wait_nanoseconds {
+        return Err("fetch queue diagnostics maximum exceeds total wait".to_owned());
+    }
+    let wait_values_are_zero = diagnostics.poll_iterations == 0
+        && diagnostics.total_wait_nanoseconds == 0
+        && diagnostics.maximum_wait_nanoseconds == 0;
+    if diagnostics.wait_calls == 0 && !wait_values_are_zero {
+        return Err("fetch queue diagnostics contain data without a wait".to_owned());
+    }
+    if diagnostics.wait_calls > 0
+        && (diagnostics.poll_iterations == 0
+            || diagnostics.total_wait_nanoseconds == 0
+            || diagnostics.maximum_wait_nanoseconds == 0)
+    {
+        return Err("fetch queue diagnostics omit data for a recorded wait".to_owned());
+    }
+    Ok(())
+}
+
+fn optional_counter_ratio(numerator: u64, denominator: u64) -> Option<f64> {
+    if denominator == 0 {
+        None
+    } else {
+        Some(numerator as f64 / denominator as f64)
+    }
+}
+
+fn compare_fetch_queue_diagnostics(
+    normal: FetchQueueDiagnostics,
+    slow: FetchQueueDiagnostics,
+    normal_wall_seconds: f64,
+    slow_wall_seconds: f64,
+) -> Result<StallCaptureFetchQueueComparison, String> {
+    validate_fetch_queue_diagnostics(normal)?;
+    validate_fetch_queue_diagnostics(slow)?;
+    if !normal_wall_seconds.is_finite()
+        || normal_wall_seconds <= 0.0
+        || !slow_wall_seconds.is_finite()
+        || slow_wall_seconds <= 0.0
+    {
+        return Err("fetch queue comparison wall times must be finite and positive".to_owned());
+    }
+    let normal_total_wait_seconds = normal.total_wait_nanoseconds as f64 / NANOSECONDS_PER_SECOND;
+    let slow_total_wait_seconds = slow.total_wait_nanoseconds as f64 / NANOSECONDS_PER_SECOND;
+    let extra_wait_seconds = slow_total_wait_seconds - normal_total_wait_seconds;
+    let wall_time_extra_seconds = slow_wall_seconds - normal_wall_seconds;
+    let extra_wait_fraction_of_wall_time_extra = if wall_time_extra_seconds > 0.0 {
+        Some(extra_wait_seconds / wall_time_extra_seconds)
+    } else {
+        None
+    };
+    Ok(StallCaptureFetchQueueComparison {
+        normal_total_wait_seconds,
+        slow_total_wait_seconds,
+        extra_wait_seconds,
+        wall_time_extra_seconds,
+        extra_wait_fraction_of_wall_time_extra,
+        reserve_call_ratio: slow.reserve_calls as f64 / normal.reserve_calls as f64,
+        wait_call_ratio: optional_counter_ratio(slow.wait_calls, normal.wait_calls),
+        total_wait_ratio: optional_counter_ratio(
+            slow.total_wait_nanoseconds,
+            normal.total_wait_nanoseconds,
+        ),
+        poll_iteration_ratio: optional_counter_ratio(slow.poll_iterations, normal.poll_iterations),
+        maximum_wait_ratio: optional_counter_ratio(
+            slow.maximum_wait_nanoseconds,
+            normal.maximum_wait_nanoseconds,
+        ),
+    })
+}
+
 fn validate_step_boundary_timing(timing: &StallProbeStepBoundaryTiming) -> Result<(), String> {
-    if timing.layer_submission_seconds.len() != RWKV7_LAYER_COUNT {
+    if timing.layer_submission_seconds.len() != RWKV7_LAYER_COUNT
+        || timing.layer_submission_thread_cpu_seconds.len() != RWKV7_LAYER_COUNT
+        || timing.layer_submission_process_cpu_seconds.len() != RWKV7_LAYER_COUNT
+    {
         return Err("stall boundary timing has the wrong layer count".to_owned());
     }
     let scalar_timings = [
         timing.model_submission_seconds,
+        timing.model_submission_thread_cpu_seconds,
+        timing.model_submission_process_cpu_seconds,
         timing.blocking_readback_seconds,
         timing.host_materialization_seconds,
         timing.readback_validation_seconds,
@@ -524,6 +653,8 @@ fn validate_step_boundary_timing(timing: &StallProbeStepBoundaryTiming) -> Resul
         || timing
             .layer_submission_seconds
             .iter()
+            .chain(&timing.layer_submission_thread_cpu_seconds)
+            .chain(&timing.layer_submission_process_cpu_seconds)
             .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
     {
         return Err("stall boundary timings must be finite and non-negative".to_owned());
@@ -601,6 +732,8 @@ fn compare_boundary_timings(
         )
     };
     let mut layer_submission_ratios = Vec::with_capacity(RWKV7_LAYER_COUNT);
+    let mut layer_submission_thread_cpu_ratios = Vec::with_capacity(RWKV7_LAYER_COUNT);
+    let mut layer_submission_process_cpu_ratios = Vec::with_capacity(RWKV7_LAYER_COUNT);
     for layer_index in 0..RWKV7_LAYER_COUNT {
         let normal_sum = normal
             .iter()
@@ -615,11 +748,45 @@ fn compare_boundary_timings(
             normal_sum,
             "stall layer submission",
         )?);
+        let normal_thread_cpu_sum = normal
+            .iter()
+            .map(|timing| timing.layer_submission_thread_cpu_seconds[layer_index])
+            .sum::<f64>();
+        let slow_thread_cpu_sum = slow
+            .iter()
+            .map(|timing| timing.layer_submission_thread_cpu_seconds[layer_index])
+            .sum::<f64>();
+        layer_submission_thread_cpu_ratios.push(positive_ratio(
+            slow_thread_cpu_sum,
+            normal_thread_cpu_sum,
+            "stall layer thread CPU",
+        )?);
+        let normal_process_cpu_sum = normal
+            .iter()
+            .map(|timing| timing.layer_submission_process_cpu_seconds[layer_index])
+            .sum::<f64>();
+        let slow_process_cpu_sum = slow
+            .iter()
+            .map(|timing| timing.layer_submission_process_cpu_seconds[layer_index])
+            .sum::<f64>();
+        layer_submission_process_cpu_ratios.push(positive_ratio(
+            slow_process_cpu_sum,
+            normal_process_cpu_sum,
+            "stall layer process CPU",
+        )?);
     }
     Ok(StallCaptureBoundaryComparison {
         summed_model_submission_ratio: ratio(
             |timing| timing.model_submission_seconds,
             "stall model submission",
+        )?,
+        summed_model_submission_thread_cpu_ratio: ratio(
+            |timing| timing.model_submission_thread_cpu_seconds,
+            "stall model submission thread CPU",
+        )?,
+        summed_model_submission_process_cpu_ratio: ratio(
+            |timing| timing.model_submission_process_cpu_seconds,
+            "stall model submission process CPU",
         )?,
         summed_blocking_readback_ratio: ratio(
             |timing| timing.blocking_readback_seconds,
@@ -627,6 +794,8 @@ fn compare_boundary_timings(
         )?,
         summed_total_ratio: ratio(|timing| timing.total_seconds, "stall boundary total")?,
         layer_submission_ratios,
+        layer_submission_thread_cpu_ratios,
+        layer_submission_process_cpu_ratios,
     })
 }
 
@@ -718,6 +887,12 @@ fn compare_stall_capture_samples(
             boundary: compare_boundary_timings(
                 &normal_worker.step_boundary_timings,
                 &slow_worker.step_boundary_timings,
+            )?,
+            fetch_queue: compare_fetch_queue_diagnostics(
+                normal_worker.fetch_queue_diagnostics,
+                slow_worker.fetch_queue_diagnostics,
+                normal_worker.summed_step_wall_seconds,
+                slow_worker.summed_step_wall_seconds,
             )?,
             zone_total_cycle_ratios,
         });
@@ -825,14 +1000,30 @@ fn capture_machine_snapshot(
     Ok(blake3::hash(&output.stdout).to_hex().to_string())
 }
 
-fn runtime_executable() -> Result<PathBuf, String> {
-    let package = DEVICE_RUNTIME_PATH
-        .ok_or_else(|| "RWKV7_DEVICE_RUNTIME was not embedded at build time".to_owned())?;
+fn embedded_runtime_executable(
+    package: Option<&str>,
+    environment_name: &str,
+) -> Result<PathBuf, String> {
+    let package =
+        package.ok_or_else(|| format!("{environment_name} was not embedded at build time"))?;
     let executable = Path::new(package).join("bin/rwkv7-p150x2-runtime");
     if !executable.starts_with("/nix/store/") || !executable.is_file() {
-        return Err("embedded device runtime is not a Nix store executable".to_owned());
+        return Err(format!(
+            "{environment_name} does not name a Nix store executable"
+        ));
     }
     Ok(executable)
+}
+
+fn runtime_executable() -> Result<PathBuf, String> {
+    embedded_runtime_executable(DEVICE_RUNTIME_PATH, "RWKV7_DEVICE_RUNTIME")
+}
+
+fn diagnostic_runtime_executable() -> Result<PathBuf, String> {
+    embedded_runtime_executable(
+        DIAGNOSTIC_DEVICE_RUNTIME_PATH,
+        "RWKV7_DIAGNOSTIC_DEVICE_RUNTIME",
+    )
 }
 
 fn validate_workload(
@@ -1033,9 +1224,13 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
             .env_remove("TT_METAL_PROFILER_MID_RUN_DUMP");
     }
     if stall_probe {
-        command.env(STALL_PROBE_ENVIRONMENT, "1");
+        command
+            .env(STALL_PROBE_ENVIRONMENT, "1")
+            .env(FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT, "1");
     } else {
-        command.env_remove(STALL_PROBE_ENVIRONMENT);
+        command
+            .env_remove(STALL_PROBE_ENVIRONMENT)
+            .env_remove(FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT);
     }
     match profiler_program_support_count {
         Some(count) => {
@@ -1536,12 +1731,16 @@ fn validate_worker(
         stall_probe,
         receipt.stall_probe_step_wall_seconds.as_deref(),
         receipt.stall_probe_step_boundary_timings.as_deref(),
+        receipt.fetch_queue_diagnostics,
     ) {
-        (true, Some(steps), Some(boundaries)) if steps.len() == receipt.batch_step_count => {
+        (true, Some(steps), Some(boundaries), Some(diagnostics))
+            if steps.len() == receipt.batch_step_count =>
+        {
             maximum_step(steps)?;
             validate_step_boundary_timings(boundaries, receipt.batch_step_count)?;
+            validate_fetch_queue_diagnostics(diagnostics)?;
         }
-        (false, None, None) => {}
+        (false, None, None, None) => {}
         _ => {
             return Err(format!(
                 "card {} returned malformed stall step evidence",
@@ -1577,6 +1776,7 @@ fn validate_worker(
         || receipt.execution.control_replay_during_timing
         || receipt.execution.artifact_writes_during_timing
         || receipt.execution.inspector_during_timing
+        || receipt.execution.fetch_queue_diagnostics_during_timing != stall_probe
         || !receipt.execution.synchronized_timed_start
         || receipt.execution.wkv_execution_policy != wkv_policy.as_str()
         || receipt.execution.production_physically_admitted
@@ -1820,6 +2020,10 @@ fn load_stall_capture_sample(
         if !summed_step_wall_seconds.is_finite() || summed_step_wall_seconds <= 0.0 {
             return Err("profiled stall capture step sum is not finite and positive".to_owned());
         }
+        let fetch_queue_diagnostics = receipt
+            .fetch_queue_diagnostics
+            .ok_or_else(|| "profiled stall capture omitted fetch queue diagnostics".to_owned())?;
+        validate_fetch_queue_diagnostics(fetch_queue_diagnostics)?;
         let profiler: ProfilerProgramSignature =
             read_json(&worker_root.join(PROFILER_PROGRAM_SIGNATURE_FILENAME))?;
         if profiler.schema_version != SCHEMA_VERSION
@@ -1845,6 +2049,7 @@ fn load_stall_capture_sample(
             summed_step_wall_seconds,
             step_wall_seconds,
             step_boundary_timings,
+            fetch_queue_diagnostics,
             profiler,
         });
     }
@@ -1888,7 +2093,7 @@ fn run_stall_capture(arguments: &[String], sample_count: usize) -> Result<(), St
         ));
     }
     let profile_identity_blake3 = profile_identity(&profile).map_err(|error| error.to_string())?;
-    let runtime = runtime_executable()?;
+    let runtime = diagnostic_runtime_executable()?;
     let tt_smi = tt_smi_executable()?;
     let machine_facts_before = capture_machine_snapshot(&tt_smi, &output_root, "before")?;
     let mut samples = Vec::with_capacity(sample_count);
@@ -1970,11 +2175,12 @@ fn run() -> Result<(), String> {
     let identity = profile_identity(&profile).map_err(|error| error.to_string())?;
     let profiler_workload = bounded_profiler_workload(&workload)?;
     let runtime = runtime_executable()?;
+    let diagnostic_runtime = diagnostic_runtime_executable()?;
     let tt_smi = tt_smi_executable()?;
     let machine_facts_before = capture_machine_snapshot(&tt_smi, &output_root, "before")?;
 
     let profiler_single = run_sample(SampleRequest {
-        runtime: &runtime,
+        runtime: &diagnostic_runtime,
         root: &output_root,
         topology: "profiler-single",
         sample_index: 0,
@@ -1987,7 +2193,7 @@ fn run() -> Result<(), String> {
         wkv_policy,
     })?;
     let profiler_dual = run_sample(SampleRequest {
-        runtime: &runtime,
+        runtime: &diagnostic_runtime,
         root: &output_root,
         topology: "profiler-dual",
         sample_index: 0,
@@ -2001,7 +2207,7 @@ fn run() -> Result<(), String> {
     })?;
     let baseline_profiler_single = if wkv_policy == WkvPolicy::FusedCandidate {
         Some(run_sample(SampleRequest {
-            runtime: &runtime,
+            runtime: &diagnostic_runtime,
             root: &output_root,
             topology: "profiler-generic-single",
             sample_index: 0,
@@ -2018,7 +2224,7 @@ fn run() -> Result<(), String> {
     };
     let baseline_profiler_dual = if wkv_policy == WkvPolicy::FusedCandidate {
         Some(run_sample(SampleRequest {
-            runtime: &runtime,
+            runtime: &diagnostic_runtime,
             root: &output_root,
             topology: "profiler-generic-dual",
             sample_index: 0,
@@ -2327,6 +2533,12 @@ mod tests {
         const TEST_START_UNIX_NS: u64 = 1_000_000_000;
         const TEST_READBACK_COMPONENT_FRACTION: f64 = 0.05;
         const TEST_READBACK_COMPONENT_COUNT: f64 = 3.0;
+        const TEST_FETCH_QUEUE_RESERVE_CALLS: u64 = 100;
+        const TEST_FETCH_QUEUE_WAIT_CALLS: u64 = 4;
+        const TEST_FETCH_QUEUE_POLL_ITERATIONS: u64 = 8;
+        const TEST_FETCH_QUEUE_WAIT_DIVISOR: u64 = 2;
+        const TEST_THREAD_CPU_FRACTION: f64 = 0.5;
+        const TEST_PROCESS_CPU_FRACTION: f64 = 0.75;
         let elapsed_ns = Duration::from_secs_f64(summed_step_wall_seconds).as_nanos() as u64;
         let prompt_step_seconds = summed_step_wall_seconds - maximum_step_wall_seconds;
         let readback_component_seconds =
@@ -2352,6 +2564,22 @@ mod tests {
                         prompt_step_seconds / RWKV7_LAYER_COUNT as f64;
                         RWKV7_LAYER_COUNT
                     ],
+                    model_submission_thread_cpu_seconds: prompt_step_seconds
+                        * TEST_THREAD_CPU_FRACTION,
+                    layer_submission_thread_cpu_seconds: vec![
+                        prompt_step_seconds
+                            * TEST_THREAD_CPU_FRACTION
+                            / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
+                    model_submission_process_cpu_seconds: prompt_step_seconds
+                        * TEST_PROCESS_CPU_FRACTION,
+                    layer_submission_process_cpu_seconds: vec![
+                        prompt_step_seconds
+                            * TEST_PROCESS_CPU_FRACTION
+                            / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
                     blocking_readback_seconds: 0.0,
                     host_materialization_seconds: 0.0,
                     readback_validation_seconds: 0.0,
@@ -2365,12 +2593,37 @@ mod tests {
                             / RWKV7_LAYER_COUNT as f64;
                         RWKV7_LAYER_COUNT
                     ],
+                    model_submission_thread_cpu_seconds: selection_model_seconds
+                        * TEST_THREAD_CPU_FRACTION,
+                    layer_submission_thread_cpu_seconds: vec![
+                        selection_model_seconds
+                            * TEST_THREAD_CPU_FRACTION
+                            / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
+                    model_submission_process_cpu_seconds: selection_model_seconds
+                        * TEST_PROCESS_CPU_FRACTION,
+                    layer_submission_process_cpu_seconds: vec![
+                        selection_model_seconds
+                            * TEST_PROCESS_CPU_FRACTION
+                            / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
                     blocking_readback_seconds: readback_component_seconds,
                     host_materialization_seconds: readback_component_seconds,
                     readback_validation_seconds: readback_component_seconds,
                     total_seconds: maximum_step_wall_seconds,
                 },
             ],
+            fetch_queue_diagnostics: FetchQueueDiagnostics {
+                reserve_calls: TEST_FETCH_QUEUE_RESERVE_CALLS,
+                wait_calls: TEST_FETCH_QUEUE_WAIT_CALLS,
+                poll_iterations: TEST_FETCH_QUEUE_POLL_ITERATIONS,
+                total_wait_nanoseconds: elapsed_ns / TEST_FETCH_QUEUE_WAIT_DIVISOR,
+                maximum_wait_nanoseconds: elapsed_ns
+                    / TEST_FETCH_QUEUE_WAIT_DIVISOR
+                    / TEST_FETCH_QUEUE_WAIT_DIVISOR,
+            },
             profiler: ProfilerProgramSignature {
                 schema_version: SCHEMA_VERSION,
                 logical_card_id: FILTERED_WORKER_LOGICAL_CARD_ID,
@@ -2414,6 +2667,38 @@ mod tests {
                 .expect_err("unprofiled stall probe must fail")
                 .contains("requires device-profiler collection")
         );
+    }
+
+    #[test]
+    fn fetch_queue_diagnostics_accept_consistent_waits() {
+        const RESERVE_CALLS: u64 = 10;
+        const WAIT_CALLS: u64 = 2;
+        const POLL_ITERATIONS: u64 = 8;
+        const TOTAL_WAIT_NANOSECONDS: u64 = 100;
+        const MAXIMUM_WAIT_NANOSECONDS: u64 = 75;
+        assert_eq!(
+            validate_fetch_queue_diagnostics(FetchQueueDiagnostics {
+                reserve_calls: RESERVE_CALLS,
+                wait_calls: WAIT_CALLS,
+                poll_iterations: POLL_ITERATIONS,
+                total_wait_nanoseconds: TOTAL_WAIT_NANOSECONDS,
+                maximum_wait_nanoseconds: MAXIMUM_WAIT_NANOSECONDS,
+            }),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn fetch_queue_diagnostics_reject_missing_poll_data() {
+        let error = validate_fetch_queue_diagnostics(FetchQueueDiagnostics {
+            reserve_calls: 1,
+            wait_calls: 1,
+            poll_iterations: 0,
+            total_wait_nanoseconds: 1,
+            maximum_wait_nanoseconds: 1,
+        })
+        .expect_err("wait without a poll must fail");
+        assert!(error.contains("too few poll iterations"));
     }
 
     #[test]
@@ -2551,6 +2836,7 @@ mod tests {
         const EXPECTED_CYCLE_RATIO: f64 = 1.1;
         const EXPECTED_MAXIMUM_STEP_RATIO: f64 = 2.0;
         const EXPECTED_SUMMED_STEP_RATIO: f64 = SLOW_STEP_SUM_SECONDS / NORMAL_STEP_SUM_SECONDS;
+        const EXPECTED_FETCH_QUEUE_EXTRA_FRACTION: f64 = 0.5;
         assert_eq!(maximum_step(&[STEP_A, STEP_B, STEP_C]), Ok((1, STEP_B)));
         assert_eq!(
             stall_capture_extremes(&[NORMAL_WALL_SECONDS, SLOW_WALL_SECONDS, MIDDLE_WALL_SECONDS,]),
@@ -2605,6 +2891,15 @@ mod tests {
             comparison.cards[0].boundary.layer_submission_ratios.len(),
             RWKV7_LAYER_COUNT
         );
+        assert!(
+            (comparison.cards[0]
+                .fetch_queue
+                .extra_wait_fraction_of_wall_time_extra
+                .expect("positive wall-time delta")
+                - EXPECTED_FETCH_QUEUE_EXTRA_FRACTION)
+                .abs()
+                <= TEST_RATIO_TOLERANCE
+        );
     }
 
     #[test]
@@ -2653,6 +2948,11 @@ mod tests {
             )
             .is_err()
         );
+        let mut malformed_fetch_queue = normal.clone();
+        malformed_fetch_queue.workers[0]
+            .fetch_queue_diagnostics
+            .poll_iterations = 0;
+        assert!(compare_stall_capture_samples(&normal, &malformed_fetch_queue).is_err());
     }
 
     #[test]

@@ -70,6 +70,10 @@ const STALL_PROBE_RECEIPT: &str = "receipt[\"stall_probe_step_wall_seconds\"] = 
 const STALL_PROBE_BOUNDARY_COUNT: &str =
     "require(step_boundary_timings.size() == batch_step_count,";
 const STALL_PROBE_BOUNDARY_RECEIPT: &str = "receipt[\"stall_probe_step_boundary_timings\"] =";
+const FETCH_QUEUE_DIAGNOSTICS_ENABLE: &str =
+    "std::getenv(kFetchQueueDiagnosticsEnvironment.data());";
+const FETCH_QUEUE_DIAGNOSTICS_RECEIPT: &str = "receipt[\"fetch_queue_diagnostics\"] = {";
+const PROCESS_CPU_TIMING_RECEIPT: &str = "{\"model_submission_process_cpu_seconds\",";
 const STALL_PROBE_BOUNDED_WARMUP: &str = "stall_probe_enabled ? kStallProbeWarmupTokenCount";
 const WALL_CLOCK_CORRELATION_RECEIPT: &str =
     "receipt[\"timed_start_unix_ns\"] = timed_start_unix_ns;";
@@ -468,6 +472,18 @@ pub fn validate_fused_program_source(
             STALL_PROBE_BOUNDARY_RECEIPT,
         ),
         (
+            "diagnostic-only fetch queue counter enable",
+            FETCH_QUEUE_DIAGNOSTICS_ENABLE,
+        ),
+        (
+            "physical worker fetch queue diagnostics receipt",
+            FETCH_QUEUE_DIAGNOSTICS_RECEIPT,
+        ),
+        (
+            "physical worker process CPU timing receipt",
+            PROCESS_CPU_TIMING_RECEIPT,
+        ),
+        (
             "bounded physical worker stall warmup",
             STALL_PROBE_BOUNDED_WARMUP,
         ),
@@ -816,6 +832,38 @@ mod tests {
             error
                 .detail
                 .contains("bounded physical worker stall boundary count")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_fetch_queue_diagnostics() {
+        let invalid = RUNTIME_SOURCE.replace(
+            FETCH_QUEUE_DIAGNOSTICS_RECEIPT,
+            "receipt[\"fetch_queue_diagnostics_removed\"] = {",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without fetch queue diagnostics");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("physical worker fetch queue diagnostics receipt")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_process_cpu_timing() {
+        let invalid = RUNTIME_SOURCE.replace(
+            PROCESS_CPU_TIMING_RECEIPT,
+            "{\"model_submission_process_cpu_seconds_removed\",",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without process CPU timing");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("physical worker process CPU timing receipt")
         );
     }
 

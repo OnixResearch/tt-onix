@@ -8,6 +8,7 @@
   tt-smi,
   targetContext,
   deviceRuntime,
+  diagnosticDeviceRuntime,
 }:
 let
   profile = targetContext.profile;
@@ -54,6 +55,7 @@ rustPlatform.buildRustPackage {
   MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3 = artifacts.tokenizer_vocabulary.blake3;
   RWKV7_TOKENIZER_VOCABULARY = artifacts.tokenizer_vocabulary.path;
   RWKV7_DEVICE_RUNTIME = deviceRuntime;
+  RWKV7_DIAGNOSTIC_DEVICE_RUNTIME = diagnosticDeviceRuntime;
   TT_SMI_PATH = tt-smi;
 
   postInstall = ''

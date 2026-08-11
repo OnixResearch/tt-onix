@@ -20,6 +20,18 @@
       "blake3": "27da7379a123291747d1d950a738b8c1ad390c86dbbc8f17f2c1469072362f6c"
     },
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-fetch-queue-stall-capture.json",
+      "class": "portable_evidence",
+      "byte_count": 433470,
+      "blake3": "dd90505c18465b92cd68ad07159124147132d4245e079603c2cebc815c1c6066"
+    },
+    {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-host-cpu-stall-capture.json",
+      "class": "portable_evidence",
+      "byte_count": 1060038,
+      "blake3": "8c9257b2695168bcb8faec1d8379ef1820e253021e670bcf125733357f0fbd89"
+    },
+    {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-layer-simulator-receipt.json",
       "class": "portable_evidence",
       "byte_count": 1316,
@@ -112,8 +124,8 @@
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-physical-acceptance.md",
       "class": "portable_evidence",
-      "byte_count": 6547,
-      "blake3": "b625a395a9db17a034065998ae5e00fb15f5fc7bb716b74c3ccc6fc8f92ee219"
+      "byte_count": 8266,
+      "blake3": "eaf8920dc35f37900b1c7fe73156d3400b80aea7e2a0f0219e4cbdb75a2bb2ce"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-planning-cores.md",

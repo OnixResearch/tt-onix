@@ -128,6 +128,30 @@ The measured stall boundary is the host-visible return from each layer submissio
 
 The receipt does not identify a smaller call inside each layer. A kernel change is not justified by this evidence.
 
+A bounded fetch-queue capture then compared eight complete waves. An isolated diagnostic TT-Metal runtime collected the counters.
+
+The production TT-Metal package remained unchanged. The fastest sample was sample 0. The slowest sample was sample 2.
+
+The wall slowdown was `2.3682617537923503`. Card 0 added `0.000509701` seconds of fetch-queue wait across `0.888030787` seconds of extra wall time.
+
+Card 1 added `0.00022285000000000002` seconds across `0.7931732840000001` seconds. These waits covered only `0.05739677131261441%` and `0.02809600430263609%` of the excess.
+
+Both normal and slow workers made `23404` fetch-queue reservations and `15` wait checks. Each check completed after one poll.
+
+This result falsifies fast-dispatch fetch-queue backpressure as the slow-wave cause.
+
+A second bounded capture measured process and thread CPU time. Its fastest sample was sample 2 at `0.648936506` seconds.
+
+Its slowest sample was sample 5 at `1.069046948` seconds. The wall slowdown was `1.6473829690820323`.
+
+Model-submission process CPU time increased by `1.6465754067048122` and `1.6401340798887116` on cards 0 and 1.
+
+Model-submission thread CPU time increased by `1.6248402533371622` and `1.6232483422583652`. Model-submission wall time increased by `1.6491990824393288` and `1.6488247412273533`.
+
+The slow wave therefore consumed more CPU time on the primary host thread. It was not an off-CPU dispatch wait.
+
+The capture does not distinguish more executed host instructions from lower CPU throughput, cache contention, or memory contention. Finer TT-NN and TT-Metal host-subphase counters remain necessary.
+
 Real-time-profiler synchronization logs did not overlap the timed normal or slow windows. Therefore, an attribution-removing runtime variant was not built.
 
 Two host-side alternatives were also rejected:
@@ -138,7 +162,9 @@ Two host-side alternatives were also rejected:
 Bounded evidence:
 
 - `phase2-fused-wkv-synchronized-timing.json`;
-- `phase2-fused-wkv-stall-capture.json`.
+- `phase2-fused-wkv-stall-capture.json`;
+- `phase2-fused-wkv-fetch-queue-stall-capture.json`;
+- `phase2-fused-wkv-host-cpu-stall-capture.json`.
 
 ## Strict admission blocker
 

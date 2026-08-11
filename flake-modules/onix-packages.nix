@@ -22,12 +22,27 @@
       qwenCandidateProfile = modelTargets.getProfile "qwen3-6-35b-a3b-p150x1-candidate";
       rwkvArtifacts = modelTargets.fetchProfileArtifacts rwkvProfile;
       rwkvArchitectureAdapter = modelTargets.mkArchitectureAdapter rwkvProfile;
+      rwkvEvidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
+      rwkvTopology = modelTargets.mkTopology rwkvProfile;
+      rwkvTargetContext = {
+        profile = rwkvProfile;
+        artifacts = rwkvArtifacts;
+        architectureAdapter = rwkvArchitectureAdapter;
+        evidenceAdapter = rwkvEvidenceAdapter;
+        topology = rwkvTopology;
+      };
+      ttMetalFetchQueueDiagnostics = pkgs.callPackage ../pkgs/tt-metal/fetch-queue-diagnostics.nix { };
+      rwkv7P150x2DiagnosticRuntime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
+        targetContext = rwkvTargetContext;
+        tt-metal = ttMetalFetchQueueDiagnostics;
+        fetchQueueDiagnostics = true;
+      };
       rwkvTarget = modelTargets.mkModelTarget {
         profile = rwkvProfile;
         artifacts = rwkvArtifacts;
         architectureAdapter = rwkvArchitectureAdapter;
-        evidenceAdapter = modelTargets.mkEvidenceAdapter rwkvProfile;
-        topology = modelTargets.mkTopology rwkvProfile;
+        evidenceAdapter = rwkvEvidenceAdapter;
+        topology = rwkvTopology;
         builders = {
           runtime = targetContext: pkgs.callPackage ../pkgs/rwkv7-p150x2 { inherit targetContext; };
           evidence =
@@ -35,6 +50,7 @@
             pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
               targetContext = context;
               deviceRuntime = context.runtime;
+              diagnosticDeviceRuntime = rwkv7P150x2DiagnosticRuntime;
             };
           command =
             context:
@@ -204,6 +220,12 @@
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
             benchmark_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-throughput-benchmark.rs}
+            runtime_cmake_source=${../pkgs/rwkv7-p150x2/CMakeLists.txt}
+            runtime_package_source=${../pkgs/rwkv7-p150x2/default.nix}
+            evidence_package_source=${../pkgs/rwkv7-p150x2-evidence/default.nix}
+            production_tt_metal_package_source=${../pkgs/tt-metal/default.nix}
+            diagnostic_tt_metal_package_source=${../pkgs/tt-metal/fetch-queue-diagnostics.nix}
+            fetch_queue_patch=${../pkgs/tt-metal/fetch-queue-diagnostics.patch}
 
             grep -F 'MeshShape{kMeshRows, mesh_columns}' "$runtime_source"
             grep -F 'DeviceContext(int physical_device_id)' "$runtime_source"
@@ -231,6 +253,7 @@
             grep -F 'FUSED_CANDIDATE_MODE' "$benchmark_source"
             grep -F 'STALL_CAPTURE_MODE' "$benchmark_source"
             grep -F 'STALL_PROBE_ENVIRONMENT' "$benchmark_source"
+            grep -F 'FETCH_QUEUE_DIAGNOSTICS_ENVIRONMENT' "$benchmark_source"
             grep -F 'PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT' "$benchmark_source"
             grep -F 'STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT' "$benchmark_source"
             grep -F 'PROFILER_GENERATED_TOKEN_COUNT' "$benchmark_source"
@@ -239,8 +262,21 @@
             grep -F 'require_complete_profiler_output' "$benchmark_source"
             grep -F 'compare_stall_capture_samples' "$benchmark_source"
             grep -F 'compare_boundary_timings' "$benchmark_source"
+            grep -F 'compare_fetch_queue_diagnostics' "$benchmark_source"
+            grep -F 'diagnostic_runtime_executable' "$benchmark_source"
             grep -F 'stall_probe_step_boundary_timings' "$runtime_source"
             grep -F 'blocking_readback_seconds' "$runtime_source"
+            grep -F 'model_submission_process_cpu_seconds' "$runtime_source"
+            grep -F 'fetch_queue_diagnostics' "$runtime_source"
+            grep -F './fetch-queue-diagnostics.patch' "$diagnostic_tt_metal_package_source"
+            if grep -F './fetch-queue-diagnostics.patch' "$production_tt_metal_package_source"; then
+              echo 'production TT-Metal includes diagnostic-only fetch-queue counters' >&2
+              exit 1
+            fi
+            grep -F 'RWKV7_FETCH_QUEUE_DIAGNOSTICS' "$runtime_cmake_source"
+            grep -F 'fetchQueueDiagnostics ? false' "$runtime_package_source"
+            grep -F 'diagnosticDeviceRuntime' "$evidence_package_source"
+            grep -F 'ZoneScopedN("wait_for_fetch_q_space")' "$fetch_queue_patch"
             grep -F '"dropped_profiler_markers": false' "$benchmark_source"
             grep -F '"raw_profiler_csv_retained": false' "$benchmark_source"
             grep -F 'order_balanced_wkv_policies' "$benchmark_source"
@@ -595,6 +631,7 @@
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
+        rwkv7-p150x2-fetch-queue-diagnostic-runtime = rwkv7P150x2DiagnosticRuntime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;

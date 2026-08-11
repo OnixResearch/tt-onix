@@ -5,6 +5,9 @@
 #include <nlohmann/json.hpp>
 #include <tt-metalium/bfloat16.hpp>
 #include <tt-metalium/dispatch_core_common.hpp>
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+#include <tt-metalium/experimental/fetch_queue_diagnostics.hpp>
+#endif
 #include <tt-metalium/mesh_device.hpp>
 #include <tt-metalium/tt_metal_profiler.hpp>
 #include <ttnn/distributed/api.hpp>
@@ -35,6 +38,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -75,6 +79,8 @@ constexpr std::uint32_t kAttentionRank = 64U;
 constexpr std::uint32_t kGateRank = 128U;
 constexpr std::uint32_t kValueRank = 32U;
 constexpr std::uint32_t kLayerCount = RWKV7_PINNED_LAYER_COUNT;
+constexpr double kNanosecondsPerSecond = 1.0e9;
+constexpr std::uint64_t kMaximumFetchQueueWaitChecksPerReserve = 2U;
 constexpr std::uint32_t kVocabularySize = RWKV7_PINNED_VOCABULARY_SIZE;
 constexpr std::uint32_t kLayerZero = 0U;
 constexpr std::uint32_t kMinimumGeneratedTokens = 2U;
@@ -139,6 +145,8 @@ constexpr std::string_view kMaxNewArgument = "--max-new";
 constexpr std::string_view kEvidenceRootArgument = "--evidence-root";
 constexpr std::string_view kEnabledEnvironmentValue = "1";
 constexpr std::string_view kDisabledEnvironmentValue = "0";
+constexpr std::string_view kFetchQueueDiagnosticsEnvironment =
+    "TT_METAL_FETCH_QUEUE_DIAGNOSTICS";
 constexpr std::string_view kFusedWkvKernelRootEnvironment =
     "RWKV7_FUSED_WKV_KERNEL_ROOT";
 constexpr bool kFusedWkvPhysicallyAdmitted = false;
@@ -1537,7 +1545,68 @@ struct FastStepBoundaryTiming {
   double host_materialization_seconds = 0.0;
   double readback_validation_seconds = 0.0;
   double total_seconds = 0.0;
+  double model_submission_thread_cpu_seconds = 0.0;
+  std::vector<double> layer_submission_thread_cpu_seconds;
+  double model_submission_process_cpu_seconds = 0.0;
+  std::vector<double> layer_submission_process_cpu_seconds;
 };
+
+struct FetchQueueDiagnostics {
+  std::uint64_t reserve_calls;
+  std::uint64_t wait_calls;
+  std::uint64_t poll_iterations;
+  std::uint64_t total_wait_nanoseconds;
+  std::uint64_t maximum_wait_nanoseconds;
+};
+
+void reset_fetch_queue_diagnostics() {
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  tt::tt_metal::experimental::reset_fetch_queue_diagnostics();
+#else
+  throw std::runtime_error(
+      "fetch queue diagnostics are unavailable in the production runtime");
+#endif
+}
+
+FetchQueueDiagnostics read_fetch_queue_diagnostics() {
+#ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
+  const auto diagnostics =
+      tt::tt_metal::experimental::get_fetch_queue_diagnostics();
+  return FetchQueueDiagnostics{
+      diagnostics.reserve_calls, diagnostics.wait_calls,
+      diagnostics.poll_iterations, diagnostics.total_wait_nanoseconds,
+      diagnostics.maximum_wait_nanoseconds};
+#else
+  throw std::runtime_error(
+      "fetch queue diagnostics are unavailable in the production runtime");
+#endif
+}
+
+void validate_fetch_queue_diagnostics(
+    const FetchQueueDiagnostics &diagnostics) {
+  require(diagnostics.reserve_calls > 0U,
+          "fetch queue diagnostics contain no reserve calls");
+  require(diagnostics.wait_calls <=
+              diagnostics.reserve_calls *
+                  kMaximumFetchQueueWaitChecksPerReserve,
+          "fetch queue diagnostics contain too many wait calls");
+  require(diagnostics.poll_iterations >= diagnostics.wait_calls,
+          "fetch queue diagnostics contain too few poll iterations");
+  require(diagnostics.total_wait_nanoseconds >=
+              diagnostics.maximum_wait_nanoseconds,
+          "fetch queue diagnostics maximum exceeds the total wait");
+  if (diagnostics.wait_calls == 0U) {
+    require(diagnostics.poll_iterations == 0U &&
+                diagnostics.total_wait_nanoseconds == 0U &&
+                diagnostics.maximum_wait_nanoseconds == 0U,
+            "fetch queue diagnostics contain wait data without a wait");
+  } else {
+    require(diagnostics.poll_iterations > 0U &&
+                diagnostics.total_wait_nanoseconds > 0U &&
+                diagnostics.maximum_wait_nanoseconds > 0U,
+            "fetch queue diagnostics omit data for a recorded wait");
+  }
+}
 
 double elapsed_seconds_between(std::chrono::steady_clock::time_point begin,
                                std::chrono::steady_clock::time_point end) {
@@ -1545,16 +1614,42 @@ double elapsed_seconds_between(std::chrono::steady_clock::time_point begin,
   return std::chrono::duration<double>(end - begin).count();
 }
 
+double timespec_seconds(const timespec &value) {
+  require(value.tv_sec >= 0 && value.tv_nsec >= 0,
+          "CPU clock returned a negative time");
+  return static_cast<double>(value.tv_sec) +
+         static_cast<double>(value.tv_nsec) / kNanosecondsPerSecond;
+}
+
+double read_cpu_seconds(clockid_t clock_id) {
+  timespec value{};
+  require(clock_gettime(clock_id, &value) == 0,
+          "failed to read a CPU clock");
+  return timespec_seconds(value);
+}
+
+double elapsed_cpu_seconds(double begin, double end) {
+  require(std::isfinite(begin) && std::isfinite(end) && end >= begin,
+          "CPU timing range is not finite and non-negative");
+  return end - begin;
+}
+
 void validate_fast_step_boundary_timing(
     const FastStepBoundaryTiming &timing) {
-  require(timing.layer_submission_seconds.size() == kLayerCount,
+  require(timing.layer_submission_seconds.size() == kLayerCount &&
+              timing.layer_submission_thread_cpu_seconds.size() ==
+                  kLayerCount &&
+              timing.layer_submission_process_cpu_seconds.size() ==
+                  kLayerCount,
           "fast boundary timing layer count is invalid");
   const std::array scalar_timings = {
       timing.model_submission_seconds,
       timing.blocking_readback_seconds,
       timing.host_materialization_seconds,
       timing.readback_validation_seconds,
-      timing.total_seconds};
+      timing.total_seconds,
+      timing.model_submission_thread_cpu_seconds,
+      timing.model_submission_process_cpu_seconds};
   for (const double seconds : scalar_timings) {
     require(std::isfinite(seconds) && seconds >= 0.0,
             "fast boundary timing is not finite and non-negative");
@@ -1564,6 +1659,14 @@ void validate_fast_step_boundary_timing(
     require(std::isfinite(seconds) && seconds >= 0.0,
             "fast layer boundary timing is not finite and non-negative");
     summed_layer_seconds += seconds;
+  }
+  for (const double seconds : timing.layer_submission_thread_cpu_seconds) {
+    require(std::isfinite(seconds) && seconds >= 0.0,
+            "fast layer thread CPU timing is not finite and non-negative");
+  }
+  for (const double seconds : timing.layer_submission_process_cpu_seconds) {
+    require(std::isfinite(seconds) && seconds >= 0.0,
+            "fast layer process CPU timing is not finite and non-negative");
   }
   require(summed_layer_seconds <= timing.model_submission_seconds +
                                       kFastBoundaryTimingToleranceSeconds,
@@ -2207,10 +2310,16 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   const auto step_begin = record_boundaries
                               ? std::chrono::steady_clock::now()
                               : std::chrono::steady_clock::time_point{};
+  const double step_thread_cpu_begin =
+      record_boundaries ? read_cpu_seconds(CLOCK_THREAD_CPUTIME_ID) : 0.0;
+  const double step_process_cpu_begin =
+      record_boundaries ? read_cpu_seconds(CLOCK_PROCESS_CPUTIME_ID) : 0.0;
   if (record_boundaries) {
     *boundary_timing = FastStepBoundaryTiming{};
     boundary_timing->selection_requested = select_tokens;
     boundary_timing->layer_submission_seconds.reserve(kLayerCount);
+    boundary_timing->layer_submission_thread_cpu_seconds.reserve(kLayerCount);
+    boundary_timing->layer_submission_process_cpu_seconds.reserve(kLayerCount);
   }
   const auto batch_size = static_cast<std::uint32_t>(input_tokens.size());
   require(state.layers[kFirstIndex].matrix.logical_shape()[0] == batch_size,
@@ -2232,15 +2341,28 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
     const auto layer_begin = record_boundaries
                                  ? std::chrono::steady_clock::now()
                                  : std::chrono::steady_clock::time_point{};
+    const double layer_thread_cpu_begin =
+        record_boundaries ? read_cpu_seconds(CLOCK_THREAD_CPUTIME_ID) : 0.0;
+    const double layer_process_cpu_begin =
+        record_boundaries ? read_cpu_seconds(CLOCK_PROCESS_CPUTIME_ID) : 0.0;
     const std::string stage_prefix =
         step_name + "/layer-" + std::to_string(layer_index);
     hidden = execute_layer(context, weights.layers[layer_index], hidden,
                            state.layers[layer_index], value_anchor,
                            stage_prefix, wkv_execution_policy);
     if (record_boundaries) {
+      const auto layer_end = std::chrono::steady_clock::now();
+      const double layer_thread_cpu_end =
+          read_cpu_seconds(CLOCK_THREAD_CPUTIME_ID);
+      const double layer_process_cpu_end =
+          read_cpu_seconds(CLOCK_PROCESS_CPUTIME_ID);
       boundary_timing->layer_submission_seconds.push_back(
-          elapsed_seconds_between(layer_begin,
-                                  std::chrono::steady_clock::now()));
+          elapsed_seconds_between(layer_begin, layer_end));
+      boundary_timing->layer_submission_thread_cpu_seconds.push_back(
+          elapsed_cpu_seconds(layer_thread_cpu_begin, layer_thread_cpu_end));
+      boundary_timing->layer_submission_process_cpu_seconds.push_back(
+          elapsed_cpu_seconds(layer_process_cpu_begin,
+                              layer_process_cpu_end));
     }
   }
   require(value_anchor.has_value(),
@@ -2250,6 +2372,14 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
       const auto step_end = std::chrono::steady_clock::now();
       boundary_timing->model_submission_seconds =
           elapsed_seconds_between(step_begin, step_end);
+      boundary_timing->model_submission_thread_cpu_seconds =
+          elapsed_cpu_seconds(
+              step_thread_cpu_begin,
+              read_cpu_seconds(CLOCK_THREAD_CPUTIME_ID));
+      boundary_timing->model_submission_process_cpu_seconds =
+          elapsed_cpu_seconds(
+              step_process_cpu_begin,
+              read_cpu_seconds(CLOCK_PROCESS_CPUTIME_ID));
       boundary_timing->total_seconds =
           boundary_timing->model_submission_seconds;
       validate_fast_step_boundary_timing(*boundary_timing);
@@ -2268,8 +2398,15 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   const Tensor selected = context.checked(
       ttnn::argmax(logits_row_major, kLastDimension, true), "argmax");
   if (record_boundaries) {
-    boundary_timing->model_submission_seconds = elapsed_seconds_between(
-        step_begin, std::chrono::steady_clock::now());
+    const auto model_submission_end = std::chrono::steady_clock::now();
+    boundary_timing->model_submission_seconds =
+        elapsed_seconds_between(step_begin, model_submission_end);
+    boundary_timing->model_submission_thread_cpu_seconds =
+        elapsed_cpu_seconds(step_thread_cpu_begin,
+                            read_cpu_seconds(CLOCK_THREAD_CPUTIME_ID));
+    boundary_timing->model_submission_process_cpu_seconds =
+        elapsed_cpu_seconds(step_process_cpu_begin,
+                            read_cpu_seconds(CLOCK_PROCESS_CPUTIME_ID));
   }
   std::vector<std::uint32_t> values =
       read_fast_u32(context, selected, input_tokens.size(),
@@ -2758,6 +2895,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const bool stall_probe_enabled =
       stall_probe_value != nullptr &&
       std::string_view(stall_probe_value) == kEnabledEnvironmentValue;
+  const char *const fetch_queue_diagnostics_value =
+      std::getenv(kFetchQueueDiagnosticsEnvironment.data());
+  const bool fetch_queue_diagnostics_enabled =
+      fetch_queue_diagnostics_value != nullptr &&
+      std::string_view(fetch_queue_diagnostics_value) ==
+          kEnabledEnvironmentValue;
+  require(fetch_queue_diagnostics_enabled == stall_probe_enabled,
+          "fetch queue diagnostics must match stall-probe mode");
   const std::uint32_t warmup_token_count =
       stall_probe_enabled ? kStallProbeWarmupTokenCount
                           : kFastWarmupTokenCount;
@@ -2807,6 +2952,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   std::vector<bool> completed(slots.size(), false);
   Json request_metrics = Json::array();
+  if (stall_probe_enabled) {
+    reset_fetch_queue_diagnostics();
+  }
   signal_fast_barrier(arguments.timed_ready_barrier_path, "timed ready");
   wait_for_fast_barrier(arguments.timed_start_barrier_path, "timed start");
   const auto timed_start_wall_clock = std::chrono::system_clock::now();
@@ -2889,6 +3037,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   }
   const auto timed_end = std::chrono::steady_clock::now();
   const auto timed_end_wall_clock = std::chrono::system_clock::now();
+  std::optional<FetchQueueDiagnostics> fetch_queue_diagnostics;
+  if (stall_probe_enabled) {
+    fetch_queue_diagnostics = read_fetch_queue_diagnostics();
+    validate_fetch_queue_diagnostics(*fetch_queue_diagnostics);
+  }
   const std::uint64_t timed_end_monotonic_ns = monotonic_nanoseconds(timed_end);
   const std::uint64_t timed_end_unix_ns =
       unix_nanoseconds(timed_end_wall_clock);
@@ -2955,6 +3108,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
                {"model_submission_seconds", timing.model_submission_seconds},
                {"layer_submission_seconds",
                 timing.layer_submission_seconds},
+               {"model_submission_thread_cpu_seconds",
+                timing.model_submission_thread_cpu_seconds},
+               {"layer_submission_thread_cpu_seconds",
+                timing.layer_submission_thread_cpu_seconds},
+               {"model_submission_process_cpu_seconds",
+                timing.model_submission_process_cpu_seconds},
+               {"layer_submission_process_cpu_seconds",
+                timing.layer_submission_process_cpu_seconds},
                {"blocking_readback_seconds",
                 timing.blocking_readback_seconds},
                {"host_materialization_seconds",
@@ -2965,6 +3126,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     }
     receipt["stall_probe_step_boundary_timings"] =
         std::move(boundary_timings);
+    receipt["fetch_queue_diagnostics"] = {
+        {"reserve_calls", fetch_queue_diagnostics->reserve_calls},
+        {"wait_calls", fetch_queue_diagnostics->wait_calls},
+        {"poll_iterations", fetch_queue_diagnostics->poll_iterations},
+        {"total_wait_nanoseconds",
+         fetch_queue_diagnostics->total_wait_nanoseconds},
+        {"maximum_wait_nanoseconds",
+         fetch_queue_diagnostics->maximum_wait_nanoseconds}};
   }
   receipt["requests"] = std::move(request_metrics);
   receipt["execution"] = {
@@ -2982,6 +3151,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"control_replay_during_timing", false},
       {"artifact_writes_during_timing", false},
       {"inspector_during_timing", false},
+      {"fetch_queue_diagnostics_during_timing", stall_probe_enabled},
       {"synchronized_timed_start", true},
       {"wkv_execution_policy",
        wkv_execution_policy_name(arguments.wkv_execution_policy)},
@@ -3443,7 +3613,11 @@ void run_self_test() {
       kBoundaryTestReadbackSeconds,
       kBoundaryTestReadbackSeconds,
       kBoundaryTestModelSeconds +
-          kBoundaryTestReadbackComponentCount * kBoundaryTestReadbackSeconds};
+          kBoundaryTestReadbackComponentCount * kBoundaryTestReadbackSeconds,
+      kBoundaryTestModelSeconds,
+      std::vector<double>(kLayerCount, kBoundaryTestLayerSeconds),
+      kBoundaryTestModelSeconds,
+      std::vector<double>(kLayerCount, kBoundaryTestLayerSeconds)};
   validate_fast_step_boundary_timing(valid_boundary_timing);
   FastStepBoundaryTiming invalid_boundary_timing = valid_boundary_timing;
   invalid_boundary_timing.layer_submission_seconds.pop_back();
@@ -3460,6 +3634,25 @@ void run_self_test() {
         validate_fast_step_boundary_timing(invalid_boundary_timing);
       },
       "not finite and non-negative");
+
+  constexpr std::uint64_t kDiagnosticsTestReserveCalls = 4U;
+  constexpr std::uint64_t kDiagnosticsTestWaitCalls = 2U;
+  constexpr std::uint64_t kDiagnosticsTestPollIterations = 8U;
+  constexpr std::uint64_t kDiagnosticsTestTotalWaitNanoseconds = 100U;
+  constexpr std::uint64_t kDiagnosticsTestMaximumWaitNanoseconds = 75U;
+  const FetchQueueDiagnostics valid_fetch_queue_diagnostics{
+          kDiagnosticsTestReserveCalls, kDiagnosticsTestWaitCalls,
+          kDiagnosticsTestPollIterations,
+          kDiagnosticsTestTotalWaitNanoseconds,
+          kDiagnosticsTestMaximumWaitNanoseconds};
+  validate_fetch_queue_diagnostics(valid_fetch_queue_diagnostics);
+  auto invalid_fetch_queue_diagnostics = valid_fetch_queue_diagnostics;
+  invalid_fetch_queue_diagnostics.poll_iterations = 0U;
+  expect_operation_failure(
+      [&invalid_fetch_queue_diagnostics]() {
+        validate_fetch_queue_diagnostics(invalid_fetch_queue_diagnostics);
+      },
+      "too few poll iterations");
 
   // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
   // All four supported candidate capacities plan without a device.

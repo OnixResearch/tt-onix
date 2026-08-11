@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.22)
 project(rwkv7_p150x2 LANGUAGES CXX)
 
+option(
+  RWKV7_FETCH_QUEUE_DIAGNOSTICS
+  "Build with diagnostic TT-Metal fetch-queue counters"
+  OFF
+)
+
 find_package(PkgConfig REQUIRED)
 find_package(enchantum REQUIRED)
 find_package(TT-NN REQUIRED)
@@ -20,6 +26,11 @@ add_executable(
   src/main.cpp
 )
 target_compile_features(rwkv7-p150x2-runtime PRIVATE cxx_std_20)
+target_compile_definitions(
+  rwkv7-p150x2-runtime
+  PRIVATE
+    $<$<BOOL:${RWKV7_FETCH_QUEUE_DIAGNOSTICS}>:RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE=1>
+)
 target_include_directories(
   rwkv7-p150x2-runtime
   PRIVATE
