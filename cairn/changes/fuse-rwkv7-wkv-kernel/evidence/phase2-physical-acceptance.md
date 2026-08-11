@@ -150,7 +150,31 @@ Model-submission thread CPU time increased by `1.6248402533371622` and `1.623248
 
 The slow wave therefore consumed more CPU time on the primary host thread. It was not an off-CPU dispatch wait.
 
-The capture does not distinguish more executed host instructions from lower CPU throughput, cache contention, or memory contention. Finer TT-NN and TT-Metal host-subphase counters remain necessary.
+The capture does not distinguish more executed host instructions from lower CPU throughput, cache contention, or memory contention.
+
+A third bounded capture attached 18 root eBPF probes to eight synchronized waves. It gated all probes after the single warmup call.
+
+Sample 6 was the fastest wave at `0.857235608` seconds. Sample 7 was the slowest at `2.253611945` seconds.
+
+The eBPF wave slowdown was `2.628929461128964`. Every worker made the same number of traced calls:
+
+- `32` `advance_tokens_fast` calls;
+- `384` fused `ttnn::generic_op` calls;
+- `23368` calls to each measured TT-Metal dispatch subphase.
+
+Card 0 `enqueue_mesh_workload` time increased by `2.724100369754593`. Its full `advance_tokens_fast` time increased by `2.7343316712068986`.
+
+Card 1 `enqueue_mesh_workload` time increased by `2.435828729141766`. Its full `advance_tokens_fast` time increased by `2.4691254018304383`.
+
+Reserve, command-sequence, subgrid, and fused generic-op times all increased by similar ratios. Enqueue remained about `18%` of total time in both waves.
+
+Additional off-CPU time explained only `10.399732151173252%` and `6.043197508176343%` of the two cards' excess time.
+
+Migration and switch counts increased. Probe overhead prevents a causal scheduler claim, and the capture cannot support admission.
+
+The direct uprobe boundaries identify broad host-duration scaling without sampled-stack symbols. No smaller blocking TT-NN or TT-Metal subphase dominates the stall.
+
+The next discriminator is gated per-thread instructions, cycles, effective frequency, LLC misses, and cache-reference counters.
 
 Real-time-profiler synchronization logs did not overlap the timed normal or slow windows. Therefore, an attribution-removing runtime variant was not built.
 
@@ -164,7 +188,8 @@ Bounded evidence:
 - `phase2-fused-wkv-synchronized-timing.json`;
 - `phase2-fused-wkv-stall-capture.json`;
 - `phase2-fused-wkv-fetch-queue-stall-capture.json`;
-- `phase2-fused-wkv-host-cpu-stall-capture.json`.
+- `phase2-fused-wkv-host-cpu-stall-capture.json`;
+- `phase2-fused-wkv-ebpf-host-subphase-capture.json`.
 
 ## Strict admission blocker
 

@@ -32,7 +32,7 @@
 - [x] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H2 Run stable alternating A/B measurements at each admitted batch capacity. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 - [ ] [depends:tenstorrent.rwkv7_p150x2.fused_wkv_kernel] H3 Run strict one-card and two-card admission. Select the fused path only after all gates pass. r[tenstorrent.rwkv7_p150x2.fused_wkv_kernel]
 
-  Blocker: synchronized launch raised fused two-card speedup to `1.6494731551938797`, above the required `1.5`. Its p99 latency regression is `0.24129836831923815`, above the permitted `0.10`. Physical captures located slow-wave time in on-CPU host layer submission. Fetch-queue waits covered less than `0.06%` of the excess, and device cycles fell. The receipt does not yet identify a smaller TT-NN or TT-Metal host call. Production admission remains closed.
+  Blocker: synchronized launch raised fused two-card speedup to `1.6494731551938797`, above the required `1.5`. Its p99 latency regression is `0.24129836831923815`, above the permitted `0.10`. Physical captures located slow-wave time in on-CPU host layer submission. Fetch-queue waits covered less than `0.06%` of the excess, and device cycles fell. Root eBPF probes found stable call counts and broad `2.3` to `3.0` duration scaling across measured host subphases. No smaller blocking call dominates. Per-thread hardware counters remain necessary. Production admission remains closed.
 
 ## Phase 6: Documentation and gates
 

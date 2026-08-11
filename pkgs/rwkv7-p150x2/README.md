@@ -125,6 +125,12 @@ A CPU-time capture found a `1.647x` slow wave. Model-submission process CPU time
 
 Model-submission thread CPU time increased by `1.623-1.625x`. The stall is on-CPU host work, not device work or an off-CPU queue wait.
 
+A root eBPF capture found stable call counts across eight waves. Measured TT-NN and TT-Metal subphases all expanded by about `2.3-3.0x`.
+
+`enqueue_mesh_workload` remained about `18%` of total time in both selected waves. No smaller blocking host call dominates the slowdown.
+
+Additional off-CPU time explained only `6.0-10.4%` of the excess. Hardware counters must now distinguish instructions, frequency, and cache effects.
+
 The summarizer deletes each raw profiler CSV. This mode is diagnostic only. It cannot enable production admission.
 
 ## Simulator smoke
