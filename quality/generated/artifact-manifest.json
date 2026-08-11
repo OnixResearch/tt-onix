@@ -80,6 +80,12 @@
       "blake3": "16c3edd79d63fd83e34fbe9f64c6e20662b32e0e29827f6eab2ced20d8fc6e88"
     },
     {
+      "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-stall-capture.json",
+      "class": "portable_evidence",
+      "byte_count": 428500,
+      "blake3": "820258f0c9b6549929bfbec519be380b3e2f4d65afa8887d3b5360ba5379c5e3"
+    },
+    {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-fused-wkv-synchronized-timing.json",
       "class": "portable_evidence",
       "byte_count": 1470,
@@ -106,8 +112,8 @@
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-physical-acceptance.md",
       "class": "portable_evidence",
-      "byte_count": 5457,
-      "blake3": "7b2add449d449dbe40c359d046c543f348335d06ddb869f27a66f01a0202ea3d"
+      "byte_count": 6547,
+      "blake3": "b625a395a9db17a034065998ae5e00fb15f5fc7bb716b74c3ccc6fc8f92ee219"
     },
     {
       "path": "cairn/changes/fuse-rwkv7-wkv-kernel/evidence/phase2-planning-cores.md",

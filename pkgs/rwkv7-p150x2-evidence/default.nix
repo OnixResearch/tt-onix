@@ -61,10 +61,11 @@ rustPlatform.buildRustPackage {
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     cp throughput-contracts.ncl throughput-profile.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
-      fused-wkv-physical-profile.ncl \
+      fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
+      fixtures/fused-wkv-stall-workload.json \
       fixtures/model-extent.json \
       "$out/share/rwkv7-p150x2-throughput/"
     nickel export --format json throughput-profile.ncl \
@@ -75,6 +76,8 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/throughput-capacity-profile.json"
     nickel export --format json fused-wkv-physical-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/fused-wkv-physical-profile.json"
+    nickel export --format json fused-wkv-stall-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/fused-wkv-stall-profile.json"
     substitute run-simulator-smoke.sh \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
@@ -132,6 +135,17 @@ rustPlatform.buildRustPackage {
       -eq "$fused_request_count"
     test "$(jq -r '[.requests[].request_id] | unique | length' \
       fixtures/fused-wkv-physical-workload.json)" -eq "$fused_request_count"
+    nickel export --format json fused-wkv-stall-profile.ncl \
+      >fused-wkv-stall-profile-first.json
+    nickel export --format json fused-wkv-stall-profile.ncl \
+      >fused-wkv-stall-profile-second.json
+    cmp fused-wkv-stall-profile-first.json fused-wkv-stall-profile-second.json
+    grep -F '"generated_token_count": 1' fused-wkv-stall-profile-first.json
+    grep -F '"warmup_token_count": 1' fused-wkv-stall-profile-first.json
+    test "$(jq -r '.requests | length' fixtures/fused-wkv-stall-workload.json)" \
+      -eq "$fused_request_count"
+    test "$(jq -c '[.requests[].max_new_tokens] | unique' \
+      fixtures/fused-wkv-stall-workload.json)" = '[1]'
     if nickel export --format json fixtures/invalid-throughput-lockstep.ncl \
       >invalid-profile.json 2>invalid-profile.log; then
       echo "lockstep throughput profile passed its typed contract" >&2

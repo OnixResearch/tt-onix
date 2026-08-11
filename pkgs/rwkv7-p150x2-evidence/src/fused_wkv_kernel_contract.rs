@@ -65,6 +65,14 @@ const SYNCHRONIZED_WORKER_START: &str =
     "wait_for_fast_barrier(arguments.timed_start_barrier_path, \"timed start\");";
 const DISABLED_WORKER_INSPECTOR: &str =
     "std::string_view(inspector_value) == kDisabledEnvironmentValue";
+const STALL_PROBE_STEP_COUNT: &str = "require(step_wall_seconds.size() == batch_step_count,";
+const STALL_PROBE_RECEIPT: &str = "receipt[\"stall_probe_step_wall_seconds\"] = step_wall_seconds;";
+const STALL_PROBE_BOUNDARY_COUNT: &str =
+    "require(step_boundary_timings.size() == batch_step_count,";
+const STALL_PROBE_BOUNDARY_RECEIPT: &str = "receipt[\"stall_probe_step_boundary_timings\"] =";
+const STALL_PROBE_BOUNDED_WARMUP: &str = "stall_probe_enabled ? kStallProbeWarmupTokenCount";
+const WALL_CLOCK_CORRELATION_RECEIPT: &str =
+    "receipt[\"timed_start_unix_ns\"] = timed_start_unix_ns;";
 const STATE_RANK_VALIDATION: &str = "bool has_state_shape(const Tensor &tensor, std::uint32_t batch_size) {\n  const auto &shape = tensor.logical_shape();\n  return shape.rank() == kTensorRank &&";
 const STATE_DTYPE_VALIDATION: &str = "inputs.state.dtype() != tt::tt_metal::DataType::FLOAT32";
 const VECTOR_DTYPE_VALIDATION: &str = "vector->dtype() != tt::tt_metal::DataType::BFLOAT16";
@@ -446,6 +454,27 @@ pub fn validate_fused_program_source(
             "disabled physical worker Inspector",
             DISABLED_WORKER_INSPECTOR,
         ),
+        (
+            "bounded physical worker stall step count",
+            STALL_PROBE_STEP_COUNT,
+        ),
+        ("physical worker stall step receipt", STALL_PROBE_RECEIPT),
+        (
+            "bounded physical worker stall boundary count",
+            STALL_PROBE_BOUNDARY_COUNT,
+        ),
+        (
+            "physical worker stall boundary receipt",
+            STALL_PROBE_BOUNDARY_RECEIPT,
+        ),
+        (
+            "bounded physical worker stall warmup",
+            STALL_PROBE_BOUNDED_WARMUP,
+        ),
+        (
+            "physical worker wall-clock correlation receipt",
+            WALL_CLOCK_CORRELATION_RECEIPT,
+        ),
     ] {
         require_once(runtime_source, name, pattern)?;
     }
@@ -756,6 +785,70 @@ mod tests {
             .expect_err("physical worker with Inspector enabled");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("disabled physical worker Inspector"));
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_complete_step_timing() {
+        let invalid = RUNTIME_SOURCE.replace(
+            STALL_PROBE_STEP_COUNT,
+            "require(!step_wall_seconds.empty(),",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without complete step timing");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("bounded physical worker stall step count")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_boundary_timing() {
+        let invalid = RUNTIME_SOURCE.replace(
+            STALL_PROBE_BOUNDARY_COUNT,
+            "require(!step_boundary_timings.empty(),",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without complete boundary timing");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("bounded physical worker stall boundary count")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_bounded_warmup() {
+        let invalid = RUNTIME_SOURCE.replace(
+            STALL_PROBE_BOUNDED_WARMUP,
+            "false ? kStallProbeWarmupTokenCount",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without bounded warmup");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("bounded physical worker stall warmup")
+        );
+    }
+
+    #[test]
+    fn rejects_a_stall_probe_without_wall_clock_correlation() {
+        let invalid = RUNTIME_SOURCE.replace(
+            WALL_CLOCK_CORRELATION_RECEIPT,
+            "receipt[\"timed_start_unix_ns\"] = 0U;",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("stall probe without wall-clock correlation");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("physical worker wall-clock correlation receipt")
+        );
     }
 
     #[test]

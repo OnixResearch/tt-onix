@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
@@ -26,6 +26,21 @@ const PROGRAM_ARGUMENT_COUNT: usize = 1;
 const EXPECTED_ARGUMENT_COUNT: usize = 3;
 const FUSED_CANDIDATE_ARGUMENT_COUNT: usize = EXPECTED_ARGUMENT_COUNT + 1;
 const FUSED_CANDIDATE_MODE: &str = "--fused-wkv-candidate";
+const STALL_CAPTURE_ARGUMENT_COUNT: usize = EXPECTED_ARGUMENT_COUNT + 2;
+const STALL_CAPTURE_MODE: &str = "--fused-wkv-stall-capture";
+const STALL_CAPTURE_SAMPLE_COUNT_INDEX: usize = 1;
+const STALL_CAPTURE_PROFILE_ARGUMENT_INDEX: usize = 2;
+const STALL_CAPTURE_REQUESTS_ARGUMENT_INDEX: usize = 3;
+const STALL_CAPTURE_OUTPUT_ARGUMENT_INDEX: usize = 4;
+const MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT: usize = 16;
+const STALL_CAPTURE_TOPOLOGY: &str = "stall-profiler-dual";
+const STALL_PROBE_ENVIRONMENT: &str = "RWKV7_STALL_PROBE_STEPS";
+const PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT: &str = "TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT";
+// TT-Metal defaults to 1,000 programs. Prompt setup exceeded that limit.
+// This fortyfold bound fits within the admitted device-memory margin.
+const STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT: usize = 40_000;
+const PROFILER_GENERATED_TOKEN_COUNT: u32 = 1;
+const PROFILER_WARMUP_TOKEN_COUNT: usize = 1;
 const ORDER_BALANCE_PERIOD: usize = 2;
 const PROFILE_ARGUMENT_INDEX: usize = 0;
 const REQUESTS_ARGUMENT_INDEX: usize = 1;
@@ -48,9 +63,14 @@ const PROFILER_EVENT_TYPE_INDEX: usize = 11;
 const PROFILER_MINIMUM_FIELD_COUNT: usize = PROFILER_EVENT_TYPE_INDEX + 1;
 const PROFILER_ZONE_START: &str = "ZONE_START";
 const PROFILER_ZONE_END: &str = "ZONE_END";
+const PROFILER_DROPPED_MARKER: &str = "Profiler DRAM buffers were full, markers were dropped!";
+const WORKER_STDOUT_FILENAME: &str = "stdout.log";
+const WORKER_STDERR_FILENAME: &str = "stderr.log";
 const CPU_REFERENCE_METHOD: &str = "pinned_fp32_full_sequence_greedy_argmax";
 const KIBIBYTE: usize = 1024;
 const MAX_PROFILER_LINE_BYTES: usize = KIBIBYTE * KIBIBYTE;
+const PROFILER_READER_BUFFER_MEBIBYTES: usize = 8;
+const PROFILER_READER_BUFFER_BYTES: usize = PROFILER_READER_BUFFER_MEBIBYTES * KIBIBYTE * KIBIBYTE;
 // r[impl tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
 // These match the exported `throughput-capacity-profile.ncl` memory bounds.
 const WORKER_CAPACITY_TEMPORARY_BYTES_PER_SLOT: u64 = 5 * 1024 * 1024;
@@ -64,6 +84,9 @@ const WORKER_BARRIER_TIMEOUT: Duration = Duration::from_secs(120);
 const WORKER_BARRIER_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const MAXIMUM_WORKER_START_SKEW_SECONDS: f64 = 0.010;
 const WORKER_ELAPSED_TOLERANCE_SECONDS: f64 = 0.001;
+const WALL_CLOCK_CORRELATION_TOLERANCE_SECONDS: f64 = 0.050;
+const BOUNDARY_TIMING_TOLERANCE_SECONDS: f64 = 0.0001;
+const RWKV7_LAYER_COUNT: usize = 12;
 const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,6 +102,34 @@ impl WkvPolicy {
             Self::FusedCandidate => "fused-candidate",
         }
     }
+}
+
+fn profiler_program_support_count(
+    collect_profiler: bool,
+    stall_probe: bool,
+) -> Result<Option<usize>, String> {
+    if stall_probe && !collect_profiler {
+        return Err("stall probe requires device-profiler collection".to_owned());
+    }
+    Ok(stall_probe.then_some(STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT))
+}
+
+fn parse_stall_capture_sample_count(arguments: &[String]) -> Result<Option<usize>, String> {
+    if arguments.first().map(String::as_str) != Some(STALL_CAPTURE_MODE) {
+        return Ok(None);
+    }
+    if arguments.len() != STALL_CAPTURE_ARGUMENT_COUNT {
+        return Err("usage: rwkv7-p150x2-throughput-benchmark --fused-wkv-stall-capture SAMPLE_COUNT PROFILE_JSON REQUESTS_JSON NEW_OUTPUT_ROOT".to_owned());
+    }
+    let sample_count = arguments[STALL_CAPTURE_SAMPLE_COUNT_INDEX]
+        .parse::<usize>()
+        .map_err(|_| "stall capture sample count must be an integer".to_owned())?;
+    if sample_count == 0 || sample_count > MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT {
+        return Err(format!(
+            "stall capture sample count must be within 1..={MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT}"
+        ));
+    }
+    Ok(Some(sample_count))
 }
 
 fn parse_wkv_policy(arguments: &[String]) -> Result<(WkvPolicy, usize), String> {
@@ -163,6 +214,18 @@ struct WorkerRequestEntry {
     state_slot: usize,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StallProbeStepBoundaryTiming {
+    selection_requested: bool,
+    model_submission_seconds: f64,
+    layer_submission_seconds: Vec<f64>,
+    blocking_readback_seconds: f64,
+    host_materialization_seconds: f64,
+    readback_validation_seconds: f64,
+    total_seconds: f64,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkerReceipt {
@@ -176,11 +239,15 @@ struct WorkerReceipt {
     elapsed_seconds: f64,
     timed_start_monotonic_ns: u64,
     timed_end_monotonic_ns: u64,
+    timed_start_unix_ns: u64,
+    timed_end_unix_ns: u64,
     capacity: WorkerReceiptCapacity,
     effective_batch_size: usize,
     queue_occupancy_fraction: f64,
     batch_step_count: usize,
     host_gap_accumulated_seconds: f64,
+    stall_probe_step_wall_seconds: Option<Vec<f64>>,
+    stall_probe_step_boundary_timings: Option<Vec<StallProbeStepBoundaryTiming>>,
     requests: Vec<WorkerRequestMeasurement>,
     execution: WorkerExecution,
 }
@@ -312,12 +379,355 @@ struct ProfilerEvent {
     event_type: ProfilerEventType,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ProfilerZoneAggregate {
     start_count: usize,
     complete_count: usize,
     total_cycles: u64,
     maximum_cycles: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProfilerProgramSignature {
+    schema_version: u32,
+    logical_card_id: usize,
+    physical_card_id: usize,
+    raw_blake3: String,
+    data_row_count: usize,
+    complete_zone_event_count: usize,
+    unmatched_start_count: usize,
+    unmatched_end_count: usize,
+    total_zone_cycles: u64,
+    zones: BTreeMap<String, ProfilerZoneAggregate>,
+    program_signature_blake3: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureWorker {
+    physical_card_id: usize,
+    elapsed_seconds: f64,
+    timed_start_unix_ns: u64,
+    timed_end_unix_ns: u64,
+    host_gap_accumulated_seconds: f64,
+    batch_step_count: usize,
+    maximum_step_index: usize,
+    maximum_step_wall_seconds: f64,
+    summed_step_wall_seconds: f64,
+    step_wall_seconds: Vec<f64>,
+    step_boundary_timings: Vec<StallProbeStepBoundaryTiming>,
+    profiler: ProfilerProgramSignature,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureSample {
+    sample_index: usize,
+    wave_elapsed_seconds: f64,
+    start_skew_seconds: f64,
+    workers: Vec<StallCaptureWorker>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureBoundaryComparison {
+    summed_model_submission_ratio: f64,
+    summed_blocking_readback_ratio: f64,
+    summed_total_ratio: f64,
+    layer_submission_ratios: Vec<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureCardComparison {
+    physical_card_id: usize,
+    total_zone_cycle_ratio: f64,
+    maximum_step_wall_ratio: f64,
+    summed_step_wall_ratio: f64,
+    boundary: StallCaptureBoundaryComparison,
+    zone_total_cycle_ratios: BTreeMap<String, f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StallCaptureComparison {
+    normal_sample_index: usize,
+    slow_sample_index: usize,
+    wall_slowdown_ratio: f64,
+    cards: Vec<StallCaptureCardComparison>,
+}
+
+fn wall_clock_elapsed_seconds(start_unix_ns: u64, end_unix_ns: u64) -> Result<f64, String> {
+    let elapsed_ns = end_unix_ns
+        .checked_sub(start_unix_ns)
+        .ok_or_else(|| "worker wall-clock timing range is not positive".to_owned())?;
+    if elapsed_ns == 0 {
+        return Err("worker wall-clock timing range is not positive".to_owned());
+    }
+    Ok(elapsed_ns as f64 / NANOSECONDS_PER_SECOND)
+}
+
+fn profiler_output_has_dropped_markers(line: &str) -> bool {
+    line.contains(PROFILER_DROPPED_MARKER)
+}
+
+fn require_complete_profiler_output(worker: &WorkerProcess) -> Result<(), String> {
+    for filename in [WORKER_STDOUT_FILENAME, WORKER_STDERR_FILENAME] {
+        let path = worker.root.join(filename);
+        let file = File::open(&path)
+            .map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+        for line in BufReader::new(file).lines() {
+            let line = line.map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+            if profiler_output_has_dropped_markers(&line) {
+                return Err(format!(
+                    "card {} dropped device-profiler markers; complete zone attribution is unavailable",
+                    worker.card_id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn maximum_step(values: &[f64]) -> Result<(usize, f64), String> {
+    let first = values
+        .first()
+        .copied()
+        .ok_or_else(|| "stall capture has no step timings".to_owned())?;
+    if !first.is_finite() || first <= 0.0 {
+        return Err("stall capture step timings must be finite and positive".to_owned());
+    }
+    let mut maximum_index = 0_usize;
+    let mut maximum_value = first;
+    for (index, value) in values.iter().copied().enumerate().skip(1) {
+        if !value.is_finite() || value <= 0.0 {
+            return Err("stall capture step timings must be finite and positive".to_owned());
+        }
+        if value > maximum_value {
+            maximum_index = index;
+            maximum_value = value;
+        }
+    }
+    Ok((maximum_index, maximum_value))
+}
+
+fn validate_step_boundary_timing(timing: &StallProbeStepBoundaryTiming) -> Result<(), String> {
+    if timing.layer_submission_seconds.len() != RWKV7_LAYER_COUNT {
+        return Err("stall boundary timing has the wrong layer count".to_owned());
+    }
+    let scalar_timings = [
+        timing.model_submission_seconds,
+        timing.blocking_readback_seconds,
+        timing.host_materialization_seconds,
+        timing.readback_validation_seconds,
+        timing.total_seconds,
+    ];
+    if scalar_timings
+        .iter()
+        .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
+        || timing
+            .layer_submission_seconds
+            .iter()
+            .any(|seconds| !seconds.is_finite() || *seconds < 0.0)
+    {
+        return Err("stall boundary timings must be finite and non-negative".to_owned());
+    }
+    let summed_layer_seconds = timing.layer_submission_seconds.iter().sum::<f64>();
+    if summed_layer_seconds > timing.model_submission_seconds + BOUNDARY_TIMING_TOLERANCE_SECONDS {
+        return Err("stall layer timings exceed model submission time".to_owned());
+    }
+    let classified_seconds = timing.model_submission_seconds
+        + timing.blocking_readback_seconds
+        + timing.host_materialization_seconds
+        + timing.readback_validation_seconds;
+    if (classified_seconds - timing.total_seconds).abs() > BOUNDARY_TIMING_TOLERANCE_SECONDS {
+        return Err("stall boundary timings do not cover the full step".to_owned());
+    }
+    if !timing.selection_requested
+        && (timing.blocking_readback_seconds != 0.0
+            || timing.host_materialization_seconds != 0.0
+            || timing.readback_validation_seconds != 0.0)
+    {
+        return Err("stall non-selection step contains readback timing".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_step_boundary_timings(
+    timings: &[StallProbeStepBoundaryTiming],
+    expected_step_count: usize,
+) -> Result<(), String> {
+    if timings.len() != expected_step_count {
+        return Err("stall boundary timing count differs from the step count".to_owned());
+    }
+    for timing in timings {
+        validate_step_boundary_timing(timing)?;
+    }
+    if !timings.iter().any(|timing| timing.selection_requested) {
+        return Err("stall boundary timings contain no selection step".to_owned());
+    }
+    Ok(())
+}
+
+fn sum_boundary_field(
+    timings: &[StallProbeStepBoundaryTiming],
+    field: fn(&StallProbeStepBoundaryTiming) -> f64,
+    name: &str,
+) -> Result<f64, String> {
+    let mut total = 0.0_f64;
+    for timing in timings {
+        let value = field(timing);
+        if !value.is_finite() || value < 0.0 {
+            return Err(format!("{name} values must be finite and non-negative"));
+        }
+        total += value;
+    }
+    if !total.is_finite() || total <= 0.0 {
+        return Err(format!("{name} sum must be finite and positive"));
+    }
+    Ok(total)
+}
+
+fn compare_boundary_timings(
+    normal: &[StallProbeStepBoundaryTiming],
+    slow: &[StallProbeStepBoundaryTiming],
+) -> Result<StallCaptureBoundaryComparison, String> {
+    if normal.len() != slow.len() || normal.is_empty() {
+        return Err("stall boundary comparisons require equal non-empty steps".to_owned());
+    }
+    validate_step_boundary_timings(normal, normal.len())?;
+    validate_step_boundary_timings(slow, slow.len())?;
+    let ratio = |field: fn(&StallProbeStepBoundaryTiming) -> f64, name: &str| {
+        positive_ratio(
+            sum_boundary_field(slow, field, name)?,
+            sum_boundary_field(normal, field, name)?,
+            name,
+        )
+    };
+    let mut layer_submission_ratios = Vec::with_capacity(RWKV7_LAYER_COUNT);
+    for layer_index in 0..RWKV7_LAYER_COUNT {
+        let normal_sum = normal
+            .iter()
+            .map(|timing| timing.layer_submission_seconds[layer_index])
+            .sum::<f64>();
+        let slow_sum = slow
+            .iter()
+            .map(|timing| timing.layer_submission_seconds[layer_index])
+            .sum::<f64>();
+        layer_submission_ratios.push(positive_ratio(
+            slow_sum,
+            normal_sum,
+            "stall layer submission",
+        )?);
+    }
+    Ok(StallCaptureBoundaryComparison {
+        summed_model_submission_ratio: ratio(
+            |timing| timing.model_submission_seconds,
+            "stall model submission",
+        )?,
+        summed_blocking_readback_ratio: ratio(
+            |timing| timing.blocking_readback_seconds,
+            "stall blocking readback",
+        )?,
+        summed_total_ratio: ratio(|timing| timing.total_seconds, "stall boundary total")?,
+        layer_submission_ratios,
+    })
+}
+
+fn stall_capture_extremes(elapsed_seconds: &[f64]) -> Result<(usize, usize), String> {
+    let first = elapsed_seconds
+        .first()
+        .copied()
+        .ok_or_else(|| "stall capture has no samples".to_owned())?;
+    if !first.is_finite() || first <= 0.0 {
+        return Err("stall capture elapsed times must be finite and positive".to_owned());
+    }
+    let mut normal_index = 0_usize;
+    let mut slow_index = 0_usize;
+    for (index, elapsed) in elapsed_seconds.iter().copied().enumerate().skip(1) {
+        if !elapsed.is_finite() || elapsed <= 0.0 {
+            return Err("stall capture elapsed times must be finite and positive".to_owned());
+        }
+        if elapsed < elapsed_seconds[normal_index] {
+            normal_index = index;
+        }
+        if elapsed > elapsed_seconds[slow_index] {
+            slow_index = index;
+        }
+    }
+    Ok((normal_index, slow_index))
+}
+
+fn positive_ratio(numerator: f64, denominator: f64, name: &str) -> Result<f64, String> {
+    if !numerator.is_finite() || numerator <= 0.0 || !denominator.is_finite() || denominator <= 0.0
+    {
+        return Err(format!("{name} values must be finite and positive"));
+    }
+    Ok(numerator / denominator)
+}
+
+fn compare_stall_capture_samples(
+    normal: &StallCaptureSample,
+    slow: &StallCaptureSample,
+) -> Result<StallCaptureComparison, String> {
+    if normal.workers.len() != slow.workers.len() || normal.workers.is_empty() {
+        return Err("stall capture samples must have equal non-empty worker sets".to_owned());
+    }
+    let wall_slowdown_ratio = positive_ratio(
+        slow.wave_elapsed_seconds,
+        normal.wave_elapsed_seconds,
+        "stall capture wall time",
+    )?;
+    let mut cards = Vec::with_capacity(normal.workers.len());
+    for (normal_worker, slow_worker) in normal.workers.iter().zip(&slow.workers) {
+        if normal_worker.physical_card_id != slow_worker.physical_card_id {
+            return Err("stall capture worker ownership changed between samples".to_owned());
+        }
+        if normal_worker.profiler.zones.len() != slow_worker.profiler.zones.len() {
+            return Err("stall capture profiler zone sets changed between samples".to_owned());
+        }
+        let mut zone_total_cycle_ratios = BTreeMap::new();
+        for (zone_name, normal_zone) in &normal_worker.profiler.zones {
+            let slow_zone = slow_worker
+                .profiler
+                .zones
+                .get(zone_name)
+                .ok_or_else(|| "stall capture profiler zone is missing".to_owned())?;
+            zone_total_cycle_ratios.insert(
+                zone_name.clone(),
+                positive_ratio(
+                    slow_zone.total_cycles as f64,
+                    normal_zone.total_cycles as f64,
+                    "stall capture named zone cycles",
+                )?,
+            );
+        }
+        cards.push(StallCaptureCardComparison {
+            physical_card_id: normal_worker.physical_card_id,
+            total_zone_cycle_ratio: positive_ratio(
+                slow_worker.profiler.total_zone_cycles as f64,
+                normal_worker.profiler.total_zone_cycles as f64,
+                "stall capture zone cycles",
+            )?,
+            maximum_step_wall_ratio: positive_ratio(
+                slow_worker.maximum_step_wall_seconds,
+                normal_worker.maximum_step_wall_seconds,
+                "stall capture maximum step",
+            )?,
+            summed_step_wall_ratio: positive_ratio(
+                slow_worker.summed_step_wall_seconds,
+                normal_worker.summed_step_wall_seconds,
+                "stall capture summed steps",
+            )?,
+            boundary: compare_boundary_timings(
+                &normal_worker.step_boundary_timings,
+                &slow_worker.step_boundary_timings,
+            )?,
+            zone_total_cycle_ratios,
+        });
+    }
+    Ok(StallCaptureComparison {
+        normal_sample_index: normal.sample_index,
+        slow_sample_index: slow.sample_index,
+        wall_slowdown_ratio,
+        cards,
+    })
 }
 
 struct WorkerLaunchRequest<'a> {
@@ -330,6 +740,7 @@ struct WorkerLaunchRequest<'a> {
     workload: &'a BenchmarkWorkload,
     profile: &'a ThroughputProfile,
     collect_profiler: bool,
+    stall_probe: bool,
     wkv_policy: WkvPolicy,
 }
 
@@ -342,6 +753,7 @@ struct SampleRequest<'a> {
     workload: &'a BenchmarkWorkload,
     profile: &'a ThroughputProfile,
     collect_profiler: bool,
+    stall_probe: bool,
     profiler_attested: bool,
     wkv_policy: WkvPolicy,
 }
@@ -475,6 +887,20 @@ fn validate_workload(
     Ok(())
 }
 
+fn bounded_profiler_workload(workload: &BenchmarkWorkload) -> Result<BenchmarkWorkload, String> {
+    let mut bounded = workload.clone();
+    for request in &mut bounded.requests {
+        let expected_token = request
+            .expected_generated_token_ids
+            .first()
+            .copied()
+            .ok_or_else(|| "profiler workload request has no expected token".to_owned())?;
+        request.max_new_tokens = PROFILER_GENERATED_TOKEN_COUNT;
+        request.expected_generated_token_ids = vec![expected_token];
+    }
+    Ok(bounded)
+}
+
 fn worker_request(
     run_id: &str,
     card_id: usize,
@@ -544,6 +970,7 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         workload,
         profile,
         collect_profiler,
+        stall_probe,
         wkv_policy,
     } = request;
     let wave_root = run_root.join(format!("wave-{wave_index}"));
@@ -563,9 +990,9 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         &request_path,
         &worker_request(run_id, card_id, wave_index, card_ids, workload, profile)?,
     )?;
-    let stdout = File::create(worker_root.join("stdout.log"))
+    let stdout = File::create(worker_root.join(WORKER_STDOUT_FILENAME))
         .map_err(|error| format!("cannot create worker stdout: {error}"))?;
-    let stderr = File::create(worker_root.join("stderr.log"))
+    let stderr = File::create(worker_root.join(WORKER_STDERR_FILENAME))
         .map_err(|error| format!("cannot create worker stderr: {error}"))?;
     let mut command = Command::new(runtime);
     command
@@ -594,6 +1021,8 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         .env("TT_METAL_INSPECTOR_RPC", "0")
         .env_remove("TT_METAL_WATCHER")
         .env_remove("TT_METAL_DPRINT_CORES");
+    let profiler_program_support_count =
+        profiler_program_support_count(collect_profiler, stall_probe)?;
     if collect_profiler {
         command
             .env("TT_METAL_DEVICE_PROFILER", "1")
@@ -602,6 +1031,22 @@ fn launch_worker(request: WorkerLaunchRequest<'_>) -> Result<WorkerProcess, Stri
         command
             .env_remove("TT_METAL_DEVICE_PROFILER")
             .env_remove("TT_METAL_PROFILER_MID_RUN_DUMP");
+    }
+    if stall_probe {
+        command.env(STALL_PROBE_ENVIRONMENT, "1");
+    } else {
+        command.env_remove(STALL_PROBE_ENVIRONMENT);
+    }
+    match profiler_program_support_count {
+        Some(count) => {
+            command.env(
+                PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT,
+                count.to_string(),
+            );
+        }
+        None => {
+            command.env_remove(PROFILER_PROGRAM_SUPPORT_COUNT_ENVIRONMENT);
+        }
     }
     let child = command
         .stdout(Stdio::from(stdout))
@@ -760,21 +1205,48 @@ fn wait_for_workers(workers: &mut [WorkerProcess]) -> Result<(), String> {
     Ok(())
 }
 
-fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usize>, String> {
-    if line_index < PROFILER_HEADER_LINE_COUNT || line.iter().all(u8::is_ascii_whitespace) {
+struct ProfilerHashingReader<R> {
+    inner: R,
+    hasher: blake3::Hasher,
+    byte_count: u64,
+}
+
+impl<R> ProfilerHashingReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            hasher: blake3::Hasher::new(),
+            byte_count: 0,
+        }
+    }
+
+    fn finish(self) -> (u64, String) {
+        (self.byte_count, self.hasher.finalize().to_hex().to_string())
+    }
+}
+
+impl<R: Read> Read for ProfilerHashingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let byte_count = self.inner.read(buffer)?;
+        self.byte_count = self
+            .byte_count
+            .checked_add(byte_count as u64)
+            .ok_or_else(|| io::Error::other("profiler byte count overflowed"))?;
+        self.hasher.update(&buffer[..byte_count]);
+        Ok(byte_count)
+    }
+}
+
+fn profiler_card_from_record(
+    record: &csv::StringRecord,
+    line_index: usize,
+) -> Result<Option<usize>, String> {
+    if line_index < PROFILER_HEADER_LINE_COUNT || record.iter().all(str::is_empty) {
         return Ok(None);
     }
-    let separator = line
-        .iter()
-        .position(|byte| *byte == b',')
-        .ok_or_else(|| format!("profiler line {} has no first separator", line_index + 1))?;
-    let card_text = std::str::from_utf8(&line[..separator])
-        .map_err(|error| {
-            format!(
-                "profiler line {} card is not UTF-8: {error}",
-                line_index + 1
-            )
-        })?
+    let card_text = record
+        .get(0)
+        .ok_or_else(|| format!("profiler line {} has no card field", line_index + 1))?
         .trim();
     let card_id = card_text
         .parse::<usize>()
@@ -782,22 +1254,11 @@ fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usiz
     Ok(Some(card_id))
 }
 
-fn profiler_event_from_line(
-    line: &[u8],
+fn profiler_event_from_record(
+    record: &csv::StringRecord,
     line_index: usize,
+    logical_card_id: usize,
 ) -> Result<Option<ProfilerEvent>, String> {
-    let Some(logical_card_id) = profiler_card_from_line(line, line_index)? else {
-        return Ok(None);
-    };
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .from_reader(line);
-    let record = reader
-        .records()
-        .next()
-        .ok_or_else(|| format!("profiler line {} has no CSV record", line_index + 1))?
-        .map_err(|error| format!("profiler line {} is invalid CSV: {error}", line_index + 1))?;
     if record.len() < PROFILER_MINIMUM_FIELD_COUNT {
         return Err(format!(
             "profiler line {} has {} fields; expected at least {}",
@@ -839,6 +1300,37 @@ fn profiler_event_from_line(
     }))
 }
 
+#[cfg(test)]
+fn profiler_record_from_line(line: &[u8], line_index: usize) -> Result<csv::StringRecord, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(line);
+    reader
+        .records()
+        .next()
+        .ok_or_else(|| format!("profiler line {} has no CSV record", line_index + 1))?
+        .map_err(|error| format!("profiler line {} is invalid CSV: {error}", line_index + 1))
+}
+
+#[cfg(test)]
+fn profiler_card_from_line(line: &[u8], line_index: usize) -> Result<Option<usize>, String> {
+    let record = profiler_record_from_line(line, line_index)?;
+    profiler_card_from_record(&record, line_index)
+}
+
+#[cfg(test)]
+fn profiler_event_from_line(
+    line: &[u8],
+    line_index: usize,
+) -> Result<Option<ProfilerEvent>, String> {
+    let record = profiler_record_from_line(line, line_index)?;
+    let Some(logical_card_id) = profiler_card_from_record(&record, line_index)? else {
+        return Ok(None);
+    };
+    profiler_event_from_record(&record, line_index, logical_card_id)
+}
+
 fn profiler_binding_matches(logical_card_id: usize, physical_card_id: usize) -> bool {
     logical_card_id == FILTERED_WORKER_LOGICAL_CARD_ID && TWO_CARD_IDS.contains(&physical_card_id)
 }
@@ -847,35 +1339,39 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
     let profiler_path = worker.root.join(PROFILER_RELATIVE_PATH);
     let profiler = File::open(&profiler_path)
         .map_err(|error| format!("cannot open {}: {error}", profiler_path.display()))?;
-    let mut reader = BufReader::new(profiler);
-    let mut line = Vec::new();
+    let buffered = BufReader::with_capacity(PROFILER_READER_BUFFER_BYTES, profiler);
+    let hashing_reader = ProfilerHashingReader::new(buffered);
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(hashing_reader);
+    let mut record = csv::StringRecord::new();
     let mut line_index = 0_usize;
+    let mut previous_byte_position = 0_u64;
     let mut data_row_count = 0_usize;
-    let mut raw_byte_count = 0_u64;
-    let mut hasher = blake3::Hasher::new();
     let mut active_zones = BTreeMap::<String, Vec<u64>>::new();
     let mut zone_aggregates = BTreeMap::<String, ProfilerZoneAggregate>::new();
     let mut unmatched_end_count = 0_usize;
     loop {
-        line.clear();
-        let byte_count = reader
-            .read_until(b'\n', &mut line)
+        let has_record = reader
+            .read_record(&mut record)
             .map_err(|error| format!("cannot stream {}: {error}", profiler_path.display()))?;
-        if byte_count == 0 {
+        if !has_record {
             break;
         }
-        if byte_count > MAX_PROFILER_LINE_BYTES {
+        let next_byte_position = reader.position().byte();
+        let record_byte_count = next_byte_position
+            .checked_sub(previous_byte_position)
+            .ok_or_else(|| "profiler record byte position moved backward".to_owned())?;
+        if record_byte_count > MAX_PROFILER_LINE_BYTES as u64 {
             return Err(format!(
                 "profiler line {} exceeds {} bytes",
                 line_index + 1,
                 MAX_PROFILER_LINE_BYTES
             ));
         }
-        raw_byte_count = raw_byte_count
-            .checked_add(byte_count as u64)
-            .ok_or_else(|| "profiler byte count overflowed".to_owned())?;
-        hasher.update(&line);
-        if let Some(card_id) = profiler_card_from_line(&line, line_index)? {
+        previous_byte_position = next_byte_position;
+        if let Some(card_id) = profiler_card_from_record(&record, line_index)? {
             if !profiler_binding_matches(card_id, worker.card_id) {
                 return Err(format!(
                     "profiler line {} attributes logical card {card_id}, expected filtered logical card {} for physical card {}",
@@ -887,7 +1383,7 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
             data_row_count = data_row_count
                 .checked_add(1)
                 .ok_or_else(|| "profiler row count overflowed".to_owned())?;
-            if let Some(event) = profiler_event_from_line(&line, line_index)? {
+            if let Some(event) = profiler_event_from_record(&record, line_index, card_id)? {
                 if event.logical_card_id != card_id {
                     return Err(format!(
                         "profiler line {} parser card mismatch",
@@ -941,7 +1437,7 @@ fn summarize_profiler(worker: &WorkerProcess) -> Result<(), String> {
             worker.card_id
         ));
     }
-    let raw_blake3 = hasher.finalize().to_hex().to_string();
+    let (raw_byte_count, raw_blake3) = reader.into_inner().finish();
     let summary_path = worker.root.join(PROFILER_SUMMARY_FILENAME);
     let summary = format!(
         "physical_card_id,logical_card_id,raw_blake3,raw_byte_count,data_row_count,raw_csv_retained\n{},{},{},{},{},false\n",
@@ -1014,8 +1510,11 @@ fn validate_worker(
     workload: &BenchmarkWorkload,
     profile: &ThroughputProfile,
     collect_profiler: bool,
+    stall_probe: bool,
     wkv_policy: WkvPolicy,
 ) -> Result<(), String> {
+    let wall_clock_elapsed =
+        wall_clock_elapsed_seconds(receipt.timed_start_unix_ns, receipt.timed_end_unix_ns)?;
     if receipt.schema_version != SCHEMA_VERSION
         || receipt.run_id.is_empty()
         || receipt.physical_device_ids != vec![worker.card_id]
@@ -1025,12 +1524,36 @@ fn validate_worker(
         || receipt.profiler_attributed != collect_profiler
         || !receipt.elapsed_seconds.is_finite()
         || receipt.elapsed_seconds <= 0.0
+        || (wall_clock_elapsed - receipt.elapsed_seconds).abs()
+            > WALL_CLOCK_CORRELATION_TOLERANCE_SECONDS
     {
         return Err(format!(
             "card {} returned malformed worker evidence",
             worker.card_id
         ));
     }
+    match (
+        stall_probe,
+        receipt.stall_probe_step_wall_seconds.as_deref(),
+        receipt.stall_probe_step_boundary_timings.as_deref(),
+    ) {
+        (true, Some(steps), Some(boundaries)) if steps.len() == receipt.batch_step_count => {
+            maximum_step(steps)?;
+            validate_step_boundary_timings(boundaries, receipt.batch_step_count)?;
+        }
+        (false, None, None) => {}
+        _ => {
+            return Err(format!(
+                "card {} returned malformed stall step evidence",
+                worker.card_id
+            ));
+        }
+    }
+    let expected_warmup_token_count = if stall_probe {
+        PROFILER_WARMUP_TOKEN_COUNT
+    } else {
+        profile.timing.warmup_token_count
+    };
     let expected_execution = (
         "deterministic_continuous_batching",
         "least_loaded_card_then_lowest_card_then_lowest_slot",
@@ -1046,7 +1569,7 @@ fn validate_worker(
         receipt.execution.timed_region.as_str(),
     );
     if actual_execution != expected_execution
-        || receipt.execution.warmup_token_count != profile.timing.warmup_token_count
+        || receipt.execution.warmup_token_count != expected_warmup_token_count
         || !receipt.execution.program_cache_stable
         || !receipt.execution.dynamic_token_and_state_bindings_validated
         || receipt.execution.state_readback_during_timing
@@ -1106,6 +1629,7 @@ fn validate_worker(
     }
     let profiler_path = worker.root.join(PROFILER_RELATIVE_PATH);
     if collect_profiler {
+        require_complete_profiler_output(worker)?;
         summarize_profiler(worker)?;
     } else if profiler_path.exists() {
         return Err(format!(
@@ -1160,6 +1684,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
         workload,
         profile,
         collect_profiler,
+        stall_probe,
         profiler_attested,
         wkv_policy,
     } = request;
@@ -1200,6 +1725,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
                 workload,
                 profile,
                 collect_profiler,
+                stall_probe,
                 wkv_policy,
             });
             match result {
@@ -1221,6 +1747,7 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
                 workload,
                 profile,
                 collect_profiler,
+                stall_probe,
                 wkv_policy,
             )?;
             worker_timings.push(WorkerTiming {
@@ -1260,10 +1787,179 @@ fn run_sample(request: SampleRequest<'_>) -> Result<ThroughputRun, String> {
     })
 }
 
+fn load_stall_capture_sample(
+    output_root: &Path,
+    sample_index: usize,
+    wave_elapsed_seconds: f64,
+) -> Result<StallCaptureSample, String> {
+    let run_root = output_root.join(format!("{STALL_CAPTURE_TOPOLOGY}-{sample_index}"));
+    let mut workers = Vec::with_capacity(TWO_CARD_IDS.len());
+    let mut worker_timings = Vec::with_capacity(TWO_CARD_IDS.len());
+    for physical_card_id in TWO_CARD_IDS {
+        let worker_root = run_root
+            .join("wave-0")
+            .join(format!("card-{physical_card_id}"));
+        let receipt: WorkerReceipt = read_json(&worker_root.join("receipt.json"))?;
+        worker_timings.push(WorkerTiming {
+            start_monotonic_ns: receipt.timed_start_monotonic_ns,
+            end_monotonic_ns: receipt.timed_end_monotonic_ns,
+            elapsed_seconds: receipt.elapsed_seconds,
+        });
+        let step_wall_seconds = receipt
+            .stall_probe_step_wall_seconds
+            .ok_or_else(|| "profiled stall capture omitted step timings".to_owned())?;
+        if step_wall_seconds.len() != receipt.batch_step_count {
+            return Err("profiled stall capture step count is inconsistent".to_owned());
+        }
+        let step_boundary_timings = receipt
+            .stall_probe_step_boundary_timings
+            .ok_or_else(|| "profiled stall capture omitted boundary timings".to_owned())?;
+        validate_step_boundary_timings(&step_boundary_timings, receipt.batch_step_count)?;
+        let (maximum_step_index, maximum_step_wall_seconds) = maximum_step(&step_wall_seconds)?;
+        let summed_step_wall_seconds = step_wall_seconds.iter().sum::<f64>();
+        if !summed_step_wall_seconds.is_finite() || summed_step_wall_seconds <= 0.0 {
+            return Err("profiled stall capture step sum is not finite and positive".to_owned());
+        }
+        let profiler: ProfilerProgramSignature =
+            read_json(&worker_root.join(PROFILER_PROGRAM_SIGNATURE_FILENAME))?;
+        if profiler.schema_version != SCHEMA_VERSION
+            || profiler.logical_card_id != FILTERED_WORKER_LOGICAL_CARD_ID
+            || profiler.physical_card_id != physical_card_id
+            || profiler.unmatched_start_count != 0
+            || profiler.unmatched_end_count != 0
+            || profiler.total_zone_cycles == 0
+        {
+            return Err(format!(
+                "card {physical_card_id} returned malformed stall profiler evidence"
+            ));
+        }
+        workers.push(StallCaptureWorker {
+            physical_card_id,
+            elapsed_seconds: receipt.elapsed_seconds,
+            timed_start_unix_ns: receipt.timed_start_unix_ns,
+            timed_end_unix_ns: receipt.timed_end_unix_ns,
+            host_gap_accumulated_seconds: receipt.host_gap_accumulated_seconds,
+            batch_step_count: receipt.batch_step_count,
+            maximum_step_index,
+            maximum_step_wall_seconds,
+            summed_step_wall_seconds,
+            step_wall_seconds,
+            step_boundary_timings,
+            profiler,
+        });
+    }
+    let wave_timing = synchronized_wave_timing(&worker_timings)?;
+    if (wave_timing.elapsed_seconds - wave_elapsed_seconds).abs() > WORKER_ELAPSED_TOLERANCE_SECONDS
+    {
+        return Err("stall capture wave timing changed during collection".to_owned());
+    }
+    Ok(StallCaptureSample {
+        sample_index,
+        wave_elapsed_seconds,
+        start_skew_seconds: wave_timing.start_skew_seconds,
+        workers,
+    })
+}
+
+fn run_stall_capture(arguments: &[String], sample_count: usize) -> Result<(), String> {
+    let profile_path = require_input_file(&arguments[STALL_CAPTURE_PROFILE_ARGUMENT_INDEX])?;
+    let workload_path = require_input_file(&arguments[STALL_CAPTURE_REQUESTS_ARGUMENT_INDEX])?;
+    let output_root = require_new_output_root(&arguments[STALL_CAPTURE_OUTPUT_ARGUMENT_INDEX])?;
+    let profile: ThroughputProfile = read_json(&profile_path)?;
+    let workload: BenchmarkWorkload = read_json(&workload_path)?;
+    validate_workload(&workload, &profile)?;
+    if profile.workload.generated_token_count
+        != usize::try_from(PROFILER_GENERATED_TOKEN_COUNT)
+            .map_err(|_| "profiler token count does not fit usize".to_owned())?
+        || profile.timing.warmup_token_count != PROFILER_WARMUP_TOKEN_COUNT
+    {
+        return Err(format!(
+            "stall capture requires exactly {PROFILER_GENERATED_TOKEN_COUNT} generated token and {PROFILER_WARMUP_TOKEN_COUNT} warmup token"
+        ));
+    }
+    let expected_request_count = profile
+        .scheduler
+        .per_card_slot_count
+        .checked_mul(TWO_CARD_IDS.len())
+        .ok_or_else(|| "stall capture request count overflowed".to_owned())?;
+    if workload.requests.len() != expected_request_count {
+        return Err(format!(
+            "stall capture requires exactly {expected_request_count} requests"
+        ));
+    }
+    let profile_identity_blake3 = profile_identity(&profile).map_err(|error| error.to_string())?;
+    let runtime = runtime_executable()?;
+    let tt_smi = tt_smi_executable()?;
+    let machine_facts_before = capture_machine_snapshot(&tt_smi, &output_root, "before")?;
+    let mut samples = Vec::with_capacity(sample_count);
+    for sample_index in 0..sample_count {
+        let run = run_sample(SampleRequest {
+            runtime: &runtime,
+            root: &output_root,
+            topology: STALL_CAPTURE_TOPOLOGY,
+            sample_index,
+            card_ids: &TWO_CARD_IDS,
+            workload: &workload,
+            profile: &profile,
+            collect_profiler: true,
+            stall_probe: true,
+            profiler_attested: true,
+            wkv_policy: WkvPolicy::FusedCandidate,
+        })?;
+        samples.push(load_stall_capture_sample(
+            &output_root,
+            sample_index,
+            run.elapsed_seconds,
+        )?);
+    }
+    let machine_facts_after = capture_machine_snapshot(&tt_smi, &output_root, "after")?;
+    let elapsed_seconds = samples
+        .iter()
+        .map(|sample| sample.wave_elapsed_seconds)
+        .collect::<Vec<_>>();
+    let (normal_index, slow_index) = stall_capture_extremes(&elapsed_seconds)?;
+    let comparison = compare_stall_capture_samples(&samples[normal_index], &samples[slow_index])?;
+    let receipt_path = output_root.join("stall-capture.json");
+    write_new_json(
+        &receipt_path,
+        &json!({
+            "schema_version": SCHEMA_VERSION,
+            "kind": "rwkv7_fused_wkv_physical_stall_capture",
+            "status": "diagnostic_only",
+            "physical_hardware": true,
+            "exact_generated_token_parity": true,
+            "wkv_execution_policy": WkvPolicy::FusedCandidate.as_str(),
+            "production_physically_admitted": false,
+            "profile_identity_blake3": profile_identity_blake3,
+            "sample_count": sample_count,
+            "timed_samples_profiled": true,
+            "warmup_token_count": PROFILER_WARMUP_TOKEN_COUNT,
+            "generated_token_count": PROFILER_GENERATED_TOKEN_COUNT,
+            "profiler_program_support_count": STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT,
+            "profiler_flush_during_timing": false,
+            "dropped_profiler_markers": false,
+            "raw_profiler_csv_retained": false,
+            "machine_facts_before_blake3": machine_facts_before,
+            "machine_facts_after_blake3": machine_facts_after,
+            "comparison": comparison,
+            "samples": samples,
+        }),
+    )?;
+    write_new_json(
+        &output_root.join("manifest.json"),
+        &BTreeMap::from([("stall_capture", receipt_path)]),
+    )?;
+    println!("{}", output_root.display());
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let arguments = std::env::args()
         .skip(PROGRAM_ARGUMENT_COUNT)
         .collect::<Vec<_>>();
+    if let Some(sample_count) = parse_stall_capture_sample_count(&arguments)? {
+        return run_stall_capture(&arguments, sample_count);
+    }
     let (wkv_policy, argument_offset) = parse_wkv_policy(&arguments)?;
     let profile_path = require_input_file(&arguments[argument_offset + PROFILE_ARGUMENT_INDEX])?;
     let workload_path = require_input_file(&arguments[argument_offset + REQUESTS_ARGUMENT_INDEX])?;
@@ -1272,6 +1968,7 @@ fn run() -> Result<(), String> {
     let workload: BenchmarkWorkload = read_json(&workload_path)?;
     validate_workload(&workload, &profile)?;
     let identity = profile_identity(&profile).map_err(|error| error.to_string())?;
+    let profiler_workload = bounded_profiler_workload(&workload)?;
     let runtime = runtime_executable()?;
     let tt_smi = tt_smi_executable()?;
     let machine_facts_before = capture_machine_snapshot(&tt_smi, &output_root, "before")?;
@@ -1282,9 +1979,10 @@ fn run() -> Result<(), String> {
         topology: "profiler-single",
         sample_index: 0,
         card_ids: &ONE_CARD_IDS,
-        workload: &workload,
+        workload: &profiler_workload,
         profile: &profile,
         collect_profiler: true,
+        stall_probe: true,
         profiler_attested: true,
         wkv_policy,
     })?;
@@ -1294,9 +1992,10 @@ fn run() -> Result<(), String> {
         topology: "profiler-dual",
         sample_index: 0,
         card_ids: &TWO_CARD_IDS,
-        workload: &workload,
+        workload: &profiler_workload,
         profile: &profile,
         collect_profiler: true,
+        stall_probe: true,
         profiler_attested: true,
         wkv_policy,
     })?;
@@ -1307,9 +2006,10 @@ fn run() -> Result<(), String> {
             topology: "profiler-generic-single",
             sample_index: 0,
             card_ids: &ONE_CARD_IDS,
-            workload: &workload,
+            workload: &profiler_workload,
             profile: &profile,
             collect_profiler: true,
+            stall_probe: true,
             profiler_attested: true,
             wkv_policy: WkvPolicy::Production,
         })?)
@@ -1323,9 +2023,10 @@ fn run() -> Result<(), String> {
             topology: "profiler-generic-dual",
             sample_index: 0,
             card_ids: &TWO_CARD_IDS,
-            workload: &workload,
+            workload: &profiler_workload,
             profile: &profile,
             collect_profiler: true,
+            stall_probe: true,
             profiler_attested: true,
             wkv_policy: WkvPolicy::Production,
         })?)
@@ -1345,6 +2046,9 @@ fn run() -> Result<(), String> {
             "baseline_single_run_id": baseline_profiler_single.as_ref().map(|run| &run.run_id),
             "baseline_dual_run_id": baseline_profiler_dual.as_ref().map(|run| &run.run_id),
             "timed_samples_profiled": false,
+            "profiled_warmup_token_count": PROFILER_WARMUP_TOKEN_COUNT,
+            "profiled_generated_token_count": PROFILER_GENERATED_TOKEN_COUNT,
+            "dropped_profiler_markers": false,
             "program_signature_filename": PROFILER_PROGRAM_SIGNATURE_FILENAME,
             "wkv_execution_policy": wkv_policy.as_str(),
             "production_physically_admitted": false,
@@ -1378,6 +2082,7 @@ fn run() -> Result<(), String> {
                 workload: &workload,
                 profile: &profile,
                 collect_profiler: false,
+                stall_probe: false,
                 profiler_attested: true,
                 wkv_policy: sample_policy,
             })?;
@@ -1410,6 +2115,7 @@ fn run() -> Result<(), String> {
                 workload: &workload,
                 profile: &profile,
                 collect_profiler: false,
+                stall_probe: false,
                 profiler_attested: true,
                 wkv_policy: sample_policy,
             })?;
@@ -1604,6 +2310,350 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BLAKE3_HEX_LENGTH: usize = 64;
+    const TEST_RATIO_ULP_MARGIN: f64 = 2.0;
+    const TEST_RATIO_TOLERANCE: f64 = TEST_RATIO_ULP_MARGIN * f64::EPSILON;
+
+    fn stall_capture_worker(
+        physical_card_id: usize,
+        total_zone_cycles: u64,
+        maximum_step_wall_seconds: f64,
+        summed_step_wall_seconds: f64,
+    ) -> StallCaptureWorker {
+        const TEST_HOST_GAP_SECONDS: f64 = 0.001;
+        const TEST_BATCH_STEP_COUNT: usize = 2;
+        const TEST_PROFILER_DATA_ROWS: usize = 2;
+        const TEST_START_UNIX_NS: u64 = 1_000_000_000;
+        const TEST_READBACK_COMPONENT_FRACTION: f64 = 0.05;
+        const TEST_READBACK_COMPONENT_COUNT: f64 = 3.0;
+        let elapsed_ns = Duration::from_secs_f64(summed_step_wall_seconds).as_nanos() as u64;
+        let prompt_step_seconds = summed_step_wall_seconds - maximum_step_wall_seconds;
+        let readback_component_seconds =
+            maximum_step_wall_seconds * TEST_READBACK_COMPONENT_FRACTION;
+        let selection_model_seconds =
+            maximum_step_wall_seconds - readback_component_seconds * TEST_READBACK_COMPONENT_COUNT;
+        StallCaptureWorker {
+            physical_card_id,
+            elapsed_seconds: summed_step_wall_seconds,
+            timed_start_unix_ns: TEST_START_UNIX_NS,
+            timed_end_unix_ns: TEST_START_UNIX_NS + elapsed_ns,
+            host_gap_accumulated_seconds: TEST_HOST_GAP_SECONDS,
+            batch_step_count: TEST_BATCH_STEP_COUNT,
+            maximum_step_index: 1,
+            maximum_step_wall_seconds,
+            summed_step_wall_seconds,
+            step_wall_seconds: vec![prompt_step_seconds, maximum_step_wall_seconds],
+            step_boundary_timings: vec![
+                StallProbeStepBoundaryTiming {
+                    selection_requested: false,
+                    model_submission_seconds: prompt_step_seconds,
+                    layer_submission_seconds: vec![
+                        prompt_step_seconds / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
+                    blocking_readback_seconds: 0.0,
+                    host_materialization_seconds: 0.0,
+                    readback_validation_seconds: 0.0,
+                    total_seconds: prompt_step_seconds,
+                },
+                StallProbeStepBoundaryTiming {
+                    selection_requested: true,
+                    model_submission_seconds: selection_model_seconds,
+                    layer_submission_seconds: vec![
+                        selection_model_seconds
+                            / RWKV7_LAYER_COUNT as f64;
+                        RWKV7_LAYER_COUNT
+                    ],
+                    blocking_readback_seconds: readback_component_seconds,
+                    host_materialization_seconds: readback_component_seconds,
+                    readback_validation_seconds: readback_component_seconds,
+                    total_seconds: maximum_step_wall_seconds,
+                },
+            ],
+            profiler: ProfilerProgramSignature {
+                schema_version: SCHEMA_VERSION,
+                logical_card_id: FILTERED_WORKER_LOGICAL_CARD_ID,
+                physical_card_id,
+                raw_blake3: "a".repeat(BLAKE3_HEX_LENGTH),
+                data_row_count: TEST_PROFILER_DATA_ROWS,
+                complete_zone_event_count: 1,
+                unmatched_start_count: 0,
+                unmatched_end_count: 0,
+                total_zone_cycles,
+                zones: BTreeMap::from([(
+                    "TRISC-KERNEL".to_owned(),
+                    ProfilerZoneAggregate {
+                        start_count: 1,
+                        complete_count: 1,
+                        total_cycles: total_zone_cycles,
+                        maximum_cycles: total_zone_cycles,
+                    },
+                )]),
+                program_signature_blake3: "b".repeat(BLAKE3_HEX_LENGTH),
+            },
+        }
+    }
+
+    #[test]
+    fn stall_probe_uses_bounded_profiler_program_capacity() {
+        assert_eq!(
+            profiler_program_support_count(true, true).expect("profiled stall probe"),
+            Some(STALL_PROBE_PROFILER_PROGRAM_SUPPORT_COUNT)
+        );
+        assert_eq!(
+            profiler_program_support_count(true, false).expect("ordinary profiler sample"),
+            None
+        );
+    }
+
+    #[test]
+    fn stall_probe_rejects_missing_profiler_collection() {
+        assert!(
+            profiler_program_support_count(false, true)
+                .expect_err("unprofiled stall probe must fail")
+                .contains("requires device-profiler collection")
+        );
+    }
+
+    #[test]
+    fn stall_capture_parser_accepts_bounded_samples() {
+        const TEST_SAMPLE_COUNT: usize = 6;
+        let arguments = vec![
+            STALL_CAPTURE_MODE.to_owned(),
+            TEST_SAMPLE_COUNT.to_string(),
+            "profile".to_owned(),
+            "workload".to_owned(),
+            "output".to_owned(),
+        ];
+        assert_eq!(
+            parse_stall_capture_sample_count(&arguments),
+            Ok(Some(TEST_SAMPLE_COUNT))
+        );
+        assert_eq!(
+            parse_stall_capture_sample_count(&["profile".to_owned()]),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn stall_capture_parser_rejects_bad_counts() {
+        let above_maximum = MAXIMUM_STALL_CAPTURE_SAMPLE_COUNT
+            .checked_add(1)
+            .expect("stall capture test bound");
+        for count in [
+            "0".to_owned(),
+            above_maximum.to_string(),
+            "not-a-count".to_owned(),
+        ] {
+            let arguments = vec![
+                STALL_CAPTURE_MODE.to_owned(),
+                count,
+                "profile".to_owned(),
+                "workload".to_owned(),
+                "output".to_owned(),
+            ];
+            assert!(parse_stall_capture_sample_count(&arguments).is_err());
+        }
+    }
+
+    #[test]
+    fn wall_clock_correlation_accepts_a_positive_range() {
+        const START_UNIX_NS: u64 = 1_000_000_000;
+        const END_UNIX_NS: u64 = 1_500_000_000;
+        const EXPECTED_SECONDS: f64 = 0.5;
+        assert_eq!(
+            wall_clock_elapsed_seconds(START_UNIX_NS, END_UNIX_NS),
+            Ok(EXPECTED_SECONDS)
+        );
+    }
+
+    #[test]
+    fn wall_clock_correlation_rejects_nonpositive_ranges() {
+        const START_UNIX_NS: u64 = 1_000_000_000;
+        assert!(wall_clock_elapsed_seconds(START_UNIX_NS, START_UNIX_NS).is_err());
+        assert!(wall_clock_elapsed_seconds(START_UNIX_NS, START_UNIX_NS - 1).is_err());
+    }
+
+    #[test]
+    fn bounded_profiler_workload_keeps_one_expected_token() {
+        const SECOND_PROMPT_TOKEN: u32 = 2;
+        const FULL_GENERATED_TOKEN_COUNT: u32 = 2;
+        const FIRST_EXPECTED_TOKEN: u32 = 39;
+        const SECOND_EXPECTED_TOKEN: u32 = 40;
+        let workload = BenchmarkWorkload {
+            schema_version: SCHEMA_VERSION,
+            cpu_reference_profile_blake3: "profile".to_owned(),
+            cpu_reference_method: CPU_REFERENCE_METHOD.to_owned(),
+            requests: vec![BenchmarkRequest {
+                request_id: "request-0".to_owned(),
+                prompt_token_ids: vec![0, SECOND_PROMPT_TOKEN],
+                max_new_tokens: FULL_GENERATED_TOKEN_COUNT,
+                expected_generated_token_ids: vec![FIRST_EXPECTED_TOKEN, SECOND_EXPECTED_TOKEN],
+            }],
+        };
+        let bounded = bounded_profiler_workload(&workload).expect("bounded profiler workload");
+        assert_eq!(
+            bounded.requests[0].max_new_tokens,
+            PROFILER_GENERATED_TOKEN_COUNT
+        );
+        assert_eq!(
+            bounded.requests[0].expected_generated_token_ids,
+            vec![FIRST_EXPECTED_TOKEN]
+        );
+    }
+
+    #[test]
+    fn bounded_profiler_workload_rejects_missing_expected_tokens() {
+        const SECOND_PROMPT_TOKEN: u32 = 2;
+        let workload = BenchmarkWorkload {
+            schema_version: SCHEMA_VERSION,
+            cpu_reference_profile_blake3: "profile".to_owned(),
+            cpu_reference_method: CPU_REFERENCE_METHOD.to_owned(),
+            requests: vec![BenchmarkRequest {
+                request_id: "request-0".to_owned(),
+                prompt_token_ids: vec![0, SECOND_PROMPT_TOKEN],
+                max_new_tokens: PROFILER_GENERATED_TOKEN_COUNT,
+                expected_generated_token_ids: Vec::new(),
+            }],
+        };
+        assert!(bounded_profiler_workload(&workload).is_err());
+    }
+
+    #[test]
+    fn profiler_marker_guard_accepts_complete_output() {
+        assert!(!profiler_output_has_dropped_markers(
+            "device profiler completed without warnings"
+        ));
+    }
+
+    #[test]
+    fn profiler_marker_guard_rejects_dropped_markers() {
+        assert!(profiler_output_has_dropped_markers(&format!(
+            "warning: {PROFILER_DROPPED_MARKER}"
+        )));
+    }
+
+    #[test]
+    fn stall_capture_cores_select_and_compare_extremes() {
+        const STEP_A: f64 = 0.1;
+        const STEP_B: f64 = 0.3;
+        const STEP_C: f64 = 0.2;
+        const NORMAL_WALL_SECONDS: f64 = 0.8;
+        const MIDDLE_WALL_SECONDS: f64 = 0.9;
+        const SLOW_WALL_SECONDS: f64 = 1.2;
+        const NORMAL_ZONE_CYCLES: u64 = 100;
+        const SLOW_ZONE_CYCLES: u64 = 110;
+        const NORMAL_STEP_SUM_SECONDS: f64 = 0.7;
+        const SLOW_MAXIMUM_STEP_SECONDS: f64 = 0.6;
+        const SLOW_STEP_SUM_SECONDS: f64 = 1.1;
+        const EXPECTED_WALL_RATIO: f64 = 1.5;
+        const EXPECTED_CYCLE_RATIO: f64 = 1.1;
+        const EXPECTED_MAXIMUM_STEP_RATIO: f64 = 2.0;
+        const EXPECTED_SUMMED_STEP_RATIO: f64 = SLOW_STEP_SUM_SECONDS / NORMAL_STEP_SUM_SECONDS;
+        assert_eq!(maximum_step(&[STEP_A, STEP_B, STEP_C]), Ok((1, STEP_B)));
+        assert_eq!(
+            stall_capture_extremes(&[NORMAL_WALL_SECONDS, SLOW_WALL_SECONDS, MIDDLE_WALL_SECONDS,]),
+            Ok((0, 1))
+        );
+        let normal = StallCaptureSample {
+            sample_index: 0,
+            wave_elapsed_seconds: NORMAL_WALL_SECONDS,
+            start_skew_seconds: 0.0,
+            workers: vec![stall_capture_worker(
+                0,
+                NORMAL_ZONE_CYCLES,
+                STEP_B,
+                NORMAL_STEP_SUM_SECONDS,
+            )],
+        };
+        let slow = StallCaptureSample {
+            sample_index: 1,
+            wave_elapsed_seconds: SLOW_WALL_SECONDS,
+            start_skew_seconds: 0.0,
+            workers: vec![stall_capture_worker(
+                0,
+                SLOW_ZONE_CYCLES,
+                SLOW_MAXIMUM_STEP_SECONDS,
+                SLOW_STEP_SUM_SECONDS,
+            )],
+        };
+        let comparison = compare_stall_capture_samples(&normal, &slow).expect("stall comparison");
+        assert_eq!(comparison.normal_sample_index, 0);
+        assert_eq!(comparison.slow_sample_index, 1);
+        assert!(
+            (comparison.wall_slowdown_ratio - EXPECTED_WALL_RATIO).abs() <= TEST_RATIO_TOLERANCE
+        );
+        assert!(
+            (comparison.cards[0].total_zone_cycle_ratio - EXPECTED_CYCLE_RATIO).abs()
+                <= TEST_RATIO_TOLERANCE
+        );
+        assert!(
+            (comparison.cards[0].maximum_step_wall_ratio - EXPECTED_MAXIMUM_STEP_RATIO).abs()
+                <= TEST_RATIO_TOLERANCE
+        );
+        assert!(
+            (comparison.cards[0].zone_total_cycle_ratios["TRISC-KERNEL"] - EXPECTED_CYCLE_RATIO)
+                .abs()
+                <= TEST_RATIO_TOLERANCE
+        );
+        assert!(
+            (comparison.cards[0].boundary.summed_total_ratio - EXPECTED_SUMMED_STEP_RATIO).abs()
+                <= TEST_RATIO_TOLERANCE
+        );
+        assert_eq!(
+            comparison.cards[0].boundary.layer_submission_ratios.len(),
+            RWKV7_LAYER_COUNT
+        );
+    }
+
+    #[test]
+    fn stall_capture_cores_reject_malformed_evidence() {
+        const TEST_WALL_SECONDS: f64 = 0.8;
+        const TEST_ZONE_CYCLES: u64 = 100;
+        const TEST_MAXIMUM_STEP_SECONDS: f64 = 0.3;
+        const TEST_STEP_SUM_SECONDS: f64 = 0.7;
+        assert!(maximum_step(&[]).is_err());
+        assert!(maximum_step(&[f64::NAN]).is_err());
+        assert!(stall_capture_extremes(&[]).is_err());
+        let normal = StallCaptureSample {
+            sample_index: 0,
+            wave_elapsed_seconds: TEST_WALL_SECONDS,
+            start_skew_seconds: 0.0,
+            workers: vec![stall_capture_worker(
+                0,
+                TEST_ZONE_CYCLES,
+                TEST_MAXIMUM_STEP_SECONDS,
+                TEST_STEP_SUM_SECONDS,
+            )],
+        };
+        let changed_owner = StallCaptureSample {
+            sample_index: 1,
+            wave_elapsed_seconds: 1.0,
+            start_skew_seconds: 0.0,
+            workers: vec![stall_capture_worker(
+                1,
+                TEST_ZONE_CYCLES,
+                TEST_MAXIMUM_STEP_SECONDS,
+                TEST_STEP_SUM_SECONDS,
+            )],
+        };
+        assert!(compare_stall_capture_samples(&normal, &changed_owner).is_err());
+        let mut missing_zone = normal.clone();
+        missing_zone.workers[0].profiler.zones.clear();
+        assert!(compare_stall_capture_samples(&normal, &missing_zone).is_err());
+        let mut malformed_boundary = normal.clone();
+        malformed_boundary.workers[0].step_boundary_timings[0]
+            .layer_submission_seconds
+            .clear();
+        assert!(
+            compare_boundary_timings(
+                &normal.workers[0].step_boundary_timings,
+                &malformed_boundary.workers[0].step_boundary_timings,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn wkv_policy_parser_accepts_production_and_candidate_modes() {

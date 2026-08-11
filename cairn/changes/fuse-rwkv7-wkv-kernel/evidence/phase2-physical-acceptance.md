@@ -108,16 +108,37 @@ The corrected dual-card samples had start skews from `0.000145062` to `0.0005869
 | 1 | 4.211254129 | 0.88987098 |
 | 2 | 1.133233418 | 0.807229785 |
 
-The slow card changed between runs and policies. This pattern does not isolate the stall to the fused WKV kernel.
+The slow card changed between runs and policies. This pattern did not isolate the stall to the fused WKV kernel.
 
-The retained profiler sample was normal: the fused dual-card wave took `0.742919984` seconds. Timed admission samples did not flush device profiles. Therefore, the current evidence cannot assign the rare slow wave to one device zone. No kernel optimization was selected without that correlation.
+A second diagnostic ran eight complete, synchronized fused waves. Each worker used one warmup token and one generated token across 32 requests.
 
-Two host-side alternatives were rejected:
+The stall capture used a profiler capacity of `40000`. It rejected dropped markers, retained BLAKE3 summaries, and deleted all raw profiler CSV files.
+
+Sample 2 was the fastest wave at `0.719589264` seconds. Sample 1 was the slowest wave at `2.534321332` seconds.
+
+The slow wave was `3.521899865365418` times longer. Its start skew was only `0.00026138` seconds.
+
+The card-0 and card-1 model-submission ratios were `3.4537093166911976` and `3.5325222263615386`. Their blocking-readback ratios were `1.2684559986817652` and `0.977476986844158`.
+
+All 12 layer-submission ratios increased on both cards. They ranged from `3.175938040353203` through `3.926601936320196`.
+
+Device work did not increase. Total profiler-zone cycles fell to `0.9024900293902967` and `0.8992396738414313` of the normal sample.
+
+The measured stall boundary is the host-visible return from each layer submission. It is not blocking readback or increased device-kernel execution.
+
+The receipt does not identify a smaller call inside each layer. A kernel change is not justified by this evidence.
+
+Real-time-profiler synchronization logs did not overlap the timed normal or slow windows. Therefore, an attribution-removing runtime variant was not built.
+
+Two host-side alternatives were also rejected:
 
 - parity and contiguous CPU-affinity partitions made dual fused execution slower;
-- Ethernet dispatch failed on the installed `1.4.2` Ethernet firmware because `idle_erisc.elf` exceeded the available code region.
+- Ethernet dispatch failed because `idle_erisc.elf` exceeded the code region on Ethernet firmware `1.4.2`.
 
-Bounded timing evidence: `phase2-fused-wkv-synchronized-timing.json`.
+Bounded evidence:
+
+- `phase2-fused-wkv-synchronized-timing.json`;
+- `phase2-fused-wkv-stall-capture.json`.
 
 ## Strict admission blocker
 

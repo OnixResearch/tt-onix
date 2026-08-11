@@ -83,6 +83,40 @@ The timed region contains warmed prompt and decode operations. It excludes:
 
 The worker flushes the device profiler after timing.
 
+### Fused WKV stall capture
+
+Use the bounded stall mode to compare synchronized, dual-card fused samples:
+
+```sh
+PROFILE="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-stall-profile.json"
+WORKLOAD="$EVIDENCE/share/rwkv7-p150x2-throughput/fused-wkv-stall-workload.json"
+"$EVIDENCE/bin/rwkv7-p150x2-throughput-benchmark" \
+  --fused-wkv-stall-capture SAMPLE_COUNT \
+  "$PROFILE" "$WORKLOAD" /absolute/new/stall-capture-root
+```
+
+The sample count must be from 1 through 16. The diagnostic profile uses one warmup token and one timed token.
+
+Each stall-probe worker sets `TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT=40000`. This value is 40 times the TT-Metal default. It gives prompt setup and timed decode a bounded device-profiler buffer.
+
+The command rejects every sample that reports dropped profiler markers.
+
+Each sample records step wall time and Unix time bounds in memory. These bounds correlate the timed region with TT-Metal synchronization logs.
+
+The diagnostic worker also records model-submission time and each layer-submission time. Normal workers do not collect these boundary timings.
+
+For selected steps, the worker separates the blocking device readback from host materialization and validation.
+
+The final receipt compares the fastest and slowest valid samples. It includes card ownership, boundary timing, zone cycles, and program signatures.
+
+An eight-sample physical capture found a `3.521899865365418` slow wave. Model-submission time increased by `3.45-3.53x` on both cards.
+
+Blocking readback changed by only `0.98-1.27x`. Device profiler-zone cycles fell to `0.90x` of the normal sample.
+
+The measured boundary is the host-visible return from each layer submission. The capture does not identify a smaller TT-NN or TT-Metal call.
+
+The summarizer deletes each raw profiler CSV. This mode is diagnostic only. It cannot enable production admission.
+
 ## Simulator smoke
 
 Run the bounded Blackhole `1x1` smoke before a new physical attempt:

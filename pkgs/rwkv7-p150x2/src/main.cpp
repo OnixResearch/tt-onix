@@ -172,8 +172,10 @@ constexpr std::size_t kFastTimedStartBarrierNameIndex = 16U;
 constexpr std::size_t kFastTimedStartBarrierValueIndex = 17U;
 constexpr auto kFastBarrierPollInterval = std::chrono::milliseconds(1);
 constexpr auto kFastBarrierTimeout = std::chrono::seconds(120);
+constexpr double kFastBoundaryTimingToleranceSeconds = 1.0e-4;
 constexpr std::size_t kFastPerCardSlotCount = 4U;
 constexpr std::uint32_t kFastWarmupTokenCount = 4U;
+constexpr std::uint32_t kStallProbeWarmupTokenCount = 1U;
 constexpr std::uint32_t kFastMaximumGeneratedTokens = 64U;
 constexpr std::uint64_t kCapacityTokenShiftBufferCount = 2U;
 constexpr std::uint64_t kCapacityFp32Bytes = 4U;
@@ -1527,24 +1529,98 @@ read_u32_shards(DeviceContext &context, const Tensor &input) {
   return {first[kFirstIndex], second[kFirstIndex]};
 }
 
+struct FastStepBoundaryTiming {
+  bool selection_requested = false;
+  double model_submission_seconds = 0.0;
+  std::vector<double> layer_submission_seconds;
+  double blocking_readback_seconds = 0.0;
+  double host_materialization_seconds = 0.0;
+  double readback_validation_seconds = 0.0;
+  double total_seconds = 0.0;
+};
+
+double elapsed_seconds_between(std::chrono::steady_clock::time_point begin,
+                               std::chrono::steady_clock::time_point end) {
+  require(end >= begin, "fast boundary timing range is negative");
+  return std::chrono::duration<double>(end - begin).count();
+}
+
+void validate_fast_step_boundary_timing(
+    const FastStepBoundaryTiming &timing) {
+  require(timing.layer_submission_seconds.size() == kLayerCount,
+          "fast boundary timing layer count is invalid");
+  const std::array scalar_timings = {
+      timing.model_submission_seconds,
+      timing.blocking_readback_seconds,
+      timing.host_materialization_seconds,
+      timing.readback_validation_seconds,
+      timing.total_seconds};
+  for (const double seconds : scalar_timings) {
+    require(std::isfinite(seconds) && seconds >= 0.0,
+            "fast boundary timing is not finite and non-negative");
+  }
+  double summed_layer_seconds = 0.0;
+  for (const double seconds : timing.layer_submission_seconds) {
+    require(std::isfinite(seconds) && seconds >= 0.0,
+            "fast layer boundary timing is not finite and non-negative");
+    summed_layer_seconds += seconds;
+  }
+  require(summed_layer_seconds <= timing.model_submission_seconds +
+                                      kFastBoundaryTimingToleranceSeconds,
+          "fast layer timings exceed model submission time");
+  const double classified_seconds =
+      timing.model_submission_seconds + timing.blocking_readback_seconds +
+      timing.host_materialization_seconds +
+      timing.readback_validation_seconds;
+  require(std::abs(classified_seconds - timing.total_seconds) <=
+              kFastBoundaryTimingToleranceSeconds,
+          "fast boundary timings do not cover the full step");
+  if (!timing.selection_requested) {
+    require(timing.blocking_readback_seconds == 0.0 &&
+                timing.host_materialization_seconds == 0.0 &&
+                timing.readback_validation_seconds == 0.0,
+            "fast non-selection step contains readback timing");
+  }
+}
+
 std::vector<std::uint32_t>
 read_fast_u32(DeviceContext &context, const Tensor &input,
-              std::size_t batch_size, std::size_t max_slot_count) {
+              std::size_t batch_size, std::size_t max_slot_count,
+              FastStepBoundaryTiming *boundary_timing) {
   require(batch_size > 0U && batch_size <= max_slot_count,
           "fast UINT32 readback batch size exceeds the admitted card-local capacity");
   context.set_stage("fast-selection/readback-u32");
+  const bool record_boundaries = boundary_timing != nullptr;
+  const auto readback_begin = record_boundaries
+                                  ? std::chrono::steady_clock::now()
+                                  : std::chrono::steady_clock::time_point{};
   const Tensor host = ttnn::from_device(input, true);
+  const auto readback_end = record_boundaries
+                                ? std::chrono::steady_clock::now()
+                                : std::chrono::steady_clock::time_point{};
   const std::vector<Tensor> shards =
       ttnn::distributed::get_device_tensors(host);
   require(shards.size() == 1U,
           "fast UINT32 readback did not contain one card shard");
   std::vector<std::uint32_t> values =
       shards[kFirstIndex].to_vector<std::uint32_t>();
+  const auto materialization_end =
+      record_boundaries ? std::chrono::steady_clock::now()
+                        : std::chrono::steady_clock::time_point{};
   require(values.size() == batch_size,
           "fast device argmax did not return one value per batch row");
   for (const std::uint32_t value : values) {
     require(value < kVocabularySize,
             "fast device argmax selected an invalid token ID");
+  }
+  if (record_boundaries) {
+    const auto validation_end = std::chrono::steady_clock::now();
+    boundary_timing->blocking_readback_seconds =
+        elapsed_seconds_between(readback_begin, readback_end);
+    boundary_timing->host_materialization_seconds =
+        elapsed_seconds_between(readback_end, materialization_end);
+    boundary_timing->readback_validation_seconds =
+        elapsed_seconds_between(materialization_end, validation_end);
   }
   return values;
 }
@@ -2121,11 +2197,21 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
                     const std::vector<std::uint32_t> &input_tokens,
                     bool select_tokens, std::uint64_t step_index,
                     std::size_t max_slot_count,
-                    WkvExecutionPolicy wkv_execution_policy) {
+                    WkvExecutionPolicy wkv_execution_policy,
+                    FastStepBoundaryTiming *boundary_timing = nullptr) {
   require(!input_tokens.empty() && input_tokens.size() <= max_slot_count,
           "fast model batch size exceeds the admitted card-local capacity");
   require(state.layers.size() == kLayerCount,
           "fast model state has the wrong layer count");
+  const bool record_boundaries = boundary_timing != nullptr;
+  const auto step_begin = record_boundaries
+                              ? std::chrono::steady_clock::now()
+                              : std::chrono::steady_clock::time_point{};
+  if (record_boundaries) {
+    *boundary_timing = FastStepBoundaryTiming{};
+    boundary_timing->selection_requested = select_tokens;
+    boundary_timing->layer_submission_seconds.reserve(kLayerCount);
+  }
   const auto batch_size = static_cast<std::uint32_t>(input_tokens.size());
   require(state.layers[kFirstIndex].matrix.logical_shape()[0] == batch_size,
           "fast model state batch size differs from token batch size");
@@ -2143,15 +2229,31 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   std::optional<Tensor> value_anchor;
   for (std::uint32_t layer_index = 0U; layer_index < kLayerCount;
        ++layer_index) {
+    const auto layer_begin = record_boundaries
+                                 ? std::chrono::steady_clock::now()
+                                 : std::chrono::steady_clock::time_point{};
     const std::string stage_prefix =
         step_name + "/layer-" + std::to_string(layer_index);
     hidden = execute_layer(context, weights.layers[layer_index], hidden,
                            state.layers[layer_index], value_anchor,
                            stage_prefix, wkv_execution_policy);
+    if (record_boundaries) {
+      boundary_timing->layer_submission_seconds.push_back(
+          elapsed_seconds_between(layer_begin,
+                                  std::chrono::steady_clock::now()));
+    }
   }
   require(value_anchor.has_value(),
           "fast full model did not establish the token-local value anchor");
   if (!select_tokens) {
+    if (record_boundaries) {
+      const auto step_end = std::chrono::steady_clock::now();
+      boundary_timing->model_submission_seconds =
+          elapsed_seconds_between(step_begin, step_end);
+      boundary_timing->total_seconds =
+          boundary_timing->model_submission_seconds;
+      validate_fast_step_boundary_timing(*boundary_timing);
+    }
     return std::nullopt;
   }
   context.set_stage(step_name + "/final-normalization");
@@ -2165,8 +2267,19 @@ advance_tokens_fast(DeviceContext &context, const ModelWeights &weights,
   context.set_stage(step_name + "/greedy-selection");
   const Tensor selected = context.checked(
       ttnn::argmax(logits_row_major, kLastDimension, true), "argmax");
-  return read_fast_u32(context, selected, input_tokens.size(),
-                        input_tokens.size());
+  if (record_boundaries) {
+    boundary_timing->model_submission_seconds = elapsed_seconds_between(
+        step_begin, std::chrono::steady_clock::now());
+  }
+  std::vector<std::uint32_t> values =
+      read_fast_u32(context, selected, input_tokens.size(),
+                    input_tokens.size(), boundary_timing);
+  if (record_boundaries) {
+    boundary_timing->total_seconds = elapsed_seconds_between(
+        step_begin, std::chrono::steady_clock::now());
+    validate_fast_step_boundary_timing(*boundary_timing);
+  }
+  return values;
 }
 
 void write_json(const std::filesystem::path &path, const Json &value) {
@@ -2214,6 +2327,15 @@ std::uint64_t monotonic_nanoseconds(
                          time_point.time_since_epoch())
                          .count();
   require(count >= 0, "monotonic clock returned a negative timestamp");
+  return static_cast<std::uint64_t>(count);
+}
+
+std::uint64_t unix_nanoseconds(
+    std::chrono::system_clock::time_point time_point) {
+  const auto count = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         time_point.time_since_epoch())
+                         .count();
+  require(count >= 0, "wall clock returned a negative Unix timestamp");
   return static_cast<std::uint64_t>(count);
 }
 
@@ -2631,6 +2753,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   const bool profiler_attributed =
       profiler_value != nullptr &&
       std::string_view(profiler_value) == kEnabledEnvironmentValue;
+  const char *const stall_probe_value =
+      std::getenv("RWKV7_STALL_PROBE_STEPS");
+  const bool stall_probe_enabled =
+      stall_probe_value != nullptr &&
+      std::string_view(stall_probe_value) == kEnabledEnvironmentValue;
+  const std::uint32_t warmup_token_count =
+      stall_probe_enabled ? kStallProbeWarmupTokenCount
+                          : kFastWarmupTokenCount;
   const FastWorkerRequest request =
       read_fast_worker_request(arguments.requests_path);
   // The checked memory plan already ran inside the request read, before any
@@ -2657,7 +2787,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       zero_fast_model_state(context, batch_size, max_slot_count);
   std::vector<std::uint32_t> warmup_tokens(
       request.requests.size(), kGenerationEosToken);
-  for (std::uint32_t index = 0U; index < kFastWarmupTokenCount; ++index) {
+  for (std::uint32_t index = 0U; index < warmup_token_count; ++index) {
     const auto selected = advance_tokens_fast(
         context, weights, warmup_state, warmup_tokens, true, index,
         max_slot_count, arguments.wkv_execution_policy);
@@ -2679,9 +2809,12 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   Json request_metrics = Json::array();
   signal_fast_barrier(arguments.timed_ready_barrier_path, "timed ready");
   wait_for_fast_barrier(arguments.timed_start_barrier_path, "timed start");
+  const auto timed_start_wall_clock = std::chrono::system_clock::now();
   const auto timed_start = std::chrono::steady_clock::now();
   const std::uint64_t timed_start_monotonic_ns =
       monotonic_nanoseconds(timed_start);
+  const std::uint64_t timed_start_unix_ns =
+      unix_nanoseconds(timed_start_wall_clock);
   for (FastSlot &slot : slots) {
     slot.started_at = timed_start;
   }
@@ -2693,14 +2826,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   double host_gap_accumulated_seconds = 0.0;
   // B16 stall probe: when RWKV7_STALL_PROBE_STEPS is set, record each decode
   // step's wall time so an intermittent slow step becomes attributable.
-  const char *const stall_probe_value =
-      std::getenv("RWKV7_STALL_PROBE_STEPS");
-  const bool stall_probe_enabled =
-      stall_probe_value != nullptr &&
-      std::string_view(stall_probe_value) == kEnabledEnvironmentValue;
   std::vector<double> step_wall_seconds;
+  std::vector<FastStepBoundaryTiming> step_boundary_timings;
   if (stall_probe_enabled) {
-    step_wall_seconds.reserve(128);
+    step_wall_seconds.reserve(kFastMaximumGeneratedTokens);
+    step_boundary_timings.reserve(kFastMaximumGeneratedTokens);
   }
   while (completed_count < slots.size()) {
     const std::vector<bool> completed_before = completed;
@@ -2709,10 +2839,13 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
         plan_fast_batch_step(slots, completed, max_slot_count);
     const auto plan_end = std::chrono::steady_clock::now();
     const auto device_begin = plan_end;
+    FastStepBoundaryTiming step_boundary_timing;
+    FastStepBoundaryTiming *const step_boundary_timing_output =
+        stall_probe_enabled ? &step_boundary_timing : nullptr;
     const auto selected = advance_tokens_fast(
         context, weights, state, plan.input_tokens,
         plan.any_selection_required, batch_step_count, max_slot_count,
-        arguments.wkv_execution_policy);
+        arguments.wkv_execution_policy, step_boundary_timing_output);
     const auto device_end = std::chrono::steady_clock::now();
     const auto apply_begin = device_end;
     apply_fast_batch_step(slots, completed, plan, selected);
@@ -2725,6 +2858,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       require(std::isfinite(step_wall_seconds.back()) &&
                   step_wall_seconds.back() >= 0.0,
               "stall probe step wall time is not finite and non-negative");
+      step_boundary_timings.push_back(std::move(step_boundary_timing));
     }
     const double host_gap_seconds =
         std::chrono::duration<double>(plan_end - plan_begin).count() +
@@ -2754,9 +2888,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     }
   }
   const auto timed_end = std::chrono::steady_clock::now();
+  const auto timed_end_wall_clock = std::chrono::system_clock::now();
   const std::uint64_t timed_end_monotonic_ns = monotonic_nanoseconds(timed_end);
+  const std::uint64_t timed_end_unix_ns =
+      unix_nanoseconds(timed_end_wall_clock);
   require(timed_end_monotonic_ns > timed_start_monotonic_ns,
           "fast worker monotonic timing range is not positive");
+  require(timed_end_unix_ns > timed_start_unix_ns,
+          "fast worker wall-clock timing range is not positive");
   const double elapsed_seconds =
       std::chrono::duration<double>(timed_end - timed_start).count();
   require(std::isfinite(elapsed_seconds) && elapsed_seconds > 0.0,
@@ -2766,6 +2905,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   if (stall_probe_enabled) {
     require(step_wall_seconds.size() == batch_step_count,
             "stall probe step timing count differs from batch step count");
+    require(step_boundary_timings.size() == batch_step_count,
+            "stall probe boundary timing count differs from batch step count");
   }
   const double queue_occupancy_fraction =
       static_cast<double>(request.requests.size()) /
@@ -2788,6 +2929,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["elapsed_seconds"] = elapsed_seconds;
   receipt["timed_start_monotonic_ns"] = timed_start_monotonic_ns;
   receipt["timed_end_monotonic_ns"] = timed_end_monotonic_ns;
+  receipt["timed_start_unix_ns"] = timed_start_unix_ns;
+  receipt["timed_end_unix_ns"] = timed_end_unix_ns;
   receipt["capacity"] = {
       {"id", request.capacity.id},
       {"per_card_slot_count", max_slot_count},
@@ -2805,6 +2948,23 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       host_gap_accumulated_seconds;
   if (stall_probe_enabled) {
     receipt["stall_probe_step_wall_seconds"] = step_wall_seconds;
+    Json boundary_timings = Json::array();
+    for (const FastStepBoundaryTiming &timing : step_boundary_timings) {
+      boundary_timings.push_back(
+          Json{{"selection_requested", timing.selection_requested},
+               {"model_submission_seconds", timing.model_submission_seconds},
+               {"layer_submission_seconds",
+                timing.layer_submission_seconds},
+               {"blocking_readback_seconds",
+                timing.blocking_readback_seconds},
+               {"host_materialization_seconds",
+                timing.host_materialization_seconds},
+               {"readback_validation_seconds",
+                timing.readback_validation_seconds},
+               {"total_seconds", timing.total_seconds}});
+    }
+    receipt["stall_probe_step_boundary_timings"] =
+        std::move(boundary_timings);
   }
   receipt["requests"] = std::move(request_metrics);
   receipt["execution"] = {
@@ -2814,7 +2974,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"replica_mode", "independent_card_replica"},
       {"recurrent_state_residency", "device_fp32"},
       {"timed_region", "decode_only"},
-      {"warmup_token_count", kFastWarmupTokenCount},
+      {"warmup_token_count", warmup_token_count},
       {"program_cache_stable", true},
       {"dynamic_token_and_state_bindings_validated", true},
       {"state_readback_during_timing", false},
@@ -3270,6 +3430,36 @@ void run_self_test() {
             fast_slots, incomplete, fast_slots.size() - 1U));
       },
       "exceeds the admitted card-local capacity");
+
+  constexpr double kBoundaryTestModelSeconds = 0.3;
+  constexpr double kBoundaryTestLayerSeconds = 0.01;
+  constexpr double kBoundaryTestReadbackSeconds = 0.02;
+  constexpr double kBoundaryTestReadbackComponentCount = 3.0;
+  FastStepBoundaryTiming valid_boundary_timing{
+      true,
+      kBoundaryTestModelSeconds,
+      std::vector<double>(kLayerCount, kBoundaryTestLayerSeconds),
+      kBoundaryTestReadbackSeconds,
+      kBoundaryTestReadbackSeconds,
+      kBoundaryTestReadbackSeconds,
+      kBoundaryTestModelSeconds +
+          kBoundaryTestReadbackComponentCount * kBoundaryTestReadbackSeconds};
+  validate_fast_step_boundary_timing(valid_boundary_timing);
+  FastStepBoundaryTiming invalid_boundary_timing = valid_boundary_timing;
+  invalid_boundary_timing.layer_submission_seconds.pop_back();
+  expect_operation_failure(
+      [&invalid_boundary_timing]() {
+        validate_fast_step_boundary_timing(invalid_boundary_timing);
+      },
+      "layer count is invalid");
+  invalid_boundary_timing = valid_boundary_timing;
+  invalid_boundary_timing.total_seconds =
+      std::numeric_limits<double>::quiet_NaN();
+  expect_operation_failure(
+      [&invalid_boundary_timing]() {
+        validate_fast_step_boundary_timing(invalid_boundary_timing);
+      },
+      "not finite and non-negative");
 
   // r[verify tenstorrent.rwkv7_p150x2.scalable_card_local_batching.valid]
   // All four supported candidate capacities plan without a device.
