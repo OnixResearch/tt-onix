@@ -1,17 +1,18 @@
 use rwkv7_p150x2_evidence::persistent_decode_contract::{
     PersistentReceiptPolicy, validate_persistent_ab_receipt, validate_persistent_receipt,
-    validate_persistent_terminal_probe_receipt,
+    validate_persistent_telemetry_receipt, validate_persistent_terminal_probe_receipt,
 };
 use std::path::{Path, PathBuf};
 
 const ARGUMENT_COUNT: usize = 3;
 const POLICY_ARGUMENT_INDEX: usize = 1;
 const RECEIPT_ARGUMENT_INDEX: usize = 2;
-const USAGE: &str = "usage: rwkv7-p150x2-persistent-decode-evidence candidate|production|physical-acceptance|terminal-cancel|terminal-timeout|terminal-failure RECEIPT_JSON";
+const USAGE: &str = "usage: rwkv7-p150x2-persistent-decode-evidence candidate|production|telemetry|physical-acceptance|terminal-cancel|terminal-timeout|terminal-failure RECEIPT_JSON";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ValidationMode {
     Worker(PersistentReceiptPolicy),
+    Telemetry,
     PhysicalAcceptance,
     TerminalProbe(&'static str),
 }
@@ -23,6 +24,7 @@ fn parse_arguments(arguments: &[String]) -> Result<(ValidationMode, PathBuf), St
     let mode = match arguments[POLICY_ARGUMENT_INDEX].as_str() {
         "candidate" => ValidationMode::Worker(PersistentReceiptPolicy::Candidate),
         "production" => ValidationMode::Worker(PersistentReceiptPolicy::Production),
+        "telemetry" => ValidationMode::Telemetry,
         "physical-acceptance" => ValidationMode::PhysicalAcceptance,
         "terminal-cancel" => ValidationMode::TerminalProbe("cancel"),
         "terminal-timeout" => ValidationMode::TerminalProbe("timeout"),
@@ -43,6 +45,9 @@ fn run(arguments: &[String]) -> Result<(), String> {
     match mode {
         ValidationMode::Worker(policy) => {
             validate_persistent_receipt(&receipt, policy).map_err(|error| error.to_string())?;
+        }
+        ValidationMode::Telemetry => {
+            validate_persistent_telemetry_receipt(&receipt).map_err(|error| error.to_string())?;
         }
         ValidationMode::PhysicalAcceptance => {
             validate_persistent_ab_receipt(&receipt).map_err(|error| error.to_string())?;
@@ -81,6 +86,15 @@ mod tests {
             ValidationMode::Worker(PersistentReceiptPolicy::Candidate)
         );
         assert_eq!(path, PathBuf::from("/tmp/receipt.json"));
+
+        let telemetry = vec![
+            "validator".to_owned(),
+            "telemetry".to_owned(),
+            "/tmp/telemetry.json".to_owned(),
+        ];
+        let (mode, path) = parse_arguments(&telemetry).expect("telemetry arguments");
+        assert_eq!(mode, ValidationMode::Telemetry);
+        assert_eq!(path, PathBuf::from("/tmp/telemetry.json"));
 
         let physical = vec![
             "validator".to_owned(),

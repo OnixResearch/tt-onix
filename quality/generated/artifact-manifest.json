@@ -2,6 +2,30 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-telemetry/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2554,
+      "blake3": "75a8a0d87fa645c63b3d803e3aca3e3a584f1c324da95d422d9631b562019542"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-telemetry/evidence/physical-fallback-telemetry-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5652,
+      "blake3": "a4362c6c2b97721e6fd1744fffc995d4456f264e39cee9b6bcaa9d1775c307c4"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-telemetry/evidence/physical-persistent-telemetry-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 7510,
+      "blake3": "0d34ea64579e1e69e6c4b967374dff9085b696c1d4d697e4c8e4a79cc8e6bbac"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-telemetry/evidence/physical-terminal-cancel-telemetry-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 7333,
+      "blake3": "23c2c6f9ed7e0b525f5ce208799cb2e5fed31a2c59c28b97f2794a06420fbb6b"
+    },
+    {
       "path": "cairn/archive/2026-08-11-extend-rwkv7-persistent-decode-window/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2508,

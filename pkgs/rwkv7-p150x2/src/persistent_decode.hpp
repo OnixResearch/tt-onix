@@ -14,6 +14,7 @@
 namespace rwkv7::persistent_decode {
 
 constexpr std::size_t kBindingKindCount = 9U;
+constexpr std::uint32_t kPersistentTelemetrySchemaVersion = 1U;
 
 enum class BindingKind : std::uint8_t {
   Token,
@@ -77,6 +78,16 @@ enum class FallbackReason : std::uint8_t {
   StableGainMissing,
   ProfileNotAdmitted,
   WindowNotAdmitted,
+};
+
+enum class TelemetryParityStatus : std::uint8_t {
+  NotApplicable,
+  Passed,
+};
+
+enum class TelemetryCleanupStatus : std::uint8_t {
+  NotApplicable,
+  Complete,
 };
 
 struct Limits {
@@ -160,11 +171,58 @@ struct ExecutionDecision {
   std::string detail;
 };
 
+struct TerminalOutcomeCounts {
+  std::uint32_t completed;
+  std::uint32_t cancelled;
+  std::uint32_t timed_out;
+  std::uint32_t failed;
+};
+
+struct PersistentTelemetryInput {
+  bool window_admitted;
+  bool workload_eligible;
+  bool bindings_validated;
+  bool profile_physically_admitted;
+  bool candidate_requested;
+  std::optional<std::uint32_t> selected_window_steps;
+  ExecutionDecision decision;
+  std::span<const RequestState> lifecycle_states;
+  bool trace_replayed;
+  bool exact_generated_token_parity;
+  bool exact_fp32_recurrent_state_parity;
+  double trace_setup_seconds;
+  double trace_replay_seconds;
+  double cleanup_seconds;
+};
+
+struct PersistentTelemetry {
+  std::uint32_t schema_version;
+  bool window_admitted;
+  bool workload_eligible;
+  bool bindings_validated;
+  bool profile_physically_admitted;
+  bool candidate_requested;
+  std::optional<std::uint32_t> selected_window_steps;
+  ExecutionMode selected_mode;
+  FallbackReason fallback_reason;
+  TerminalOutcomeCounts terminal_outcomes;
+  TelemetryParityStatus generated_token_parity;
+  TelemetryParityStatus fp32_recurrent_state_parity;
+  TelemetryCleanupStatus cleanup_status;
+  double trace_setup_seconds;
+  double trace_replay_seconds;
+  double cleanup_seconds;
+};
+
 [[nodiscard]] std::string_view binding_kind_name(BindingKind kind);
 [[nodiscard]] std::string_view request_phase_name(RequestPhase phase);
 [[nodiscard]] std::string_view terminal_reason_name(TerminalReason reason);
 [[nodiscard]] std::string_view execution_mode_name(ExecutionMode mode);
 [[nodiscard]] std::string_view fallback_reason_name(FallbackReason reason);
+[[nodiscard]] std::string_view
+telemetry_parity_status_name(TelemetryParityStatus status);
+[[nodiscard]] std::string_view
+telemetry_cleanup_status_name(TelemetryCleanupStatus status);
 
 [[nodiscard]] Profile parse_profile(const nlohmann::json &document);
 [[nodiscard]] ValidationResult validate_profile(const Profile &profile);
@@ -191,6 +249,11 @@ validate_active_slots(std::span<const std::uint32_t> slots,
 select_execution_mode(const Profile &profile,
                       const ValidationResult &binding_validation,
                       const CapabilityEvidence &evidence);
+
+[[nodiscard]] PersistentTelemetry
+summarize_persistent_telemetry(const PersistentTelemetryInput &input);
+[[nodiscard]] ValidationResult
+validate_persistent_telemetry(const PersistentTelemetry &telemetry);
 
 [[nodiscard]] std::string derive_receipt_identity(
     std::string_view profile_identity, const BindingSet &bindings,

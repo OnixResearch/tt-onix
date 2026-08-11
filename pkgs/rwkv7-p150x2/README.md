@@ -205,6 +205,31 @@ Set `RWKV7_PERSISTENT_DECODE_CANDIDATE=1` only to test a non-admitted profile. S
 
 Omit the variable for profile-owned production selection.
 
+### Production telemetry
+
+Each successful fast-worker receipt contains `persistent_decode_telemetry` with schema version `1`.
+
+The event records these bounded values:
+
+- Eligibility and physical-profile admission.
+- Selected dispatch mode and decode window.
+- The exact fallback reason.
+- Completion, cancellation, timeout, and failure counts.
+- Trace setup, replay, and cleanup durations.
+- Generated-token and FP32 recurrent-state parity status.
+- Cleanup status.
+
+The event excludes prompt text, token IDs, request IDs, filesystem paths, and binding identities. Use the detailed `persistent_decode` section for evidence inspection.
+
+Validate the telemetry contract with this command:
+
+```sh
+"$EVIDENCE/bin/rwkv7-p150x2-persistent-decode-evidence" \
+  telemetry /absolute/path/to/worker-receipt.json
+```
+
+A fatal worker error can stop receipt creation. Process supervision must report that error because this event is not a failure transport.
+
 Run the representative Blackhole simulator trace before a physical test:
 
 ```sh

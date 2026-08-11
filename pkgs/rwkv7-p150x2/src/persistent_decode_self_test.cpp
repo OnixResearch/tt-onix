@@ -1,6 +1,7 @@
 #include "persistent_decode_self_test.hpp"
 
 #include <array>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -19,6 +20,9 @@ constexpr std::uint32_t kLongDecodeWindow = 4U;
 constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
 constexpr std::uint32_t kExcessiveDecodeWindow = 6U;
 constexpr std::string_view kFailureCode = "self_test_failure";
+constexpr double kTelemetrySetupSeconds = 0.25;
+constexpr double kTelemetryReplaySeconds = 0.5;
+constexpr double kTelemetryCleanupSeconds = 0.125;
 
 void require(bool condition, std::string_view message) {
   if (!condition) {
@@ -293,6 +297,162 @@ void test_window_selection(const Profile &profile) {
           "persistent decode accepted an unlisted request window");
 }
 
+void test_persistent_telemetry_summary(const Profile &profile) {
+  Profile admitted = profile;
+  admitted.physically_admitted = true;
+  RequestState completed = start_request(kFirstSlot, admitted);
+  completed = apply(completed, simple_event(EventKind::Complete), admitted);
+  completed = acknowledge_and_zero(std::move(completed), admitted);
+  const std::array<RequestState, 1U> completed_states = {completed};
+  const PersistentTelemetry persistent = summarize_persistent_telemetry(
+      PersistentTelemetryInput{
+          true,
+          true,
+          true,
+          true,
+          false,
+          kLongDecodeWindow,
+          ExecutionDecision{ExecutionMode::PersistentTrace,
+                            FallbackReason::None, {}},
+          completed_states,
+          true,
+          true,
+          true,
+          kTelemetrySetupSeconds,
+          kTelemetryReplaySeconds,
+          kTelemetryCleanupSeconds});
+  require(validate_persistent_telemetry(persistent).valid,
+          "persistent telemetry rejected a completed trace");
+  require(persistent.terminal_outcomes.completed == 1U &&
+              persistent.generated_token_parity ==
+                  TelemetryParityStatus::Passed &&
+              persistent.fp32_recurrent_state_parity ==
+                  TelemetryParityStatus::Passed &&
+              persistent.cleanup_status == TelemetryCleanupStatus::Complete,
+          "persistent telemetry omitted completion, parity, or cleanup");
+
+  RequestState cancelled = start_request(kFirstSlot, admitted);
+  cancelled = apply(cancelled, simple_event(EventKind::Cancel), admitted);
+  cancelled = acknowledge_and_zero(std::move(cancelled), admitted);
+  const std::array<RequestState, 1U> cancelled_states = {cancelled};
+  const PersistentTelemetry terminal = summarize_persistent_telemetry(
+      PersistentTelemetryInput{
+          true,
+          true,
+          true,
+          true,
+          true,
+          kLongDecodeWindow,
+          ExecutionDecision{ExecutionMode::PersistentTrace,
+                            FallbackReason::None, {}},
+          cancelled_states,
+          false,
+          false,
+          false,
+          kTelemetrySetupSeconds,
+          0.0,
+          kTelemetryCleanupSeconds});
+  require(validate_persistent_telemetry(terminal).valid &&
+              terminal.terminal_outcomes.cancelled == 1U &&
+              terminal.generated_token_parity ==
+                  TelemetryParityStatus::NotApplicable &&
+              terminal.cleanup_status == TelemetryCleanupStatus::Complete,
+          "persistent telemetry rejected a pre-replay terminal event");
+
+  const PersistentTelemetry fallback = summarize_persistent_telemetry(
+      PersistentTelemetryInput{
+          false,
+          false,
+          true,
+          true,
+          false,
+          std::nullopt,
+          ExecutionDecision{ExecutionMode::NormalDispatch,
+                            FallbackReason::WindowNotAdmitted, {}},
+          {},
+          false,
+          false,
+          false,
+          0.0,
+          0.0,
+          0.0});
+  require(validate_persistent_telemetry(fallback).valid &&
+              fallback.terminal_outcomes.completed == 0U &&
+              fallback.cleanup_status ==
+                  TelemetryCleanupStatus::NotApplicable,
+          "persistent telemetry rejected fail-closed normal dispatch");
+}
+
+void test_invalid_persistent_telemetry(const Profile &profile) {
+  Profile admitted = profile;
+  admitted.physically_admitted = true;
+  RequestState completed = start_request(kFirstSlot, admitted);
+  completed = apply(completed, simple_event(EventKind::Complete), admitted);
+  completed = acknowledge_and_zero(std::move(completed), admitted);
+  const std::array<RequestState, 1U> states = {completed};
+  const PersistentTelemetry valid = summarize_persistent_telemetry(
+      PersistentTelemetryInput{
+          true,
+          true,
+          true,
+          true,
+          false,
+          kLongDecodeWindow,
+          ExecutionDecision{ExecutionMode::PersistentTrace,
+                            FallbackReason::None, {}},
+          states,
+          true,
+          true,
+          true,
+          kTelemetrySetupSeconds,
+          kTelemetryReplaySeconds,
+          kTelemetryCleanupSeconds});
+
+  PersistentTelemetry invalid = valid;
+  ++invalid.schema_version;
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted an unknown schema");
+  invalid = valid;
+  invalid.selected_window_steps = std::nullopt;
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted a missing selected window");
+  invalid = valid;
+  invalid.generated_token_parity = TelemetryParityStatus::NotApplicable;
+  invalid.fp32_recurrent_state_parity =
+      TelemetryParityStatus::NotApplicable;
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted missing replay parity");
+  invalid = valid;
+  invalid.cleanup_status = TelemetryCleanupStatus::NotApplicable;
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted missing cleanup");
+  invalid = valid;
+  invalid.trace_setup_seconds = std::numeric_limits<double>::quiet_NaN();
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted a non-finite duration");
+
+  const std::array<RequestState, kConcurrentSlotCount> duplicate_slots = {
+      completed, completed};
+  invalid = summarize_persistent_telemetry(PersistentTelemetryInput{
+      true,
+      true,
+      true,
+      true,
+      false,
+      kLongDecodeWindow,
+      ExecutionDecision{ExecutionMode::PersistentTrace,
+                        FallbackReason::None, {}},
+      duplicate_slots,
+      true,
+      true,
+      true,
+      kTelemetrySetupSeconds,
+      kTelemetryReplaySeconds,
+      kTelemetryCleanupSeconds});
+  require(!validate_persistent_telemetry(invalid).valid,
+          "persistent telemetry accepted duplicate lifecycle slots");
+}
+
 void test_invalid_profile(const Profile &profile) {
   Profile invalid = profile;
   invalid.limits.maximum_decode_steps = 0U;
@@ -340,6 +500,8 @@ void run_persistent_decode_self_test(const Profile &profile,
   test_binding_drift_and_receipts(profile, profile_bytes);
   test_fail_closed_mode_selection(profile);
   test_window_selection(profile);
+  test_persistent_telemetry_summary(profile);
+  test_invalid_persistent_telemetry(profile);
   test_invalid_profile(profile);
 }
 

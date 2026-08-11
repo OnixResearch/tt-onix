@@ -173,6 +173,8 @@ constexpr std::string_view kPersistentDecodeTerminalProbeEnvironment =
 constexpr std::string_view kPersistentDecodeCancelProbe = "cancel";
 constexpr std::string_view kPersistentDecodeTimeoutProbe = "timeout";
 constexpr std::string_view kPersistentDecodeFailureProbe = "failure";
+constexpr std::string_view kPersistentDecodeTelemetryEventKind =
+    "rwkv7_persistent_decode_worker";
 constexpr std::size_t kBytesPerKibibyte = 1024U;
 constexpr std::size_t kKibibytesPerMebibyte = 1024U;
 constexpr std::size_t kPersistentTraceRegionMebibytes = 256U;
@@ -3738,6 +3740,57 @@ Json persistent_binding_json(
   return document;
 }
 
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.aggregate_only]
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.fallback]
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.terminal]
+Json persistent_telemetry_json(
+    const rwkv7::persistent_decode::PersistentTelemetry &telemetry) {
+  return Json{
+      {"schema_version", telemetry.schema_version},
+      {"event_kind", std::string(kPersistentDecodeTelemetryEventKind)},
+      {"eligibility",
+       {{"window_admitted", telemetry.window_admitted},
+        {"workload_eligible", telemetry.workload_eligible},
+        {"bindings_validated", telemetry.bindings_validated},
+        {"profile_physically_admitted",
+         telemetry.profile_physically_admitted},
+        {"candidate_requested", telemetry.candidate_requested}}},
+      {"dispatch",
+       {{"selected_mode",
+         std::string(rwkv7::persistent_decode::execution_mode_name(
+             telemetry.selected_mode))},
+        {"selected_window_steps",
+         telemetry.selected_window_steps.has_value()
+             ? Json(*telemetry.selected_window_steps)
+             : Json(nullptr)},
+        {"fallback_reason",
+         std::string(rwkv7::persistent_decode::fallback_reason_name(
+             telemetry.fallback_reason))}}},
+      {"terminal_outcomes",
+       {{"completed", telemetry.terminal_outcomes.completed},
+        {"cancelled", telemetry.terminal_outcomes.cancelled},
+        {"timed_out", telemetry.terminal_outcomes.timed_out},
+        {"failed", telemetry.terminal_outcomes.failed}}},
+      {"timing",
+       {{"clock", "steady_monotonic"},
+        {"unit", "seconds"},
+        {"trace_setup_seconds", telemetry.trace_setup_seconds},
+        {"trace_replay_seconds", telemetry.trace_replay_seconds},
+        {"cleanup_seconds", telemetry.cleanup_seconds}}},
+      {"parity",
+       {{"generated_tokens",
+         std::string(
+             rwkv7::persistent_decode::telemetry_parity_status_name(
+                 telemetry.generated_token_parity))},
+        {"fp32_recurrent_state",
+         std::string(
+             rwkv7::persistent_decode::telemetry_parity_status_name(
+                 telemetry.fp32_recurrent_state_parity))}}},
+      {"cleanup_status",
+       std::string(rwkv7::persistent_decode::telemetry_cleanup_status_name(
+           telemetry.cleanup_status))}};
+}
+
 void run_fast_worker(const FastWorkerArguments &arguments) {
   const char *const inspector_value = std::getenv("TT_METAL_INSPECTOR");
   require(inspector_value != nullptr &&
@@ -3932,6 +3985,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       persistent_trace_execution_end;
   std::optional<std::chrono::system_clock::time_point>
       persistent_trace_execution_end_wall_clock;
+  double persistent_trace_setup_seconds = 0.0;
+  double persistent_cleanup_seconds = 0.0;
   const bool prompt_prefill_outside_timed_region =
       use_persistent_trace || normal_ab_reference;
   if (prompt_prefill_outside_timed_region) {
@@ -3989,10 +4044,18 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     std::cout << "persistent-decode-setup: trace-capture-start\n"
               << std::flush;
     context.set_profiler_flush_enabled(false);
+    const auto persistent_trace_setup_begin =
+        std::chrono::steady_clock::now();
     prepared_persistent_trace.emplace(prepare_persistent_decode_trace(
         context, weights, state, persistent_initial_tokens,
         persistent_request_profile.limits.maximum_decode_steps,
         effective_execution_policy));
+    const auto persistent_trace_setup_end = std::chrono::steady_clock::now();
+    persistent_trace_setup_seconds = elapsed_seconds_between(
+        persistent_trace_setup_begin, persistent_trace_setup_end);
+    require(std::isfinite(persistent_trace_setup_seconds) &&
+                persistent_trace_setup_seconds >= 0.0,
+            "persistent decode trace setup time is invalid");
     std::cout << "persistent-decode-setup: trace-capture-finished\n"
               << std::flush;
     if (profiler_attributed && !profiler_trace_only) {
@@ -4078,6 +4141,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
               terminal_probe, persistent_request_profile.limits, 0U);
       for (auto &lifecycle : persistent_lifecycle_states) {
         apply_lifecycle_event(lifecycle, terminal_event);
+      }
+      const auto persistent_cleanup_begin = std::chrono::steady_clock::now();
+      for (auto &lifecycle : persistent_lifecycle_states) {
         apply_lifecycle_event(
             lifecycle,
             rwkv7::persistent_decode::Event{
@@ -4104,6 +4170,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
         require(rwkv7::persistent_decode::slot_releasable(lifecycle),
                 "persistent terminal probe did not release a zeroed slot");
       }
+      persistent_cleanup_seconds = elapsed_seconds_between(
+          persistent_cleanup_begin, std::chrono::steady_clock::now());
+      require(std::isfinite(persistent_cleanup_seconds) &&
+                  persistent_cleanup_seconds >= 0.0,
+              "persistent terminal cleanup time is invalid");
       for (std::size_t slot_index = 0U; slot_index < slots.size();
            ++slot_index) {
         FastSlot &slot = slots[slot_index];
@@ -4184,6 +4255,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           apply_lifecycle_event(lifecycle, terminal_event);
         }
       }
+      const auto persistent_cleanup_begin = std::chrono::steady_clock::now();
       for (auto &lifecycle : persistent_lifecycle_states) {
         apply_lifecycle_event(
             lifecycle,
@@ -4202,6 +4274,11 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
         require(rwkv7::persistent_decode::slot_releasable(lifecycle),
                 "persistent decode did not release a zeroed slot");
       }
+      persistent_cleanup_seconds = elapsed_seconds_between(
+          persistent_cleanup_begin, std::chrono::steady_clock::now());
+      require(std::isfinite(persistent_cleanup_seconds) &&
+                  persistent_cleanup_seconds >= 0.0,
+              "persistent decode cleanup time is invalid");
       const auto completed_at = std::chrono::steady_clock::now();
       for (std::size_t slot_index = 0U; slot_index < slots.size();
            ++slot_index) {
@@ -4502,6 +4579,39 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       use_persistent_trace &&
       persistent_host_trace_submission_count == 1U &&
       batch_step_count > persistent_host_trace_submission_count;
+  const bool persistent_trace_replayed =
+      use_persistent_trace && !terminal_probe_enabled &&
+      persistent_host_trace_submission_count == 1U;
+  const bool exact_generated_token_parity = persistent_trace_replayed;
+  const bool exact_fp32_recurrent_state_parity = persistent_trace_replayed;
+  const rwkv7::persistent_decode::PersistentTelemetry persistent_telemetry =
+      rwkv7::persistent_decode::summarize_persistent_telemetry(
+          rwkv7::persistent_decode::PersistentTelemetryInput{
+              window_admitted,
+              candidate_eligible,
+              binding_validation.valid,
+              persistent_profile.profile.physically_admitted,
+              candidate_requested,
+              selected_persistent_limits.has_value()
+                  ? std::optional<std::uint32_t>(
+                        selected_persistent_limits->maximum_decode_steps)
+                  : std::nullopt,
+              execution_decision,
+              std::span<const rwkv7::persistent_decode::RequestState>(
+                  persistent_lifecycle_states.data(),
+                  persistent_lifecycle_states.size()),
+              persistent_trace_replayed,
+              exact_generated_token_parity,
+              exact_fp32_recurrent_state_parity,
+              persistent_trace_setup_seconds,
+              persistent_trace_execution_seconds,
+              persistent_cleanup_seconds});
+  const rwkv7::persistent_decode::ValidationResult telemetry_validation =
+      rwkv7::persistent_decode::validate_persistent_telemetry(
+          persistent_telemetry);
+  require(telemetry_validation.valid, telemetry_validation.reason);
+  receipt["persistent_decode_telemetry"] =
+      persistent_telemetry_json(persistent_telemetry);
   receipt["persistent_decode"] = {
       {"profile_id", persistent_profile.profile.profile_id},
       {"profile_blake3", persistent_profile_identity},
@@ -4561,10 +4671,9 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
        persistent_reference_state_blake3.empty()
            ? Json(nullptr)
            : Json(persistent_reference_state_blake3)},
-      {"exact_generated_token_parity",
-       use_persistent_trace && !terminal_probe_enabled},
+      {"exact_generated_token_parity", exact_generated_token_parity},
       {"exact_fp32_recurrent_state_parity",
-       use_persistent_trace && !terminal_probe_enabled},
+       exact_fp32_recurrent_state_parity},
       {"reference_state_zeroed", persistent_reference_state_zeroed},
       {"state_zeroed_before_slot_release", persistent_state_zeroed},
       {"lifecycle_receipts", std::move(persistent_lifecycle_receipts)}};

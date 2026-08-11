@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -244,6 +245,28 @@ std::string_view fallback_reason_name(FallbackReason reason) {
     return "profile_not_admitted";
   case FallbackReason::WindowNotAdmitted:
     return "window_not_admitted";
+  }
+  return "invalid";
+}
+
+std::string_view
+telemetry_parity_status_name(TelemetryParityStatus status) {
+  switch (status) {
+  case TelemetryParityStatus::NotApplicable:
+    return "not_applicable";
+  case TelemetryParityStatus::Passed:
+    return "passed";
+  }
+  return "invalid";
+}
+
+std::string_view
+telemetry_cleanup_status_name(TelemetryCleanupStatus status) {
+  switch (status) {
+  case TelemetryCleanupStatus::NotApplicable:
+    return "not_applicable";
+  case TelemetryCleanupStatus::Complete:
+    return "complete";
   }
   return "invalid";
 }
@@ -629,6 +652,142 @@ select_execution_mode(const Profile &profile,
   }
   return ExecutionDecision{ExecutionMode::PersistentTrace,
                            FallbackReason::None, {}};
+}
+
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.valid]
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.invalid]
+PersistentTelemetry
+summarize_persistent_telemetry(const PersistentTelemetryInput &input) {
+  TerminalOutcomeCounts terminal_outcomes{0U, 0U, 0U, 0U};
+  bool cleanup_complete = !input.lifecycle_states.empty();
+  std::vector<std::uint32_t> observed_slots;
+  observed_slots.reserve(input.lifecycle_states.size());
+  for (const RequestState &state : input.lifecycle_states) {
+    bool terminal_state_consistent = false;
+    switch (state.terminal_reason) {
+    case TerminalReason::Completed:
+      ++terminal_outcomes.completed;
+      terminal_state_consistent = state.phase == RequestPhase::Completed;
+      break;
+    case TerminalReason::Cancelled:
+      ++terminal_outcomes.cancelled;
+      terminal_state_consistent = state.phase == RequestPhase::Cancelled;
+      break;
+    case TerminalReason::TimedOut:
+      ++terminal_outcomes.timed_out;
+      terminal_state_consistent = state.phase == RequestPhase::TimedOut;
+      break;
+    case TerminalReason::Failed:
+      ++terminal_outcomes.failed;
+      terminal_state_consistent = state.phase == RequestPhase::Failed;
+      break;
+    case TerminalReason::None:
+      break;
+    }
+    const bool unique_slot =
+        std::ranges::find(observed_slots, state.slot) == observed_slots.end();
+    observed_slots.push_back(state.slot);
+    cleanup_complete = cleanup_complete && terminal_state_consistent &&
+                       slot_releasable(state) && unique_slot;
+  }
+  const bool parity_passed =
+      input.trace_replayed && input.exact_generated_token_parity &&
+      input.exact_fp32_recurrent_state_parity;
+  return PersistentTelemetry{
+      kPersistentTelemetrySchemaVersion,
+      input.window_admitted,
+      input.workload_eligible,
+      input.bindings_validated,
+      input.profile_physically_admitted,
+      input.candidate_requested,
+      input.selected_window_steps,
+      input.decision.mode,
+      input.decision.fallback_reason,
+      terminal_outcomes,
+      parity_passed ? TelemetryParityStatus::Passed
+                    : TelemetryParityStatus::NotApplicable,
+      parity_passed ? TelemetryParityStatus::Passed
+                    : TelemetryParityStatus::NotApplicable,
+      cleanup_complete ? TelemetryCleanupStatus::Complete
+                       : TelemetryCleanupStatus::NotApplicable,
+      input.trace_setup_seconds,
+      input.trace_replay_seconds,
+      input.cleanup_seconds};
+}
+
+ValidationResult
+validate_persistent_telemetry(const PersistentTelemetry &telemetry) {
+  if (telemetry.schema_version != kPersistentTelemetrySchemaVersion) {
+    return invalid_result("persistent telemetry schema mismatch");
+  }
+  const std::array<double, 3U> durations = {
+      telemetry.trace_setup_seconds, telemetry.trace_replay_seconds,
+      telemetry.cleanup_seconds};
+  if (!std::ranges::all_of(durations, [](double duration) {
+        return std::isfinite(duration) && duration >= 0.0;
+      })) {
+    return invalid_result(
+        "persistent telemetry durations must be finite and non-negative");
+  }
+  const std::uint64_t terminal_count =
+      static_cast<std::uint64_t>(telemetry.terminal_outcomes.completed) +
+      telemetry.terminal_outcomes.cancelled +
+      telemetry.terminal_outcomes.timed_out +
+      telemetry.terminal_outcomes.failed;
+  const bool parity_passed =
+      telemetry.generated_token_parity == TelemetryParityStatus::Passed &&
+      telemetry.fp32_recurrent_state_parity ==
+          TelemetryParityStatus::Passed;
+  const bool parity_not_applicable =
+      telemetry.generated_token_parity ==
+          TelemetryParityStatus::NotApplicable &&
+      telemetry.fp32_recurrent_state_parity ==
+          TelemetryParityStatus::NotApplicable;
+  if (telemetry.window_admitted != telemetry.selected_window_steps.has_value()) {
+    return invalid_result(
+        "persistent telemetry window selection is inconsistent");
+  }
+  if (telemetry.selected_mode == ExecutionMode::NormalDispatch) {
+    if (telemetry.fallback_reason == FallbackReason::None ||
+        terminal_count != 0U || !parity_not_applicable ||
+        telemetry.cleanup_status != TelemetryCleanupStatus::NotApplicable ||
+        telemetry.trace_setup_seconds != 0.0 ||
+        telemetry.trace_replay_seconds != 0.0 ||
+        telemetry.cleanup_seconds != 0.0) {
+      return invalid_result(
+          "normal-dispatch telemetry contains a persistent execution claim");
+    }
+    return valid_result();
+  }
+  if (telemetry.fallback_reason != FallbackReason::None ||
+      !telemetry.window_admitted || !telemetry.workload_eligible ||
+      !telemetry.bindings_validated ||
+      (!telemetry.profile_physically_admitted &&
+       !telemetry.candidate_requested) ||
+      terminal_count == 0U ||
+      telemetry.cleanup_status != TelemetryCleanupStatus::Complete) {
+    return invalid_result(
+        "persistent telemetry lacks admission or terminal cleanup evidence");
+  }
+  const bool trace_replayed = telemetry.trace_replay_seconds > 0.0;
+  if (trace_replayed != parity_passed ||
+      (!trace_replayed && !parity_not_applicable)) {
+    return invalid_result(
+        "persistent telemetry parity disagrees with trace replay");
+  }
+  if (trace_replayed &&
+      (telemetry.terminal_outcomes.completed != terminal_count ||
+       telemetry.terminal_outcomes.cancelled != 0U ||
+       telemetry.terminal_outcomes.timed_out != 0U ||
+       telemetry.terminal_outcomes.failed != 0U)) {
+    return invalid_result(
+        "persistent replay telemetry has a non-completion outcome");
+  }
+  if (!trace_replayed && telemetry.terminal_outcomes.completed != 0U) {
+    return invalid_result(
+        "pre-replay telemetry reports a completed request");
+  }
+  return valid_result();
 }
 
 std::string derive_receipt_identity(std::string_view profile_identity,

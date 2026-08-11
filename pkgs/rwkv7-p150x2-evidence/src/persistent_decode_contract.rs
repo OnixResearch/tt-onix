@@ -25,7 +25,7 @@ impl std::fmt::Display for PersistentDecodeContractError {
 
 impl std::error::Error for PersistentDecodeContractError {}
 
-const HEADER_PATTERNS: [&str; 7] = [
+const HEADER_PATTERNS: [&str; 9] = [
     "enum class BindingKind",
     "CancellationPending",
     "TimeoutPending",
@@ -33,8 +33,10 @@ const HEADER_PATTERNS: [&str; 7] = [
     "StateZeroed",
     "maximum_elapsed_milliseconds",
     "cancellation_poll_interval_steps",
+    "PersistentTelemetryInput",
+    "validate_persistent_telemetry",
 ];
-const CORE_PATTERNS: [&str; 10] = [
+const CORE_PATTERNS: [&str; 12] = [
     "rwkv7-persistent-decode-binding-v1",
     "derive_binding_identity",
     "validate_bindings",
@@ -45,8 +47,10 @@ const CORE_PATTERNS: [&str; 10] = [
     "select_window_limits",
     "ProfileNotAdmitted",
     "WindowNotAdmitted",
+    "summarize_persistent_telemetry",
+    "persistent telemetry durations must be finite and non-negative",
 ];
-const SELF_TEST_PATTERNS: [&str; 9] = [
+const SELF_TEST_PATTERNS: [&str; 11] = [
     "test_normal_completion",
     "test_maximum_length_completion",
     "test_cancel_timeout_and_failure",
@@ -56,8 +60,10 @@ const SELF_TEST_PATTERNS: [&str; 9] = [
     "test_binding_drift_and_receipts",
     "test_fail_closed_mode_selection",
     "test_window_selection",
+    "test_persistent_telemetry_summary",
+    "test_invalid_persistent_telemetry",
 ];
-const RUNTIME_PATTERNS: [&str; 22] = [
+const RUNTIME_PATTERNS: [&str; 26] = [
     "derive_fast_worker_bindings",
     "persistent decode profile targets a different model profile",
     "begin_trace_capture",
@@ -80,6 +86,10 @@ const RUNTIME_PATTERNS: [&str; 22] = [
     "persistent_workload_limits",
     "\"admitted_decode_windows\"",
     "\"selected_decode_window_steps\"",
+    "\"persistent_decode_telemetry\"",
+    "\"trace_setup_seconds\"",
+    "\"trace_replay_seconds\"",
+    "\"cleanup_seconds\"",
 ];
 const PROFILE_PATTERNS: [&str; 7] = [
     "bounded_metal_trace_chunk",
@@ -155,6 +165,8 @@ struct WorkerReceipt {
     #[serde(default)]
     profiler_trace_only: bool,
     persistent_decode: PersistentSection,
+    #[serde(default)]
+    persistent_decode_telemetry: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,6 +231,63 @@ struct LifecycleReceipt {
     receipt_blake3: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PersistentTelemetry {
+    schema_version: u32,
+    event_kind: String,
+    eligibility: TelemetryEligibility,
+    dispatch: TelemetryDispatch,
+    terminal_outcomes: TelemetryTerminalOutcomes,
+    timing: TelemetryTiming,
+    parity: TelemetryParity,
+    cleanup_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetryEligibility {
+    window_admitted: bool,
+    workload_eligible: bool,
+    bindings_validated: bool,
+    profile_physically_admitted: bool,
+    candidate_requested: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetryDispatch {
+    selected_mode: String,
+    selected_window_steps: Option<u32>,
+    fallback_reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetryTerminalOutcomes {
+    completed: u32,
+    cancelled: u32,
+    timed_out: u32,
+    failed: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetryTiming {
+    clock: String,
+    unit: String,
+    trace_setup_seconds: f64,
+    trace_replay_seconds: f64,
+    cleanup_seconds: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelemetryParity {
+    generated_tokens: String,
+    fp32_recurrent_state: String,
+}
+
 const BLAKE3_HEX_LENGTH: usize = 64;
 const SINGLE_TRACE_SUBMISSION: u64 = 1;
 const MAXIMUM_TRACE_REGION_BYTES: usize = 268_435_456;
@@ -228,6 +297,13 @@ const WINDOW_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
 const CANCELLATION_POLL_STEP: u32 = 2;
+const TELEMETRY_SCHEMA_VERSION: u32 = 1;
+const TELEMETRY_EVENT_KIND: &str = "rwkv7_persistent_decode_worker";
+const TELEMETRY_CLOCK: &str = "steady_monotonic";
+const TELEMETRY_UNIT: &str = "seconds";
+const TELEMETRY_PASSED: &str = "passed";
+const TELEMETRY_NOT_APPLICABLE: &str = "not_applicable";
+const TELEMETRY_CLEANUP_COMPLETE: &str = "complete";
 const REQUIRED_BINDINGS: [&str; 9] = [
     "token",
     "state",
@@ -245,6 +321,188 @@ fn valid_blake3(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn terminal_outcomes_from_lifecycle(lifecycles: &[LifecycleReceipt]) -> TelemetryTerminalOutcomes {
+    let mut outcomes = TelemetryTerminalOutcomes {
+        completed: 0,
+        cancelled: 0,
+        timed_out: 0,
+        failed: 0,
+    };
+    for lifecycle in lifecycles {
+        match lifecycle.terminal_reason.as_str() {
+            "completed" => outcomes.completed += 1,
+            "cancelled" => outcomes.cancelled += 1,
+            "timed_out" => outcomes.timed_out += 1,
+            "failed" => outcomes.failed += 1,
+            _ => {}
+        }
+    }
+    outcomes
+}
+
+fn telemetry_outcome_count(outcomes: &TelemetryTerminalOutcomes) -> u64 {
+    u64::from(outcomes.completed)
+        + u64::from(outcomes.cancelled)
+        + u64::from(outcomes.timed_out)
+        + u64::from(outcomes.failed)
+}
+
+fn validate_persistent_telemetry_value(
+    value: &serde_json::Value,
+    persistent: &PersistentSection,
+) -> Result<(), PersistentReceiptError> {
+    let telemetry: PersistentTelemetry =
+        serde_json::from_value(value.clone()).map_err(|error| {
+            PersistentReceiptError::new("invalid_persistent_telemetry", error.to_string())
+        })?;
+    if telemetry.schema_version != TELEMETRY_SCHEMA_VERSION
+        || telemetry.event_kind != TELEMETRY_EVENT_KIND
+        || telemetry.timing.clock != TELEMETRY_CLOCK
+        || telemetry.timing.unit != TELEMETRY_UNIT
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_persistent_telemetry",
+            "telemetry schema, event kind, clock, or unit is invalid",
+        ));
+    }
+    if telemetry.eligibility.window_admitted != persistent.window_admitted
+        || telemetry.eligibility.workload_eligible != persistent.workload_eligible
+        || telemetry.eligibility.bindings_validated != persistent.bindings_validated
+        || telemetry.eligibility.profile_physically_admitted != persistent.physically_admitted
+        || telemetry.eligibility.candidate_requested != persistent.candidate_requested
+        || telemetry.dispatch.selected_mode != persistent.selected_mode
+        || telemetry.dispatch.selected_window_steps != persistent.selected_decode_window_steps
+        || telemetry.dispatch.fallback_reason != persistent.fallback_reason
+    {
+        return Err(PersistentReceiptError::new(
+            "persistent_telemetry_mismatch",
+            "telemetry eligibility or dispatch differs from detailed evidence",
+        ));
+    }
+    let durations = [
+        telemetry.timing.trace_setup_seconds,
+        telemetry.timing.trace_replay_seconds,
+        telemetry.timing.cleanup_seconds,
+    ];
+    if durations
+        .iter()
+        .any(|duration| !duration.is_finite() || *duration < 0.0)
+        || telemetry.timing.trace_replay_seconds != persistent.trace_execution_seconds
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_persistent_telemetry_timing",
+            "telemetry timing is invalid or differs from trace evidence",
+        ));
+    }
+    let expected_outcomes = terminal_outcomes_from_lifecycle(&persistent.lifecycle_receipts);
+    let mut lifecycle_slots = BTreeSet::new();
+    let lifecycle_valid = persistent.lifecycle_receipts.iter().all(|lifecycle| {
+        let phase_matches_reason = matches!(
+            (lifecycle.phase.as_str(), lifecycle.terminal_reason.as_str()),
+            ("completed", "completed")
+                | ("cancelled", "cancelled")
+                | ("timed_out", "timed_out")
+                | ("failed", "failed")
+        );
+        phase_matches_reason && lifecycle.slot_releasable && lifecycle_slots.insert(lifecycle.slot)
+    });
+    if telemetry.terminal_outcomes.completed != expected_outcomes.completed
+        || telemetry.terminal_outcomes.cancelled != expected_outcomes.cancelled
+        || telemetry.terminal_outcomes.timed_out != expected_outcomes.timed_out
+        || telemetry.terminal_outcomes.failed != expected_outcomes.failed
+    {
+        return Err(PersistentReceiptError::new(
+            "persistent_telemetry_mismatch",
+            "telemetry terminal counts differ from lifecycle evidence",
+        ));
+    }
+    let parity_passed = persistent.persistent_region_entered
+        && persistent.exact_generated_token_parity
+        && persistent.exact_fp32_recurrent_state_parity;
+    let expected_parity = if parity_passed {
+        TELEMETRY_PASSED
+    } else {
+        TELEMETRY_NOT_APPLICABLE
+    };
+    if telemetry.parity.generated_tokens != expected_parity
+        || telemetry.parity.fp32_recurrent_state != expected_parity
+    {
+        return Err(PersistentReceiptError::new(
+            "persistent_telemetry_mismatch",
+            "telemetry parity differs from detailed evidence",
+        ));
+    }
+    let cleanup_complete = persistent.selected_mode == "persistent_trace"
+        && persistent.state_zeroed_before_slot_release
+        && !persistent.lifecycle_receipts.is_empty()
+        && lifecycle_valid;
+    let expected_cleanup = if cleanup_complete {
+        TELEMETRY_CLEANUP_COMPLETE
+    } else {
+        TELEMETRY_NOT_APPLICABLE
+    };
+    if telemetry.cleanup_status != expected_cleanup {
+        return Err(PersistentReceiptError::new(
+            "persistent_telemetry_mismatch",
+            "telemetry cleanup differs from lifecycle evidence",
+        ));
+    }
+    let lifecycle_count = u64::try_from(persistent.lifecycle_receipts.len()).map_err(|error| {
+        PersistentReceiptError::new("invalid_persistent_telemetry", error.to_string())
+    })?;
+    if persistent.selected_mode == "normal_dispatch" {
+        if persistent.fallback_reason == "none"
+            || !persistent.lifecycle_receipts.is_empty()
+            || telemetry_outcome_count(&telemetry.terminal_outcomes) != 0
+            || durations.iter().any(|duration| *duration != 0.0)
+            || expected_parity != TELEMETRY_NOT_APPLICABLE
+            || expected_cleanup != TELEMETRY_NOT_APPLICABLE
+        {
+            return Err(PersistentReceiptError::new(
+                "invalid_persistent_telemetry",
+                "normal-dispatch telemetry contains a persistent execution claim",
+            ));
+        }
+    } else if persistent.selected_mode == "persistent_trace" {
+        if persistent.fallback_reason != "none"
+            || telemetry_outcome_count(&telemetry.terminal_outcomes) != lifecycle_count
+            || !cleanup_complete
+            || (persistent.persistent_region_entered
+                && (telemetry.timing.trace_replay_seconds <= 0.0 || !parity_passed))
+            || (!persistent.persistent_region_entered
+                && (telemetry.timing.trace_replay_seconds != 0.0 || parity_passed))
+        {
+            return Err(PersistentReceiptError::new(
+                "invalid_persistent_telemetry",
+                "persistent telemetry lacks replay or cleanup evidence",
+            ));
+        }
+    } else {
+        return Err(PersistentReceiptError::new(
+            "invalid_persistent_telemetry",
+            "telemetry selected mode is unsupported",
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_persistent_telemetry_receipt(
+    receipt_json: &str,
+) -> Result<(), PersistentReceiptError> {
+    let receipt: WorkerReceipt = serde_json::from_str(receipt_json)
+        .map_err(|error| PersistentReceiptError::new("malformed_receipt", error.to_string()))?;
+    let telemetry = receipt
+        .persistent_decode_telemetry
+        .as_ref()
+        .ok_or_else(|| {
+            PersistentReceiptError::new(
+                "missing_persistent_telemetry",
+                "worker receipt omitted persistent decode telemetry",
+            )
+        })?;
+    validate_persistent_telemetry_value(telemetry, &receipt.persistent_decode)
 }
 
 pub fn validate_persistent_receipt(
@@ -406,6 +664,9 @@ pub fn validate_persistent_receipt(
             }
         }
     }
+    if let Some(telemetry) = receipt.persistent_decode_telemetry.as_ref() {
+        validate_persistent_telemetry_value(telemetry, persistent)?;
+    }
     Ok(())
 }
 
@@ -502,6 +763,9 @@ pub fn validate_persistent_terminal_probe_receipt(
                 "terminal probe did not acknowledge, zero, and release each slot",
             ));
         }
+    }
+    if let Some(telemetry) = receipt.persistent_decode_telemetry.as_ref() {
+        validate_persistent_telemetry_value(telemetry, persistent)?;
     }
     Ok(())
 }
@@ -920,6 +1184,8 @@ mod tests {
     const VALID_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const VALID_TRACE_REGION_BYTES: usize = MAXIMUM_TRACE_REGION_BYTES;
     const VALID_TRACE_SECONDS: f64 = 0.5;
+    const VALID_TRACE_SETUP_SECONDS: f64 = 0.25;
+    const VALID_CLEANUP_SECONDS: f64 = 0.125;
     const INVALID_TRACE_SUBMISSIONS: u64 = 2;
 
     fn valid_candidate_receipt() -> serde_json::Value {
@@ -990,6 +1256,40 @@ mod tests {
             serde_json::json!(LONG_DECODE_WINDOW);
         receipt["persistent_decode"]["lifecycle_receipts"][0]["failure_code"] =
             serde_json::json!("");
+        receipt["persistent_decode_telemetry"] = serde_json::json!({
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "event_kind": TELEMETRY_EVENT_KIND,
+            "eligibility": {
+                "window_admitted": true,
+                "workload_eligible": true,
+                "bindings_validated": true,
+                "profile_physically_admitted": false,
+                "candidate_requested": true
+            },
+            "dispatch": {
+                "selected_mode": "persistent_trace",
+                "selected_window_steps": LONG_DECODE_WINDOW,
+                "fallback_reason": "none"
+            },
+            "terminal_outcomes": {
+                "completed": 1,
+                "cancelled": 0,
+                "timed_out": 0,
+                "failed": 0
+            },
+            "timing": {
+                "clock": TELEMETRY_CLOCK,
+                "unit": TELEMETRY_UNIT,
+                "trace_setup_seconds": VALID_TRACE_SETUP_SECONDS,
+                "trace_replay_seconds": VALID_TRACE_SECONDS,
+                "cleanup_seconds": VALID_CLEANUP_SECONDS
+            },
+            "parity": {
+                "generated_tokens": TELEMETRY_PASSED,
+                "fp32_recurrent_state": TELEMETRY_PASSED
+            },
+            "cleanup_status": TELEMETRY_CLEANUP_COMPLETE
+        });
         receipt
     }
 
@@ -1025,6 +1325,80 @@ mod tests {
             serde_json::json!(0);
         receipt["persistent_decode"]["lifecycle_receipts"][0]["failure_code"] =
             serde_json::json!(failure_code);
+        receipt["persistent_decode_telemetry"]["terminal_outcomes"] = serde_json::json!({
+            "completed": 0,
+            "cancelled": u32::from(probe == "cancel"),
+            "timed_out": u32::from(probe == "timeout"),
+            "failed": u32::from(probe == "failure")
+        });
+        receipt["persistent_decode_telemetry"]["timing"]["trace_replay_seconds"] =
+            serde_json::json!(0.0);
+        receipt["persistent_decode_telemetry"]["parity"]["generated_tokens"] =
+            serde_json::json!(TELEMETRY_NOT_APPLICABLE);
+        receipt["persistent_decode_telemetry"]["parity"]["fp32_recurrent_state"] =
+            serde_json::json!(TELEMETRY_NOT_APPLICABLE);
+        receipt
+    }
+
+    fn valid_fallback_telemetry_receipt() -> serde_json::Value {
+        let mut receipt = valid_candidate_receipt();
+        receipt["persistent_decode"]["physically_admitted"] = serde_json::json!(true);
+        receipt["persistent_decode"]["candidate_requested"] = serde_json::json!(false);
+        receipt["persistent_decode"]["selected_decode_window_steps"] = serde_json::Value::Null;
+        receipt["persistent_decode"]["window_admitted"] = serde_json::json!(false);
+        receipt["persistent_decode"]["workload_eligible"] = serde_json::json!(false);
+        receipt["persistent_decode"]["selected_mode"] = serde_json::json!("normal_dispatch");
+        receipt["persistent_decode"]["fallback_reason"] = serde_json::json!("window_not_admitted");
+        receipt["persistent_decode"]["persistent_region_entered"] = serde_json::json!(false);
+        receipt["persistent_decode"]["trace_execution_seconds"] = serde_json::json!(0.0);
+        receipt["persistent_decode"]["timed_host_model_submissions"] = serde_json::json!(0);
+        receipt["persistent_decode"]["zero_per_token_host_submissions_proven"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["selected_token_device_resident_inside_region"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["output_readback_after_region"] = serde_json::json!(false);
+        receipt["persistent_decode"]["final_state_blake3"] = serde_json::Value::Null;
+        receipt["persistent_decode"]["reference_state_blake3"] = serde_json::Value::Null;
+        receipt["persistent_decode"]["exact_generated_token_parity"] = serde_json::json!(false);
+        receipt["persistent_decode"]["exact_fp32_recurrent_state_parity"] =
+            serde_json::json!(false);
+        receipt["persistent_decode"]["reference_state_zeroed"] = serde_json::json!(false);
+        receipt["persistent_decode"]["state_zeroed_before_slot_release"] = serde_json::json!(false);
+        receipt["persistent_decode"]["lifecycle_receipts"] = serde_json::json!([]);
+        receipt["persistent_decode_telemetry"] = serde_json::json!({
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "event_kind": TELEMETRY_EVENT_KIND,
+            "eligibility": {
+                "window_admitted": false,
+                "workload_eligible": false,
+                "bindings_validated": true,
+                "profile_physically_admitted": true,
+                "candidate_requested": false
+            },
+            "dispatch": {
+                "selected_mode": "normal_dispatch",
+                "selected_window_steps": null,
+                "fallback_reason": "window_not_admitted"
+            },
+            "terminal_outcomes": {
+                "completed": 0,
+                "cancelled": 0,
+                "timed_out": 0,
+                "failed": 0
+            },
+            "timing": {
+                "clock": TELEMETRY_CLOCK,
+                "unit": TELEMETRY_UNIT,
+                "trace_setup_seconds": 0.0,
+                "trace_replay_seconds": 0.0,
+                "cleanup_seconds": 0.0
+            },
+            "parity": {
+                "generated_tokens": TELEMETRY_NOT_APPLICABLE,
+                "fp32_recurrent_state": TELEMETRY_NOT_APPLICABLE
+            },
+            "cleanup_status": TELEMETRY_NOT_APPLICABLE
+        });
         receipt
     }
 
@@ -1164,7 +1538,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_lifecycle_cleanup() {
-        let invalid = CORE.replacen("slot_releasable", "removed_slot_release", 1);
+        let invalid = CORE.replace("slot_releasable", "removed_slot_release");
         let error =
             validate_persistent_decode_sources(HEADER, &invalid, SELF_TEST, RUNTIME, PROFILE)
                 .expect_err("missing slot cleanup");
@@ -1225,8 +1599,107 @@ mod tests {
         production["persistent_decode"]["simulated"] = serde_json::json!(false);
         production["persistent_decode"]["physically_admitted"] = serde_json::json!(true);
         production["persistent_decode"]["candidate_requested"] = serde_json::json!(false);
+        production["persistent_decode_telemetry"]["eligibility"]["profile_physically_admitted"] =
+            serde_json::json!(true);
+        production["persistent_decode_telemetry"]["eligibility"]["candidate_requested"] =
+            serde_json::json!(false);
         validate_value(&production, PersistentReceiptPolicy::Production)
             .expect("physical production receipt");
+    }
+
+    // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.valid]
+    // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.fallback]
+    // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.terminal]
+    #[test]
+    fn accepts_strict_persistent_terminal_and_fallback_telemetry() {
+        validate_persistent_telemetry_receipt(&valid_candidate_receipt().to_string())
+            .expect("persistent replay telemetry");
+        validate_persistent_telemetry_receipt(&valid_terminal_probe_receipt("cancel").to_string())
+            .expect("pre-replay terminal telemetry");
+        validate_persistent_telemetry_receipt(&valid_fallback_telemetry_receipt().to_string())
+            .expect("normal fallback telemetry");
+    }
+
+    // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.invalid]
+    // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.aggregate_only]
+    #[test]
+    fn rejects_missing_mismatched_and_high_cardinality_telemetry() {
+        let mut invalid = valid_candidate_receipt();
+        invalid
+            .as_object_mut()
+            .expect("worker receipt object")
+            .remove("persistent_decode_telemetry");
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("missing telemetry")
+                .code,
+            "missing_persistent_telemetry"
+        );
+
+        invalid = valid_candidate_receipt();
+        invalid["persistent_decode_telemetry"]["dispatch"]["fallback_reason"] =
+            serde_json::json!("trace_unavailable");
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("fallback mismatch")
+                .code,
+            "persistent_telemetry_mismatch"
+        );
+
+        invalid = valid_candidate_receipt();
+        invalid["persistent_decode_telemetry"]["terminal_outcomes"]["completed"] =
+            serde_json::json!(0);
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("terminal count mismatch")
+                .code,
+            "persistent_telemetry_mismatch"
+        );
+
+        invalid = valid_candidate_receipt();
+        let duplicate_lifecycle = invalid["persistent_decode"]["lifecycle_receipts"][0].clone();
+        invalid["persistent_decode"]["lifecycle_receipts"]
+            .as_array_mut()
+            .expect("lifecycle receipt array")
+            .push(duplicate_lifecycle);
+        invalid["persistent_decode_telemetry"]["terminal_outcomes"]["completed"] =
+            serde_json::json!(2);
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("duplicate lifecycle slot")
+                .code,
+            "persistent_telemetry_mismatch"
+        );
+
+        invalid = valid_candidate_receipt();
+        invalid["persistent_decode_telemetry"]["timing"]["cleanup_seconds"] =
+            serde_json::json!(-1.0);
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("negative cleanup time")
+                .code,
+            "invalid_persistent_telemetry_timing"
+        );
+
+        invalid = valid_candidate_receipt();
+        invalid["persistent_decode_telemetry"]["timing"]["cleanup_seconds"] =
+            serde_json::json!("NaN");
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("non-finite cleanup time")
+                .code,
+            "invalid_persistent_telemetry"
+        );
+
+        invalid = valid_candidate_receipt();
+        invalid["persistent_decode_telemetry"]["request_id"] =
+            serde_json::json!("high-cardinality-request");
+        assert_eq!(
+            validate_persistent_telemetry_receipt(&invalid.to_string())
+                .expect_err("high-cardinality telemetry")
+                .code,
+            "invalid_persistent_telemetry"
+        );
     }
 
     #[test]
