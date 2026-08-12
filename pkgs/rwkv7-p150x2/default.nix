@@ -19,7 +19,7 @@
   targetContext,
   fetchQueueDiagnostics ? false,
   persistentDecodeProfile ? ./persistent-decode-profile.ncl,
-  maximumGeneratedTokens ? 4,
+  maximumGeneratedTokens ? 8,
   runtimeName ? null,
 }:
 let

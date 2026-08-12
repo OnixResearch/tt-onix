@@ -4,7 +4,7 @@ let candidate_schema_version = 1 in
 let admitted_model_profile_blake3 = "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88" in
 {
   schema_version = candidate_schema_version,
-  profile_id = "rwkv7-p150x2-persistent-decode-v2",
+  profile_id = "rwkv7-p150x2-persistent-decode-v3",
   model_profile_blake3 = admitted_model_profile_blake3,
   mechanism = "bounded_metal_trace_chunk",
   physically_admitted = true,

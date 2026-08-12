@@ -11,12 +11,12 @@ let Blake3C = std.contract.from_predicate (fun value =>
 let ExactC = fun expected => std.contract.from_predicate (fun value =>
   value == expected
 ) in
-let admitted_decode_window_values = [2, 4] in
-let admitted_maximum_decode_steps = 4 in
+let admitted_decode_window_values = [2, 4, 8] in
+let admitted_maximum_decode_steps = 8 in
 let admitted_maximum_elapsed_milliseconds = 60000 in
 let admitted_queue_depth = 4 in
 let admitted_cancellation_poll_interval_steps = 2 in
-let admitted_output_capacity_tokens = 4 in
+let admitted_output_capacity_tokens = 8 in
 let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
   std.is_record value
   && std.array.length (std.record.fields value) == std.array.length allowed

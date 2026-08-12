@@ -9,14 +9,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 pub const CANARY_SCHEMA_VERSION: u32 = 1;
-pub const CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-v1";
+pub const CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-v2";
 const WINDOW_EIGHT_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window8-v1";
 pub const CANARY_RECEIPT_KIND: &str = "rwkv7_persistent_decode_canary";
 pub const CANARY_INTERLOCK_KIND: &str = "rwkv7_persistent_decode_canary_interlock";
-pub const PERSISTENT_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+pub const PERSISTENT_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
 const WINDOW_EIGHT_PERSISTENT_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
-pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v1";
+pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v2";
 const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
 pub const HASH_ALGORITHM: &str = "blake3";
@@ -29,8 +29,7 @@ const POLICY_MAXIMUM_BYTES: usize = 65_536;
 const INPUT_MAXIMUM_BYTES: usize = 1_048_576;
 const EXPECTED_MACHINE_COUNT: usize = 1;
 const EXPECTED_PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
-const EXPECTED_ADMITTED_WINDOWS: [u32; 2] = [2, 4];
-const EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS: [u32; 3] = [2, 4, 8];
+const EXPECTED_ADMITTED_WINDOWS: [u32; 3] = [2, 4, 8];
 const EXPECTED_WORKER_WARMUP_TOKEN_COUNT: usize = 4;
 const EXPECTED_SAMPLE_COUNT: usize = 4;
 const EXPECTED_REQUESTS_PER_WORKER: usize = 4;
@@ -332,7 +331,7 @@ fn valid_policy_identity(policy: &CanaryPolicy) -> bool {
         || (policy.policy_id == WINDOW_EIGHT_CANARY_POLICY_ID
             && policy.persistent_profile_id == WINDOW_EIGHT_PERSISTENT_PROFILE_ID
             && policy.monitoring_policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID
-            && policy.admitted_windows == EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS)
+            && policy.admitted_windows == EXPECTED_ADMITTED_WINDOWS)
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.policy]
@@ -924,11 +923,11 @@ mod tests {
     const TEST_SPEEDUP: f64 = 2.0;
     const POLICY: &str = r#"{
       "schema_version": 1,
-      "policy_id": "rwkv7-p150x2-persistent-decode-canary-v1",
-      "persistent_profile_id": "rwkv7-p150x2-persistent-decode-v2",
-      "persistent_profile_blake3": "e41319204ddf36bda088afb8a4d55a367dc163951ea29c45738e3b11b815819a",
-      "monitoring_policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v1",
-      "admitted_windows": [2, 4],
+      "policy_id": "rwkv7-p150x2-persistent-decode-canary-v2",
+      "persistent_profile_id": "rwkv7-p150x2-persistent-decode-v3",
+      "persistent_profile_blake3": "c5bfa37d83c026bfdb9255da4810bc90af71c7a0e949f05c9c5bf3e709654568",
+      "monitoring_policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v2",
+      "admitted_windows": [2, 4, 8],
       "physical_device_ids": [0, 1],
       "machine_count": 1,
       "sample_count": 4,
@@ -947,13 +946,13 @@ mod tests {
     }"#;
     const MONITORING_POLICY: &str = r#"{
       "schema_version": 1,
-      "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v1",
+      "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v2",
       "maximum_batch_events": 256,
       "maximum_event_bytes": 1048576,
       "maximum_timing_seconds": 60.0,
       "minimum_fallback_samples": 8,
       "maximum_fallback_rate": 0.25,
-      "admitted_windows": [2, 4],
+      "admitted_windows": [2, 4, 8],
       "critical_action": "disable_persistent_admission",
       "warning_action": "investigate_fallback_rate"
     }"#;
@@ -962,7 +961,7 @@ mod tests {
       "profile_id": "rwkv7-p150x2-throughput-v1",
       "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
       "repeat_count": 4,
-      "workload": {"request_count": 4, "short_prompt_token_count": 8, "long_prompt_token_count": 8, "generated_token_count": 4, "homogeneous_prompts": true},
+      "workload": {"request_count": 4, "short_prompt_token_count": 8, "long_prompt_token_count": 8, "generated_token_count": 8, "homogeneous_prompts": true},
       "scheduler": {"mode": "deterministic_continuous_batching", "tie_break": "least_loaded_card_then_lowest_card_then_lowest_slot", "per_card_slot_count": 4},
       "runtime": {"replica_mode": "independent_card_replicas", "recurrent_state_residency": "device_fp32"},
       "timing": {"timed_region": "decode_only", "warmup_token_count": 4, "exclude_state_readback": true, "exclude_profiler_flush": true, "exclude_control_replay": true, "exclude_artifact_writes": true},
@@ -981,12 +980,12 @@ mod tests {
         policy["persistent_profile_id"] = serde_json::json!(WINDOW_EIGHT_PERSISTENT_PROFILE_ID);
         policy["persistent_profile_blake3"] = serde_json::json!(HASH);
         policy["monitoring_policy_id"] = serde_json::json!(WINDOW_EIGHT_MONITORING_POLICY_ID);
-        policy["admitted_windows"] = serde_json::json!(EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS);
+        policy["admitted_windows"] = serde_json::json!(EXPECTED_ADMITTED_WINDOWS);
 
         let mut throughput: JsonValue =
             serde_json::from_str(THROUGHPUT_PROFILE).expect("base throughput profile");
         throughput["workload"]["generated_token_count"] = serde_json::json!(
-            EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS
+            EXPECTED_ADMITTED_WINDOWS
                 .last()
                 .expect("window-eight admission")
         );
@@ -994,7 +993,7 @@ mod tests {
         let mut monitoring: JsonValue =
             serde_json::from_str(MONITORING_POLICY).expect("base monitoring policy");
         monitoring["policy_id"] = serde_json::json!(WINDOW_EIGHT_MONITORING_POLICY_ID);
-        monitoring["admitted_windows"] = serde_json::json!(EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS);
+        monitoring["admitted_windows"] = serde_json::json!(EXPECTED_ADMITTED_WINDOWS);
 
         (
             policy.to_string(),
@@ -1035,7 +1034,8 @@ mod tests {
                     normal_dispatch: 0,
                     selected_windows: BTreeMap::from([
                         ("2".to_owned(), 0),
-                        ("4".to_owned(), required_events),
+                        ("4".to_owned(), 0),
+                        ("8".to_owned(), required_events),
                         ("none".to_owned(), 0),
                     ]),
                 },
@@ -1168,7 +1168,7 @@ mod tests {
         let mut invalid: JsonValue =
             serde_json::from_str(&throughput).expect("window-eight throughput profile");
         invalid["timing"]["warmup_token_count"] = serde_json::json!(
-            EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS
+            EXPECTED_ADMITTED_WINDOWS
                 .last()
                 .expect("window-eight admission")
         );

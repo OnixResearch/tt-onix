@@ -15,11 +15,11 @@ let HashHexC = std.contract.from_predicate (fun value =>
 ) in
 let CanaryPolicyC = {
   schema_version | ExactC 1,
-  policy_id | ExactC "rwkv7-p150x2-persistent-decode-canary-v1",
-  persistent_profile_id | ExactC "rwkv7-p150x2-persistent-decode-v2",
+  policy_id | ExactC "rwkv7-p150x2-persistent-decode-canary-v2",
+  persistent_profile_id | ExactC "rwkv7-p150x2-persistent-decode-v3",
   persistent_profile_blake3 | HashHexC,
-  monitoring_policy_id | ExactC "rwkv7-p150x2-persistent-decode-monitoring-v1",
-  admitted_windows | ExactC [2, 4],
+  monitoring_policy_id | ExactC "rwkv7-p150x2-persistent-decode-monitoring-v2",
+  admitted_windows | ExactC [2, 4, 8],
   physical_device_ids | ExactC [0, 1],
   machine_count | ExactC 1,
   sample_count | PositiveIntC,

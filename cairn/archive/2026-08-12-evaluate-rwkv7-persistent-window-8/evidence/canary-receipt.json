@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "event_kind": "rwkv7_persistent_decode_canary",
+  "hash_algorithm": "blake3",
+  "policy_id": "rwkv7-p150x2-persistent-decode-canary-window8-v1",
+  "profile_id": "rwkv7-p150x2-persistent-decode-window8-candidate-v1",
+  "physical_device_ids": [
+    0,
+    1
+  ],
+  "bindings": {
+    "policy_blake3": "6ee3e0e315006d275a65465594300ef5d4bc533e6eb41f3ea5657c22a8dee665",
+    "monitoring_policy_blake3": "daccd562fe9f8046dc6a509f033db03425d7226e46bd853e7127056e5eaa5f10",
+    "throughput_profile_blake3": "ebd9d59d52aecd052fe1c7c4cb5d85a6f9a97934094c95154a95a559263fdf47",
+    "workload_blake3": "4ce86883ec5a3298ba3d568548def38b6e15ebbb7157415b794742175640906b",
+    "canary_binding_blake3": "0339bd38b34772a71f2f77e565cc5ec49846ddc3a630b9970f40b03a1d16e403",
+    "physical_ab_receipt_blake3": "4d3af57c2874770585482d5cc9211db3f77bbc9a80024b9c1a05de7284d7dc1b",
+    "monitoring_batch_blake3": "a2889cbeac54c478a8c88e45982ae1369fae4200226467bc99e0055bf64c951b",
+    "final_interlock_blake3": "b4b7a7a8398d587e3bd566f3be96b149ae0b15e7ad65e50fc3e56bdc820035b3"
+  },
+  "budget": {
+    "maximum_request_executions": 104,
+    "planned_request_executions": 72,
+    "maximum_requests_per_worker": 4,
+    "maximum_duration_seconds": 600,
+    "observed_duration_seconds": 594.710505009,
+    "candidate_traffic_fraction": 0.5,
+    "planned_candidate_request_executions": 32,
+    "planned_control_request_executions": 32,
+    "planned_profiler_request_executions": 8
+  },
+  "monitoring": {
+    "batch_blake3": "a2889cbeac54c478a8c88e45982ae1369fae4200226467bc99e0055bf64c951b",
+    "accepted_candidate_events": 12,
+    "rejected_candidate_events": 0,
+    "completed_candidate_requests": 32,
+    "parity_passed_events": 12,
+    "cleanup_complete_events": 12,
+    "alert_count": 0,
+    "verdict": "clean"
+  },
+  "physical_ab": {
+    "receipt_blake3": "4d3af57c2874770585482d5cc9211db3f77bbc9a80024b9c1a05de7284d7dc1b",
+    "repeat_count": 4,
+    "exact_generated_token_parity": true,
+    "minimum_one_card_paired_speedup": 3.0872335969083236,
+    "minimum_two_card_paired_speedup": 3.399025914825305,
+    "stable_gain": true
+  },
+  "decision": {
+    "state": "retain",
+    "reason": "clean_canary",
+    "action": "retain"
+  },
+  "non_claims": [
+    "the canary does not route live service traffic",
+    "the canary does not mutate the installed persistent profile",
+    "the canary does not page an external provider",
+    "the canary does not admit decode window eight",
+    "the canary does not replace worker process supervision"
+  ]
+}

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const MONITORING_SCHEMA_VERSION: u32 = 1;
 pub const MONITORING_EVENT_KIND: &str = "rwkv7_persistent_decode_monitoring";
-pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v1";
+pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v2";
 pub const CRITICAL_ACTION: &str = "disable_persistent_admission";
 pub const WARNING_ACTION: &str = "investigate_fallback_rate";
 const MONITORING_HASH_DOMAIN: &[u8] = b"rwkv7-p150x2-persistent-decode-monitoring-v1";
@@ -21,8 +21,7 @@ const LONG_DECODE_WINDOW: u32 = 4;
 const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
 const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
-const PRODUCTION_ADMITTED_WINDOWS: [u32; 2] = [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW];
-const WINDOW_EIGHT_ADMITTED_WINDOWS: [u32; 3] = [
+const PRODUCTION_ADMITTED_WINDOWS: [u32; 3] = [
     SHORT_DECODE_WINDOW,
     LONG_DECODE_WINDOW,
     WINDOW_EIGHT_DECODE_WINDOW,
@@ -242,9 +241,8 @@ impl RawSafetySignals {
 }
 
 fn valid_policy_window_set(policy_id: &str, admitted_windows: &[u32]) -> bool {
-    (policy_id == MONITORING_POLICY_ID && admitted_windows == PRODUCTION_ADMITTED_WINDOWS)
-        || (policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID
-            && admitted_windows == WINDOW_EIGHT_ADMITTED_WINDOWS)
+    (policy_id == MONITORING_POLICY_ID || policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID)
+        && admitted_windows == PRODUCTION_ADMITTED_WINDOWS
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
@@ -672,13 +670,13 @@ mod tests {
 
     const POLICY_JSON: &str = r#"{
       "schema_version": 1,
-      "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v1",
+      "policy_id": "rwkv7-p150x2-persistent-decode-monitoring-v2",
       "maximum_batch_events": 256,
       "maximum_event_bytes": 1048576,
       "maximum_timing_seconds": 60.0,
       "minimum_fallback_samples": 8,
       "maximum_fallback_rate": 0.25,
-      "admitted_windows": [2, 4],
+      "admitted_windows": [2, 4, 8],
       "critical_action": "disable_persistent_admission",
       "warning_action": "investigate_fallback_rate"
     }"#;
@@ -690,6 +688,7 @@ mod tests {
         include_str!("../fixtures/monitoring/physical-terminal-cancel-telemetry-receipt.json");
     const EXPECTED_MINIMUM_SAMPLES: usize = 8;
     const EXPECTED_MAXIMUM_BATCH_EVENTS: usize = 256;
+    const UNADMITTED_DECODE_WINDOW: u32 = 3;
 
     fn alert_codes(receipt: &PersistentDecodeMonitoringReceipt) -> Vec<&str> {
         receipt
@@ -759,7 +758,7 @@ mod tests {
             serde_json::json!(1);
         let mut unsupported: JsonValue = serde_json::from_str(PERSISTENT_RECEIPT).expect("fixture");
         unsupported["persistent_decode_telemetry"]["dispatch"]["selected_window_steps"] =
-            serde_json::json!(8);
+            serde_json::json!(UNADMITTED_DECODE_WINDOW);
         let events = vec![
             serde_json::to_string(&parity).expect("parity"),
             serde_json::to_string(&cleanup).expect("cleanup"),

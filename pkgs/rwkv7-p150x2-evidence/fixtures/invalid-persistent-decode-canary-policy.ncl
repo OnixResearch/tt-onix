@@ -3,11 +3,11 @@
 let Contracts = import "../persistent-decode-canary-contracts.ncl" in
 let policy | Contracts.CanaryPolicy = {
   schema_version = 1,
-  policy_id = "rwkv7-p150x2-persistent-decode-canary-v1",
-  persistent_profile_id = "rwkv7-p150x2-persistent-decode-v2",
-  persistent_profile_blake3 = "e41319204ddf36bda088afb8a4d55a367dc163951ea29c45738e3b11b815819a",
-  monitoring_policy_id = "rwkv7-p150x2-persistent-decode-monitoring-v1",
-  admitted_windows = [2, 4],
+  policy_id = "rwkv7-p150x2-persistent-decode-canary-v2",
+  persistent_profile_id = "rwkv7-p150x2-persistent-decode-v3",
+  persistent_profile_blake3 = "c5bfa37d83c026bfdb9255da4810bc90af71c7a0e949f05c9c5bf3e709654568",
+  monitoring_policy_id = "rwkv7-p150x2-persistent-decode-monitoring-v2",
+  admitted_windows = [2, 4, 8],
   physical_device_ids = [0, 1],
   machine_count = 1,
   sample_count = 4,

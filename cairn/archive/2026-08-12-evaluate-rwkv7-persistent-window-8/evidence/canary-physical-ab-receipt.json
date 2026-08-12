@@ -1,0 +1,77 @@
+{
+  "baseline_mode": "normal_dispatch",
+  "baseline_one_card_tokens_per_second": 380.1214350721454,
+  "baseline_receipt_identity_blake3": "960bc6cfc1d01bac50c67badaef99a0de2ad312bdde0434ce91fdafd22afe22c",
+  "baseline_two_card_tokens_per_second": 370.9725712863907,
+  "batch_capacity": 4,
+  "candidate_mode": "persistent_trace",
+  "candidate_one_card_tokens_per_second": 1369.998027809979,
+  "candidate_receipt_identity_blake3": "cd6a2d1efa7862d410099c82b4d690f0e292d109a1807c3019f86d7b33d9f6bd",
+  "candidate_two_card_tokens_per_second": 1460.2846059748058,
+  "cpu_reference_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "exact_generated_token_parity": true,
+  "kind": "rwkv7_persistent_decode_window_physical_ab",
+  "machine_facts_after": "machine-after.json",
+  "machine_facts_before": "machine-before.json",
+  "one_card_device_schedule": [
+    {
+      "normal_dispatch_device_id": 0,
+      "persistent_trace_device_id": 1
+    },
+    {
+      "normal_dispatch_device_id": 1,
+      "persistent_trace_device_id": 0
+    },
+    {
+      "normal_dispatch_device_id": 0,
+      "persistent_trace_device_id": 1
+    },
+    {
+      "normal_dispatch_device_id": 1,
+      "persistent_trace_device_id": 0
+    }
+  ],
+  "one_card_paired_speedups": [
+    3.416607451901719,
+    3.8495632644596287,
+    3.0872335969083236,
+    3.252059937839269
+  ],
+  "one_card_pairing": "concurrent_card_balanced",
+  "order_schedule": [
+    [
+      "normal_dispatch",
+      "persistent_trace"
+    ],
+    [
+      "persistent_trace",
+      "normal_dispatch"
+    ],
+    [
+      "normal_dispatch",
+      "persistent_trace"
+    ],
+    [
+      "persistent_trace",
+      "normal_dispatch"
+    ]
+  ],
+  "physical_hardware": true,
+  "primary_thread_cpu_affinities": [
+    2,
+    6
+  ],
+  "primary_thread_fifo_priority": 1,
+  "production_physically_admitted": false,
+  "profiler_attestation": "profiler-attestation.json",
+  "repeat_count": 4,
+  "schema_version": 1,
+  "stable_gain": true,
+  "status": "stable_physical_gain",
+  "two_card_paired_speedups": [
+    3.8329457966629383,
+    3.5007315840881517,
+    4.111343993184535,
+    3.399025914825305
+  ]
+}

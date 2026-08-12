@@ -92,10 +92,10 @@ constexpr std::uint64_t kMaximumFetchQueueWaitChecksPerReserve = 2U;
 constexpr std::uint32_t kVocabularySize = RWKV7_PINNED_VOCABULARY_SIZE;
 constexpr std::uint32_t kLayerZero = 0U;
 constexpr std::uint32_t kMinimumGeneratedTokens = 2U;
-constexpr std::uint32_t kProductionMaximumGeneratedTokens = 4U;
+constexpr std::uint32_t kLongGeneratedTokenWindow = 4U;
 constexpr std::uint32_t kMaximumGeneratedTokens =
     RWKV7_MAXIMUM_GENERATED_TOKENS;
-static_assert(kMaximumGeneratedTokens >= kProductionMaximumGeneratedTokens);
+static_assert(kMaximumGeneratedTokens >= kLongGeneratedTokenWindow);
 constexpr std::uint32_t kMaximumPromptTokens = RWKV7_PINNED_MAXIMUM_PROMPT_TOKENS;
 constexpr std::uint32_t kGenerationEosToken = 0U;
 constexpr std::uint32_t kMeshRows = 1U;
@@ -3204,8 +3204,8 @@ void run_persistent_decode_simulator_smoke(
           "persistent simulator trace did not zero recurrent state");
   constexpr std::uint64_t kTraceReplayHostSubmissions = 1U;
   std::vector<std::uint32_t> evaluated_windows = {
-      kMinimumGeneratedTokens, kProductionMaximumGeneratedTokens};
-  if (kMaximumGeneratedTokens > kProductionMaximumGeneratedTokens) {
+      kMinimumGeneratedTokens, kLongGeneratedTokenWindow};
+  if (kMaximumGeneratedTokens > kLongGeneratedTokenWindow) {
     evaluated_windows.push_back(kMaximumGeneratedTokens);
   }
   const Json receipt{

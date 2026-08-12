@@ -392,6 +392,102 @@
       "blake3": "0d978eadd1add35cdbbc0eebc1edebf3a8f231a240ce52915b3cfda7c9158181"
     },
     {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2987,
+      "blake3": "1129b5293c660f73aec18fee00a32288e25b05c32d272742f5c67c6765908b8d"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/canary-interlock.json",
+      "class": "portable_evidence",
+      "byte_count": 493,
+      "blake3": "b4b7a7a8398d587e3bd566f3be96b149ae0b15e7ad65e50fc3e56bdc820035b3"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/canary-monitoring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3198,
+      "blake3": "34707cd0dd1e82f0870c85d6b588c2d4534eabac0cc63ef253c0199d01c67cfe"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/canary-physical-ab-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2156,
+      "blake3": "0370c3ed1d458fea15db7f400fb4e0026e8ecc01f98edcebb95c1e8407945cb0"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/canary-profiler-attestation.json",
+      "class": "portable_evidence",
+      "byte_count": 748,
+      "blake3": "5fe18056243ce3da7c0c46eac90f032ff28264763023471deb3696f756b049ec"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/canary-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2546,
+      "blake3": "66eb56df92331a9e8e08e94f3062c1be4bafab8ebe965f65dfb7c1a0b115a218"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/cpu-reference-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1773,
+      "blake3": "eb5624294919b43d487e30d6bbca1555bbebbcf2ec71a8504c60b57909fc9da8"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/lifecycle-cancel-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 7649,
+      "blake3": "f6094285c40b200d800c0038b6aa01620358d3b3424f56185a1a82606b52890c"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/lifecycle-completion-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 8182,
+      "blake3": "144d129e8111371be284a9b49ecc8f6481357624a724e13d024aeee2ebee3d1a"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/lifecycle-failure-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 7717,
+      "blake3": "940bf56672f5172571cec74d2afbdf2ce1d437c4071533adc602f3cda8a2e31e"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/lifecycle-timeout-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 7650,
+      "blake3": "5c447f5b9344e7779e2942d1cbcfa241bd32c315a86f79d461168091554821dc"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/physical-ab-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2357,
+      "blake3": "b3db7be0520831d385d6b7f343cc0cbe9e1840ee6d1baa66c7d541f215b9404d"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/production-simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1511,
+      "blake3": "9391d0552f8ebbf03d8cab0aef2b9e0a1d336e146034b4d25f97a4691f049ea4"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/profiler-attribution.csv",
+      "class": "portable_evidence",
+      "byte_count": 101005,
+      "blake3": "888a3fc456056411a77b8be8bed320e3b9b948be0733eec012367205d667822b"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/profiler-worker-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 8180,
+      "blake3": "4c19941c13493f4e1396bfe96d5cdcbbe8cd3afa31f8094fc30bc475de00d5e4"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1511,
+      "blake3": "9391d0552f8ebbf03d8cab0aef2b9e0a1d336e146034b4d25f97a4691f049ea4"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,

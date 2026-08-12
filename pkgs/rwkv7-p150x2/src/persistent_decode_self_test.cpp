@@ -360,9 +360,11 @@ void test_canary_interlock(const Profile &profile) {
 void test_window_selection(const Profile &profile) {
   bool saw_short_window = false;
   bool saw_long_window = false;
+  bool saw_window_eight = false;
   for (const std::uint32_t window : profile.limits.admitted_decode_windows) {
     saw_short_window = saw_short_window || window == kShortDecodeWindow;
     saw_long_window = saw_long_window || window == kLongDecodeWindow;
+    saw_window_eight = saw_window_eight || window == kWindowEightDecodeWindow;
     const WindowLimitsResult selected = select_window_limits(profile, window);
     require(selected.accepted &&
                 selected.limits.maximum_decode_steps == window &&
@@ -374,8 +376,8 @@ void test_window_selection(const Profile &profile) {
     request_profile.limits = selected.limits;
     test_maximum_length_completion(request_profile);
   }
-  require(saw_short_window && saw_long_window,
-          "persistent decode removed an accepted production window");
+  require(saw_short_window && saw_long_window && saw_window_eight,
+          "persistent decode removed an admitted production window");
   require(!select_window_limits(profile, kUnlistedDecodeWindow).accepted,
           "persistent decode accepted an unlisted request window");
   if (profile.profile_id == kWindowEightCandidateProfileId) {

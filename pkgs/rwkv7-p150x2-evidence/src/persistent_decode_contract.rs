@@ -315,14 +315,13 @@ const SINGLE_TRACE_SUBMISSION: u64 = 1;
 const MAXIMUM_TRACE_REGION_BYTES: usize = 268_435_456;
 const MAXIMUM_TRACE_EXECUTION_SECONDS: f64 = 60.0;
 const MAXIMUM_RECEIPT_QUEUE_DEPTH: usize = 4;
-const WINDOW_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+const PRODUCTION_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
 const WINDOW_EIGHT_CANDIDATE_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
 const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
-const PRODUCTION_DECODE_WINDOWS: [u32; 2] = [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW];
-const WINDOW_EIGHT_CANDIDATE_DECODE_WINDOWS: [u32; 3] = [
+const ADMITTED_DECODE_WINDOWS: [u32; 3] = [
     SHORT_DECODE_WINDOW,
     LONG_DECODE_WINDOW,
     WINDOW_EIGHT_DECODE_WINDOW,
@@ -349,11 +348,9 @@ const REQUIRED_BINDINGS: [&str; 9] = [
 
 fn expected_profile_windows(profile_id: &str) -> Option<(&'static [u32], u32)> {
     match profile_id {
-        WINDOW_PROFILE_ID => Some((&PRODUCTION_DECODE_WINDOWS, LONG_DECODE_WINDOW)),
-        WINDOW_EIGHT_CANDIDATE_PROFILE_ID => Some((
-            &WINDOW_EIGHT_CANDIDATE_DECODE_WINDOWS,
-            WINDOW_EIGHT_DECODE_WINDOW,
-        )),
+        PRODUCTION_PROFILE_ID | WINDOW_EIGHT_CANDIDATE_PROFILE_ID => {
+            Some((&ADMITTED_DECODE_WINDOWS, WINDOW_EIGHT_DECODE_WINDOW))
+        }
         _ => None,
     }
 }
@@ -1097,9 +1094,9 @@ mod tests {
                 }]
             }
         });
-        receipt["persistent_decode"]["profile_id"] = serde_json::json!(WINDOW_PROFILE_ID);
+        receipt["persistent_decode"]["profile_id"] = serde_json::json!(PRODUCTION_PROFILE_ID);
         receipt["persistent_decode"]["admitted_decode_windows"] =
-            serde_json::json!([SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]);
+            serde_json::json!(ADMITTED_DECODE_WINDOWS);
         receipt["persistent_decode"]["selected_decode_window_steps"] =
             serde_json::json!(LONG_DECODE_WINDOW);
         receipt["persistent_decode"]["terminal_probe"] = serde_json::json!("none");
@@ -1161,6 +1158,12 @@ mod tests {
         };
         receipt["physical_hardware"] = serde_json::json!(true);
         receipt["persistent_decode"]["simulated"] = serde_json::json!(false);
+        receipt["persistent_decode"]["profile_id"] =
+            serde_json::json!(WINDOW_EIGHT_CANDIDATE_PROFILE_ID);
+        receipt["persistent_decode"]["selected_decode_window_steps"] =
+            serde_json::json!(WINDOW_EIGHT_DECODE_WINDOW);
+        receipt["persistent_decode_telemetry"]["dispatch"]["selected_window_steps"] =
+            serde_json::json!(WINDOW_EIGHT_DECODE_WINDOW);
         receipt["persistent_decode"]["terminal_probe"] = serde_json::json!(probe);
         receipt["persistent_decode"]["terminal_event_poll_step"] = serde_json::json!(0);
         receipt["persistent_decode"]["pre_replay_terminal_event"] = serde_json::json!(true);
