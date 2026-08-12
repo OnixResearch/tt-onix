@@ -31,6 +31,7 @@ const EXPECTED_MACHINE_COUNT: usize = 1;
 const EXPECTED_PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
 const EXPECTED_ADMITTED_WINDOWS: [u32; 2] = [2, 4];
 const EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS: [u32; 3] = [2, 4, 8];
+const EXPECTED_WORKER_WARMUP_TOKEN_COUNT: usize = 4;
 const EXPECTED_SAMPLE_COUNT: usize = 4;
 const EXPECTED_REQUESTS_PER_WORKER: usize = 4;
 const EXPECTED_PROFILER_RUN_COUNT: usize = 2;
@@ -447,7 +448,7 @@ pub fn build_canary_context(
         || throughput_profile.workload.request_count != policy.requests_per_worker
         || throughput_profile.scheduler.per_card_slot_count != policy.requests_per_worker
         || throughput_profile.workload.generated_token_count != selected_window
-        || throughput_profile.timing.warmup_token_count != selected_window
+        || throughput_profile.timing.warmup_token_count != EXPECTED_WORKER_WARMUP_TOKEN_COUNT
     {
         return Err(CanaryError::new(
             "canary_throughput_profile_mismatch",
@@ -974,6 +975,34 @@ mod tests {
             .expect("canary context")
     }
 
+    fn window_eight_context_inputs() -> (String, String, String) {
+        let mut policy: JsonValue = serde_json::from_str(POLICY).expect("base canary policy");
+        policy["policy_id"] = serde_json::json!(WINDOW_EIGHT_CANARY_POLICY_ID);
+        policy["persistent_profile_id"] = serde_json::json!(WINDOW_EIGHT_PERSISTENT_PROFILE_ID);
+        policy["persistent_profile_blake3"] = serde_json::json!(HASH);
+        policy["monitoring_policy_id"] = serde_json::json!(WINDOW_EIGHT_MONITORING_POLICY_ID);
+        policy["admitted_windows"] = serde_json::json!(EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS);
+
+        let mut throughput: JsonValue =
+            serde_json::from_str(THROUGHPUT_PROFILE).expect("base throughput profile");
+        throughput["workload"]["generated_token_count"] = serde_json::json!(
+            EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS
+                .last()
+                .expect("window-eight admission")
+        );
+
+        let mut monitoring: JsonValue =
+            serde_json::from_str(MONITORING_POLICY).expect("base monitoring policy");
+        monitoring["policy_id"] = serde_json::json!(WINDOW_EIGHT_MONITORING_POLICY_ID);
+        monitoring["admitted_windows"] = serde_json::json!(EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS);
+
+        (
+            policy.to_string(),
+            throughput.to_string(),
+            monitoring.to_string(),
+        )
+    }
+
     fn clean_monitoring() -> PersistentDecodeMonitoringReceipt {
         let required_events = u64::try_from(EXPECTED_CANDIDATE_TELEMETRY_EVENTS).unwrap();
         let completed = u64::try_from(
@@ -1128,6 +1157,37 @@ mod tests {
         invalid = serde_json::from_str(POLICY).unwrap();
         invalid["unknown"] = serde_json::json!(true);
         assert!(parse_canary_policy(&invalid.to_string()).is_err());
+    }
+
+    #[test]
+    fn accepts_window_eight_with_fixed_worker_warmup_and_rejects_drift() {
+        let (policy, throughput, monitoring) = window_eight_context_inputs();
+        build_canary_context(&policy, &throughput, WORKLOAD, &monitoring)
+            .expect("window-eight canary with fixed worker warmup");
+
+        let mut invalid: JsonValue =
+            serde_json::from_str(&throughput).expect("window-eight throughput profile");
+        invalid["timing"]["warmup_token_count"] = serde_json::json!(
+            EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS
+                .last()
+                .expect("window-eight admission")
+        );
+        assert_eq!(
+            build_canary_context(&policy, &invalid.to_string(), WORKLOAD, &monitoring)
+                .expect_err("decode-window-sized warmup")
+                .code,
+            "canary_throughput_profile_mismatch"
+        );
+
+        invalid = serde_json::from_str(&throughput).expect("window-eight throughput profile");
+        invalid["workload"]["generated_token_count"] =
+            serde_json::json!(EXPECTED_WORKER_WARMUP_TOKEN_COUNT);
+        assert_eq!(
+            build_canary_context(&policy, &invalid.to_string(), WORKLOAD, &monitoring)
+                .expect_err("shortened decode window")
+                .code,
+            "canary_throughput_profile_mismatch"
+        );
     }
 
     // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_canary.interlock]
