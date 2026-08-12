@@ -15,6 +15,7 @@ constexpr std::uint32_t kSecondSlot = 1U;
 constexpr std::uint64_t kNominalElapsedMilliseconds = 1U;
 constexpr std::size_t kBindingComponentCount = 2U;
 constexpr std::size_t kConcurrentSlotCount = 2U;
+constexpr std::size_t kTestBlake3HexCharacters = 64U;
 constexpr std::uint32_t kShortDecodeWindow = 2U;
 constexpr std::uint32_t kLongDecodeWindow = 4U;
 constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
@@ -231,34 +232,46 @@ void test_binding_drift_and_receipts(const Profile &profile,
 void test_fail_closed_mode_selection(const Profile &profile) {
   const BindingSet bindings = sample_bindings(profile);
   const ValidationResult stable = validate_bindings(bindings, bindings);
-  const CapabilityEvidence complete{true, true, true, true, true, true};
+  const CapabilityEvidence complete{true, true, true, true,
+                                    true, true, true};
   Profile admitted = profile;
   admitted.physically_admitted = true;
   require(select_execution_mode(admitted, stable, complete).mode ==
               ExecutionMode::PersistentTrace,
           "persistent decode rejected complete admission evidence");
 
-  const CapabilityEvidence no_window{false, true, true, true, true, true};
+  const CapabilityEvidence no_window{false, true, true, true,
+                                     true,  true, true};
   require(select_execution_mode(admitted, stable, no_window).fallback_reason ==
               FallbackReason::WindowNotAdmitted,
           "persistent decode did not reject an unlisted window");
-  const CapabilityEvidence no_trace{true, false, true, true, true, true};
+  const CapabilityEvidence no_interlock{true, false, true, true,
+                                        true, true,  true};
+  require(select_execution_mode(admitted, stable, no_interlock)
+              .fallback_reason == FallbackReason::CanaryInterlockBlocked,
+          "persistent decode ignored a blocked canary interlock");
+  const CapabilityEvidence no_trace{true, true, false, true,
+                                    true, true, true};
   require(select_execution_mode(admitted, stable, no_trace).fallback_reason ==
               FallbackReason::TraceUnavailable,
           "persistent decode did not reject a missing trace mechanism");
-  const CapabilityEvidence no_parity{true, true, false, true, true, true};
+  const CapabilityEvidence no_parity{true, true, true, false,
+                                     true, true, true};
   require(select_execution_mode(admitted, stable, no_parity).fallback_reason ==
               FallbackReason::ParityEvidenceMissing,
           "persistent decode did not reject missing parity evidence");
-  const CapabilityEvidence no_simulator{true, true, true, false, true, true};
+  const CapabilityEvidence no_simulator{true, true, true, true,
+                                        false, true, true};
   require(select_execution_mode(admitted, stable, no_simulator)
               .fallback_reason == FallbackReason::SimulatorEvidenceMissing,
           "persistent decode did not reject missing simulator evidence");
-  const CapabilityEvidence no_profiler{true, true, true, true, false, true};
+  const CapabilityEvidence no_profiler{true, true, true, true,
+                                       true, false, true};
   require(select_execution_mode(admitted, stable, no_profiler).fallback_reason ==
               FallbackReason::ProfilerEvidenceMissing,
           "persistent decode did not reject missing profiler evidence");
-  const CapabilityEvidence no_gain{true, true, true, true, true, false};
+  const CapabilityEvidence no_gain{true, true, true, true,
+                                   true, true, false};
   require(select_execution_mode(admitted, stable, no_gain).fallback_reason ==
               FallbackReason::StableGainMissing,
           "persistent decode did not reject missing physical gain");
@@ -276,6 +289,69 @@ void test_fail_closed_mode_selection(const Profile &profile) {
   require(select_execution_mode(admitted, mismatch, complete).fallback_reason ==
               FallbackReason::BindingMismatch,
           "persistent decode did not fail closed on binding drift");
+}
+
+// r[verify tenstorrent.rwkv7_p150x2.persistent_decode_canary.interlock]
+// r[verify tenstorrent.rwkv7_p150x2.persistent_decode_canary.runtime]
+void test_canary_interlock(const Profile &profile) {
+  const std::string profile_blake3(kTestBlake3HexCharacters, 'a');
+  const std::string file_blake3(kTestBlake3HexCharacters, 'b');
+  const std::string canary_blake3(kTestBlake3HexCharacters, 'c');
+  CanaryInterlockEvidence evidence{
+      true,
+      CanaryInterlockState::Armed,
+      "canary_running",
+      file_blake3,
+      file_blake3,
+      canary_blake3,
+      canary_blake3,
+      profile.profile_id,
+      profile_blake3,
+      kCanaryMaximumRequestExecutions,
+      kCanaryMaximumDurationSeconds,
+      kCanaryCandidateTrafficFraction};
+  CanaryInterlockDecision decision =
+      validate_canary_interlock(evidence, profile.profile_id, profile_blake3);
+  require(decision.valid && decision.allows_persistent,
+          "valid armed canary interlock blocked persistent dispatch");
+
+  evidence.state = CanaryInterlockState::Hold;
+  evidence.reason = "monitoring_warning";
+  decision =
+      validate_canary_interlock(evidence, profile.profile_id, profile_blake3);
+  require(decision.valid && !decision.allows_persistent,
+          "held canary interlock permitted persistent dispatch");
+
+  evidence.state = CanaryInterlockState::Disabled;
+  evidence.reason = "monitoring_critical";
+  decision =
+      validate_canary_interlock(evidence, profile.profile_id, profile_blake3);
+  require(decision.valid && !decision.allows_persistent,
+          "disabled canary interlock permitted persistent dispatch");
+
+  evidence.state = CanaryInterlockState::Armed;
+  evidence.reason = "canary_running";
+  evidence.actual_file_blake3 = canary_blake3;
+  decision =
+      validate_canary_interlock(evidence, profile.profile_id, profile_blake3);
+  require(!decision.valid && !decision.allows_persistent,
+          "hash-mismatched canary interlock permitted persistent dispatch");
+
+  evidence.actual_file_blake3 = file_blake3;
+  evidence.maximum_request_executions =
+      kCanaryMaximumRequestExecutions + 1U;
+  decision =
+      validate_canary_interlock(evidence, profile.profile_id, profile_blake3);
+  require(!decision.valid && !decision.allows_persistent,
+          "over-budget canary interlock permitted persistent dispatch");
+
+  const CanaryInterlockEvidence absent{
+      false, CanaryInterlockState::NotPresent, {}, {}, {}, {}, {}, {}, {}, 0U,
+      0U, 0.0};
+  decision =
+      validate_canary_interlock(absent, profile.profile_id, profile_blake3);
+  require(decision.valid && decision.allows_persistent,
+          "absent canary interlock changed production dispatch");
 }
 
 void test_window_selection(const Profile &profile) {
@@ -499,6 +575,7 @@ void run_persistent_decode_self_test(const Profile &profile,
   test_slot_admission_and_recycling(profile);
   test_binding_drift_and_receipts(profile, profile_bytes);
   test_fail_closed_mode_selection(profile);
+  test_canary_interlock(profile);
   test_window_selection(profile);
   test_persistent_telemetry_summary(profile);
   test_invalid_persistent_telemetry(profile);

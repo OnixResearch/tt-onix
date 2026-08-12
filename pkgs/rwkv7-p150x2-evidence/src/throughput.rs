@@ -287,6 +287,12 @@ enum TopologyKind {
     TwoCard,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OneCardDeviceValidation {
+    PrimaryOnly,
+    BalancedPhysicalPair,
+}
+
 fn is_blake3_hex(value: &str) -> bool {
     const BLAKE3_HEX_LENGTH: usize = 64;
     value.len() == BLAKE3_HEX_LENGTH
@@ -469,9 +475,27 @@ fn expected_device_ids(kind: TopologyKind) -> &'static [usize] {
     }
 }
 
+fn valid_run_device_ids(
+    run: &ThroughputRun,
+    kind: TopologyKind,
+    one_card_validation: OneCardDeviceValidation,
+) -> bool {
+    match (kind, one_card_validation) {
+        (TopologyKind::OneCard, OneCardDeviceValidation::PrimaryOnly) => {
+            run.physical_device_ids == expected_device_ids(kind)
+        }
+        (TopologyKind::OneCard, OneCardDeviceValidation::BalancedPhysicalPair) => {
+            run.physical_device_ids.len() == 1
+                && EXPECTED_TWO_CARD_DEVICE_IDS.contains(&run.physical_device_ids[0])
+        }
+        (TopologyKind::TwoCard, _) => run.physical_device_ids == expected_device_ids(kind),
+    }
+}
+
 fn validate_request_workload(
     run: &ThroughputRun,
     kind: TopologyKind,
+    one_card_validation: OneCardDeviceValidation,
     slot_count: usize,
 ) -> Result<Vec<usize>, Rejection> {
     if run.run_id.is_empty() || run.requests.is_empty() {
@@ -480,7 +504,7 @@ fn validate_request_workload(
             "run identity and request list must be non-empty",
         ));
     }
-    if run.physical_device_ids != expected_device_ids(kind) {
+    if !valid_run_device_ids(run, kind, one_card_validation) {
         return Err(Rejection::new(
             "physical_device_mismatch",
             format!(
@@ -581,10 +605,39 @@ fn validate_request_workload(
     Ok(token_counts)
 }
 
+fn validate_balanced_one_card_devices(one_card: &[ThroughputRun]) -> Result<(), Rejection> {
+    let mut counts =
+        BTreeMap::from(EXPECTED_TWO_CARD_DEVICE_IDS.map(|device_id| (device_id, 0_usize)));
+    for run in one_card {
+        let device_id = *run.physical_device_ids.first().ok_or_else(|| {
+            Rejection::new(
+                "physical_device_mismatch",
+                "balanced one-card run omitted its physical device",
+            )
+        })?;
+        *counts.get_mut(&device_id).ok_or_else(|| {
+            Rejection::new(
+                "physical_device_mismatch",
+                "balanced one-card run used an unlisted physical device",
+            )
+        })? += 1;
+    }
+    let minimum_count = counts.values().copied().min().unwrap_or_default();
+    let maximum_count = counts.values().copied().max().unwrap_or_default();
+    if minimum_count == 0 || minimum_count != maximum_count {
+        return Err(Rejection::new(
+            "unbalanced_one_card_devices",
+            "comparative one-card samples must balance physical devices",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_paired_workloads(
     one_card: &[ThroughputRun],
     two_card: &[ThroughputRun],
     profile: &ThroughputProfile,
+    one_card_validation: OneCardDeviceValidation,
 ) -> Result<(), Rejection> {
     if one_card.len() != profile.repeat_count || two_card.len() != profile.repeat_count {
         return Err(Rejection::new(
@@ -619,11 +672,13 @@ fn validate_paired_workloads(
         let single_tokens = validate_request_workload(
             single,
             TopologyKind::OneCard,
+            one_card_validation,
             profile.scheduler.per_card_slot_count,
         )?;
         let dual_tokens = validate_request_workload(
             dual,
             TopologyKind::TwoCard,
+            one_card_validation,
             profile.scheduler.per_card_slot_count,
         )?;
         if single_tokens != dual_tokens {
@@ -632,6 +687,9 @@ fn validate_paired_workloads(
                 format!("paired sample {index} does not measure the same token workload"),
             ));
         }
+    }
+    if one_card_validation == OneCardDeviceValidation::BalancedPhysicalPair {
+        validate_balanced_one_card_devices(one_card)?;
     }
     Ok(())
 }
@@ -649,10 +707,15 @@ fn summarize_topology(runs: &[ThroughputRun]) -> TopologyMetrics {
     assert!(!runs.is_empty());
     let mut throughput_samples = Vec::with_capacity(runs.len());
     let mut latency_samples = Vec::new();
-    let mut per_card_tokens_per_second = runs[0]
-        .physical_device_ids
+    let mut per_card_tokens_per_second = runs
         .iter()
-        .map(|card_id| (*card_id, 0.0_f64))
+        .flat_map(|run| run.physical_device_ids.iter().copied())
+        .map(|card_id| (card_id, 0.0_f64))
+        .collect::<BTreeMap<_, _>>();
+    let mut per_card_sample_count = per_card_tokens_per_second
+        .keys()
+        .copied()
+        .map(|card_id| (card_id, 0_usize))
         .collect::<BTreeMap<_, _>>();
     let mut request_count = 0usize;
     let mut token_count = 0usize;
@@ -673,6 +736,9 @@ fn summarize_topology(runs: &[ThroughputRun]) -> TopologyMetrics {
             *per_card_tokens_per_second
                 .get_mut(card_id)
                 .expect("run card exists in topology") += card_tokens as f64 / run.elapsed_seconds;
+            *per_card_sample_count
+                .get_mut(card_id)
+                .expect("run card sample count exists in topology") += 1;
         }
         request_count += run.requests.len();
         token_count += run_token_count;
@@ -680,13 +746,17 @@ fn summarize_topology(runs: &[ThroughputRun]) -> TopologyMetrics {
     }
     let sample_count = throughput_samples.len() as f64;
     let aggregate_tokens_per_second = throughput_samples.iter().sum::<f64>() / sample_count;
-    for throughput in per_card_tokens_per_second.values_mut() {
-        *throughput /= sample_count;
+    for (card_id, throughput) in &mut per_card_tokens_per_second {
+        let card_sample_count = *per_card_sample_count
+            .get(card_id)
+            .expect("card sample count exists") as f64;
+        assert!(card_sample_count > 0.0);
+        *throughput /= card_sample_count;
     }
     let p50_latency_seconds = percentile(&mut latency_samples.clone(), PERCENTILE_P50);
     let p99_latency_seconds = percentile(&mut latency_samples, PERCENTILE_P99);
     let metrics = TopologyMetrics {
-        device_ids: runs[0].physical_device_ids.clone(),
+        device_ids: per_card_tokens_per_second.keys().copied().collect(),
         sample_count: runs.len(),
         request_count,
         token_count,
@@ -720,9 +790,10 @@ pub fn profile_identity(profile: &ThroughputProfile) -> Result<String, Rejection
     canonical_identity(profile)
 }
 
-pub fn summarize_throughput(
+fn summarize_throughput_with_validation(
     raw: &RawThroughputEvidence,
     profile: &ThroughputProfile,
+    one_card_validation: OneCardDeviceValidation,
 ) -> Result<ThroughputReceipt, Rejection> {
     validate_profile(profile)?;
     if raw.schema_version != THROUGHPUT_SCHEMA_VERSION {
@@ -743,7 +814,12 @@ pub fn summarize_throughput(
     }
     validate_machine_facts(&raw.machine_facts, profile)?;
     validate_execution(&raw.execution, profile)?;
-    validate_paired_workloads(&raw.one_card_runs, &raw.two_card_runs, profile)?;
+    validate_paired_workloads(
+        &raw.one_card_runs,
+        &raw.two_card_runs,
+        profile,
+        one_card_validation,
+    )?;
 
     let one_card = summarize_topology(&raw.one_card_runs);
     let two_card = summarize_topology(&raw.two_card_runs);
@@ -772,6 +848,24 @@ pub fn summarize_throughput(
     };
     receipt.identity_blake3 = canonical_identity(&receipt)?;
     Ok(receipt)
+}
+
+pub fn summarize_throughput(
+    raw: &RawThroughputEvidence,
+    profile: &ThroughputProfile,
+) -> Result<ThroughputReceipt, Rejection> {
+    summarize_throughput_with_validation(raw, profile, OneCardDeviceValidation::PrimaryOnly)
+}
+
+pub fn summarize_balanced_comparative_throughput(
+    raw: &RawThroughputEvidence,
+    profile: &ThroughputProfile,
+) -> Result<ThroughputReceipt, Rejection> {
+    summarize_throughput_with_validation(
+        raw,
+        profile,
+        OneCardDeviceValidation::BalancedPhysicalPair,
+    )
 }
 
 fn metric_close(left: f64, right: f64) -> bool {
@@ -867,6 +961,7 @@ mod tests {
     const MODEL_PROFILE_BLAKE3: &str =
         "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88";
     const RUN_COUNT: usize = 3;
+    const BALANCED_RUN_COUNT: usize = 4;
     const REQUEST_COUNT: usize = 4;
     const TOKEN_COUNT: usize = 16;
     const SINGLE_ELAPSED_SECONDS: f64 = 1.0;
@@ -975,7 +1070,7 @@ mod tests {
                 control_replay_during_timing: false,
                 artifact_writes_during_timing: false,
             },
-            one_card_runs: (0..RUN_COUNT)
+            one_card_runs: (0..profile.repeat_count)
                 .map(|index| {
                     run(
                         format!("single-{index}"),
@@ -985,7 +1080,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            two_card_runs: (0..RUN_COUNT)
+            two_card_runs: (0..profile.repeat_count)
                 .map(|index| {
                     run(
                         format!("dual-{index}"),
@@ -1011,6 +1106,35 @@ mod tests {
         assert_eq!(receipt.two_card.device_ids, vec![0, 1]);
         assert_eq!(receipt.two_card.per_card_tokens_per_second.len(), 2);
         assert_eq!(receipt.two_card.p50_latency_seconds, DUAL_LATENCY_SECONDS);
+    }
+
+    #[test]
+    fn summarizes_balanced_comparative_one_card_devices() {
+        let mut profile = profile();
+        profile.repeat_count = BALANCED_RUN_COUNT;
+        let mut raw = raw(&profile);
+        for (index, run) in raw.one_card_runs.iter_mut().enumerate() {
+            let device_id = index % TWO_CARD_DEVICE_COUNT;
+            run.physical_device_ids = vec![device_id];
+            for request in &mut run.requests {
+                request.card_id = device_id;
+            }
+        }
+        let receipt = summarize_balanced_comparative_throughput(&raw, &profile)
+            .expect("balanced comparative summary");
+        assert_eq!(receipt.one_card.device_ids, EXPECTED_TWO_CARD_DEVICE_IDS);
+        assert_eq!(
+            receipt.one_card.per_card_tokens_per_second.len(),
+            TWO_CARD_DEVICE_COUNT
+        );
+
+        for run in &mut raw.one_card_runs {
+            run.physical_device_ids = vec![EXPECTED_ONE_CARD_DEVICE_ID];
+            for request in &mut run.requests {
+                request.card_id = EXPECTED_ONE_CARD_DEVICE_ID;
+            }
+        }
+        assert!(summarize_balanced_comparative_throughput(&raw, &profile).is_err());
     }
 
     #[test]

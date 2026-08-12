@@ -224,6 +224,9 @@
             persistent_decode_monitoring_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_monitoring.rs}
             persistent_decode_monitoring_command=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-persistent-decode-monitor.rs}
             persistent_decode_monitoring_policy=${../pkgs/rwkv7-p150x2-evidence/persistent-decode-monitoring-policy.ncl}
+            persistent_decode_canary_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_canary.rs}
+            persistent_decode_canary_command=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-persistent-decode-canary.rs}
+            persistent_decode_canary_policy=${../pkgs/rwkv7-p150x2-evidence/persistent-decode-canary-policy.ncl}
             hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
@@ -276,6 +279,19 @@
             grep -F 'CRITICAL_EXIT_STATUS' "$persistent_decode_monitoring_command"
             grep -F 'maximum_batch_events = 256' "$persistent_decode_monitoring_policy"
             grep -F 'maximum_fallback_rate = 0.25' "$persistent_decode_monitoring_policy"
+            grep -F 'validate_canary_interlock' "$persistent_decode_source"
+            grep -F 'CanaryInterlockBlocked' "$persistent_decode_source"
+            grep -F 'load_canary_interlock' "$runtime_source"
+            grep -F 'RWKV7_PERSISTENT_DECODE_CANARY_INTERLOCK' "$runtime_source"
+            grep -F 'canary_interlock_allows_persistent' "$runtime_source"
+            grep -F 'evaluate_completed_canary' "$persistent_decode_canary_source"
+            grep -F 'validate_worker_interlock_receipts' "$persistent_decode_canary_source"
+            grep -F 'summarize_balanced_comparative_throughput' "$throughput_source"
+            grep -F 'run_balanced_one_card_pair' "$benchmark_source"
+            grep -F 'wait_bounded' "$persistent_decode_canary_command"
+            grep -F 'atomic_replace' "$persistent_decode_canary_command"
+            grep -F 'maximum_request_executions = 104' "$persistent_decode_canary_policy"
+            grep -F 'maximum_duration_seconds = 600' "$persistent_decode_canary_policy"
             grep -F 'deterministic_slot_assignments' "$throughput_source"
             grep -F 'minimum_dual_card_speedup' "$throughput_source"
             grep -F 'maximum_p99_latency_regression_fraction' "$throughput_source"

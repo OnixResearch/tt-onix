@@ -260,6 +260,50 @@ The receipt recommends `disable` after any critical alert. The command does not 
 
 This command is a local collector and alert classifier. It does not provide a network exporter, paging provider, daemon, or canary traffic controller.
 
+### Bounded production canary
+
+Run one order-balanced canary with the installed policies:
+
+```sh
+CANARY_POLICY="$EVIDENCE/share/rwkv7-p150x2-throughput/persistent-decode-canary-policy.json"
+CANARY_THROUGHPUT="$EVIDENCE/share/rwkv7-p150x2-throughput/persistent-decode-canary-throughput-profile.json"
+CANARY_WORKLOAD="$EVIDENCE/share/rwkv7-p150x2-throughput/persistent-decode-workload.json"
+MONITORING_POLICY="$EVIDENCE/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
+"$EVIDENCE/bin/rwkv7-p150x2-persistent-decode-canary" \
+  "$CANARY_POLICY" \
+  "$CANARY_THROUGHPUT" \
+  "$CANARY_WORKLOAD" \
+  "$MONITORING_POLICY" \
+  /absolute/new/canary-output-root
+```
+
+The canary has these bounds:
+
+- One machine and physical devices `0` and `1`.
+- Four matched samples. One-card pairs run concurrently and swap cards. Dual-card pairs alternate order.
+- At most four requests per worker.
+- `72` planned request executions under a hard maximum of `104`.
+- At most `600` wall-clock seconds.
+- Candidate share `0.5` within the matched comparison.
+- Decode windows `[2, 4]` only.
+
+The controller writes an armed sidecar before it starts the benchmark. Every worker receives the exact sidecar path, file BLAKE3, and canary binding BLAKE3.
+
+Workers use separate per-card TT-Metal kernel caches. This isolation prevents concurrent compiler conflicts and keeps repeated setup within the wall limit. The controller removes these temporary caches before it writes final evidence.
+
+A held, disabled, malformed, or mismatched interlock forces `normal_dispatch` with `canary_interlock_blocked`. This rule also blocks an explicit candidate override.
+
+The final output root contains:
+
+- `physical-ab-receipt.json`.
+- `candidate-monitoring-receipt.json`.
+- `canary-interlock.json`.
+- `canary-receipt.json`.
+
+A clean canary returns status `0` and writes `retain`. A warning returns status `2` and writes `hold`. Any critical or invalid result returns status `3` and writes `disabled`.
+
+The controller does not route live service traffic or mutate the installed profile. A supervisor must use the final interlock for later controlled workers.
+
 Run the representative Blackhole simulator trace before a physical test:
 
 ```sh

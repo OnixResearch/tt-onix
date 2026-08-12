@@ -40,7 +40,7 @@ const NON_CLAIMS: [&str; 5] = [
     "the receipt does not prove telemetry producer correctness",
     "the receipt does not replace worker process supervision",
 ];
-const FALLBACK_REASONS: [&str; 8] = [
+const FALLBACK_REASONS: [&str; 9] = [
     "binding_mismatch",
     "trace_unavailable",
     "parity_evidence_missing",
@@ -49,6 +49,7 @@ const FALLBACK_REASONS: [&str; 8] = [
     "stable_gain_missing",
     "profile_not_admitted",
     "window_not_admitted",
+    "canary_interlock_blocked",
 ];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

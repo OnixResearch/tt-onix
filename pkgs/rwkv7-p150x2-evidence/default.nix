@@ -73,6 +73,9 @@ rustPlatform.buildRustPackage {
       persistent-decode-throughput-profile.ncl \
       persistent-decode-monitoring-contracts.ncl \
       persistent-decode-monitoring-policy.ncl \
+      persistent-decode-canary-contracts.ncl \
+      persistent-decode-canary-policy.ncl \
+      persistent-decode-canary-throughput-profile.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
@@ -89,6 +92,10 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-throughput-profile.json"
     nickel export --format json persistent-decode-monitoring-policy.ncl \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
+    nickel export --format json persistent-decode-canary-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-policy.json"
+    nickel export --format json persistent-decode-canary-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-throughput-profile.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     nickel export --format json throughput-capacity-profile.ncl \
@@ -216,6 +223,63 @@ rustPlatform.buildRustPackage {
       test "$?" -eq "$input_error_status"
     fi
     grep -F 'monitoring_usage' monitoring-missing.err
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_canary.policy]
+    nickel export --format json persistent-decode-canary-policy.ncl \
+      >canary-policy-first.json
+    nickel export --format json persistent-decode-canary-policy.ncl \
+      >canary-policy-second.json
+    cmp canary-policy-first.json canary-policy-second.json
+    nickel export --format json persistent-decode-canary-throughput-profile.ncl \
+      >canary-throughput-first.json
+    nickel export --format json persistent-decode-canary-throughput-profile.ncl \
+      >canary-throughput-second.json
+    cmp canary-throughput-first.json canary-throughput-second.json
+    test "$(jq -r '.sample_count' canary-policy-first.json)" \
+      -eq "$(jq -r '.repeat_count' canary-throughput-first.json)"
+    expected_canary_request_executions=104
+    test "$(jq -r '.maximum_request_executions' canary-policy-first.json)" \
+      -eq "$expected_canary_request_executions"
+    if nickel export --format json \
+      fixtures/invalid-persistent-decode-canary-policy.ncl \
+      >invalid-canary-policy.out 2>invalid-canary-policy.err; then
+      echo "invalid canary policy passed its Nickel contract" >&2
+      exit 1
+    fi
+    test -s invalid-canary-policy.err
+
+    canary="$out/bin/rwkv7-p150x2-persistent-decode-canary"
+    if "$canary" >canary-missing.out 2>canary-missing.err; then
+      echo "canary command accepted missing arguments" >&2
+      exit 1
+    else
+      test "$?" -eq "$input_error_status"
+    fi
+    grep -F 'canary_usage' canary-missing.err
+
+    # r[verify tenstorrent.rwkv7_p150x2.persistent_decode_canary.invalid]
+    canary_failure_root="$PWD/canary-failure-root"
+    if "$canary" \
+      canary-policy-first.json \
+      canary-throughput-first.json \
+      fixtures/invalid-persistent-decode-canary-workload.json \
+      monitoring-policy-first.json \
+      "$canary_failure_root"; then
+      echo "failed benchmark produced a retained canary" >&2
+      exit 1
+    else
+      test "$?" -eq "$critical_status"
+    fi
+    jq -e '.state == "disabled" and .reason == "benchmark_failed"' \
+      "$canary_failure_root/canary-interlock.json" >/dev/null
+    jq -e '.decision.state == "disabled" and .decision.reason == "benchmark_failed"' \
+      "$canary_failure_root/canary-receipt.json" >/dev/null
+    expected_canary_planned_executions=72
+    test "$(jq -r '.budget.planned_request_executions' \
+      "$canary_failure_root/canary-receipt.json")" \
+      -eq "$expected_canary_planned_executions"
+    cmp "$canary_failure_root/canary-interlock.json" \
+      "$canary_failure_root.canary-interlock.json"
 
     # r[verify tenstorrent.rwkv7_p150x2.throughput_profile.valid]
     nickel export --format json throughput-profile.ncl >throughput-profile-first.json

@@ -245,6 +245,26 @@ std::string_view fallback_reason_name(FallbackReason reason) {
     return "profile_not_admitted";
   case FallbackReason::WindowNotAdmitted:
     return "window_not_admitted";
+  case FallbackReason::CanaryInterlockBlocked:
+    return "canary_interlock_blocked";
+  }
+  return "invalid";
+}
+
+std::string_view canary_interlock_state_name(CanaryInterlockState state) {
+  switch (state) {
+  case CanaryInterlockState::NotPresent:
+    return "not_present";
+  case CanaryInterlockState::Armed:
+    return "armed";
+  case CanaryInterlockState::Retain:
+    return "retain";
+  case CanaryInterlockState::Hold:
+    return "hold";
+  case CanaryInterlockState::Disabled:
+    return "disabled";
+  case CanaryInterlockState::Invalid:
+    return "invalid";
   }
   return "invalid";
 }
@@ -464,6 +484,58 @@ ValidationResult validate_active_slots(std::span<const std::uint32_t> slots,
   return valid_result();
 }
 
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.interlock]
+CanaryInterlockDecision validate_canary_interlock(
+    const CanaryInterlockEvidence &evidence,
+    std::string_view expected_profile_id,
+    std::string_view expected_profile_blake3) {
+  if (!evidence.present) {
+    return CanaryInterlockDecision{true, true,
+                                   CanaryInterlockState::NotPresent, {}};
+  }
+  const bool identity_valid =
+      valid_blake3_hex(evidence.expected_file_blake3) &&
+      valid_blake3_hex(evidence.actual_file_blake3) &&
+      evidence.expected_file_blake3 == evidence.actual_file_blake3 &&
+      valid_blake3_hex(evidence.expected_canary_binding_blake3) &&
+      valid_blake3_hex(evidence.actual_canary_binding_blake3) &&
+      evidence.expected_canary_binding_blake3 ==
+          evidence.actual_canary_binding_blake3 &&
+      valid_blake3_hex(evidence.profile_blake3) &&
+      valid_blake3_hex(expected_profile_blake3) &&
+      evidence.profile_id == expected_profile_id &&
+      evidence.profile_blake3 == expected_profile_blake3;
+  const bool limits_valid =
+      evidence.maximum_request_executions ==
+          kCanaryMaximumRequestExecutions &&
+      evidence.maximum_duration_seconds == kCanaryMaximumDurationSeconds &&
+      evidence.candidate_traffic_fraction == kCanaryCandidateTrafficFraction;
+  const bool state_valid =
+      (evidence.state == CanaryInterlockState::Armed &&
+       evidence.reason == "canary_running") ||
+      (evidence.state == CanaryInterlockState::Retain &&
+       evidence.reason == "clean_canary") ||
+      (evidence.state == CanaryInterlockState::Hold &&
+       evidence.reason == "monitoring_warning") ||
+      (evidence.state == CanaryInterlockState::Disabled &&
+       (evidence.reason == "monitoring_critical" ||
+        evidence.reason == "invalid_evidence" ||
+        evidence.reason == "benchmark_failed" ||
+        evidence.reason == "canary_timeout"));
+  if (!identity_valid || !limits_valid || !state_valid) {
+    return CanaryInterlockDecision{
+        false, false, CanaryInterlockState::Invalid,
+        "canary interlock identity, limits, or state is invalid"};
+  }
+  const bool allows_persistent =
+      evidence.state == CanaryInterlockState::Armed ||
+      evidence.state == CanaryInterlockState::Retain;
+  return CanaryInterlockDecision{
+      true, allows_persistent, evidence.state,
+      allows_persistent ? std::string{}
+                        : "canary interlock blocks persistent dispatch"};
+}
+
 RequestState initial_state(std::uint32_t slot) {
   return RequestState{RequestPhase::Pending, TerminalReason::None, slot, 0U,
                       0U, 0U, {}};
@@ -623,6 +695,11 @@ select_execution_mode(const Profile &profile,
     return ExecutionDecision{
         ExecutionMode::NormalDispatch, FallbackReason::WindowNotAdmitted,
         "the requested persistent decode window is not admitted"};
+  }
+  if (!evidence.canary_interlock_allows_persistent) {
+    return ExecutionDecision{
+        ExecutionMode::NormalDispatch, FallbackReason::CanaryInterlockBlocked,
+        "the canary interlock blocks persistent dispatch"};
   }
   if (!evidence.trace_available) {
     return ExecutionDecision{ExecutionMode::NormalDispatch,

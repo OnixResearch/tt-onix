@@ -78,7 +78,21 @@ enum class FallbackReason : std::uint8_t {
   StableGainMissing,
   ProfileNotAdmitted,
   WindowNotAdmitted,
+  CanaryInterlockBlocked,
 };
+
+enum class CanaryInterlockState : std::uint8_t {
+  NotPresent,
+  Armed,
+  Retain,
+  Hold,
+  Disabled,
+  Invalid,
+};
+
+inline constexpr std::uint64_t kCanaryMaximumRequestExecutions = 104U;
+inline constexpr std::uint64_t kCanaryMaximumDurationSeconds = 600U;
+inline constexpr double kCanaryCandidateTrafficFraction = 0.5;
 
 enum class TelemetryParityStatus : std::uint8_t {
   NotApplicable,
@@ -158,11 +172,34 @@ struct TransitionResult {
 
 struct CapabilityEvidence {
   bool window_admitted;
+  bool canary_interlock_allows_persistent;
   bool trace_available;
   bool exact_parity;
   bool simulator_smoke;
   bool zero_per_token_host_submissions;
   bool stable_physical_gain;
+};
+
+struct CanaryInterlockEvidence {
+  bool present;
+  CanaryInterlockState state;
+  std::string reason;
+  std::string expected_file_blake3;
+  std::string actual_file_blake3;
+  std::string expected_canary_binding_blake3;
+  std::string actual_canary_binding_blake3;
+  std::string profile_id;
+  std::string profile_blake3;
+  std::uint64_t maximum_request_executions;
+  std::uint64_t maximum_duration_seconds;
+  double candidate_traffic_fraction;
+};
+
+struct CanaryInterlockDecision {
+  bool valid;
+  bool allows_persistent;
+  CanaryInterlockState state;
+  std::string reason;
 };
 
 struct ExecutionDecision {
@@ -220,6 +257,8 @@ struct PersistentTelemetry {
 [[nodiscard]] std::string_view execution_mode_name(ExecutionMode mode);
 [[nodiscard]] std::string_view fallback_reason_name(FallbackReason reason);
 [[nodiscard]] std::string_view
+canary_interlock_state_name(CanaryInterlockState state);
+[[nodiscard]] std::string_view
 telemetry_parity_status_name(TelemetryParityStatus status);
 [[nodiscard]] std::string_view
 telemetry_cleanup_status_name(TelemetryCleanupStatus status);
@@ -237,6 +276,9 @@ select_window_limits(const Profile &profile, std::uint32_t decode_steps);
 [[nodiscard]] ValidationResult
 validate_active_slots(std::span<const std::uint32_t> slots,
                       std::uint32_t queue_depth);
+[[nodiscard]] CanaryInterlockDecision validate_canary_interlock(
+    const CanaryInterlockEvidence &evidence, std::string_view expected_profile_id,
+    std::string_view expected_profile_blake3);
 
 [[nodiscard]] RequestState initial_state(std::uint32_t slot);
 [[nodiscard]] TransitionResult transition(const RequestState &state,

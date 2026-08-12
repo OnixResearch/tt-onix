@@ -170,6 +170,19 @@ constexpr std::string_view kPersistentDecodeCandidateEnvironment =
     "RWKV7_PERSISTENT_DECODE_CANDIDATE";
 constexpr std::string_view kPersistentDecodeTerminalProbeEnvironment =
     "RWKV7_PERSISTENT_DECODE_TERMINAL_PROBE";
+constexpr std::string_view kPersistentDecodeCanaryInterlockEnvironment =
+    "RWKV7_PERSISTENT_DECODE_CANARY_INTERLOCK";
+constexpr std::string_view kPersistentDecodeCanaryInterlockBlake3Environment =
+    "RWKV7_PERSISTENT_DECODE_CANARY_INTERLOCK_BLAKE3";
+constexpr std::string_view kPersistentDecodeCanaryBindingBlake3Environment =
+    "RWKV7_PERSISTENT_DECODE_CANARY_BINDING_BLAKE3";
+constexpr std::string_view kPersistentDecodeCanaryInterlockKind =
+    "rwkv7_persistent_decode_canary_interlock";
+constexpr std::string_view kPersistentDecodeCanaryHashAlgorithm = "blake3";
+constexpr std::size_t kPersistentDecodeCanaryMaximumFileBytes = 65536U;
+constexpr std::size_t kPersistentDecodeCanaryTopLevelFieldCount = 9U;
+constexpr std::size_t kPersistentDecodeCanaryLimitFieldCount = 3U;
+constexpr std::uint32_t kPersistentDecodeCanarySchemaVersion = 1U;
 constexpr std::string_view kPersistentDecodeCancelProbe = "cancel";
 constexpr std::string_view kPersistentDecodeTimeoutProbe = "timeout";
 constexpr std::string_view kPersistentDecodeFailureProbe = "failure";
@@ -3488,6 +3501,145 @@ LoadedPersistentDecodeProfile load_persistent_decode_profile() {
       rwkv7::persistent_decode::parse_profile(document), std::move(bytes)};
 }
 
+struct LoadedCanaryInterlock {
+  bool present;
+  rwkv7::persistent_decode::CanaryInterlockState state;
+  rwkv7::persistent_decode::CanaryInterlockDecision decision;
+  std::string file_blake3;
+  std::string canary_binding_blake3;
+};
+
+rwkv7::persistent_decode::CanaryInterlockState
+parse_canary_interlock_state(std::string_view state) {
+  using rwkv7::persistent_decode::CanaryInterlockState;
+  if (state == "armed") {
+    return CanaryInterlockState::Armed;
+  }
+  if (state == "retain") {
+    return CanaryInterlockState::Retain;
+  }
+  if (state == "hold") {
+    return CanaryInterlockState::Hold;
+  }
+  if (state == "disabled") {
+    return CanaryInterlockState::Disabled;
+  }
+  return CanaryInterlockState::Invalid;
+}
+
+// r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.runtime]
+LoadedCanaryInterlock load_canary_interlock(
+    const LoadedPersistentDecodeProfile &profile) {
+  using rwkv7::persistent_decode::CanaryInterlockEvidence;
+  using rwkv7::persistent_decode::CanaryInterlockState;
+  const char *const path_value =
+      std::getenv(kPersistentDecodeCanaryInterlockEnvironment.data());
+  const char *const expected_file_blake3_value = std::getenv(
+      kPersistentDecodeCanaryInterlockBlake3Environment.data());
+  const char *const expected_binding_value = std::getenv(
+      kPersistentDecodeCanaryBindingBlake3Environment.data());
+  const bool any_present = path_value != nullptr ||
+                           expected_file_blake3_value != nullptr ||
+                           expected_binding_value != nullptr;
+  const std::string expected_profile_blake3 =
+      rwkv7::persistent_decode::blake3_hex(profile.bytes);
+  if (!any_present) {
+    const CanaryInterlockEvidence evidence{
+        false, CanaryInterlockState::NotPresent, {}, {}, {}, {}, {}, {}, {},
+        0U, 0U, 0.0};
+    const auto decision = rwkv7::persistent_decode::validate_canary_interlock(
+        evidence, profile.profile.profile_id, expected_profile_blake3);
+    return LoadedCanaryInterlock{false, CanaryInterlockState::NotPresent,
+                                 decision, {}, {}};
+  }
+  const auto invalid_interlock = [&]() {
+    const CanaryInterlockEvidence evidence{
+        true,
+        CanaryInterlockState::Invalid,
+        {},
+        expected_file_blake3_value == nullptr
+            ? std::string{}
+            : std::string(expected_file_blake3_value),
+        {},
+        expected_binding_value == nullptr ? std::string{}
+                                          : std::string(expected_binding_value),
+        {},
+        {},
+        {},
+        0U,
+        0U,
+        0.0};
+    const auto decision = rwkv7::persistent_decode::validate_canary_interlock(
+        evidence, profile.profile.profile_id, expected_profile_blake3);
+    return LoadedCanaryInterlock{true, CanaryInterlockState::Invalid,
+                                 decision, {}, {}};
+  };
+  if (path_value == nullptr || expected_file_blake3_value == nullptr ||
+      expected_binding_value == nullptr) {
+    return invalid_interlock();
+  }
+  try {
+    std::ifstream input(path_value, std::ios::binary | std::ios::ate);
+    if (!input.good()) {
+      return invalid_interlock();
+    }
+    const std::streampos end = input.tellg();
+    if (end <= 0 ||
+        end > static_cast<std::streampos>(
+                  kPersistentDecodeCanaryMaximumFileBytes)) {
+      return invalid_interlock();
+    }
+    const std::size_t byte_count = static_cast<std::size_t>(end);
+    std::string bytes(byte_count, '\0');
+    input.seekg(0, std::ios::beg);
+    input.read(bytes.data(), static_cast<std::streamsize>(byte_count));
+    if (!input.good()) {
+      return invalid_interlock();
+    }
+    const std::string actual_file_blake3 =
+        rwkv7::persistent_decode::blake3_hex(bytes);
+    const Json document = Json::parse(bytes);
+    if (!document.is_object() ||
+        document.size() != kPersistentDecodeCanaryTopLevelFieldCount ||
+        document.at("schema_version").get<std::uint32_t>() !=
+            kPersistentDecodeCanarySchemaVersion ||
+        document.at("event_kind").get<std::string>() !=
+            kPersistentDecodeCanaryInterlockKind ||
+        document.at("hash_algorithm").get<std::string>() !=
+            kPersistentDecodeCanaryHashAlgorithm) {
+      return invalid_interlock();
+    }
+    const Json &limits = document.at("limits");
+    if (!limits.is_object() ||
+        limits.size() != kPersistentDecodeCanaryLimitFieldCount) {
+      return invalid_interlock();
+    }
+    const CanaryInterlockState state = parse_canary_interlock_state(
+        document.at("state").get<std::string>());
+    const std::string canary_binding_blake3 =
+        document.at("canary_binding_blake3").get<std::string>();
+    const CanaryInterlockEvidence evidence{
+        true,
+        state,
+        document.at("reason").get<std::string>(),
+        std::string(expected_file_blake3_value),
+        actual_file_blake3,
+        std::string(expected_binding_value),
+        canary_binding_blake3,
+        document.at("profile_id").get<std::string>(),
+        document.at("profile_blake3").get<std::string>(),
+        limits.at("maximum_request_executions").get<std::uint64_t>(),
+        limits.at("maximum_duration_seconds").get<std::uint64_t>(),
+        limits.at("candidate_traffic_fraction").get<double>()};
+    const auto decision = rwkv7::persistent_decode::validate_canary_interlock(
+        evidence, profile.profile.profile_id, expected_profile_blake3);
+    return LoadedCanaryInterlock{true, state, decision, actual_file_blake3,
+                                 canary_binding_blake3};
+  } catch (const std::exception &) {
+    return invalid_interlock();
+  }
+}
+
 std::vector<std::string_view>
 binding_component_views(const std::vector<std::string> &components) {
   std::vector<std::string_view> views;
@@ -3856,6 +4008,8 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "persistent decode profile targets a different model profile");
   const std::string persistent_profile_identity =
       rwkv7::persistent_decode::blake3_hex(persistent_profile.bytes);
+  const LoadedCanaryInterlock canary_interlock =
+      load_canary_interlock(persistent_profile);
   const rwkv7::persistent_decode::BindingSet expected_persistent_bindings =
       derive_fast_worker_bindings(
           persistent_profile.profile, persistent_profile.bytes, request,
@@ -3899,8 +4053,12 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
     persistent_request_profile.limits = *selected_persistent_limits;
   }
   const rwkv7::persistent_decode::CapabilityEvidence candidate_evidence{
-      window_admitted, candidate_enabled && candidate_eligible,
-      candidate_enabled, candidate_enabled, candidate_enabled,
+      window_admitted,
+      canary_interlock.decision.allows_persistent,
+      candidate_enabled && candidate_eligible,
+      candidate_enabled,
+      candidate_enabled,
+      candidate_enabled,
       candidate_enabled};
   const rwkv7::persistent_decode::ExecutionDecision execution_decision =
       rwkv7::persistent_decode::select_execution_mode(
@@ -4629,6 +4787,21 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"physically_admitted",
        persistent_profile.profile.physically_admitted},
       {"candidate_requested", candidate_requested},
+      {"canary_interlock_present", canary_interlock.present},
+      {"canary_interlock_valid", canary_interlock.decision.valid},
+      {"canary_interlock_state",
+       std::string(rwkv7::persistent_decode::canary_interlock_state_name(
+           canary_interlock.state))},
+      {"canary_interlock_allows_persistent",
+       canary_interlock.decision.allows_persistent},
+      {"canary_interlock_file_blake3",
+       canary_interlock.file_blake3.empty()
+           ? Json(nullptr)
+           : Json(canary_interlock.file_blake3)},
+      {"canary_binding_blake3",
+       canary_interlock.canary_binding_blake3.empty()
+           ? Json(nullptr)
+           : Json(canary_interlock.canary_binding_blake3)},
       {"terminal_probe",
        std::string(persistent_decode_terminal_probe_name(terminal_probe))},
       {"terminal_event_poll_step",
