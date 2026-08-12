@@ -15,6 +15,7 @@
 let
   pythonEnvironment = python3.withPackages (packages: [
     packages.blake3
+    packages.numpy
     packages.safetensors
     packages.torch
   ]);
