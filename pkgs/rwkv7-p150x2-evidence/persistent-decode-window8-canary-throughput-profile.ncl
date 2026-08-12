@@ -6,7 +6,7 @@ let canary_request_count = 4 in
 let canary_prompt_token_count = 8 in
 let canary_generated_token_count = 8 in
 let canary_per_card_slot_count = 4 in
-let canary_warmup_token_count = 8 in
+let canary_warmup_token_count = 4 in
 let canary_minimum_dual_card_speedup = 1.50 in
 let canary_maximum_p99_latency_regression_fraction = 0.10 in
 {

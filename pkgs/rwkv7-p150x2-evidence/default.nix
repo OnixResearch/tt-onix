@@ -307,20 +307,30 @@ rustPlatform.buildRustPackage {
     fi
     test -s invalid-canary-policy.err
     window_eight_generated_tokens=8
+    window_eight_worker_warmup_tokens=4
     nickel export --format json persistent-decode-window8-canary-policy.ncl \
       >canary-window8-policy-first.json
     nickel export --format json persistent-decode-window8-canary-policy.ncl \
       >canary-window8-policy-second.json
     cmp canary-window8-policy-first.json canary-window8-policy-second.json
+    nickel export --format json persistent-decode-window8-throughput-profile.ncl \
+      >window8-throughput-first.json
+    nickel export --format json persistent-decode-window8-throughput-profile.ncl \
+      >window8-throughput-second.json
+    cmp window8-throughput-first.json window8-throughput-second.json
     nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
       >canary-window8-throughput-first.json
     nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
       >canary-window8-throughput-second.json
     cmp canary-window8-throughput-first.json canary-window8-throughput-second.json
+    test "$(jq -r '.workload.generated_token_count' window8-throughput-first.json)" \
+      -eq "$window_eight_generated_tokens"
+    test "$(jq -r '.timing.warmup_token_count' window8-throughput-first.json)" \
+      -eq "$window_eight_worker_warmup_tokens"
     test "$(jq -r '.workload.generated_token_count' canary-window8-throughput-first.json)" \
       -eq "$window_eight_generated_tokens"
     test "$(jq -r '.timing.warmup_token_count' canary-window8-throughput-first.json)" \
-      -eq "$window_eight_generated_tokens"
+      -eq "$window_eight_worker_warmup_tokens"
 
     canary="$out/bin/rwkv7-p150x2-persistent-decode-canary"
     if "$canary" >canary-missing.out 2>canary-missing.err; then
