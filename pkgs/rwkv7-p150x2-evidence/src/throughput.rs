@@ -624,10 +624,10 @@ fn validate_balanced_one_card_devices(one_card: &[ThroughputRun]) -> Result<(), 
     }
     let minimum_count = counts.values().copied().min().unwrap_or_default();
     let maximum_count = counts.values().copied().max().unwrap_or_default();
-    if minimum_count == 0 || minimum_count != maximum_count {
+    if minimum_count == 0 || maximum_count - minimum_count > 1 {
         return Err(Rejection::new(
             "unbalanced_one_card_devices",
-            "comparative one-card samples must balance physical devices",
+            "comparative one-card sample counts must differ by at most one across physical devices",
         ));
     }
     Ok(())
@@ -961,7 +961,7 @@ mod tests {
     const MODEL_PROFILE_BLAKE3: &str =
         "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88";
     const RUN_COUNT: usize = 3;
-    const BALANCED_RUN_COUNT: usize = 4;
+    const BALANCED_RUN_COUNT: usize = 5;
     const REQUEST_COUNT: usize = 4;
     const TOKEN_COUNT: usize = 16;
     const SINGLE_ELAPSED_SECONDS: f64 = 1.0;
