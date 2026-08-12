@@ -18,12 +18,16 @@
   tt-umd,
   targetContext,
   fetchQueueDiagnostics ? false,
+  persistentDecodeProfile ? ./persistent-decode-profile.ncl,
+  maximumGeneratedTokens ? 4,
+  runtimeName ? null,
 }:
 let
   profile = targetContext.profile;
   artifacts = targetContext.artifacts;
   model = artifacts.checkpoint.path;
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
+  persistentDecodeProfileFile = builtins.baseNameOf (toString persistentDecodeProfile);
   metaliumRuntime = symlinkJoin {
     name = "rwkv7-p150x2-metalium-runtime";
     paths = [ "${tt-metal}/libexec/tt-metalium" ];
@@ -42,7 +46,9 @@ let
 in
 stdenv.mkDerivation {
   pname =
-    if fetchQueueDiagnostics then
+    if runtimeName != null then
+      runtimeName
+    else if fetchQueueDiagnostics then
       "rwkv7-p150x2-fetch-queue-diagnostic-runtime"
     else
       "rwkv7-p150x2-runtime";
@@ -71,12 +77,14 @@ stdenv.mkDerivation {
   ];
 
   preConfigure = ''
-    nickel export --format json persistent-decode-profile.ncl >persistent-decode-profile.json
+    nickel export --format json ${lib.escapeShellArg persistentDecodeProfileFile} \
+      >persistent-decode-profile.json
   '';
 
   cmakeFlags = [
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
     (lib.cmakeFeature "RWKV7_PERSISTENT_DECODE_PROFILE_PATH" "${placeholder "out"}/share/rwkv7-p150x2/persistent-decode-profile.json")
+    (lib.cmakeFeature "RWKV7_MAXIMUM_GENERATED_TOKENS" (toString maximumGeneratedTokens))
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
     (lib.cmakeFeature "RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH" singleCardMeshDescriptor)
     (lib.cmakeFeature "RWKV7_METALIUM_ROOT" metaliumRoot)
@@ -117,11 +125,19 @@ stdenv.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
-    nickel export --format json ../persistent-decode-profile.ncl >persistent-decode-profile-check.json
+    nickel export --format json ../${lib.escapeShellArg persistentDecodeProfileFile} \
+      >persistent-decode-profile-check.json
     cmp persistent-decode-profile-check.json \
       "$out/share/rwkv7-p150x2/persistent-decode-profile.json"
     if nickel export --format json ../fixtures/invalid-persistent-decode-profile.ncl; then
       echo 'invalid persistent decode profile passed validation' >&2
+      exit 1
+    fi
+    nickel export --format json ../persistent-decode-window8-candidate-profile.ncl \
+      >persistent-decode-window8-candidate-profile.json
+    if nickel export --format json \
+      ../fixtures/invalid-persistent-decode-window8-profile.ncl; then
+      echo 'invalid window-8 candidate profile passed validation' >&2
       exit 1
     fi
     "$out/bin/rwkv7-p150x2-runtime" --self-test >self-test.log

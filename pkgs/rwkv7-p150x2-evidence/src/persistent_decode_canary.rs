@@ -10,10 +10,15 @@ use serde_json::Value as JsonValue;
 
 pub const CANARY_SCHEMA_VERSION: u32 = 1;
 pub const CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-v1";
+const WINDOW_EIGHT_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window8-v1";
 pub const CANARY_RECEIPT_KIND: &str = "rwkv7_persistent_decode_canary";
 pub const CANARY_INTERLOCK_KIND: &str = "rwkv7_persistent_decode_canary_interlock";
 pub const PERSISTENT_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+const WINDOW_EIGHT_PERSISTENT_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
 pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v1";
+const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
 pub const HASH_ALGORITHM: &str = "blake3";
 pub const CLEAN_ACTION: &str = "retain";
 pub const WARNING_ACTION: &str = "hold";
@@ -25,6 +30,7 @@ const INPUT_MAXIMUM_BYTES: usize = 1_048_576;
 const EXPECTED_MACHINE_COUNT: usize = 1;
 const EXPECTED_PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
 const EXPECTED_ADMITTED_WINDOWS: [u32; 2] = [2, 4];
+const EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS: [u32; 3] = [2, 4, 8];
 const EXPECTED_SAMPLE_COUNT: usize = 4;
 const EXPECTED_REQUESTS_PER_WORKER: usize = 4;
 const EXPECTED_PROFILER_RUN_COUNT: usize = 2;
@@ -317,6 +323,17 @@ fn checked_product(values: &[usize], label: &'static str) -> Result<usize, Canar
     })
 }
 
+fn valid_policy_identity(policy: &CanaryPolicy) -> bool {
+    (policy.policy_id == CANARY_POLICY_ID
+        && policy.persistent_profile_id == PERSISTENT_PROFILE_ID
+        && policy.monitoring_policy_id == MONITORING_POLICY_ID
+        && policy.admitted_windows == EXPECTED_ADMITTED_WINDOWS)
+        || (policy.policy_id == WINDOW_EIGHT_CANARY_POLICY_ID
+            && policy.persistent_profile_id == WINDOW_EIGHT_PERSISTENT_PROFILE_ID
+            && policy.monitoring_policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID
+            && policy.admitted_windows == EXPECTED_WINDOW_EIGHT_ADMITTED_WINDOWS)
+}
+
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.policy]
 pub fn parse_canary_policy(policy_json: &str) -> Result<CanaryPolicy, CanaryError> {
     if policy_json.len() > POLICY_MAXIMUM_BYTES {
@@ -372,11 +389,8 @@ pub fn parse_canary_policy(policy_json: &str) -> Result<CanaryPolicy, CanaryErro
     )?;
     let expected_fraction = candidate_requests as f64 / comparison_requests as f64;
     if policy.schema_version != CANARY_SCHEMA_VERSION
-        || policy.policy_id != CANARY_POLICY_ID
-        || policy.persistent_profile_id != PERSISTENT_PROFILE_ID
+        || !valid_policy_identity(&policy)
         || !valid_blake3(&policy.persistent_profile_blake3)
-        || policy.monitoring_policy_id != MONITORING_POLICY_ID
-        || policy.admitted_windows != EXPECTED_ADMITTED_WINDOWS
         || policy.physical_device_ids != EXPECTED_PHYSICAL_DEVICE_IDS
         || policy.machine_count != EXPECTED_MACHINE_COUNT
         || policy.sample_count != EXPECTED_SAMPLE_COUNT

@@ -316,8 +316,17 @@ const MAXIMUM_TRACE_REGION_BYTES: usize = 268_435_456;
 const MAXIMUM_TRACE_EXECUTION_SECONDS: f64 = 60.0;
 const MAXIMUM_RECEIPT_QUEUE_DEPTH: usize = 4;
 const WINDOW_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+const WINDOW_EIGHT_CANDIDATE_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
+const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
+const PRODUCTION_DECODE_WINDOWS: [u32; 2] = [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW];
+const WINDOW_EIGHT_CANDIDATE_DECODE_WINDOWS: [u32; 3] = [
+    SHORT_DECODE_WINDOW,
+    LONG_DECODE_WINDOW,
+    WINDOW_EIGHT_DECODE_WINDOW,
+];
 const CANCELLATION_POLL_STEP: u32 = 2;
 const TELEMETRY_SCHEMA_VERSION: u32 = 1;
 const TELEMETRY_EVENT_KIND: &str = "rwkv7_persistent_decode_worker";
@@ -337,6 +346,17 @@ const REQUIRED_BINDINGS: [&str; 9] = [
     "output",
     "profile",
 ];
+
+fn expected_profile_windows(profile_id: &str) -> Option<(&'static [u32], u32)> {
+    match profile_id {
+        WINDOW_PROFILE_ID => Some((&PRODUCTION_DECODE_WINDOWS, LONG_DECODE_WINDOW)),
+        WINDOW_EIGHT_CANDIDATE_PROFILE_ID => Some((
+            &WINDOW_EIGHT_CANDIDATE_DECODE_WINDOWS,
+            WINDOW_EIGHT_DECODE_WINDOW,
+        )),
+        _ => None,
+    }
+}
 
 fn valid_blake3(value: &str) -> bool {
     value.len() == BLAKE3_HEX_LENGTH
@@ -573,16 +593,23 @@ pub fn validate_persistent_receipt(
             "persistent profile identities must use BLAKE3",
         ));
     }
-    if persistent.profile_id == WINDOW_PROFILE_ID
-        && (persistent.admitted_decode_windows != [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
-            || persistent
-                .selected_decode_window_steps
-                .is_none_or(|window| !persistent.admitted_decode_windows.contains(&window))
-            || !persistent.window_admitted
-            || persistent.terminal_probe != "none"
-            || persistent.terminal_event_poll_step.is_some()
-            || persistent.cancellation_poll_interval_steps != CANCELLATION_POLL_STEP
-            || persistent.pre_replay_terminal_event)
+    let Some((expected_windows, _expected_maximum_window)) =
+        expected_profile_windows(&persistent.profile_id)
+    else {
+        return Err(PersistentReceiptError::new(
+            "invalid_decode_window",
+            "persistent decode profile is not an accepted production or window-8 candidate profile",
+        ));
+    };
+    if persistent.admitted_decode_windows != expected_windows
+        || persistent
+            .selected_decode_window_steps
+            .is_none_or(|window| !persistent.admitted_decode_windows.contains(&window))
+        || !persistent.window_admitted
+        || persistent.terminal_probe != "none"
+        || persistent.terminal_event_poll_step.is_some()
+        || persistent.cancellation_poll_interval_steps != CANCELLATION_POLL_STEP
+        || persistent.pre_replay_terminal_event
     {
         return Err(PersistentReceiptError::new(
             "invalid_decode_window",
@@ -677,11 +704,10 @@ pub fn validate_persistent_receipt(
     let mut slots = BTreeSet::new();
     for lifecycle in &persistent.lifecycle_receipts {
         if lifecycle.phase != "completed"
-            || (persistent.profile_id == WINDOW_PROFILE_ID
-                && (lifecycle.terminal_reason != "completed"
-                    || lifecycle.completed_steps
-                        != persistent.selected_decode_window_steps.unwrap_or_default()
-                    || !lifecycle.failure_code.is_empty()))
+            || lifecycle.terminal_reason != "completed"
+            || lifecycle.completed_steps
+                != persistent.selected_decode_window_steps.unwrap_or_default()
+            || !lifecycle.failure_code.is_empty()
             || !lifecycle.slot_releasable
             || !valid_blake3(&lifecycle.receipt_blake3)
             || !slots.insert(lifecycle.slot)
@@ -740,10 +766,11 @@ pub fn validate_persistent_terminal_probe_receipt(
             ));
         }
     };
-    let window_valid = persistent.profile_id == WINDOW_PROFILE_ID
-        && persistent.admitted_decode_windows == [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
-        && persistent.selected_decode_window_steps == Some(LONG_DECODE_WINDOW)
-        && persistent.window_admitted
+    let expected_profile = expected_profile_windows(&persistent.profile_id);
+    let window_valid = expected_profile.is_some_and(|(windows, maximum_window)| {
+        persistent.admitted_decode_windows == windows
+            && persistent.selected_decode_window_steps == Some(maximum_window)
+    }) && persistent.window_admitted
         && persistent.terminal_probe == expected_probe
         && persistent.terminal_event_poll_step == Some(0)
         && persistent.cancellation_poll_interval_steps == CANCELLATION_POLL_STEP

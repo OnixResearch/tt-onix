@@ -18,6 +18,15 @@ const HARD_MAXIMUM_BATCH_EVENTS: usize = 256;
 const HARD_MAXIMUM_EVENT_BYTES: usize = 1_048_576;
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
+const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
+const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
+const PRODUCTION_ADMITTED_WINDOWS: [u32; 2] = [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW];
+const WINDOW_EIGHT_ADMITTED_WINDOWS: [u32; 3] = [
+    SHORT_DECODE_WINDOW,
+    LONG_DECODE_WINDOW,
+    WINDOW_EIGHT_DECODE_WINDOW,
+];
 const SELECTED_MODE_PERSISTENT: &str = "persistent_trace";
 const SELECTED_MODE_NORMAL: &str = "normal_dispatch";
 const FALLBACK_NONE: &str = "none";
@@ -232,6 +241,12 @@ impl RawSafetySignals {
     }
 }
 
+fn valid_policy_window_set(policy_id: &str, admitted_windows: &[u32]) -> bool {
+    (policy_id == MONITORING_POLICY_ID && admitted_windows == PRODUCTION_ADMITTED_WINDOWS)
+        || (policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID
+            && admitted_windows == WINDOW_EIGHT_ADMITTED_WINDOWS)
+}
+
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
 pub fn parse_monitoring_policy(policy_json: &str) -> Result<MonitoringPolicy, MonitoringError> {
     if policy_json.len() > MAXIMUM_POLICY_BYTES {
@@ -247,7 +262,7 @@ pub fn parse_monitoring_policy(policy_json: &str) -> Result<MonitoringPolicy, Mo
     let valid_timing =
         policy.maximum_timing_seconds.is_finite() && policy.maximum_timing_seconds > 0.0;
     if policy.schema_version != MONITORING_SCHEMA_VERSION
-        || policy.policy_id != MONITORING_POLICY_ID
+        || !valid_policy_window_set(&policy.policy_id, &policy.admitted_windows)
         || policy.maximum_batch_events == 0
         || policy.maximum_batch_events > HARD_MAXIMUM_BATCH_EVENTS
         || policy.maximum_event_bytes == 0
@@ -256,7 +271,6 @@ pub fn parse_monitoring_policy(policy_json: &str) -> Result<MonitoringPolicy, Mo
         || policy.minimum_fallback_samples > policy.maximum_batch_events
         || !valid_rate
         || !valid_timing
-        || policy.admitted_windows != [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
         || policy.critical_action != CRITICAL_ACTION
         || policy.warning_action != WARNING_ACTION
     {

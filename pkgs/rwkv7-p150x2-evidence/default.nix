@@ -4,13 +4,20 @@
   nickel,
   jq,
   coreutils,
+  python3,
   ttsim,
   tt-smi,
   targetContext,
   deviceRuntime,
   diagnosticDeviceRuntime,
+  packageName ? "rwkv7-p150x2-evidence",
 }:
 let
+  pythonEnvironment = python3.withPackages (packages: [
+    packages.blake3
+    packages.safetensors
+    packages.torch
+  ]);
   profile = targetContext.profile;
   artifacts = targetContext.artifacts;
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
@@ -32,17 +39,22 @@ let
       ../rwkv7-p150x2/src/persistent_decode_self_test.hpp
       ../rwkv7-p150x2/persistent-decode-contracts.ncl
       ../rwkv7-p150x2/persistent-decode-profile.ncl
+      ../rwkv7-p150x2/persistent-decode-window8-contracts.ncl
+      ../rwkv7-p150x2/persistent-decode-window8-candidate-profile.ncl
     ];
   };
 in
 rustPlatform.buildRustPackage {
-  pname = "rwkv7-p150x2-evidence";
+  pname = packageName;
   version = "0.1.0";
 
   src = packageSource;
   sourceRoot = "source/rwkv7-p150x2-evidence";
   cargoLock.lockFile = ./Cargo.lock;
-  nativeBuildInputs = [ nickel ];
+  nativeBuildInputs = [
+    nickel
+    pythonEnvironment
+  ];
 
   MODEL_TARGET_PROFILE_BLAKE3 = profile.profile_identity;
   MODEL_TARGET_NAME = profile.target_name;
@@ -62,6 +74,7 @@ rustPlatform.buildRustPackage {
   MODEL_TARGET_CHECKPOINT_BLAKE3 = artifacts.checkpoint.blake3;
   MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3 = artifacts.tokenizer_vocabulary.blake3;
   RWKV7_TOKENIZER_VOCABULARY = artifacts.tokenizer_vocabulary.path;
+  RWKV7_CPU_REFERENCE_MODEL = artifacts.checkpoint.path;
   RWKV7_DEVICE_RUNTIME = deviceRuntime;
   RWKV7_DIAGNOSTIC_DEVICE_RUNTIME = diagnosticDeviceRuntime;
   TT_SMI_PATH = tt-smi;
@@ -76,11 +89,19 @@ rustPlatform.buildRustPackage {
       persistent-decode-canary-contracts.ncl \
       persistent-decode-canary-policy.ncl \
       persistent-decode-canary-throughput-profile.ncl \
+      persistent-decode-window8-monitoring-contracts.ncl \
+      persistent-decode-window8-monitoring-policy.ncl \
+      persistent-decode-window8-canary-contracts.ncl \
+      persistent-decode-window8-canary-policy.ncl \
+      persistent-decode-window8-throughput-profile.ncl \
+      persistent-decode-window8-canary-throughput-profile.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
       fixtures/persistent-decode-workload.json \
       fixtures/persistent-decode-lifecycle-workload.json \
+      fixtures/persistent-decode-window8-workload.json \
+      fixtures/persistent-decode-window8-lifecycle-workload.json \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
       fixtures/fused-wkv-stall-workload.json \
@@ -96,6 +117,14 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-policy.json"
     nickel export --format json persistent-decode-canary-throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-throughput-profile.json"
+    nickel export --format json persistent-decode-window8-monitoring-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-monitoring-policy.json"
+    nickel export --format json persistent-decode-window8-canary-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-canary-policy.json"
+    nickel export --format json persistent-decode-window8-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-throughput-profile.json"
+    nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-canary-throughput-profile.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     nickel export --format json throughput-capacity-profile.ncl \
@@ -104,6 +133,15 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/fused-wkv-physical-profile.json"
     nickel export --format json fused-wkv-stall-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/fused-wkv-stall-profile.json"
+    python reference/rwkv7_cpu_continuation.py --self-test \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-cpu-reference-self-test.json"
+    python reference/rwkv7_cpu_continuation.py \
+      --mode validate \
+      --model "$RWKV7_CPU_REFERENCE_MODEL" \
+      --workload "$PWD/fixtures/persistent-decode-window8-workload.json" \
+      --output "$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-cpu-reference-receipt.json"
+    cp reference/rwkv7_cpu_continuation.py \
+      "$out/share/rwkv7-p150x2-throughput/"
     substitute run-simulator-smoke.sh \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
       --replace-fail '@ttsim@' ${lib.escapeShellArg (toString ttsim)} \
@@ -141,6 +179,21 @@ rustPlatform.buildRustPackage {
     runHook preInstallCheck
     "$out/bin/rwkv7-p150x2-evidence" --self-test
     "$out/bin/rwkv7-p150x2-command" --self-test
+    cpu_reference_root="$out/share/rwkv7-p150x2-throughput"
+    cpu_reference_receipt="$cpu_reference_root/persistent-decode-window8-cpu-reference-receipt.json"
+    cpu_reference_self_test="$cpu_reference_root/persistent-decode-window8-cpu-reference-self-test.json"
+    jq -e '
+      .outcome == "validated_cpu_continuation" and
+      .known_prefix_matched == true and
+      .audit.generated_tokens_equal == true and
+      .generated_token_ids == [36786, 34, 308, 459, 39743, 4811, 31063, 32227]
+    ' "$cpu_reference_receipt" >/dev/null
+    jq -e '
+      .positive_orientation_equivalence == true and
+      .negative_shape_rejected == true
+    ' "$cpu_reference_self_test" >/dev/null
+    grep -F 'No production window-8 admission is established.' \
+      "$cpu_reference_receipt"
     bash -n "$out/bin/rwkv7-p150x2-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke"
@@ -165,6 +218,12 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     test -s invalid-monitoring-policy.err
+    nickel export --format json persistent-decode-window8-monitoring-policy.ncl \
+      >monitoring-window8-policy-first.json
+    nickel export --format json persistent-decode-window8-monitoring-policy.ncl \
+      >monitoring-window8-policy-second.json
+    cmp monitoring-window8-policy-first.json monitoring-window8-policy-second.json
+    test "$(jq -c '.admitted_windows' monitoring-window8-policy-first.json)" = '[2,4,8]'
 
     monitoring="$out/bin/rwkv7-p150x2-persistent-decode-monitor"
     persistent_fixture=fixtures/monitoring/physical-persistent-telemetry-receipt.json
@@ -247,6 +306,21 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     test -s invalid-canary-policy.err
+    window_eight_generated_tokens=8
+    nickel export --format json persistent-decode-window8-canary-policy.ncl \
+      >canary-window8-policy-first.json
+    nickel export --format json persistent-decode-window8-canary-policy.ncl \
+      >canary-window8-policy-second.json
+    cmp canary-window8-policy-first.json canary-window8-policy-second.json
+    nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
+      >canary-window8-throughput-first.json
+    nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
+      >canary-window8-throughput-second.json
+    cmp canary-window8-throughput-first.json canary-window8-throughput-second.json
+    test "$(jq -r '.workload.generated_token_count' canary-window8-throughput-first.json)" \
+      -eq "$window_eight_generated_tokens"
+    test "$(jq -r '.timing.warmup_token_count' canary-window8-throughput-first.json)" \
+      -eq "$window_eight_generated_tokens"
 
     canary="$out/bin/rwkv7-p150x2-persistent-decode-canary"
     if "$canary" >canary-missing.out 2>canary-missing.err; then

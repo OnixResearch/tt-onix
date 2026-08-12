@@ -18,7 +18,10 @@ constexpr std::size_t kConcurrentSlotCount = 2U;
 constexpr std::size_t kTestBlake3HexCharacters = 64U;
 constexpr std::uint32_t kShortDecodeWindow = 2U;
 constexpr std::uint32_t kLongDecodeWindow = 4U;
+constexpr std::uint32_t kWindowEightDecodeWindow = 8U;
 constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
+constexpr std::string_view kWindowEightCandidateProfileId =
+    "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
 constexpr std::uint32_t kExcessiveDecodeWindow = 6U;
 constexpr std::string_view kFailureCode = "self_test_failure";
 constexpr double kTelemetrySetupSeconds = 0.25;
@@ -355,9 +358,11 @@ void test_canary_interlock(const Profile &profile) {
 }
 
 void test_window_selection(const Profile &profile) {
-  const std::array<std::uint32_t, kConcurrentSlotCount> admitted_windows = {
-      kShortDecodeWindow, kLongDecodeWindow};
-  for (const std::uint32_t window : admitted_windows) {
+  bool saw_short_window = false;
+  bool saw_long_window = false;
+  for (const std::uint32_t window : profile.limits.admitted_decode_windows) {
+    saw_short_window = saw_short_window || window == kShortDecodeWindow;
+    saw_long_window = saw_long_window || window == kLongDecodeWindow;
     const WindowLimitsResult selected = select_window_limits(profile, window);
     require(selected.accepted &&
                 selected.limits.maximum_decode_steps == window &&
@@ -369,8 +374,18 @@ void test_window_selection(const Profile &profile) {
     request_profile.limits = selected.limits;
     test_maximum_length_completion(request_profile);
   }
+  require(saw_short_window && saw_long_window,
+          "persistent decode removed an accepted production window");
   require(!select_window_limits(profile, kUnlistedDecodeWindow).accepted,
           "persistent decode accepted an unlisted request window");
+  if (profile.profile_id == kWindowEightCandidateProfileId) {
+    require(!profile.physically_admitted &&
+                profile.limits.maximum_decode_steps ==
+                    kWindowEightDecodeWindow &&
+                select_window_limits(profile, kWindowEightDecodeWindow)
+                    .accepted,
+            "window-8 candidate changed its fail-closed profile boundary");
+  }
 }
 
 void test_persistent_telemetry_summary(const Profile &profile) {
