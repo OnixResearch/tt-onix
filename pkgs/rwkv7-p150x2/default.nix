@@ -140,6 +140,13 @@ stdenv.mkDerivation {
       echo 'invalid window-8 candidate profile passed validation' >&2
       exit 1
     fi
+    nickel export --format json ../persistent-decode-window16-candidate-profile.ncl \
+      >persistent-decode-window16-candidate-profile.json
+    if nickel export --format json \
+      ../fixtures/invalid-persistent-decode-window16-profile.ncl; then
+      echo 'invalid window-16 candidate profile passed validation' >&2
+      exit 1
+    fi
     "$out/bin/rwkv7-p150x2-runtime" --self-test >self-test.log
     grep -F 'rwkv7 P150x2 runtime self-test: PASS' self-test.log
     runHook postInstallCheck

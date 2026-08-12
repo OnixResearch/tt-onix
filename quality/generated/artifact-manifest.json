@@ -392,6 +392,54 @@
       "blake3": "0d978eadd1add35cdbbc0eebc1edebf3a8f231a240ce52915b3cfda7c9158181"
     },
     {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 3071,
+      "blake3": "3190d6825888443ea0e7638588d911ab86de492bb4d78f84fcb5e13ecc89759a"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/cpu-continuation-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2050,
+      "blake3": "6995c6bdb32eadfac6cb85b77eb1d131cc9af6548a7fc6d6ae32e54145935cbe"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/partial-profiler-preflight-attestation.json",
+      "class": "portable_evidence",
+      "byte_count": 748,
+      "blake3": "bd7a74a51a5ea351124b58146b5bf9298740282f6339c669b3be624b79eb07d6"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/physical-ab-harness-error.txt",
+      "class": "portable_evidence",
+      "byte_count": 74,
+      "blake3": "536ea5aa6d468eeee720cfc236d6802ed973e9a47ff8787f4f9f567ea3a9a8a8"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/physical-correctness-rejection.json",
+      "class": "portable_evidence",
+      "byte_count": 3628,
+      "blake3": "3fddef436e9fdfb2c0ecc1c7ee3e4d0bf0daf01db57c1894c0deaa2db923b9ba"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/physical-normal-first-sample.json",
+      "class": "portable_evidence",
+      "byte_count": 7472,
+      "blake3": "e9005a8347c9b2bd893477490335577376f4d4f22fd7e85f842e1a67d528cedf"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/physical-persistent-first-sample.json",
+      "class": "portable_evidence",
+      "byte_count": 8673,
+      "blake3": "7db1a2bf950697fb04c2a0a9e65a74cb4d6b16906a1d67f9e164fe8faa382bf9"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-16/evidence/simulator-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1521,
+      "blake3": "03d7c8438bda0cb1d96bb4a3e753ced4fd7dca9c17b917bb4a3ffcd8468f70f7"
+    },
+    {
       "path": "cairn/archive/2026-08-12-evaluate-rwkv7-persistent-window-8/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2987,

@@ -19,9 +19,12 @@ constexpr std::size_t kTestBlake3HexCharacters = 64U;
 constexpr std::uint32_t kShortDecodeWindow = 2U;
 constexpr std::uint32_t kLongDecodeWindow = 4U;
 constexpr std::uint32_t kWindowEightDecodeWindow = 8U;
+constexpr std::uint32_t kWindowSixteenDecodeWindow = 16U;
 constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
 constexpr std::string_view kWindowEightCandidateProfileId =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
+constexpr std::string_view kWindowSixteenCandidateProfileId =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
 constexpr std::uint32_t kExcessiveDecodeWindow = 6U;
 constexpr std::string_view kFailureCode = "self_test_failure";
 constexpr double kTelemetrySetupSeconds = 0.25;
@@ -361,10 +364,13 @@ void test_window_selection(const Profile &profile) {
   bool saw_short_window = false;
   bool saw_long_window = false;
   bool saw_window_eight = false;
+  bool saw_window_sixteen = false;
   for (const std::uint32_t window : profile.limits.admitted_decode_windows) {
     saw_short_window = saw_short_window || window == kShortDecodeWindow;
     saw_long_window = saw_long_window || window == kLongDecodeWindow;
     saw_window_eight = saw_window_eight || window == kWindowEightDecodeWindow;
+    saw_window_sixteen =
+        saw_window_sixteen || window == kWindowSixteenDecodeWindow;
     const WindowLimitsResult selected = select_window_limits(profile, window);
     require(selected.accepted &&
                 selected.limits.maximum_decode_steps == window &&
@@ -385,8 +391,18 @@ void test_window_selection(const Profile &profile) {
                 profile.limits.maximum_decode_steps ==
                     kWindowEightDecodeWindow &&
                 select_window_limits(profile, kWindowEightDecodeWindow)
-                    .accepted,
+                    .accepted &&
+                !saw_window_sixteen,
             "window-8 candidate changed its fail-closed profile boundary");
+  }
+  if (profile.profile_id == kWindowSixteenCandidateProfileId) {
+    require(!profile.physically_admitted &&
+                profile.limits.maximum_decode_steps ==
+                    kWindowSixteenDecodeWindow &&
+                select_window_limits(profile, kWindowSixteenDecodeWindow)
+                    .accepted &&
+                saw_window_sixteen,
+            "window-16 candidate changed its fail-closed profile boundary");
   }
 }
 

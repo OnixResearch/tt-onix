@@ -318,13 +318,22 @@ const MAXIMUM_RECEIPT_QUEUE_DEPTH: usize = 4;
 const PRODUCTION_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
 const WINDOW_EIGHT_CANDIDATE_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
+const WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
 const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
+const WINDOW_SIXTEEN_DECODE_WINDOW: u32 = 16;
 const ADMITTED_DECODE_WINDOWS: [u32; 3] = [
     SHORT_DECODE_WINDOW,
     LONG_DECODE_WINDOW,
     WINDOW_EIGHT_DECODE_WINDOW,
+];
+const WINDOW_SIXTEEN_CANDIDATE_WINDOWS: [u32; 4] = [
+    SHORT_DECODE_WINDOW,
+    LONG_DECODE_WINDOW,
+    WINDOW_EIGHT_DECODE_WINDOW,
+    WINDOW_SIXTEEN_DECODE_WINDOW,
 ];
 const CANCELLATION_POLL_STEP: u32 = 2;
 const TELEMETRY_SCHEMA_VERSION: u32 = 1;
@@ -351,6 +360,10 @@ fn expected_profile_windows(profile_id: &str) -> Option<(&'static [u32], u32)> {
         PRODUCTION_PROFILE_ID | WINDOW_EIGHT_CANDIDATE_PROFILE_ID => {
             Some((&ADMITTED_DECODE_WINDOWS, WINDOW_EIGHT_DECODE_WINDOW))
         }
+        WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID => Some((
+            &WINDOW_SIXTEEN_CANDIDATE_WINDOWS,
+            WINDOW_SIXTEEN_DECODE_WINDOW,
+        )),
         _ => None,
     }
 }
@@ -595,7 +608,7 @@ pub fn validate_persistent_receipt(
     else {
         return Err(PersistentReceiptError::new(
             "invalid_decode_window",
-            "persistent decode profile is not an accepted production or window-8 candidate profile",
+            "persistent decode profile is not an accepted production or evaluation candidate profile",
         ));
     };
     if persistent.admitted_decode_windows != expected_windows
@@ -1148,6 +1161,21 @@ mod tests {
         receipt
     }
 
+    fn valid_window_sixteen_candidate_receipt() -> serde_json::Value {
+        let mut receipt = valid_candidate_receipt();
+        receipt["persistent_decode"]["profile_id"] =
+            serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID);
+        receipt["persistent_decode"]["admitted_decode_windows"] =
+            serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+        receipt["persistent_decode"]["selected_decode_window_steps"] =
+            serde_json::json!(WINDOW_SIXTEEN_DECODE_WINDOW);
+        receipt["persistent_decode"]["lifecycle_receipts"][0]["completed_steps"] =
+            serde_json::json!(WINDOW_SIXTEEN_DECODE_WINDOW);
+        receipt["persistent_decode_telemetry"]["dispatch"]["selected_window_steps"] =
+            serde_json::json!(WINDOW_SIXTEEN_DECODE_WINDOW);
+        receipt
+    }
+
     fn valid_terminal_probe_receipt(probe: &str) -> serde_json::Value {
         let mut receipt = valid_candidate_receipt();
         let (phase, reason, failure_code) = match probe {
@@ -1391,6 +1419,11 @@ mod tests {
         let candidate = valid_candidate_receipt();
         validate_value(&candidate, PersistentReceiptPolicy::Candidate)
             .expect("simulated candidate receipt");
+        validate_value(
+            &valid_window_sixteen_candidate_receipt(),
+            PersistentReceiptPolicy::Candidate,
+        )
+        .expect("simulated window-sixteen candidate receipt");
 
         let mut production = candidate;
         production["physical_hardware"] = serde_json::json!(true);
@@ -1405,6 +1438,19 @@ mod tests {
             serde_json::json!(false);
         validate_value(&production, PersistentReceiptPolicy::Production)
             .expect("physical production receipt");
+    }
+
+    #[test]
+    fn rejects_window_sixteen_profile_drift() {
+        let mut invalid = valid_window_sixteen_candidate_receipt();
+        invalid["persistent_decode"]["admitted_decode_windows"] =
+            serde_json::json!(ADMITTED_DECODE_WINDOWS);
+        assert_eq!(
+            validate_value(&invalid, PersistentReceiptPolicy::Candidate)
+                .expect_err("missing window sixteen")
+                .code,
+            "invalid_decode_window"
+        );
     }
 
     // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_telemetry.valid]

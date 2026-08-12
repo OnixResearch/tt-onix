@@ -11,14 +11,19 @@ use serde_json::Value as JsonValue;
 pub const CANARY_SCHEMA_VERSION: u32 = 1;
 pub const CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-v2";
 const WINDOW_EIGHT_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window8-v1";
+const WINDOW_SIXTEEN_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window16-v1";
 pub const CANARY_RECEIPT_KIND: &str = "rwkv7_persistent_decode_canary";
 pub const CANARY_INTERLOCK_KIND: &str = "rwkv7_persistent_decode_canary_interlock";
 pub const PERSISTENT_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
 const WINDOW_EIGHT_PERSISTENT_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
+const WINDOW_SIXTEEN_PERSISTENT_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
 pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v2";
 const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
+const WINDOW_SIXTEEN_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window16-v1";
 pub const HASH_ALGORITHM: &str = "blake3";
 pub const CLEAN_ACTION: &str = "retain";
 pub const WARNING_ACTION: &str = "hold";
@@ -30,6 +35,7 @@ const INPUT_MAXIMUM_BYTES: usize = 1_048_576;
 const EXPECTED_MACHINE_COUNT: usize = 1;
 const EXPECTED_PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
 const EXPECTED_ADMITTED_WINDOWS: [u32; 3] = [2, 4, 8];
+const WINDOW_SIXTEEN_CANDIDATE_WINDOWS: [u32; 4] = [2, 4, 8, 16];
 const EXPECTED_WORKER_WARMUP_TOKEN_COUNT: usize = 4;
 const EXPECTED_SAMPLE_COUNT: usize = 4;
 const EXPECTED_REQUESTS_PER_WORKER: usize = 4;
@@ -332,6 +338,10 @@ fn valid_policy_identity(policy: &CanaryPolicy) -> bool {
             && policy.persistent_profile_id == WINDOW_EIGHT_PERSISTENT_PROFILE_ID
             && policy.monitoring_policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID
             && policy.admitted_windows == EXPECTED_ADMITTED_WINDOWS)
+        || (policy.policy_id == WINDOW_SIXTEEN_CANARY_POLICY_ID
+            && policy.persistent_profile_id == WINDOW_SIXTEEN_PERSISTENT_PROFILE_ID
+            && policy.monitoring_policy_id == WINDOW_SIXTEEN_MONITORING_POLICY_ID
+            && policy.admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS)
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.policy]
@@ -1157,6 +1167,49 @@ mod tests {
         invalid = serde_json::from_str(POLICY).unwrap();
         invalid["unknown"] = serde_json::json!(true);
         assert!(parse_canary_policy(&invalid.to_string()).is_err());
+    }
+
+    #[test]
+    fn accepts_window_sixteen_with_fixed_worker_warmup_and_rejects_drift() {
+        let mut policy: JsonValue = serde_json::from_str(POLICY).expect("base canary policy");
+        policy["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_CANARY_POLICY_ID);
+        policy["persistent_profile_id"] = serde_json::json!(WINDOW_SIXTEEN_PERSISTENT_PROFILE_ID);
+        policy["persistent_profile_blake3"] = serde_json::json!(HASH);
+        policy["monitoring_policy_id"] = serde_json::json!(WINDOW_SIXTEEN_MONITORING_POLICY_ID);
+        policy["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+
+        let mut throughput: JsonValue =
+            serde_json::from_str(THROUGHPUT_PROFILE).expect("base throughput profile");
+        throughput["workload"]["generated_token_count"] = serde_json::json!(
+            WINDOW_SIXTEEN_CANDIDATE_WINDOWS
+                .last()
+                .expect("window-sixteen admission")
+        );
+        let mut monitoring: JsonValue =
+            serde_json::from_str(MONITORING_POLICY).expect("base monitoring policy");
+        monitoring["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_MONITORING_POLICY_ID);
+        monitoring["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+
+        build_canary_context(
+            &policy.to_string(),
+            &throughput.to_string(),
+            WORKLOAD,
+            &monitoring.to_string(),
+        )
+        .expect("window-sixteen canary with fixed worker warmup");
+
+        throughput["timing"]["warmup_token_count"] = serde_json::json!(16);
+        assert_eq!(
+            build_canary_context(
+                &policy.to_string(),
+                &throughput.to_string(),
+                WORKLOAD,
+                &monitoring.to_string(),
+            )
+            .expect_err("decode-window warmup drift")
+            .code,
+            "canary_throughput_profile_mismatch"
+        );
     }
 
     #[test]

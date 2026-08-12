@@ -21,10 +21,19 @@ const LONG_DECODE_WINDOW: u32 = 4;
 const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
 const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
+const WINDOW_SIXTEEN_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window16-v1";
+const WINDOW_SIXTEEN_DECODE_WINDOW: u32 = 16;
 const PRODUCTION_ADMITTED_WINDOWS: [u32; 3] = [
     SHORT_DECODE_WINDOW,
     LONG_DECODE_WINDOW,
     WINDOW_EIGHT_DECODE_WINDOW,
+];
+const WINDOW_SIXTEEN_CANDIDATE_WINDOWS: [u32; 4] = [
+    SHORT_DECODE_WINDOW,
+    LONG_DECODE_WINDOW,
+    WINDOW_EIGHT_DECODE_WINDOW,
+    WINDOW_SIXTEEN_DECODE_WINDOW,
 ];
 const SELECTED_MODE_PERSISTENT: &str = "persistent_trace";
 const SELECTED_MODE_NORMAL: &str = "normal_dispatch";
@@ -241,8 +250,10 @@ impl RawSafetySignals {
 }
 
 fn valid_policy_window_set(policy_id: &str, admitted_windows: &[u32]) -> bool {
-    (policy_id == MONITORING_POLICY_ID || policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID)
-        && admitted_windows == PRODUCTION_ADMITTED_WINDOWS
+    ((policy_id == MONITORING_POLICY_ID || policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID)
+        && admitted_windows == PRODUCTION_ADMITTED_WINDOWS)
+        || (policy_id == WINDOW_SIXTEEN_MONITORING_POLICY_ID
+            && admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS)
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
@@ -816,6 +827,22 @@ mod tests {
     }
 
     // r[verify tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
+    #[test]
+    fn accepts_window_sixteen_policy_and_rejects_window_drift() {
+        let mut policy: JsonValue = serde_json::from_str(POLICY_JSON).expect("policy fixture");
+        policy["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_MONITORING_POLICY_ID);
+        policy["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+        parse_monitoring_policy(&policy.to_string()).expect("window-sixteen policy");
+
+        policy["admitted_windows"] = serde_json::json!(PRODUCTION_ADMITTED_WINDOWS);
+        assert_eq!(
+            parse_monitoring_policy(&policy.to_string())
+                .expect_err("window-sixteen policy drift")
+                .code,
+            "invalid_monitoring_policy"
+        );
+    }
+
     #[test]
     fn rejects_invalid_policy() {
         let mut invalid: JsonValue = serde_json::from_str(POLICY_JSON).expect("policy fixture");

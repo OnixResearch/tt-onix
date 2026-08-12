@@ -93,6 +93,7 @@ constexpr std::uint32_t kVocabularySize = RWKV7_PINNED_VOCABULARY_SIZE;
 constexpr std::uint32_t kLayerZero = 0U;
 constexpr std::uint32_t kMinimumGeneratedTokens = 2U;
 constexpr std::uint32_t kLongGeneratedTokenWindow = 4U;
+constexpr std::uint32_t kWindowEightGeneratedTokens = 8U;
 constexpr std::uint32_t kMaximumGeneratedTokens =
     RWKV7_MAXIMUM_GENERATED_TOKENS;
 static_assert(kMaximumGeneratedTokens >= kLongGeneratedTokenWindow);
@@ -3205,7 +3206,10 @@ void run_persistent_decode_simulator_smoke(
   constexpr std::uint64_t kTraceReplayHostSubmissions = 1U;
   std::vector<std::uint32_t> evaluated_windows = {
       kMinimumGeneratedTokens, kLongGeneratedTokenWindow};
-  if (kMaximumGeneratedTokens > kLongGeneratedTokenWindow) {
+  if (kMaximumGeneratedTokens >= kWindowEightGeneratedTokens) {
+    evaluated_windows.push_back(kWindowEightGeneratedTokens);
+  }
+  if (kMaximumGeneratedTokens > kWindowEightGeneratedTokens) {
     evaluated_windows.push_back(kMaximumGeneratedTokens);
   }
   const Json receipt{

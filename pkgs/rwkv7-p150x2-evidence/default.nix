@@ -42,6 +42,8 @@ let
       ../rwkv7-p150x2/persistent-decode-profile.ncl
       ../rwkv7-p150x2/persistent-decode-window8-contracts.ncl
       ../rwkv7-p150x2/persistent-decode-window8-candidate-profile.ncl
+      ../rwkv7-p150x2/persistent-decode-window16-contracts.ncl
+      ../rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl
     ];
   };
 in
@@ -96,6 +98,12 @@ rustPlatform.buildRustPackage {
       persistent-decode-window8-canary-policy.ncl \
       persistent-decode-window8-throughput-profile.ncl \
       persistent-decode-window8-canary-throughput-profile.ncl \
+      persistent-decode-window16-monitoring-contracts.ncl \
+      persistent-decode-window16-monitoring-policy.ncl \
+      persistent-decode-window16-canary-contracts.ncl \
+      persistent-decode-window16-canary-policy.ncl \
+      persistent-decode-window16-throughput-profile.ncl \
+      persistent-decode-window16-canary-throughput-profile.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
@@ -103,6 +111,8 @@ rustPlatform.buildRustPackage {
       fixtures/persistent-decode-lifecycle-workload.json \
       fixtures/persistent-decode-window8-workload.json \
       fixtures/persistent-decode-window8-lifecycle-workload.json \
+      fixtures/persistent-decode-window16-workload.json \
+      fixtures/persistent-decode-window16-lifecycle-workload.json \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
       fixtures/fused-wkv-stall-workload.json \
@@ -126,6 +136,14 @@ rustPlatform.buildRustPackage {
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-throughput-profile.json"
     nickel export --format json persistent-decode-window8-canary-throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-canary-throughput-profile.json"
+    nickel export --format json persistent-decode-window16-monitoring-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-monitoring-policy.json"
+    nickel export --format json persistent-decode-window16-canary-policy.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-canary-policy.json"
+    nickel export --format json persistent-decode-window16-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-throughput-profile.json"
+    nickel export --format json persistent-decode-window16-canary-throughput-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-canary-throughput-profile.json"
     nickel export --format json throughput-saturated-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-saturated-profile.json"
     nickel export --format json throughput-capacity-profile.ncl \
@@ -141,7 +159,15 @@ rustPlatform.buildRustPackage {
       --model "$RWKV7_CPU_REFERENCE_MODEL" \
       --workload "$PWD/fixtures/persistent-decode-window8-workload.json" \
       --output "$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-cpu-reference-receipt.json"
+    python reference/rwkv7_cpu_continuation_window16.py --self-test \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-cpu-reference-self-test.json"
+    python reference/rwkv7_cpu_continuation_window16.py \
+      --mode validate \
+      --model "$RWKV7_CPU_REFERENCE_MODEL" \
+      --workload "$PWD/fixtures/persistent-decode-window16-workload.json" \
+      --output "$out/share/rwkv7-p150x2-throughput/persistent-decode-window16-cpu-reference-receipt.json"
     cp reference/rwkv7_cpu_continuation.py \
+      reference/rwkv7_cpu_continuation_window16.py \
       "$out/share/rwkv7-p150x2-throughput/"
     substitute run-simulator-smoke.sh \
       "$out/bin/rwkv7-p150x2-simulator-smoke" \
@@ -195,6 +221,20 @@ rustPlatform.buildRustPackage {
     ' "$cpu_reference_self_test" >/dev/null
     grep -F 'No production window-8 admission is established.' \
       "$cpu_reference_receipt"
+    window_sixteen_cpu_receipt="$cpu_reference_root/persistent-decode-window16-cpu-reference-receipt.json"
+    window_sixteen_cpu_self_test="$cpu_reference_root/persistent-decode-window16-cpu-reference-self-test.json"
+    jq -e '
+      .outcome == "validated_cpu_continuation" and
+      .known_prefix_matched == true and
+      .audit.generated_tokens_equal == true and
+      .generated_token_ids == [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
+    ' "$window_sixteen_cpu_receipt" >/dev/null
+    jq -e '
+      .positive_orientation_equivalence == true and
+      .negative_shape_rejected == true
+    ' "$window_sixteen_cpu_self_test" >/dev/null
+    grep -F 'No production window-16 admission is established.' \
+      "$window_sixteen_cpu_receipt"
     bash -n "$out/bin/rwkv7-p150x2-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-simulator-smoke"
     bash -n "$out/bin/rwkv7-p150x2-fused-wkv-layer-simulator-smoke"
@@ -225,6 +265,12 @@ rustPlatform.buildRustPackage {
       >monitoring-window8-policy-second.json
     cmp monitoring-window8-policy-first.json monitoring-window8-policy-second.json
     test "$(jq -c '.admitted_windows' monitoring-window8-policy-first.json)" = '[2,4,8]'
+    nickel export --format json persistent-decode-window16-monitoring-policy.ncl \
+      >monitoring-window16-policy-first.json
+    nickel export --format json persistent-decode-window16-monitoring-policy.ncl \
+      >monitoring-window16-policy-second.json
+    cmp monitoring-window16-policy-first.json monitoring-window16-policy-second.json
+    test "$(jq -c '.admitted_windows' monitoring-window16-policy-first.json)" = '[2,4,8,16]'
 
     monitoring="$out/bin/rwkv7-p150x2-persistent-decode-monitor"
     persistent_fixture=fixtures/monitoring/physical-persistent-telemetry-receipt.json
@@ -332,6 +378,31 @@ rustPlatform.buildRustPackage {
       -eq "$window_eight_generated_tokens"
     test "$(jq -r '.timing.warmup_token_count' canary-window8-throughput-first.json)" \
       -eq "$window_eight_worker_warmup_tokens"
+    window_sixteen_generated_tokens=16
+    window_sixteen_worker_warmup_tokens=4
+    nickel export --format json persistent-decode-window16-canary-policy.ncl \
+      >canary-window16-policy-first.json
+    nickel export --format json persistent-decode-window16-canary-policy.ncl \
+      >canary-window16-policy-second.json
+    cmp canary-window16-policy-first.json canary-window16-policy-second.json
+    nickel export --format json persistent-decode-window16-throughput-profile.ncl \
+      >window16-throughput-first.json
+    nickel export --format json persistent-decode-window16-throughput-profile.ncl \
+      >window16-throughput-second.json
+    cmp window16-throughput-first.json window16-throughput-second.json
+    nickel export --format json persistent-decode-window16-canary-throughput-profile.ncl \
+      >canary-window16-throughput-first.json
+    nickel export --format json persistent-decode-window16-canary-throughput-profile.ncl \
+      >canary-window16-throughput-second.json
+    cmp canary-window16-throughput-first.json canary-window16-throughput-second.json
+    test "$(jq -r '.workload.generated_token_count' window16-throughput-first.json)" \
+      -eq "$window_sixteen_generated_tokens"
+    test "$(jq -r '.timing.warmup_token_count' window16-throughput-first.json)" \
+      -eq "$window_sixteen_worker_warmup_tokens"
+    test "$(jq -r '.workload.generated_token_count' canary-window16-throughput-first.json)" \
+      -eq "$window_sixteen_generated_tokens"
+    test "$(jq -r '.timing.warmup_token_count' canary-window16-throughput-first.json)" \
+      -eq "$window_sixteen_worker_warmup_tokens"
 
     canary="$out/bin/rwkv7-p150x2-persistent-decode-canary"
     if "$canary" >canary-missing.out 2>canary-missing.err; then

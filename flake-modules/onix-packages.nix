@@ -201,6 +201,14 @@
         maximumGeneratedTokens = windowEightMaximumGeneratedTokens;
         runtimeName = "rwkv7-p150x2-window8-candidate-runtime";
       };
+      windowSixteenMaximumGeneratedTokens = 16;
+      # r[impl tenstorrent.rwkv7_p150x2.persistent_decode_window_16]
+      rwkv7P150x2Window16CandidateRuntime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
+        targetContext = rwkvTargetContext;
+        persistentDecodeProfile = ../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl;
+        maximumGeneratedTokens = windowSixteenMaximumGeneratedTokens;
+        runtimeName = "rwkv7-p150x2-window16-candidate-runtime";
+      };
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
       rwkv7P150x2Evidence = rwkvTarget.evidence;
       rwkv7P150x2Window8CandidateEvidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
@@ -208,6 +216,12 @@
         deviceRuntime = rwkv7P150x2Window8CandidateRuntime;
         diagnosticDeviceRuntime = rwkv7P150x2DiagnosticRuntime;
         packageName = "rwkv7-p150x2-window8-candidate-evidence";
+      };
+      rwkv7P150x2Window16CandidateEvidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
+        targetContext = rwkvTargetContext;
+        deviceRuntime = rwkv7P150x2Window16CandidateRuntime;
+        diagnosticDeviceRuntime = rwkv7P150x2DiagnosticRuntime;
+        packageName = "rwkv7-p150x2-window16-candidate-evidence";
       };
       rwkv7P150x2FusedWkvArchitectureCheck =
         pkgs.callPackage ../pkgs/rwkv7-p150x2/fused-wkv-architecture-check.nix
@@ -217,6 +231,9 @@
       };
       rwkv7P150x2Window8CandidateClosure = pkgs.closureInfo {
         rootPaths = [ rwkv7P150x2Window8CandidateEvidence ];
+      };
+      rwkv7P150x2Window16CandidateClosure = pkgs.closureInfo {
+        rootPaths = [ rwkv7P150x2Window16CandidateEvidence ];
       };
       rwkv7P150x2Attempt3Evidence =
         pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence/terminal-attempt-3.nix
@@ -238,6 +255,7 @@
             persistent_decode_test_source=${../pkgs/rwkv7-p150x2/src/persistent_decode_self_test.cpp}
             persistent_decode_profile=${../pkgs/rwkv7-p150x2/persistent-decode-profile.ncl}
             persistent_decode_window8_profile=${../pkgs/rwkv7-p150x2/persistent-decode-window8-candidate-profile.ncl}
+            persistent_decode_window16_profile=${../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl}
             persistent_decode_evidence_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_contract.rs}
             persistent_decode_monitoring_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_monitoring.rs}
             persistent_decode_monitoring_command=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-persistent-decode-monitor.rs}
@@ -285,6 +303,9 @@
             grep -F 'physically_admitted = false' "$persistent_decode_window8_profile"
             grep -F 'admitted_decode_windows = contracts.AdmittedDecodeWindows' \
               "$persistent_decode_window8_profile"
+            grep -F 'physically_admitted = false' "$persistent_decode_window16_profile"
+            grep -F 'admitted_decode_windows = contracts.AdmittedDecodeWindows' \
+              "$persistent_decode_window16_profile"
             grep -F 'validate_persistent_receipt' "$persistent_decode_evidence_source"
             grep -F 'validate_persistent_telemetry_receipt' "$persistent_decode_evidence_source"
             grep -F 'validated_persistent_telemetry' "$persistent_decode_evidence_source"
@@ -729,6 +750,8 @@
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
         rwkv7-p150x2-window8-candidate-runtime = rwkv7P150x2Window8CandidateRuntime;
         rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
+        rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
+        rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
@@ -761,6 +784,9 @@
         rwkv7-p150x2-window8-candidate-runtime = rwkv7P150x2Window8CandidateRuntime;
         rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
         rwkv7-p150x2-window8-candidate-closure = rwkv7P150x2Window8CandidateClosure;
+        rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
+        rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
+        rwkv7-p150x2-window16-candidate-closure = rwkv7P150x2Window16CandidateClosure;
         rwkv7-p150x2-fused-wkv-architecture = rwkv7P150x2FusedWkvArchitectureCheck;
         rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;
         rwkv7-p150x2-production-closure = rwkv7P150x2ClosureCheck;
