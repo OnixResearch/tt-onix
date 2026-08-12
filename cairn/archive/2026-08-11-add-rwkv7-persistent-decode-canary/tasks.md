@@ -16,5 +16,5 @@
 ## Phase 3: Physical canary and completion
 
 - [x] [serial] Run one bounded physical canary and retain A/B, monitoring, interlock, and canary receipts. r[tenstorrent.rwkv7_p150x2.persistent_decode_canary.physical]
-- [ ] [serial] Run runtime, evidence, formatting, source-boundary, closure, repository-quality, and Cairn gates. r[tenstorrent.rwkv7_p150x2.persistent_decode_canary.invalid]
-- [ ] [serial] Sync the accepted requirement, archive the change, regenerate the artifact manifest, and integrate the verified branch. r[tenstorrent.rwkv7_p150x2.persistent_decode_canary.runtime]
+- [x] [serial] Run runtime, evidence, formatting, source-boundary, closure, repository-quality, and Cairn gates. r[tenstorrent.rwkv7_p150x2.persistent_decode_canary.invalid]
+- [x] [serial] Sync the accepted requirement, archive the change, regenerate the artifact manifest, and integrate the verified branch. r[tenstorrent.rwkv7_p150x2.persistent_decode_canary.runtime]

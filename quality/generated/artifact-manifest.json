@@ -2,6 +2,36 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-canary/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2533,
+      "blake3": "0b3842982cf98ad10c98bbfdc72e63cb74e6c557a62d88a3251f796b495f5e4e"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-canary/evidence/canary-interlock.json",
+      "class": "portable_evidence",
+      "byte_count": 475,
+      "blake3": "64fe04db1801fa22922c00890bb9d262736111e78b1bf75a704204108a084c41"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-canary/evidence/canary-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2520,
+      "blake3": "4733596a45ba0ed2b233cced431bd28fad6dcacb29585ac3637dd2be486af676"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-canary/evidence/candidate-monitoring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3159,
+      "blake3": "831dc726aa9469356d6db0d17a889ddd45290961962e370b83bd7a1c3c32d18b"
+    },
+    {
+      "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-canary/evidence/physical-ab-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2158,
+      "blake3": "7cdd266eeeae4b7f9ac83ea3f75693e8aad6dbcf3e066651f943977a41ddfbc0"
+    },
+    {
       "path": "cairn/archive/2026-08-11-add-rwkv7-persistent-decode-monitoring/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 3248,
