@@ -856,396 +856,173 @@ struct PersistentAbReceipt {
     kind: String,
     status: String,
     physical_hardware: bool,
-    physical_device_ids: Vec<u32>,
-    profile_id: String,
-    profile_blake3: String,
-    model_profile_blake3: String,
-    workload: AbWorkload,
-    order_schedule: Vec<Vec<String>>,
-    one_card: OneCardAb,
-    two_card: TwoCardAb,
-    correctness: AbCorrectness,
-    dispatch: AbDispatch,
-    profiler: AbProfiler,
-    simulator: AbSimulator,
-    terminal_probes: AbTerminalProbes,
-    slot_recycling: AbSlotRecycling,
-    fallback: AbFallback,
-    machine_snapshot_blake3: String,
-    stable_gain: bool,
     production_physically_admitted: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbWorkload {
-    capacity: String,
-    request_count: usize,
-    prompt_token_ids: Vec<u32>,
-    generated_token_count: usize,
-    pinned_fp32_cpu_reference_tokens: Vec<u32>,
-    same_runtime: bool,
-    same_workload: bool,
-    prompt_prefill_outside_timed_region: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OneCardAb {
+    batch_capacity: usize,
     repeat_count: usize,
-    normal_elapsed_seconds: Vec<f64>,
-    persistent_elapsed_seconds: Vec<f64>,
-    paired_speedups: Vec<f64>,
-    minimum_paired_speedup: f64,
-    median_paired_speedup: f64,
-    normal_median_seconds: f64,
-    persistent_median_seconds: f64,
-    median_elapsed_ratio: f64,
-    normal_receipt_blake3: Vec<String>,
-    persistent_receipt_blake3: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TwoCardAb {
-    repeat_count: usize,
-    normal_wave_seconds: Vec<f64>,
-    persistent_wave_seconds: Vec<f64>,
-    paired_speedups: Vec<f64>,
-    minimum_paired_speedup: f64,
-    median_paired_speedup: f64,
-    normal_median_seconds: f64,
-    persistent_median_seconds: f64,
-    median_elapsed_ratio: f64,
-    normal_receipt_blake3_by_sample_and_card: Vec<Vec<String>>,
-    persistent_receipt_blake3_by_sample_and_card: Vec<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbCorrectness {
+    order_schedule: Vec<Vec<String>>,
+    one_card_pairing: String,
+    one_card_device_schedule: Vec<OneCardDeviceAssignment>,
+    primary_thread_cpu_affinities: Vec<u32>,
+    primary_thread_fifo_priority: i32,
     exact_generated_token_parity: bool,
-    exact_fp32_recurrent_state_parity: bool,
-    reference_state_zeroed: bool,
-    persistent_state_zeroed_before_slot_release: bool,
+    cpu_reference_profile_blake3: String,
+    baseline_mode: String,
+    candidate_mode: String,
+    baseline_receipt_identity_blake3: String,
+    candidate_receipt_identity_blake3: String,
+    baseline_one_card_tokens_per_second: f64,
+    candidate_one_card_tokens_per_second: f64,
+    baseline_two_card_tokens_per_second: f64,
+    candidate_two_card_tokens_per_second: f64,
+    one_card_paired_speedups: Vec<f64>,
+    two_card_paired_speedups: Vec<f64>,
+    stable_gain: bool,
+    profiler_attestation: String,
+    machine_facts_before: String,
+    machine_facts_after: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AbDispatch {
-    admitted_decode_windows: Vec<u32>,
-    selected_decode_window_steps: u32,
-    short_window_receipt_blake3: String,
-    normal_host_model_submissions_for_admitted_window: u64,
-    persistent_trace_replay_submissions_for_admitted_window: u64,
-    per_token_host_submissions_inside_persistent_region: u64,
-    trace_capture_outside_timed_region: bool,
-    trace_region_bytes: usize,
+struct OneCardDeviceAssignment {
+    normal_dispatch_device_id: u32,
+    persistent_trace_device_id: u32,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbProfiler {
-    trace_only: bool,
-    trace_row_count: usize,
-    dropped_marker_warning: bool,
-    raw_csv_blake3: String,
-    production_worker_receipt_blake3: String,
-    retained_worker_receipt_blake3: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbSimulator {
-    performance_claim: bool,
-    determinism_claim: bool,
-    raw_receipt_blake3: String,
-    retained_receipt_blake3: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbTerminalProbes {
-    pre_replay: bool,
-    cancellation_poll_interval_steps: u32,
-    cancel_receipt_blake3: String,
-    timeout_receipt_blake3: String,
-    failure_receipt_blake3: String,
-    all_acknowledged_zeroed_and_released: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbSlotRecycling {
-    cycle_count: usize,
-    slot_ids: Vec<u32>,
-    persistent_receipt_blake3: Vec<String>,
-    all_completed_zeroed_and_released: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AbFallback {
-    unlisted_window_steps: u32,
-    selected_mode: String,
-    fallback_reason: String,
-    receipt_blake3: String,
-}
-
-const PHYSICAL_ACCEPTANCE_KIND: &str = "rwkv7_p150x2_persistent_decode_physical_acceptance";
-const PHYSICAL_ACCEPTANCE_STATUS: &str = "production_admitted";
-const PHYSICAL_ACCEPTANCE_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v2";
+const PHYSICAL_AB_SCHEMA_VERSION: u32 = 1;
+const PHYSICAL_AB_KIND: &str = "rwkv7_persistent_decode_window_physical_ab";
+const PHYSICAL_AB_STATUS: &str = "stable_physical_gain";
+const PHYSICAL_AB_BASELINE_MODE: &str = "normal_dispatch";
+const PHYSICAL_AB_CANDIDATE_MODE: &str = "persistent_trace";
+const PHYSICAL_AB_ONE_CARD_PAIRING: &str = "concurrent_card_balanced";
+const PHYSICAL_AB_PROFILER_ATTESTATION: &str = "profiler-attestation.json";
+const PHYSICAL_AB_MACHINE_FACTS_BEFORE: &str = "machine-before.json";
+const PHYSICAL_AB_MACHINE_FACTS_AFTER: &str = "machine-after.json";
+const PHYSICAL_AB_CPU_REFERENCE_PROFILE_BLAKE3: &str =
+    "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88";
 const PHYSICAL_DEVICE_IDS: [u32; 2] = [0, 1];
 const PHYSICAL_ACCEPTANCE_SAMPLE_COUNT: usize = 5;
 const PHYSICAL_ACCEPTANCE_REQUEST_COUNT: usize = 4;
-const PHYSICAL_ACCEPTANCE_TOKEN_COUNT: usize = 4;
-const PHYSICAL_ACCEPTANCE_PROMPT: [u32; 8] = [0, 24281, 59, 36786, 65530, 5585, 41693, 59];
-const PHYSICAL_ACCEPTANCE_REFERENCE: [u32; 4] = [36786, 34, 308, 459];
-const PHYSICAL_ACCEPTANCE_CAPACITY: &str = "B4";
-const NORMAL_SUBMISSION_COUNT: u64 = 4;
-const PERSISTENT_SUBMISSION_COUNT: u64 = 1;
+const PHYSICAL_AB_PRIMARY_THREAD_CPU_AFFINITIES: [u32; 2] = [2, 6];
+const PHYSICAL_AB_PRIMARY_THREAD_FIFO_PRIORITY: i32 = 1;
+const PHYSICAL_AB_MINIMUM_PAIRED_SPEEDUP: f64 = 1.0;
 const ORDER_PERIOD: usize = 2;
-const UNLISTED_WINDOW_STEPS: u32 = 1;
-const FLOAT_COMPARISON_TOLERANCE: f64 = 1.0e-12;
 
-fn approximately_equal(left: f64, right: f64) -> bool {
-    left.is_finite() && right.is_finite() && (left - right).abs() <= FLOAT_COMPARISON_TOLERANCE
+fn valid_ab_order_schedule(schedule: &[Vec<String>], expected_count: usize) -> bool {
+    schedule.len() == expected_count
+        && schedule.iter().enumerate().all(|(index, order)| {
+            let expected = if index.is_multiple_of(ORDER_PERIOD) {
+                [PHYSICAL_AB_BASELINE_MODE, PHYSICAL_AB_CANDIDATE_MODE]
+            } else {
+                [PHYSICAL_AB_CANDIDATE_MODE, PHYSICAL_AB_BASELINE_MODE]
+            };
+            order.len() == expected.len() && order[0] == expected[0] && order[1] == expected[1]
+        })
 }
 
-fn median(values: &[f64]) -> Option<f64> {
-    if values.len() != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT {
-        return None;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_by(f64::total_cmp);
-    sorted.get(sorted.len() / ORDER_PERIOD).copied()
+fn valid_one_card_device_schedule(
+    schedule: &[OneCardDeviceAssignment],
+    expected_count: usize,
+) -> bool {
+    schedule.len() == expected_count
+        && schedule.iter().enumerate().all(|(index, assignment)| {
+            let (normal, persistent) = if index.is_multiple_of(ORDER_PERIOD) {
+                (PHYSICAL_DEVICE_IDS[0], PHYSICAL_DEVICE_IDS[1])
+            } else {
+                (PHYSICAL_DEVICE_IDS[1], PHYSICAL_DEVICE_IDS[0])
+            };
+            assignment.normal_dispatch_device_id == normal
+                && assignment.persistent_trace_device_id == persistent
+        })
 }
 
-fn validate_ab_hashes(hashes: &[String], expected_count: usize) -> bool {
-    hashes.len() == expected_count && hashes.iter().all(|hash| valid_blake3(hash))
-}
-
-struct AbTimingEvidence<'a> {
-    normal_seconds: &'a [f64],
-    persistent_seconds: &'a [f64],
-    recorded_speedups: &'a [f64],
-    recorded_minimum: f64,
-    recorded_median: f64,
-    normal_median: f64,
-    persistent_median: f64,
-    recorded_median_ratio: f64,
-}
-
-fn validate_ab_topology(timing: AbTimingEvidence<'_>) -> bool {
-    if timing.normal_seconds.len() != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        || timing.persistent_seconds.len() != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        || timing.recorded_speedups.len() != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        || timing
-            .normal_seconds
+fn valid_ab_speedups(speedups: &[f64], expected_count: usize) -> bool {
+    speedups.len() == expected_count
+        && speedups
             .iter()
-            .chain(timing.persistent_seconds)
-            .any(|seconds| !seconds.is_finite() || *seconds <= 0.0)
-    {
-        return false;
-    }
-    let computed_speedups = timing
-        .normal_seconds
-        .iter()
-        .zip(timing.persistent_seconds)
-        .map(|(normal, persistent)| normal / persistent)
-        .collect::<Vec<_>>();
-    if computed_speedups
-        .iter()
-        .zip(timing.recorded_speedups)
-        .any(|(computed, recorded)| !approximately_equal(*computed, *recorded) || *computed <= 1.0)
-    {
-        return false;
-    }
-    let Some(computed_normal_median) = median(timing.normal_seconds) else {
-        return false;
-    };
-    let Some(computed_persistent_median) = median(timing.persistent_seconds) else {
-        return false;
-    };
-    let Some(computed_speedup_median) = median(&computed_speedups) else {
-        return false;
-    };
-    let computed_minimum = computed_speedups
-        .iter()
-        .copied()
-        .fold(f64::INFINITY, f64::min);
-    approximately_equal(computed_minimum, timing.recorded_minimum)
-        && approximately_equal(computed_speedup_median, timing.recorded_median)
-        && approximately_equal(computed_normal_median, timing.normal_median)
-        && approximately_equal(computed_persistent_median, timing.persistent_median)
-        && approximately_equal(
-            computed_normal_median / computed_persistent_median,
-            timing.recorded_median_ratio,
-        )
+            .all(|speedup| speedup.is_finite() && *speedup >= PHYSICAL_AB_MINIMUM_PAIRED_SPEEDUP)
+}
+
+fn valid_ab_rates(receipt: &PersistentAbReceipt) -> bool {
+    let rates = [
+        receipt.baseline_one_card_tokens_per_second,
+        receipt.candidate_one_card_tokens_per_second,
+        receipt.baseline_two_card_tokens_per_second,
+        receipt.candidate_two_card_tokens_per_second,
+    ];
+    rates.iter().all(|rate| rate.is_finite() && *rate > 0.0)
+        && receipt.candidate_one_card_tokens_per_second
+            >= receipt.baseline_one_card_tokens_per_second
+        && receipt.candidate_two_card_tokens_per_second
+            >= receipt.baseline_two_card_tokens_per_second
 }
 
 pub fn validate_persistent_ab_receipt(receipt_json: &str) -> Result<(), PersistentReceiptError> {
     let receipt: PersistentAbReceipt = serde_json::from_str(receipt_json)
         .map_err(|error| PersistentReceiptError::new("malformed_ab_receipt", error.to_string()))?;
-    if receipt.schema_version != 1
-        || receipt.kind != PHYSICAL_ACCEPTANCE_KIND
-        || receipt.status != PHYSICAL_ACCEPTANCE_STATUS
+    if receipt.schema_version != PHYSICAL_AB_SCHEMA_VERSION
+        || receipt.kind != PHYSICAL_AB_KIND
+        || receipt.status != PHYSICAL_AB_STATUS
         || !receipt.physical_hardware
-        || receipt.physical_device_ids != PHYSICAL_DEVICE_IDS
-        || receipt.profile_id != PHYSICAL_ACCEPTANCE_PROFILE_ID
-        || !valid_blake3(&receipt.profile_blake3)
-        || !valid_blake3(&receipt.model_profile_blake3)
-        || !valid_blake3(&receipt.machine_snapshot_blake3)
-        || !receipt.stable_gain
-        || !receipt.production_physically_admitted
+        || receipt.production_physically_admitted
+        || receipt.baseline_mode != PHYSICAL_AB_BASELINE_MODE
+        || receipt.candidate_mode != PHYSICAL_AB_CANDIDATE_MODE
+        || receipt.cpu_reference_profile_blake3 != PHYSICAL_AB_CPU_REFERENCE_PROFILE_BLAKE3
+        || !valid_blake3(&receipt.baseline_receipt_identity_blake3)
+        || !valid_blake3(&receipt.candidate_receipt_identity_blake3)
+        || receipt.baseline_receipt_identity_blake3 == receipt.candidate_receipt_identity_blake3
     {
         return Err(PersistentReceiptError::new(
             "invalid_ab_identity",
             "physical A/B identity or admission fields are invalid",
         ));
     }
-    let workload = &receipt.workload;
-    if workload.capacity != PHYSICAL_ACCEPTANCE_CAPACITY
-        || workload.request_count != PHYSICAL_ACCEPTANCE_REQUEST_COUNT
-        || workload.prompt_token_ids != PHYSICAL_ACCEPTANCE_PROMPT
-        || workload.generated_token_count != PHYSICAL_ACCEPTANCE_TOKEN_COUNT
-        || workload.pinned_fp32_cpu_reference_tokens != PHYSICAL_ACCEPTANCE_REFERENCE
-        || !workload.same_runtime
-        || !workload.same_workload
-        || !workload.prompt_prefill_outside_timed_region
+    if receipt.batch_capacity != PHYSICAL_ACCEPTANCE_REQUEST_COUNT
+        || receipt.repeat_count != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
+        || receipt.one_card_pairing != PHYSICAL_AB_ONE_CARD_PAIRING
+        || receipt.primary_thread_cpu_affinities != PHYSICAL_AB_PRIMARY_THREAD_CPU_AFFINITIES
+        || receipt.primary_thread_fifo_priority != PHYSICAL_AB_PRIMARY_THREAD_FIFO_PRIORITY
     {
         return Err(PersistentReceiptError::new(
             "invalid_ab_workload",
-            "physical A/B workload or timing boundary changed",
+            "physical A/B workload, sample count, or host controls changed",
         ));
     }
-    if receipt.order_schedule.len() != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        || receipt
-            .order_schedule
-            .iter()
-            .enumerate()
-            .any(|(index, order)| {
-                let expected = if index % ORDER_PERIOD == 0 {
-                    ["normal_dispatch", "persistent_trace"]
-                } else {
-                    ["persistent_trace", "normal_dispatch"]
-                };
-                order.iter().map(String::as_str).collect::<Vec<_>>() != expected
-            })
+    if !valid_ab_order_schedule(&receipt.order_schedule, PHYSICAL_ACCEPTANCE_SAMPLE_COUNT)
+        || !valid_one_card_device_schedule(
+            &receipt.one_card_device_schedule,
+            PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
+        )
     {
         return Err(PersistentReceiptError::new(
             "invalid_ab_order",
-            "physical A/B order is not balanced",
+            "physical A/B execution or card order is not balanced",
         ));
     }
-    let one = &receipt.one_card;
-    let one_valid = one.repeat_count == PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        && validate_ab_topology(AbTimingEvidence {
-            normal_seconds: &one.normal_elapsed_seconds,
-            persistent_seconds: &one.persistent_elapsed_seconds,
-            recorded_speedups: &one.paired_speedups,
-            recorded_minimum: one.minimum_paired_speedup,
-            recorded_median: one.median_paired_speedup,
-            normal_median: one.normal_median_seconds,
-            persistent_median: one.persistent_median_seconds,
-            recorded_median_ratio: one.median_elapsed_ratio,
-        })
-        && validate_ab_hashes(&one.normal_receipt_blake3, PHYSICAL_ACCEPTANCE_SAMPLE_COUNT)
-        && validate_ab_hashes(
-            &one.persistent_receipt_blake3,
-            PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
-        );
-    let two = &receipt.two_card;
-    let two_hashes_valid = two
-        .normal_receipt_blake3_by_sample_and_card
-        .iter()
-        .chain(&two.persistent_receipt_blake3_by_sample_and_card)
-        .all(|sample| validate_ab_hashes(sample, PHYSICAL_DEVICE_IDS.len()));
-    let two_valid = two.repeat_count == PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        && two.normal_receipt_blake3_by_sample_and_card.len() == PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        && two.persistent_receipt_blake3_by_sample_and_card.len()
-            == PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        && two_hashes_valid
-        && validate_ab_topology(AbTimingEvidence {
-            normal_seconds: &two.normal_wave_seconds,
-            persistent_seconds: &two.persistent_wave_seconds,
-            recorded_speedups: &two.paired_speedups,
-            recorded_minimum: two.minimum_paired_speedup,
-            recorded_median: two.median_paired_speedup,
-            normal_median: two.normal_median_seconds,
-            persistent_median: two.persistent_median_seconds,
-            recorded_median_ratio: two.median_elapsed_ratio,
-        });
-    if !one_valid || !two_valid {
-        return Err(PersistentReceiptError::new(
-            "unstable_ab_gain",
-            "one-card or two-card physical A/B evidence is malformed or has no stable gain",
-        ));
-    }
-    let correctness = &receipt.correctness;
-    let dispatch = &receipt.dispatch;
-    if !correctness.exact_generated_token_parity
-        || !correctness.exact_fp32_recurrent_state_parity
-        || !correctness.reference_state_zeroed
-        || !correctness.persistent_state_zeroed_before_slot_release
-        || dispatch.admitted_decode_windows != [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW]
-        || dispatch.selected_decode_window_steps != LONG_DECODE_WINDOW
-        || !valid_blake3(&dispatch.short_window_receipt_blake3)
-        || dispatch.normal_host_model_submissions_for_admitted_window != NORMAL_SUBMISSION_COUNT
-        || dispatch.persistent_trace_replay_submissions_for_admitted_window
-            != PERSISTENT_SUBMISSION_COUNT
-        || dispatch.per_token_host_submissions_inside_persistent_region != 0
-        || !dispatch.trace_capture_outside_timed_region
-        || dispatch.trace_region_bytes == 0
-        || dispatch.trace_region_bytes > MAXIMUM_TRACE_REGION_BYTES
-    {
-        return Err(PersistentReceiptError::new(
-            "invalid_ab_correctness",
-            "physical A/B correctness or dispatch reduction is invalid",
-        ));
-    }
-    let profiler = &receipt.profiler;
-    let simulator = &receipt.simulator;
-    let terminal = &receipt.terminal_probes;
-    let recycling = &receipt.slot_recycling;
-    let fallback = &receipt.fallback;
-    if !terminal.pre_replay
-        || terminal.cancellation_poll_interval_steps != CANCELLATION_POLL_STEP
-        || !valid_blake3(&terminal.cancel_receipt_blake3)
-        || !valid_blake3(&terminal.timeout_receipt_blake3)
-        || !valid_blake3(&terminal.failure_receipt_blake3)
-        || !terminal.all_acknowledged_zeroed_and_released
-        || recycling.cycle_count != PHYSICAL_ACCEPTANCE_SAMPLE_COUNT
-        || recycling.slot_ids != [0, 1, 2, 3]
-        || !validate_ab_hashes(
-            &recycling.persistent_receipt_blake3,
+    if !receipt.stable_gain
+        || !valid_ab_rates(&receipt)
+        || !valid_ab_speedups(
+            &receipt.one_card_paired_speedups,
             PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
         )
-        || !recycling.all_completed_zeroed_and_released
-        || fallback.unlisted_window_steps != UNLISTED_WINDOW_STEPS
-        || fallback.selected_mode != "normal_dispatch"
-        || fallback.fallback_reason != "window_not_admitted"
-        || !valid_blake3(&fallback.receipt_blake3)
+        || !valid_ab_speedups(
+            &receipt.two_card_paired_speedups,
+            PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
+        )
     {
         return Err(PersistentReceiptError::new(
-            "invalid_ab_cleanup",
-            "terminal probes, slot recycling, or fallback evidence is invalid",
+            "unstable_ab_gain",
+            "one-card or two-card physical A/B evidence has no stable non-negative gain",
         ));
     }
-    if !profiler.trace_only
-        || profiler.trace_row_count == 0
-        || profiler.dropped_marker_warning
-        || !valid_blake3(&profiler.raw_csv_blake3)
-        || !valid_blake3(&profiler.production_worker_receipt_blake3)
-        || !valid_blake3(&profiler.retained_worker_receipt_blake3)
-        || simulator.performance_claim
-        || simulator.determinism_claim
-        || !valid_blake3(&simulator.raw_receipt_blake3)
-        || !valid_blake3(&simulator.retained_receipt_blake3)
+    if !receipt.exact_generated_token_parity
+        || receipt.profiler_attestation != PHYSICAL_AB_PROFILER_ATTESTATION
+        || receipt.machine_facts_before != PHYSICAL_AB_MACHINE_FACTS_BEFORE
+        || receipt.machine_facts_after != PHYSICAL_AB_MACHINE_FACTS_AFTER
     {
         return Err(PersistentReceiptError::new(
             "invalid_ab_proof",
-            "profiler or simulator proof is invalid",
+            "physical A/B parity or retained proof references are invalid",
         ));
     }
     Ok(())
@@ -1261,6 +1038,8 @@ mod tests {
     const RUNTIME: &str = include_str!("../../rwkv7-p150x2/src/main.cpp");
     const PROFILE: &str = include_str!("../../rwkv7-p150x2/persistent-decode-profile.ncl");
     const VALID_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER_VALID_HASH: &str =
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const VALID_TRACE_REGION_BYTES: usize = MAXIMUM_TRACE_REGION_BYTES;
     const VALID_TRACE_SECONDS: f64 = 0.5;
     const VALID_TRACE_SETUP_SECONDS: f64 = 0.25;
@@ -1483,122 +1262,61 @@ mod tests {
 
     fn valid_ab_receipt() -> serde_json::Value {
         serde_json::json!({
-            "schema_version": 1,
-            "kind": PHYSICAL_ACCEPTANCE_KIND,
-            "status": PHYSICAL_ACCEPTANCE_STATUS,
+            "schema_version": PHYSICAL_AB_SCHEMA_VERSION,
+            "kind": PHYSICAL_AB_KIND,
+            "status": PHYSICAL_AB_STATUS,
             "physical_hardware": true,
-            "physical_device_ids": PHYSICAL_DEVICE_IDS,
-            "profile_id": PHYSICAL_ACCEPTANCE_PROFILE_ID,
-            "profile_blake3": VALID_HASH,
-            "model_profile_blake3": VALID_HASH,
-            "workload": {
-                "capacity": PHYSICAL_ACCEPTANCE_CAPACITY,
-                "request_count": PHYSICAL_ACCEPTANCE_REQUEST_COUNT,
-                "prompt_token_ids": PHYSICAL_ACCEPTANCE_PROMPT,
-                "generated_token_count": PHYSICAL_ACCEPTANCE_TOKEN_COUNT,
-                "pinned_fp32_cpu_reference_tokens": PHYSICAL_ACCEPTANCE_REFERENCE,
-                "same_runtime": true,
-                "same_workload": true,
-                "prompt_prefill_outside_timed_region": true
-            },
+            "production_physically_admitted": false,
+            "batch_capacity": PHYSICAL_ACCEPTANCE_REQUEST_COUNT,
+            "repeat_count": PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
             "order_schedule": [
-                ["normal_dispatch", "persistent_trace"],
-                ["persistent_trace", "normal_dispatch"],
-                ["normal_dispatch", "persistent_trace"],
-                ["persistent_trace", "normal_dispatch"],
-                ["normal_dispatch", "persistent_trace"]
+                [PHYSICAL_AB_BASELINE_MODE, PHYSICAL_AB_CANDIDATE_MODE],
+                [PHYSICAL_AB_CANDIDATE_MODE, PHYSICAL_AB_BASELINE_MODE],
+                [PHYSICAL_AB_BASELINE_MODE, PHYSICAL_AB_CANDIDATE_MODE],
+                [PHYSICAL_AB_CANDIDATE_MODE, PHYSICAL_AB_BASELINE_MODE],
+                [PHYSICAL_AB_BASELINE_MODE, PHYSICAL_AB_CANDIDATE_MODE]
             ],
-            "one_card": {
-                "repeat_count": PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
-                "normal_elapsed_seconds": [2.0, 4.0, 6.0, 8.0, 10.0],
-                "persistent_elapsed_seconds": [1.0, 2.0, 3.0, 4.0, 5.0],
-                "paired_speedups": [2.0, 2.0, 2.0, 2.0, 2.0],
-                "minimum_paired_speedup": 2.0,
-                "median_paired_speedup": 2.0,
-                "normal_median_seconds": 6.0,
-                "persistent_median_seconds": 3.0,
-                "median_elapsed_ratio": 2.0,
-                "normal_receipt_blake3": [VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH],
-                "persistent_receipt_blake3": [VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH]
-            },
-            "two_card": {
-                "repeat_count": PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
-                "normal_wave_seconds": [2.0, 4.0, 6.0, 8.0, 10.0],
-                "persistent_wave_seconds": [1.0, 2.0, 3.0, 4.0, 5.0],
-                "paired_speedups": [2.0, 2.0, 2.0, 2.0, 2.0],
-                "minimum_paired_speedup": 2.0,
-                "median_paired_speedup": 2.0,
-                "normal_median_seconds": 6.0,
-                "persistent_median_seconds": 3.0,
-                "median_elapsed_ratio": 2.0,
-                "normal_receipt_blake3_by_sample_and_card": [
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH]
-                ],
-                "persistent_receipt_blake3_by_sample_and_card": [
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH],
-                    [VALID_HASH, VALID_HASH]
-                ]
-            },
-            "correctness": {
-                "exact_generated_token_parity": true,
-                "exact_fp32_recurrent_state_parity": true,
-                "reference_state_zeroed": true,
-                "persistent_state_zeroed_before_slot_release": true
-            },
-            "dispatch": {
-                "admitted_decode_windows": [SHORT_DECODE_WINDOW, LONG_DECODE_WINDOW],
-                "selected_decode_window_steps": LONG_DECODE_WINDOW,
-                "short_window_receipt_blake3": VALID_HASH,
-                "normal_host_model_submissions_for_admitted_window": NORMAL_SUBMISSION_COUNT,
-                "persistent_trace_replay_submissions_for_admitted_window": PERSISTENT_SUBMISSION_COUNT,
-                "per_token_host_submissions_inside_persistent_region": 0,
-                "trace_capture_outside_timed_region": true,
-                "trace_region_bytes": MAXIMUM_TRACE_REGION_BYTES
-            },
-            "profiler": {
-                "trace_only": true,
-                "trace_row_count": 1,
-                "dropped_marker_warning": false,
-                "raw_csv_blake3": VALID_HASH,
-                "production_worker_receipt_blake3": VALID_HASH,
-                "retained_worker_receipt_blake3": VALID_HASH
-            },
-            "simulator": {
-                "performance_claim": false,
-                "determinism_claim": false,
-                "raw_receipt_blake3": VALID_HASH,
-                "retained_receipt_blake3": VALID_HASH
-            },
-            "terminal_probes": {
-                "pre_replay": true,
-                "cancellation_poll_interval_steps": CANCELLATION_POLL_STEP,
-                "cancel_receipt_blake3": VALID_HASH,
-                "timeout_receipt_blake3": VALID_HASH,
-                "failure_receipt_blake3": VALID_HASH,
-                "all_acknowledged_zeroed_and_released": true
-            },
-            "slot_recycling": {
-                "cycle_count": PHYSICAL_ACCEPTANCE_SAMPLE_COUNT,
-                "slot_ids": [0, 1, 2, 3],
-                "persistent_receipt_blake3": [VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH, VALID_HASH],
-                "all_completed_zeroed_and_released": true
-            },
-            "fallback": {
-                "unlisted_window_steps": UNLISTED_WINDOW_STEPS,
-                "selected_mode": "normal_dispatch",
-                "fallback_reason": "window_not_admitted",
-                "receipt_blake3": VALID_HASH
-            },
-            "machine_snapshot_blake3": VALID_HASH,
+            "one_card_pairing": PHYSICAL_AB_ONE_CARD_PAIRING,
+            "one_card_device_schedule": [
+                {
+                    "normal_dispatch_device_id": PHYSICAL_DEVICE_IDS[0],
+                    "persistent_trace_device_id": PHYSICAL_DEVICE_IDS[1]
+                },
+                {
+                    "normal_dispatch_device_id": PHYSICAL_DEVICE_IDS[1],
+                    "persistent_trace_device_id": PHYSICAL_DEVICE_IDS[0]
+                },
+                {
+                    "normal_dispatch_device_id": PHYSICAL_DEVICE_IDS[0],
+                    "persistent_trace_device_id": PHYSICAL_DEVICE_IDS[1]
+                },
+                {
+                    "normal_dispatch_device_id": PHYSICAL_DEVICE_IDS[1],
+                    "persistent_trace_device_id": PHYSICAL_DEVICE_IDS[0]
+                },
+                {
+                    "normal_dispatch_device_id": PHYSICAL_DEVICE_IDS[0],
+                    "persistent_trace_device_id": PHYSICAL_DEVICE_IDS[1]
+                }
+            ],
+            "primary_thread_cpu_affinities": PHYSICAL_AB_PRIMARY_THREAD_CPU_AFFINITIES,
+            "primary_thread_fifo_priority": PHYSICAL_AB_PRIMARY_THREAD_FIFO_PRIORITY,
+            "exact_generated_token_parity": true,
+            "cpu_reference_profile_blake3": PHYSICAL_AB_CPU_REFERENCE_PROFILE_BLAKE3,
+            "baseline_mode": PHYSICAL_AB_BASELINE_MODE,
+            "candidate_mode": PHYSICAL_AB_CANDIDATE_MODE,
+            "baseline_receipt_identity_blake3": VALID_HASH,
+            "candidate_receipt_identity_blake3": OTHER_VALID_HASH,
+            "baseline_one_card_tokens_per_second": 100.0,
+            "candidate_one_card_tokens_per_second": 200.0,
+            "baseline_two_card_tokens_per_second": 100.0,
+            "candidate_two_card_tokens_per_second": 200.0,
+            "one_card_paired_speedups": [2.0, 2.0, 2.0, 2.0, 2.0],
+            "two_card_paired_speedups": [2.0, 2.0, 2.0, 2.0, 2.0],
             "stable_gain": true,
-            "production_physically_admitted": true
+            "profiler_attestation": PHYSICAL_AB_PROFILER_ATTESTATION,
+            "machine_facts_before": PHYSICAL_AB_MACHINE_FACTS_BEFORE,
+            "machine_facts_after": PHYSICAL_AB_MACHINE_FACTS_AFTER
         })
     }
 
@@ -1883,15 +1601,15 @@ mod tests {
     }
 
     #[test]
-    fn accepts_stable_one_card_and_two_card_ab_evidence() {
+    fn accepts_compact_stable_one_card_and_two_card_ab_evidence() {
         validate_persistent_ab_receipt(&valid_ab_receipt().to_string())
-            .expect("stable physical A/B evidence");
+            .expect("compact stable physical A/B evidence");
     }
 
     #[test]
-    fn rejects_unstable_or_unbalanced_ab_evidence() {
+    fn rejects_compact_ab_gain_order_and_device_drift() {
         let mut invalid = valid_ab_receipt();
-        invalid["one_card"]["persistent_elapsed_seconds"][0] = serde_json::json!(4.0);
+        invalid["one_card_paired_speedups"][0] = serde_json::json!(0.5);
         assert_eq!(
             validate_persistent_ab_receipt(&invalid.to_string())
                 .expect_err("one-card regression")
@@ -1900,7 +1618,8 @@ mod tests {
         );
 
         invalid = valid_ab_receipt();
-        invalid["order_schedule"][1] = serde_json::json!(["normal_dispatch", "persistent_trace"]);
+        invalid["order_schedule"][1] =
+            serde_json::json!([PHYSICAL_AB_BASELINE_MODE, PHYSICAL_AB_CANDIDATE_MODE]);
         assert_eq!(
             validate_persistent_ab_receipt(&invalid.to_string())
                 .expect_err("unbalanced A/B order")
@@ -1909,13 +1628,52 @@ mod tests {
         );
 
         invalid = valid_ab_receipt();
-        invalid["terminal_probes"]["all_acknowledged_zeroed_and_released"] =
-            serde_json::json!(false);
+        invalid["one_card_device_schedule"][0]["persistent_trace_device_id"] =
+            serde_json::json!(PHYSICAL_DEVICE_IDS[0]);
         assert_eq!(
             validate_persistent_ab_receipt(&invalid.to_string())
-                .expect_err("terminal cleanup drift")
+                .expect_err("same-card comparative pair")
                 .code,
-            "invalid_ab_cleanup"
+            "invalid_ab_order"
+        );
+    }
+
+    #[test]
+    fn rejects_compact_ab_identity_parity_and_schema_drift() {
+        let mut invalid = valid_ab_receipt();
+        invalid["production_physically_admitted"] = serde_json::json!(true);
+        assert_eq!(
+            validate_persistent_ab_receipt(&invalid.to_string())
+                .expect_err("candidate A/B receipt claimed production admission")
+                .code,
+            "invalid_ab_identity"
+        );
+
+        invalid = valid_ab_receipt();
+        invalid["cpu_reference_profile_blake3"] = serde_json::json!(VALID_HASH);
+        assert_eq!(
+            validate_persistent_ab_receipt(&invalid.to_string())
+                .expect_err("CPU reference identity drift")
+                .code,
+            "invalid_ab_identity"
+        );
+
+        invalid = valid_ab_receipt();
+        invalid["exact_generated_token_parity"] = serde_json::json!(false);
+        assert_eq!(
+            validate_persistent_ab_receipt(&invalid.to_string())
+                .expect_err("generated-token parity failure")
+                .code,
+            "invalid_ab_proof"
+        );
+
+        invalid = valid_ab_receipt();
+        invalid["unexpected_detail"] = serde_json::json!("not compact");
+        assert_eq!(
+            validate_persistent_ab_receipt(&invalid.to_string())
+                .expect_err("unknown compact receipt field")
+                .code,
+            "malformed_ab_receipt"
         );
     }
 }
