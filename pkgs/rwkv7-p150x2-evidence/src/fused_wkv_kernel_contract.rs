@@ -34,13 +34,82 @@ const WORMHOLE_BRANCH: &str = "ARCH_WORMHOLE";
 const OUTPUT_CB: &str = "tt::CBIndex::c_16";
 const NEXT_STATE_OUTPUT_CB: &str = "tt::CBIndex::c_17";
 const BF16_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kOutputCb);";
-const BF16_READOUT_CB: &str = "make_cb(kReadoutCb, bf16_format, kHeadTileCount, core_ranges)";
 const FP32_READOUT_CB: &str = "make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges)";
+const BF16_READOUT_ROW_CB: &str =
+    "make_cb(kReadoutRowCb, bf16_format, kHeadTileCount, core_ranges)";
+const FP32_READOUT_ROW_CB: &str =
+    "make_cb(kReadoutRowCb, fp32_format, kHeadTileCount, core_ranges)";
 const DIAGNOSTIC_READOUT_GUARD: &str = "#if RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY";
-const BF16_READOUT_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kReadoutCb);";
+const DIAGNOSTIC_RECURRENCE_GUARD: &str = "#if RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS";
+const STATE_DOT_A_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kStateDotAOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const DECAY_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kDecayOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const RANK_UPDATE_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kRankUpdateOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const OUTER_UPDATE_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kOuterUpdateOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const FIRST_ADD_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kFirstAddOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const BF16_READOUT_DIAGNOSTIC_OUTPUT_CB: &str =
+    "constexpr std::uint32_t kBf16ReadoutOutputCb = static_cast<std::uint32_t>(tt::CBIndex::c_16);";
+const BF16_READOUT_REVERSE_SOURCE_ORDER: &str =
+    "compute_kernel_hw_startup<SrcOrder::Reverse>(kStateCb, kRawRCb,";
+const BF16_READOUT_TRANSPOSED_BLOCK_INIT: &str =
+    "matmul_block_init(kStateCb, kRawRCb, kTransposeR, kOutputBlockWidth,";
+const BF16_READOUT_BLOCK_MATMUL: &str = "matmul_block(";
+const BF16_READOUT_OLD_TRANSPOSE_STAGE: &str = "transpose_wh_tile(";
+const BF16_READOUT_HIFI2: &str =
+    "compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi2;";
+const BF16_READOUT_BF16_DESTINATION: &str = "compute_config.fp32_dest_acc_en = false;";
+const BF16_READOUT_FP32_STATE_CB: &str =
+    "make_cb(kBf16ReadoutStateCb, fp32_format, kStateTileCount,";
+const BF16_READOUT_BF16_R_CB: &str = "make_cb(kBf16ReadoutRCb, bf16_format, kHeadTileCount,";
+const BLACKHOLE_CIRCULAR_BUFFER_COUNT: &str = "constexpr std::size_t kCircularBufferCount = 64U;";
+const DECAY_EXACT_FP32_UNPACK: &str = "compute_config.unpack_to_dest_mode[kRawWCb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;";
+const SPLIT_READOUT_MODE: &str = "constexpr bool kSplitReadout =\n    RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0 && RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;";
+const SPLIT_READOUT_DEVICE_DEFINE: &str =
+    "{std::string(kSplitReadoutDefine), kSplitReadout ? \"1\" : \"0\"}";
+const SPLIT_EXACT_FP32_UNPACK_CBS: &str = "const std::array<std::uint8_t, 6U> exact_fp32_cbs = {\n          kExactStateCb, kWCb, kDecayCb, kRankUpdateCb, kOuterUpdateCb, kFirstAddCb};";
+const SPLIT_EXACT_FP32_UNPACK_ASSIGNMENT: &str =
+    "compute_config.unpack_to_dest_mode[cb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;";
+const SPLIT_READOUT_LAUNCH: &str =
+    "run_bf16_readout_diagnostic(mesh, inputs, returned_state, kernel_root);";
+const SPLIT_RAW_OUTPUT_OWNERSHIP: &str =
+    "return Outputs{std::move(returned_state), std::move(raw_readout), false};";
+const MONOLITHIC_CORRECTED_OUTPUT_OWNERSHIP: &str =
+    "return Outputs{std::move(returned_state), std::move(output), true};";
+const RUNTIME_CORRECTION_OWNERSHIP: &str = "fused.correction_complete,";
+const SPLIT_READER_STATE_DUPLICATION: &str = "read_state(kExactStateCb, state_address, work_item,";
+const SPLIT_WRITER_STATE_OWNERSHIP: &str = "split_readout ? kSplitNextStateCb : kNextStateOutputCb";
+const SPLIT_WRITER_OUTPUT_SKIP: &str = "if (!split_readout) {";
+const SHARED_FULL_KERNEL_STATE_DOT_A_TAP: &str = "kStateDotAStageCb";
+const SINGLE_PATH_PATTERN_COUNT: usize = 1;
+const DIAGNOSTIC_RECURRENCE_GUARD_COUNT: usize = 1;
+const GENERIC_FP32_RECURRENCE_VECTOR_POLICY: &str =
+    "kGenericFp32RecurrenceVector = {true, true, true, true, false, true};";
+const GENERIC_FP32_RECURRENCE_FORMAT: &str =
+    "const tt::DataFormat format = kGenericFp32RecurrenceVector[vector]";
+const PRODUCTION_BF16_RECURRENCE_FORMAT: &str = "const tt::DataFormat format = bf16_format;";
+const RECURRENCE_DEVICE_DEFINE_FACTORY: &str =
+    "KernelDescriptor::Defines recurrence_kernel_defines()";
+const RECURRENCE_DEVICE_DEFINE_VALUE: &str =
+    "RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS ? \"1\" : \"0\"";
+const READER_RECURRENCE_RUNTIME_ARG: &str =
+    "args.push_back(RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS ? 1U : 0U);";
+const COMPUTE_RECURRENCE_DEVICE_DEFINE: &str = "compute.defines = recurrence_kernel_defines();";
+const BF16_READOUT_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kReadoutRowCb);";
 const FP32_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kOutputCb, kNextStateOutputCb);";
 const READ_BARRIER: &str = "noc_async_read_barrier();";
-const PADDING_CLEAR: &str = "clear_vector_padding(first_write_address + tile * tile_bytes);";
+const PADDING_CLEAR: &str = "clear_vector_padding(tile_address);";
+const SOFTWARE_ROW_BROADCAST: &str =
+    "void materialize_bf16_row_broadcast(std::uint32_t tile_address)";
+const SOFTWARE_ROW_BROADCAST_CALL: &str = "materialize_bf16_row_broadcast(tile_address);";
+const DIAGNOSTIC_ROW_BROADCAST_POLICY: &str = "const bool materialize_w_row_broadcast = get_arg_val<std::uint32_t>(kMaterializeWRowBroadcastArg) == 1U;";
+const DIAGNOSTIC_DECAY_MULTIPLY: &str =
+    "mul_binary_tile(output_tile, decay_operand_tile, output_tile);";
+const PRODUCTION_DECAY_BROADCAST: &str =
+    "mul_tiles_bcast_rows(kStateCb, kWCb, output_tile, column_tile, output_tile);";
 const VECTOR_CREDIT: &str = "cb_push_back(cb, kHeadTileCount);";
 const WRITE_BARRIER: &str = "noc_async_write_barrier();";
 const COMPLETION_SIGNAL: &str = "noc_semaphore_set(completion_semaphore, completed_count);";
@@ -97,33 +166,63 @@ const ASYMMETRIC_PROBE_START: &str = "void run_fused_wkv_asymmetric_probe(";
 const ASYMMETRIC_PROBE_END: &str = "\n}\n\nvoid run_fused_wkv_probe(";
 const ASYMMETRIC_HOST_REFERENCE: &str = "rwkv7::fused_wkv_reference::evaluate(ReferenceInputs{";
 const ASYMMETRIC_BUILD_BINDING: &str = "rwkv7::fused_wkv_reference::validate_diagnostic_build(";
-const ASYMMETRIC_FUSED_LAUNCH: &str = "rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(";
+const ASYMMETRIC_FUSED_LAUNCH: &str = "rwkv7::fused_wkv::run_state_dot_a_diagnostic(";
 const ASYMMETRIC_STAGE_MARKER: &str = "fused-wkv-asymmetric-stage: fused-launch-start";
+const ASYMMETRIC_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: state-dot-a-readback-finished";
+const ASYMMETRIC_DECAY_LAUNCH: &str = "rwkv7::fused_wkv::run_decay_diagnostic(";
+const ASYMMETRIC_DECAY_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: decay-readback-finished";
+const ASYMMETRIC_RANK_UPDATE_LAUNCH: &str = "rwkv7::fused_wkv::run_rank_update_diagnostic(";
+const ASYMMETRIC_RANK_UPDATE_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: rank-update-readback-finished";
+const ASYMMETRIC_OUTER_UPDATE_LAUNCH: &str = "rwkv7::fused_wkv::run_outer_update_diagnostic(";
+const ASYMMETRIC_OUTER_UPDATE_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: outer-update-readback-finished";
+const ASYMMETRIC_FIRST_ADD_LAUNCH: &str = "rwkv7::fused_wkv::run_first_add_diagnostic(";
+const ASYMMETRIC_FIRST_ADD_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: first-add-readback-finished";
+const ASYMMETRIC_FINAL_STATE_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: final-state-readback-finished";
+const ASYMMETRIC_BF16_READOUT_LAUNCH: &str = "rwkv7::fused_wkv::run_bf16_readout_diagnostic(";
+const ASYMMETRIC_BF16_READOUT_READBACK_MARKER: &str =
+    "fused-wkv-asymmetric-stage: bf16-readout-readback-finished";
+const ASYMMETRIC_FULL_SPLIT_READOUT_ROW_RESHAPE: &str =
+    "const Tensor full_split_readout_rows = op_reshape(context, full_split_readout, vector_shape);";
+const ASYMMETRIC_GENERIC_READOUT_ROW_RESHAPE: &str = "const Tensor generic_readout_rows = op_reshape(context, generic.output_for_hidden, vector_shape);";
+const ASYMMETRIC_GENERIC_CONTROL: &str = "generic_wkv_step(context, state, a, b, w, v, k, r);";
 const ASYMMETRIC_RUNTIME_RECEIPT: &str = "{\"runtime_name\", kRuntimeName}";
+const ASYMMETRIC_FP32_RECURRENCE_RECEIPT: &str =
+    "{\"fp32_recurrence_vectors\", kFusedWkvFp32RecurrenceVectors}";
 const ASYMMETRIC_PREWORK_COUNT: &str = "{\"generic_device_operations_before_fused_launch\", 0U}";
 const ASYMMETRIC_GENERIC_RECURRENCE: &str = "generic_wkv_step(";
 const ASYMMETRIC_GENERIC_CORRECTION: &str = "corrected_attention_rows(";
 
-const REQUIRED_RECURRENCE: [(&str, &str); 5] = [
+const REQUIRED_RECURRENCE: [(&str, &str, usize); 5] = [
     (
         "state_dot_a",
         "matmul_tiles(kStateCb, kACb, state_tile, column_tile, row_tile);",
+        SINGLE_PATH_PATTERN_COUNT,
     ),
     (
         "decay",
-        "mul_tiles_bcast_rows(\n        kStateCb, kWCb, output_tile, column_tile, output_tile);",
+        "mul_tiles_bcast_rows(kStateCb, kWCb, output_tile, column_tile, output_tile);",
+        SINGLE_PATH_PATTERN_COUNT,
     ),
     (
         "rank_update",
-        "matmul_tiles(\n        kStateDotACb, kBCb, row_tile, column_tile, output_tile);",
+        "matmul_tiles(kStateDotACb, kBCb, row_tile, column_tile, output_tile);",
+        SINGLE_PATH_PATTERN_COUNT,
     ),
     (
         "outer_update",
         "matmul_tiles(kVCb, kKCb, row_tile, column_tile, output_tile);",
+        SINGLE_PATH_PATTERN_COUNT,
     ),
     (
         "readout",
         "matmul_tiles(\n          kNextStateCb, kRCb, state_tile, column_tile, row_tile);",
+        SINGLE_PATH_PATTERN_COUNT,
     ),
 ];
 
@@ -229,8 +328,8 @@ pub fn validate_fused_compute_source(source: &str) -> Result<(), KernelContractE
     require_once(source, "four-tile state geometry", STATE_GEOMETRY)?;
     validate_blackhole_only(source, "compute")?;
 
-    for (name, pattern) in REQUIRED_RECURRENCE {
-        require_once(source, name, pattern)?;
+    for (name, pattern, expected) in REQUIRED_RECURRENCE {
+        require_count(source, name, pattern, expected)?;
     }
     for (name, pattern) in REQUIRED_CORRECTION {
         require_once(source, name, pattern)?;
@@ -250,12 +349,21 @@ pub fn validate_fused_compute_source(source: &str) -> Result<(), KernelContractE
     require_once(source, "BF16 pack boundary", BF16_PACK_BOUNDARY)?;
     require_once(
         source,
+        "diagnostic software decay multiply",
+        DIAGNOSTIC_DECAY_MULTIPLY,
+    )?;
+    require_once(
+        source,
+        "production decay row broadcast",
+        PRODUCTION_DECAY_BROADCAST,
+    )?;
+    require_once(
+        source,
         "BF16 readout pack boundary",
         BF16_READOUT_PACK_BOUNDARY,
     )?;
     require_once(source, "FP32 pack boundary", FP32_PACK_BOUNDARY)?;
     require_once(source, "reduce uninitialization", REDUCE_UNINIT)?;
-
     let reduce_function_start = source.find(REDUCE_FUNCTION_START).ok_or_else(|| {
         KernelContractError::new(
             "missing_reduce_function",
@@ -330,8 +438,28 @@ pub fn validate_fused_reader_source(source: &str) -> Result<(), KernelContractEr
     require_once(source, "reader vector padding clear", PADDING_CLEAR)?;
     require_once(
         source,
+        "reader software row-broadcast function",
+        SOFTWARE_ROW_BROADCAST,
+    )?;
+    require_once(
+        source,
+        "reader software row-broadcast call",
+        SOFTWARE_ROW_BROADCAST_CALL,
+    )?;
+    require_once(
+        source,
+        "diagnostic w row-broadcast policy",
+        DIAGNOSTIC_ROW_BROADCAST_POLICY,
+    )?;
+    require_once(
+        source,
         "reader work-list argument",
         "kWorkListStartArg + work_index",
+    )?;
+    require_once(
+        source,
+        "split reader state duplication",
+        SPLIT_READER_STATE_DUPLICATION,
     )?;
 
     let vector_barrier = source.find(READ_BARRIER).ok_or_else(|| {
@@ -365,6 +493,12 @@ pub fn validate_fused_writer_source(source: &str) -> Result<(), KernelContractEr
     validate_blackhole_only(source, "writer")?;
     require_once(source, "writer BF16 output CB", OUTPUT_CB)?;
     require_once(source, "writer FP32 state CB", NEXT_STATE_OUTPUT_CB)?;
+    if source.contains(SHARED_FULL_KERNEL_STATE_DOT_A_TAP) {
+        return Err(KernelContractError::new(
+            "shared_diagnostic_circular_buffer",
+            "the full fused writer must not tap a compute-internal recurrence CB",
+        ));
+    }
     require_once(source, "writer page write", "noc_async_write_page(")?;
     require_once(source, "writer completion barrier", WRITE_BARRIER)?;
     require_once(source, "writer completion count", "++completed_count;")?;
@@ -376,6 +510,12 @@ pub fn validate_fused_writer_source(source: &str) -> Result<(), KernelContractEr
     )?;
     require_once(source, "writer CB wait", "cb_wait_front(cb, tile_count);")?;
     require_once(source, "writer CB pop", "cb_pop_front(cb, tile_count);")?;
+    require_once(
+        source,
+        "split writer state ownership",
+        SPLIT_WRITER_STATE_OWNERSHIP,
+    )?;
+    require_once(source, "split writer output skip", SPLIT_WRITER_OUTPUT_SKIP)?;
 
     let final_barrier = source.rfind(WRITE_BARRIER).ok_or_else(|| {
         KernelContractError::new("missing_write_barrier", "writer barrier is absent")
@@ -389,6 +529,392 @@ pub fn validate_fused_writer_source(source: &str) -> Result<(), KernelContractEr
             "all NoC writes must complete before the completion signal",
         ));
     }
+    Ok(())
+}
+
+/// Validate the dedicated state_dot_a diagnostic ownership boundary.
+pub fn validate_state_dot_a_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "state_dot_a reader")?;
+    validate_blackhole_only(compute_source, "state_dot_a compute")?;
+    validate_blackhole_only(writer_source, "state_dot_a writer")?;
+    if reader_source.contains(STATE_DOT_A_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the state_dot_a output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated state_dot_a compute output CB",
+        STATE_DOT_A_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated state_dot_a writer output CB",
+        STATE_DOT_A_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated state_dot_a output publication",
+        "cb_push_back(kStateDotAOutputCb, kHeadTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kStateDotAOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned diagnostic output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated state_dot_a output wait",
+        "cb_wait_front(kStateDotAOutputCb, kHeadTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated state_dot_a output acknowledgement",
+        "cb_pop_front(kStateDotAOutputCb, kHeadTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated state_dot_a data completion barrier",
+        WRITE_BARRIER,
+    )?;
+    Ok(())
+}
+
+/// Validate the dedicated decay diagnostic ownership boundary.
+pub fn validate_decay_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "decay reader")?;
+    validate_blackhole_only(compute_source, "decay compute")?;
+    validate_blackhole_only(writer_source, "decay writer")?;
+    if reader_source.contains(DECAY_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the decay output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated decay compute output CB",
+        DECAY_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated decay writer output CB",
+        DECAY_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated decay output publication",
+        "cb_push_back(kDecayOutputCb, kStateTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kDecayOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned decay output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated decay output wait",
+        "cb_wait_front(kDecayOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated decay output acknowledgement",
+        "cb_pop_front(kDecayOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        reader_source,
+        "dedicated decay software row broadcast",
+        "materialize_bf16_row_broadcast(tile_address);",
+    )?;
+    require_once(
+        compute_source,
+        "dedicated decay multiply",
+        "mul_binary_tile(state_dst, decay_dst, state_dst);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated decay data completion barrier",
+        WRITE_BARRIER,
+    )?;
+    Ok(())
+}
+
+/// Validate the dedicated rank_update diagnostic ownership boundary.
+pub fn validate_rank_update_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "rank_update reader")?;
+    validate_blackhole_only(compute_source, "rank_update compute")?;
+    validate_blackhole_only(writer_source, "rank_update writer")?;
+    if reader_source.contains(RANK_UPDATE_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the rank_update output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated rank_update compute output CB",
+        RANK_UPDATE_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated rank_update writer output CB",
+        RANK_UPDATE_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated rank_update output publication",
+        "cb_push_back(kRankUpdateOutputCb, kStateTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kRankUpdateOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned rank_update output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated rank_update output wait",
+        "cb_wait_front(kRankUpdateOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated rank_update output acknowledgement",
+        "cb_pop_front(kRankUpdateOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        compute_source,
+        "dedicated rank_update matmul",
+        "matmul_tiles(kStateDotACb, kOrientedBCb, row_tile, column_tile, output_tile);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated rank_update data completion barrier",
+        WRITE_BARRIER,
+    )?;
+    Ok(())
+}
+
+/// Validate the dedicated outer_update diagnostic ownership boundary.
+pub fn validate_outer_update_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "outer_update reader")?;
+    validate_blackhole_only(compute_source, "outer_update compute")?;
+    validate_blackhole_only(writer_source, "outer_update writer")?;
+    if reader_source.contains(OUTER_UPDATE_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the outer_update output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated outer_update compute output CB",
+        OUTER_UPDATE_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated outer_update writer output CB",
+        OUTER_UPDATE_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated outer_update output publication",
+        "cb_push_back(kOuterUpdateOutputCb, kStateTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kOuterUpdateOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned outer_update output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated outer_update output wait",
+        "cb_wait_front(kOuterUpdateOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated outer_update output acknowledgement",
+        "cb_pop_front(kOuterUpdateOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        compute_source,
+        "dedicated outer_update matmul",
+        "matmul_tiles(kOrientedVCb, kOrientedKCb, row_tile, column_tile, output_tile);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated outer_update data completion barrier",
+        WRITE_BARRIER,
+    )?;
+    Ok(())
+}
+
+/// Validate the dedicated first_add diagnostic ownership boundary.
+pub fn validate_first_add_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "first_add reader")?;
+    validate_blackhole_only(compute_source, "first_add compute")?;
+    validate_blackhole_only(writer_source, "first_add writer")?;
+    if reader_source.contains(FIRST_ADD_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the first_add output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated first_add compute output CB",
+        FIRST_ADD_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated first_add writer output CB",
+        FIRST_ADD_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated first_add output publication",
+        "cb_push_back(kFirstAddOutputCb, kStateTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kFirstAddOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned first_add output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated first_add output wait",
+        "cb_wait_front(kFirstAddOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated first_add output acknowledgement",
+        "cb_pop_front(kFirstAddOutputCb, kStateTileCount);",
+    )?;
+    require_once(
+        compute_source,
+        "dedicated first_add SFPU operation",
+        "add_binary_tile(lhs_dst, rhs_dst, lhs_dst);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated first_add data completion barrier",
+        WRITE_BARRIER,
+    )?;
+    Ok(())
+}
+
+/// Validate the dedicated BF16 readout diagnostic ownership boundary.
+pub fn validate_bf16_readout_diagnostic_sources(
+    reader_source: &str,
+    compute_source: &str,
+    writer_source: &str,
+    program_source: &str,
+) -> Result<(), KernelContractError> {
+    validate_blackhole_only(reader_source, "BF16 readout reader")?;
+    validate_blackhole_only(compute_source, "BF16 readout compute")?;
+    validate_blackhole_only(writer_source, "BF16 readout writer")?;
+    if reader_source.contains(BF16_READOUT_DIAGNOSTIC_OUTPUT_CB) {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "the dedicated reader must not own the BF16 readout output CB",
+        ));
+    }
+    require_once(
+        compute_source,
+        "dedicated BF16 readout compute output CB",
+        BF16_READOUT_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        writer_source,
+        "dedicated BF16 readout writer output CB",
+        BF16_READOUT_DIAGNOSTIC_OUTPUT_CB,
+    )?;
+    require_once(
+        compute_source,
+        "dedicated BF16 readout output publication",
+        "cb_push_back(kBf16ReadoutOutputCb, kHeadTileCount);",
+    )?;
+    if compute_source.contains("cb_pop_front(kBf16ReadoutOutputCb") {
+        return Err(KernelContractError::new(
+            "diagnostic_output_ownership",
+            "compute must not acknowledge the writer-owned BF16 readout output",
+        ));
+    }
+    require_once(
+        writer_source,
+        "dedicated BF16 readout output wait",
+        "cb_wait_front(kBf16ReadoutOutputCb, kHeadTileCount);",
+    )?;
+    require_once(
+        writer_source,
+        "dedicated BF16 readout output acknowledgement",
+        "cb_pop_front(kBf16ReadoutOutputCb, kHeadTileCount);",
+    )?;
+    for (name, pattern) in [
+        (
+            "dedicated BF16 readout reverse source order",
+            BF16_READOUT_REVERSE_SOURCE_ORDER,
+        ),
+        (
+            "dedicated BF16 readout transposed block initialization",
+            BF16_READOUT_TRANSPOSED_BLOCK_INIT,
+        ),
+        (
+            "dedicated BF16 readout block matmul",
+            BF16_READOUT_BLOCK_MATMUL,
+        ),
+    ] {
+        require_once(compute_source, name, pattern)?;
+    }
+    if compute_source.contains(BF16_READOUT_OLD_TRANSPOSE_STAGE) {
+        return Err(KernelContractError::new(
+            "bf16_readout_matmul_contract",
+            "the dedicated BF16 readout must transpose R inside matmul",
+        ));
+    }
+    for (name, pattern) in [
+        ("dedicated BF16 readout HiFi2", BF16_READOUT_HIFI2),
+        (
+            "dedicated BF16 readout BF16 destination accumulator",
+            BF16_READOUT_BF16_DESTINATION,
+        ),
+        (
+            "dedicated BF16 readout FP32 state CB",
+            BF16_READOUT_FP32_STATE_CB,
+        ),
+        ("dedicated BF16 readout BF16 R CB", BF16_READOUT_BF16_R_CB),
+    ] {
+        require_once(program_source, name, pattern)?;
+    }
+    require_once(
+        writer_source,
+        "dedicated BF16 readout data completion barrier",
+        WRITE_BARRIER,
+    )?;
     Ok(())
 }
 
@@ -410,14 +936,6 @@ pub fn validate_fused_program_source(
         ("writer kernel", "fused_wkv_writer.cpp"),
         ("compute kernel", "fused_wkv_compute.cpp"),
         (
-            "completion semaphore runtime argument",
-            "args.push_back(kCompletionSemaphoreId);",
-        ),
-        (
-            "completion semaphore descriptor",
-            "semaphore.id = kCompletionSemaphoreId;",
-        ),
-        (
             "separate next-state output",
             "output.buffer(), next_state.buffer()",
         ),
@@ -426,25 +944,185 @@ pub fn validate_fused_program_source(
         ("BF16 vector validation", VECTOR_DTYPE_VALIDATION),
         ("tile vector validation", VECTOR_LAYOUT_VALIDATION),
         (
-            "generic TT-NN device operation",
-            "ttnn::generic_op(io_tensors, mesh_descriptor);",
-        ),
-        (
             "three-tile correction scalar CB cycle",
             CORRECTION_SCALAR_CAPACITY,
         ),
         ("diagnostic readout guard", DIAGNOSTIC_READOUT_GUARD),
-        ("diagnostic BF16 readout CB", BF16_READOUT_CB),
-        ("production FP32 readout CB", FP32_READOUT_CB),
+        (
+            "generic FP32 recurrence-vector policy",
+            GENERIC_FP32_RECURRENCE_VECTOR_POLICY,
+        ),
+        (
+            "generic FP32 recurrence-vector format",
+            GENERIC_FP32_RECURRENCE_FORMAT,
+        ),
+        (
+            "production BF16 recurrence-vector format",
+            PRODUCTION_BF16_RECURRENCE_FORMAT,
+        ),
+        (
+            "recurrence device-define factory",
+            RECURRENCE_DEVICE_DEFINE_FACTORY,
+        ),
+        (
+            "recurrence device-define value",
+            RECURRENCE_DEVICE_DEFINE_VALUE,
+        ),
+        (
+            "compute recurrence device define",
+            COMPUTE_RECURRENCE_DEVICE_DEFINE,
+        ),
+        ("FP32 recurrent readout CB", FP32_READOUT_CB),
+        ("diagnostic BF16 readout row CB", BF16_READOUT_ROW_CB),
+        ("production FP32 readout row CB", FP32_READOUT_ROW_CB),
         ("r_k fused input", "&inputs.r_k,"),
         (
             "group-normalization fused input",
             "&inputs.group_norm_weight,",
         ),
         ("gate fused input", "&inputs.gate,"),
+        ("Blackhole CB mode count", BLACKHOLE_CIRCULAR_BUFFER_COUNT),
+        ("exact FP32 decay unpack", DECAY_EXACT_FP32_UNPACK),
+        ("split readout mode binding", SPLIT_READOUT_MODE),
+        ("split readout device define", SPLIT_READOUT_DEVICE_DEFINE),
+        (
+            "split exact FP32 unpack CB set",
+            SPLIT_EXACT_FP32_UNPACK_CBS,
+        ),
+        (
+            "split exact FP32 unpack assignment",
+            SPLIT_EXACT_FP32_UNPACK_ASSIGNMENT,
+        ),
+        ("split HiFi2 readout launch", SPLIT_READOUT_LAUNCH),
+        ("split raw output ownership", SPLIT_RAW_OUTPUT_OWNERSHIP),
+        (
+            "monolithic corrected output ownership",
+            MONOLITHIC_CORRECTED_OUTPUT_OWNERSHIP,
+        ),
     ] {
         require_once(program_source, name, pattern)?;
     }
+    require_count(
+        program_source,
+        "completion semaphore runtime arguments",
+        "args.push_back(kCompletionSemaphoreId);",
+        7,
+    )?;
+    require_count(
+        program_source,
+        "completion semaphore descriptors",
+        "semaphore.id = kCompletionSemaphoreId;",
+        7,
+    )?;
+    require_count(
+        program_source,
+        "generic TT-NN device operations",
+        "ttnn::generic_op(io_tensors, mesh_descriptor);",
+        7,
+    )?;
+    require_count(
+        program_source,
+        "reader recurrence runtime argument",
+        READER_RECURRENCE_RUNTIME_ARG,
+        SINGLE_PATH_PATTERN_COUNT,
+    )?;
+    for (name, pattern) in [
+        (
+            "dedicated state_dot_a reader",
+            "fused_wkv_state_dot_a_reader.cpp",
+        ),
+        (
+            "dedicated state_dot_a writer",
+            "fused_wkv_state_dot_a_writer.cpp",
+        ),
+        (
+            "dedicated state_dot_a compute",
+            "fused_wkv_state_dot_a_compute.cpp",
+        ),
+        (
+            "dedicated state_dot_a host launch",
+            "Tensor run_state_dot_a_diagnostic(",
+        ),
+        ("dedicated decay reader", "fused_wkv_decay_reader.cpp"),
+        ("dedicated decay writer", "fused_wkv_decay_writer.cpp"),
+        ("dedicated decay compute", "fused_wkv_decay_compute.cpp"),
+        (
+            "dedicated decay host launch",
+            "Tensor run_decay_diagnostic(",
+        ),
+        (
+            "dedicated rank_update reader",
+            "fused_wkv_rank_update_reader.cpp",
+        ),
+        (
+            "dedicated rank_update writer",
+            "fused_wkv_rank_update_writer.cpp",
+        ),
+        (
+            "dedicated rank_update compute",
+            "fused_wkv_rank_update_compute.cpp",
+        ),
+        (
+            "dedicated rank_update host launch",
+            "Tensor run_rank_update_diagnostic(",
+        ),
+        (
+            "dedicated outer_update reader",
+            "fused_wkv_outer_update_reader.cpp",
+        ),
+        (
+            "dedicated outer_update writer",
+            "fused_wkv_outer_update_writer.cpp",
+        ),
+        (
+            "dedicated outer_update compute",
+            "fused_wkv_outer_update_compute.cpp",
+        ),
+        (
+            "dedicated outer_update host launch",
+            "Tensor run_outer_update_diagnostic(",
+        ),
+        (
+            "dedicated first_add reader",
+            "fused_wkv_first_add_reader.cpp",
+        ),
+        (
+            "dedicated first_add writer",
+            "fused_wkv_first_add_writer.cpp",
+        ),
+        (
+            "dedicated first_add compute",
+            "fused_wkv_first_add_compute.cpp",
+        ),
+        (
+            "dedicated first_add host launch",
+            "Tensor run_first_add_diagnostic(",
+        ),
+        (
+            "dedicated BF16 readout reader",
+            "fused_wkv_bf16_readout_reader.cpp",
+        ),
+        (
+            "dedicated BF16 readout writer",
+            "fused_wkv_bf16_readout_writer.cpp",
+        ),
+        (
+            "dedicated BF16 readout compute",
+            "fused_wkv_bf16_readout_compute.cpp",
+        ),
+        (
+            "dedicated BF16 readout host launch",
+            "Tensor run_bf16_readout_diagnostic(",
+        ),
+    ] {
+        require_once(program_source, name, pattern)?;
+    }
+    require_count(
+        program_source,
+        "diagnostic recurrence-vector guard",
+        DIAGNOSTIC_RECURRENCE_GUARD,
+        DIAGNOSTIC_RECURRENCE_GUARD_COUNT,
+    )?;
 
     let asymmetric_probe_start = runtime_source.find(ASYMMETRIC_PROBE_START).ok_or_else(|| {
         KernelContractError::new(
@@ -467,9 +1145,60 @@ pub fn validate_fused_program_source(
         ("diagnostic build binding", ASYMMETRIC_BUILD_BINDING),
         ("fused-only asymmetric launch", ASYMMETRIC_FUSED_LAUNCH),
         ("bounded asymmetric stage marker", ASYMMETRIC_STAGE_MARKER),
+        ("completed readback marker", ASYMMETRIC_READBACK_MARKER),
+        ("dedicated decay launch", ASYMMETRIC_DECAY_LAUNCH),
+        (
+            "completed decay readback marker",
+            ASYMMETRIC_DECAY_READBACK_MARKER,
+        ),
+        (
+            "dedicated rank_update launch",
+            ASYMMETRIC_RANK_UPDATE_LAUNCH,
+        ),
+        (
+            "completed rank_update readback marker",
+            ASYMMETRIC_RANK_UPDATE_READBACK_MARKER,
+        ),
+        (
+            "dedicated outer_update launch",
+            ASYMMETRIC_OUTER_UPDATE_LAUNCH,
+        ),
+        (
+            "completed outer_update readback marker",
+            ASYMMETRIC_OUTER_UPDATE_READBACK_MARKER,
+        ),
+        (
+            "completed first_add readback marker",
+            ASYMMETRIC_FIRST_ADD_READBACK_MARKER,
+        ),
+        (
+            "completed final_state readback marker",
+            ASYMMETRIC_FINAL_STATE_READBACK_MARKER,
+        ),
+        (
+            "dedicated BF16 readout launch",
+            ASYMMETRIC_BF16_READOUT_LAUNCH,
+        ),
+        (
+            "completed BF16 readout marker",
+            ASYMMETRIC_BF16_READOUT_READBACK_MARKER,
+        ),
+        (
+            "full-split readout row reshape",
+            ASYMMETRIC_FULL_SPLIT_READOUT_ROW_RESHAPE,
+        ),
+        (
+            "generic readout row reshape",
+            ASYMMETRIC_GENERIC_READOUT_ROW_RESHAPE,
+        ),
+        ("post-readback generic control", ASYMMETRIC_GENERIC_CONTROL),
         (
             "runtime-bound asymmetric receipt",
             ASYMMETRIC_RUNTIME_RECEIPT,
+        ),
+        (
+            "FP32 recurrence-bound asymmetric receipt",
+            ASYMMETRIC_FP32_RECURRENCE_RECEIPT,
         ),
         (
             "zero generic device pre-work receipt",
@@ -478,16 +1207,35 @@ pub fn validate_fused_program_source(
     ] {
         require_once(asymmetric_probe, name, pattern)?;
     }
-    for (name, forbidden) in [
-        ("generic recurrence pre-work", ASYMMETRIC_GENERIC_RECURRENCE),
-        ("generic correction pre-work", ASYMMETRIC_GENERIC_CORRECTION),
-    ] {
-        if asymmetric_probe.contains(forbidden) {
-            return Err(KernelContractError::new(
-                "forbidden_asymmetric_prework",
-                format!("the fused-only asymmetric probe contains {name}"),
-            ));
-        }
+    require_count(
+        asymmetric_probe,
+        "dedicated first_add and final_state launches",
+        ASYMMETRIC_FIRST_ADD_LAUNCH,
+        2,
+    )?;
+    let readback_marker = asymmetric_probe
+        .find(ASYMMETRIC_READBACK_MARKER)
+        .expect("required readback marker was checked above");
+    let generic_control = asymmetric_probe
+        .find(ASYMMETRIC_GENERIC_CONTROL)
+        .expect("required generic control was checked above");
+    if generic_control <= readback_marker {
+        return Err(KernelContractError::new(
+            "forbidden_asymmetric_prework",
+            "the generic control must run only after fused readback",
+        ));
+    }
+    if asymmetric_probe.contains(ASYMMETRIC_GENERIC_CORRECTION) {
+        return Err(KernelContractError::new(
+            "forbidden_asymmetric_prework",
+            "the fused-only asymmetric probe contains generic correction pre-work",
+        ));
+    }
+    if count(asymmetric_probe, ASYMMETRIC_GENERIC_RECURRENCE) != 1 {
+        return Err(KernelContractError::new(
+            "unbounded_generic_control",
+            "the asymmetric probe must contain exactly one generic recurrence control",
+        ));
     }
 
     for (name, pattern) in [
@@ -510,7 +1258,7 @@ pub fn validate_fused_program_source(
         ("capability selection", "rwkv7::fused_wkv::select_dispatch("),
         ("fused dispatch branch", "if (decision.use_fused_path)"),
         ("generic fallback", "return generic_wkv_step("),
-        ("completed fused correction", "k_rows, v_rows, true"),
+        ("runtime correction ownership", RUNTIME_CORRECTION_OWNERSHIP),
         ("maximum-batch cycle probe", MAXIMUM_BATCH_PROBE),
         (
             "explicit fused layer smoke policy",
@@ -654,6 +1402,42 @@ mod tests {
     const COMPUTE_SOURCE: &str = include_str!("../../rwkv7-p150x2/kernel/fused_wkv_compute.cpp");
     const READER_SOURCE: &str = include_str!("../../rwkv7-p150x2/kernel/fused_wkv_reader.cpp");
     const WRITER_SOURCE: &str = include_str!("../../rwkv7-p150x2/kernel/fused_wkv_writer.cpp");
+    const STATE_DOT_A_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_state_dot_a_reader.cpp");
+    const STATE_DOT_A_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_state_dot_a_compute.cpp");
+    const STATE_DOT_A_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_state_dot_a_writer.cpp");
+    const DECAY_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_decay_reader.cpp");
+    const DECAY_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_decay_compute.cpp");
+    const DECAY_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_decay_writer.cpp");
+    const RANK_UPDATE_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_rank_update_reader.cpp");
+    const RANK_UPDATE_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_rank_update_compute.cpp");
+    const RANK_UPDATE_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_rank_update_writer.cpp");
+    const OUTER_UPDATE_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_outer_update_reader.cpp");
+    const OUTER_UPDATE_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_outer_update_compute.cpp");
+    const OUTER_UPDATE_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_outer_update_writer.cpp");
+    const FIRST_ADD_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_first_add_reader.cpp");
+    const FIRST_ADD_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_first_add_compute.cpp");
+    const FIRST_ADD_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_first_add_writer.cpp");
+    const BF16_READOUT_READER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_bf16_readout_reader.cpp");
+    const BF16_READOUT_COMPUTE_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_bf16_readout_compute.cpp");
+    const BF16_READOUT_WRITER_SOURCE: &str =
+        include_str!("../../rwkv7-p150x2/kernel/fused_wkv_bf16_readout_writer.cpp");
     const PROGRAM_SOURCE: &str = include_str!("../../rwkv7-p150x2/src/fused_wkv_program.cpp");
     const RUNTIME_SOURCE: &str = include_str!("../../rwkv7-p150x2/src/main.cpp");
     const HARDWARE_COUNTER_SOURCE: &str =
@@ -683,12 +1467,24 @@ mod tests {
     #[test]
     fn rejects_a_missing_decay_term() {
         let invalid = COMPUTE_SOURCE.replace(
-            "mul_tiles_bcast_rows(\n        kStateCb, kWCb, output_tile, column_tile, output_tile);",
+            PRODUCTION_DECAY_BROADCAST,
             "// invalid fixture removed the decay term",
         );
         let error = validate_fused_compute_source(&invalid).expect_err("missing decay");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("decay"));
+    }
+
+    #[test]
+    fn rejects_a_missing_diagnostic_software_decay_multiply() {
+        let invalid = COMPUTE_SOURCE.replace(
+            DIAGNOSTIC_DECAY_MULTIPLY,
+            "// invalid fixture restored the faulty FP32 row-broadcast path",
+        );
+        let error = validate_fused_compute_source(&invalid)
+            .expect_err("missing diagnostic software decay multiply");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("diagnostic software decay multiply"));
     }
 
     #[test]
@@ -745,6 +1541,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_reader_without_split_state_duplication() {
+        let invalid = READER_SOURCE.replace(
+            SPLIT_READER_STATE_DUPLICATION,
+            "read_state(kStateCb, state_address, work_item,",
+        );
+        let error = validate_fused_reader_source(&invalid)
+            .expect_err("split reader must duplicate state for exact SFPU unpack");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split reader state duplication"));
+    }
+
+    #[test]
     fn rejects_a_reader_without_data_before_credit_barriers() {
         let invalid =
             READER_SOURCE.replace(READ_BARRIER, "// invalid fixture removed a read barrier");
@@ -765,8 +1573,47 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_reader_without_diagnostic_software_row_broadcast() {
+        let invalid = READER_SOURCE.replace(
+            SOFTWARE_ROW_BROADCAST_CALL,
+            "// invalid fixture removed software row broadcast",
+        );
+        let error =
+            validate_fused_reader_source(&invalid).expect_err("missing software row broadcast");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("reader software row-broadcast call"));
+    }
+
+    #[test]
+    fn rejects_a_reader_without_production_row_broadcast_isolation() {
+        let invalid = PROGRAM_SOURCE.replace(READER_RECURRENCE_RUNTIME_ARG, "args.push_back(1U);");
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("missing production row-broadcast isolation");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("reader recurrence runtime argument"));
+    }
+
+    #[test]
     fn accepts_the_reviewed_writer_source() {
         validate_fused_writer_source(WRITER_SOURCE).expect("reviewed writer source");
+    }
+
+    #[test]
+    fn rejects_a_writer_without_split_state_ownership() {
+        let invalid = WRITER_SOURCE.replace(SPLIT_WRITER_STATE_OWNERSHIP, "kNextStateOutputCb");
+        let error = validate_fused_writer_source(&invalid)
+            .expect_err("split writer must consume the recurrence output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split writer state ownership"));
+    }
+
+    #[test]
+    fn rejects_a_writer_without_split_output_skip() {
+        let invalid = WRITER_SOURCE.replace(SPLIT_WRITER_OUTPUT_SKIP, "if (true) {");
+        let error = validate_fused_writer_source(&invalid)
+            .expect_err("split writer must leave raw readout to the HiFi2 program");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split writer output skip"));
     }
 
     #[test]
@@ -789,6 +1636,303 @@ mod tests {
         let error = validate_fused_writer_source(&invalid).expect_err("missing completion");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("completion signal"));
+    }
+
+    #[test]
+    fn rejects_full_writer_tapping_a_compute_internal_recurrence_cb() {
+        let invalid = format!("{WRITER_SOURCE}\nconstexpr std::uint32_t kStateDotAStageCb = 8U;\n");
+        let error = validate_fused_writer_source(&invalid)
+            .expect_err("full fused writer must not tap compute-internal recurrence data");
+        assert_eq!(error.code, "shared_diagnostic_circular_buffer");
+    }
+
+    #[test]
+    fn accepts_the_dedicated_state_dot_a_kernel_ownership() {
+        validate_state_dot_a_diagnostic_sources(
+            STATE_DOT_A_READER_SOURCE,
+            STATE_DOT_A_COMPUTE_SOURCE,
+            STATE_DOT_A_WRITER_SOURCE,
+        )
+        .expect("dedicated state_dot_a ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_state_dot_a_writer_without_output_acknowledgement() {
+        let invalid = STATE_DOT_A_WRITER_SOURCE.replace(
+            "cb_pop_front(kStateDotAOutputCb, kHeadTileCount);",
+            "// invalid fixture removed dedicated output acknowledgement",
+        );
+        let error = validate_state_dot_a_diagnostic_sources(
+            STATE_DOT_A_READER_SOURCE,
+            STATE_DOT_A_COMPUTE_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn accepts_the_dedicated_decay_kernel_ownership() {
+        validate_decay_diagnostic_sources(
+            DECAY_READER_SOURCE,
+            DECAY_COMPUTE_SOURCE,
+            DECAY_WRITER_SOURCE,
+        )
+        .expect("dedicated decay ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_decay_writer_without_output_acknowledgement() {
+        let invalid = DECAY_WRITER_SOURCE.replace(
+            "cb_pop_front(kDecayOutputCb, kStateTileCount);",
+            "// invalid fixture removed dedicated decay output acknowledgement",
+        );
+        let error =
+            validate_decay_diagnostic_sources(DECAY_READER_SOURCE, DECAY_COMPUTE_SOURCE, &invalid)
+                .expect_err("dedicated decay writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn accepts_the_dedicated_rank_update_kernel_ownership() {
+        validate_rank_update_diagnostic_sources(
+            RANK_UPDATE_READER_SOURCE,
+            RANK_UPDATE_COMPUTE_SOURCE,
+            RANK_UPDATE_WRITER_SOURCE,
+        )
+        .expect("dedicated rank_update ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_rank_update_writer_without_output_acknowledgement() {
+        let invalid = RANK_UPDATE_WRITER_SOURCE.replace(
+            "cb_pop_front(kRankUpdateOutputCb, kStateTileCount);",
+            "// invalid fixture removed dedicated rank_update output acknowledgement",
+        );
+        let error = validate_rank_update_diagnostic_sources(
+            RANK_UPDATE_READER_SOURCE,
+            RANK_UPDATE_COMPUTE_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated rank_update writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn accepts_the_dedicated_outer_update_kernel_ownership() {
+        validate_outer_update_diagnostic_sources(
+            OUTER_UPDATE_READER_SOURCE,
+            OUTER_UPDATE_COMPUTE_SOURCE,
+            OUTER_UPDATE_WRITER_SOURCE,
+        )
+        .expect("dedicated outer_update ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_outer_update_writer_without_output_acknowledgement() {
+        let invalid = OUTER_UPDATE_WRITER_SOURCE.replace(
+            "cb_pop_front(kOuterUpdateOutputCb, kStateTileCount);",
+            "// invalid fixture removed dedicated outer_update output acknowledgement",
+        );
+        let error = validate_outer_update_diagnostic_sources(
+            OUTER_UPDATE_READER_SOURCE,
+            OUTER_UPDATE_COMPUTE_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated outer_update writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn accepts_the_dedicated_first_add_kernel_ownership() {
+        validate_first_add_diagnostic_sources(
+            FIRST_ADD_READER_SOURCE,
+            FIRST_ADD_COMPUTE_SOURCE,
+            FIRST_ADD_WRITER_SOURCE,
+        )
+        .expect("dedicated first_add ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_first_add_writer_without_output_acknowledgement() {
+        let invalid = FIRST_ADD_WRITER_SOURCE.replace(
+            "cb_pop_front(kFirstAddOutputCb, kStateTileCount);",
+            "// invalid fixture removed dedicated first_add output acknowledgement",
+        );
+        let error = validate_first_add_diagnostic_sources(
+            FIRST_ADD_READER_SOURCE,
+            FIRST_ADD_COMPUTE_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated first_add writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn accepts_the_dedicated_bf16_readout_kernel_ownership() {
+        validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            BF16_READOUT_COMPUTE_SOURCE,
+            BF16_READOUT_WRITER_SOURCE,
+            PROGRAM_SOURCE,
+        )
+        .expect("dedicated BF16 readout ownership");
+    }
+
+    #[test]
+    fn rejects_a_dedicated_bf16_readout_writer_without_output_acknowledgement() {
+        let invalid = BF16_READOUT_WRITER_SOURCE.replace(
+            "cb_pop_front(kBf16ReadoutOutputCb, kHeadTileCount);",
+            "// invalid fixture removed dedicated BF16 readout output acknowledgement",
+        );
+        let error = validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            BF16_READOUT_COMPUTE_SOURCE,
+            &invalid,
+            PROGRAM_SOURCE,
+        )
+        .expect_err("dedicated BF16 readout writer must acknowledge its output CB");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("output acknowledgement"));
+    }
+
+    #[test]
+    fn rejects_a_dedicated_bf16_readout_without_reverse_source_order() {
+        let invalid = BF16_READOUT_COMPUTE_SOURCE.replace(
+            BF16_READOUT_REVERSE_SOURCE_ORDER,
+            "compute_kernel_hw_startup(kStateCb, kRawRCb,",
+        );
+        let error = validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            &invalid,
+            BF16_READOUT_WRITER_SOURCE,
+            PROGRAM_SOURCE,
+        )
+        .expect_err("dedicated BF16 readout must use reverse source order");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("reverse source order"));
+    }
+
+    #[test]
+    fn rejects_a_dedicated_bf16_readout_with_a_separate_transpose_stage() {
+        let invalid = format!("{BF16_READOUT_COMPUTE_SOURCE}\ntranspose_wh_tile();");
+        let error = validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            &invalid,
+            BF16_READOUT_WRITER_SOURCE,
+            PROGRAM_SOURCE,
+        )
+        .expect_err("dedicated BF16 readout must transpose inside matmul");
+        assert_eq!(error.code, "bf16_readout_matmul_contract");
+        assert!(error.detail.contains("transpose R inside matmul"));
+    }
+
+    #[test]
+    fn rejects_a_dedicated_bf16_readout_without_hifi2() {
+        let invalid = PROGRAM_SOURCE.replace(
+            BF16_READOUT_HIFI2,
+            "compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;",
+        );
+        let error = validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            BF16_READOUT_COMPUTE_SOURCE,
+            BF16_READOUT_WRITER_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated BF16 readout must use generic HiFi2");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("HiFi2"));
+    }
+
+    #[test]
+    fn rejects_a_dedicated_bf16_readout_with_fp32_destination_accumulation() {
+        let invalid = PROGRAM_SOURCE.replace(
+            BF16_READOUT_BF16_DESTINATION,
+            "compute_config.fp32_dest_acc_en = true;",
+        );
+        let error = validate_bf16_readout_diagnostic_sources(
+            BF16_READOUT_READER_SOURCE,
+            BF16_READOUT_COMPUTE_SOURCE,
+            BF16_READOUT_WRITER_SOURCE,
+            &invalid,
+        )
+        .expect_err("dedicated BF16 readout must use a BF16 destination accumulator");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("BF16 destination accumulator"));
+    }
+
+    #[test]
+    fn rejects_a_short_blackhole_unpack_mode_vector() {
+        let invalid = PROGRAM_SOURCE.replace(
+            BLACKHOLE_CIRCULAR_BUFFER_COUNT,
+            "constexpr std::size_t kCircularBufferCount = 32U;",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("short Blackhole unpack mode vector");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("Blackhole CB mode count"));
+    }
+
+    #[test]
+    fn rejects_decay_without_exact_fp32_unpack() {
+        let invalid = PROGRAM_SOURCE.replace(
+            DECAY_EXACT_FP32_UNPACK,
+            "// invalid fixture removed exact FP32 decay unpack",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("decay without exact FP32 unpack");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("exact FP32 decay unpack"));
+    }
+
+    #[test]
+    fn rejects_split_readout_without_both_precision_flags() {
+        let invalid = PROGRAM_SOURCE.replace(
+            SPLIT_READOUT_MODE,
+            "constexpr bool kSplitReadout =\n    RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0;",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("split readout must require both diagnostic precision flags");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split readout mode binding"));
+    }
+
+    #[test]
+    fn rejects_split_readout_without_exact_fp32_stage_unpack() {
+        let invalid = PROGRAM_SOURCE.replace(
+            SPLIT_EXACT_FP32_UNPACK_CBS,
+            "const std::array<std::uint8_t, 1U> exact_fp32_cbs = {kWCb};",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("split recurrence stages require exact FP32 unpack");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split exact FP32 unpack CB set"));
+    }
+
+    #[test]
+    fn rejects_split_readout_without_the_hifi2_program() {
+        let invalid = PROGRAM_SOURCE.replace(SPLIT_READOUT_LAUNCH, "raw_readout = output;");
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("split path must launch the proven HiFi2 readout");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split HiFi2 readout launch"));
+    }
+
+    #[test]
+    fn rejects_split_readout_that_claims_correction_complete() {
+        let invalid = PROGRAM_SOURCE.replace(
+            SPLIT_RAW_OUTPUT_OWNERSHIP,
+            "return Outputs{std::move(returned_state), std::move(raw_readout), true};",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("raw split output must retain caller correction ownership");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("split raw output ownership"));
     }
 
     #[test]
@@ -859,14 +2003,46 @@ mod tests {
 
     #[test]
     fn rejects_asymmetric_probe_with_generic_device_prework() {
-        let invalid = RUNTIME_SOURCE.replace(
+        let without_post_readback_control = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_GENERIC_CONTROL,
+            "invalid_generic_control_removed();",
+        );
+        let invalid = without_post_readback_control.replace(
             ASYMMETRIC_FUSED_LAUNCH,
-            "const WkvOutput invalid = generic_wkv_step(context, state, a, b, w, v, k, r);\n  rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(",
+            "generic_wkv_step(context, state, a, b, w, v, k, r);\n  rwkv7::fused_wkv::run_state_dot_a_diagnostic(",
         );
         let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
             .expect_err("generic recurrence before fused launch");
         assert_eq!(error.code, "forbidden_asymmetric_prework");
-        assert!(error.detail.contains("generic recurrence pre-work"));
+        assert!(
+            error
+                .detail
+                .contains("generic control must run only after fused readback")
+        );
+    }
+
+    #[test]
+    fn rejects_asymmetric_probe_without_full_split_readout_row_reshape() {
+        let invalid = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_FULL_SPLIT_READOUT_ROW_RESHAPE,
+            "const Tensor full_split_readout_rows = full_split_readout;",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("full-split correction requires row-shaped readout");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("full-split readout row reshape"));
+    }
+
+    #[test]
+    fn rejects_asymmetric_probe_without_generic_readout_row_reshape() {
+        let invalid = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_GENERIC_READOUT_ROW_RESHAPE,
+            "const Tensor generic_readout_rows = generic.output_for_hidden;",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("generic correction requires row-shaped readout");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("generic readout row reshape"));
     }
 
     #[test]
@@ -918,27 +2094,117 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_missing_diagnostic_bfloat16_readout_buffer() {
+    fn rejects_a_missing_diagnostic_fp32_recurrence_policy() {
         let invalid = PROGRAM_SOURCE.replace(
-            BF16_READOUT_CB,
-            "make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges)",
+            GENERIC_FP32_RECURRENCE_VECTOR_POLICY,
+            "kGenericFp32RecurrenceVector = {false, false, false, false, false, false};",
         );
         let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
-            .expect_err("diagnostic correction needs a BF16 readout buffer");
+            .expect_err("diagnostic recurrence must match generic FP32 casts");
         assert_eq!(error.code, "source_pattern_count");
-        assert!(error.detail.contains("diagnostic BF16 readout CB"));
+        assert!(
+            error
+                .detail
+                .contains("generic FP32 recurrence-vector policy")
+        );
     }
 
     #[test]
-    fn rejects_a_missing_production_fp32_readout_buffer() {
+    fn rejects_a_missing_production_bfloat16_recurrence_branch() {
         let invalid = PROGRAM_SOURCE.replace(
-            FP32_READOUT_CB,
-            "make_cb(kReadoutCb, fp32_format, kStateTileCount, core_ranges)",
+            PRODUCTION_BF16_RECURRENCE_FORMAT,
+            "const tt::DataFormat format = fp32_format;",
         );
         let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
-            .expect_err("production must retain the unverified FP32 readout");
+            .expect_err("production recurrence vectors must remain BF16");
         assert_eq!(error.code, "source_pattern_count");
-        assert!(error.detail.contains("production FP32 readout CB"));
+        assert!(
+            error
+                .detail
+                .contains("production BF16 recurrence-vector format")
+        );
+    }
+
+    #[test]
+    fn rejects_a_missing_reader_recurrence_runtime_argument() {
+        let invalid =
+            PROGRAM_SOURCE.replace(READER_RECURRENCE_RUNTIME_ARG, "static_cast<void>(args);");
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("reader must receive the recurrence diagnostic mode");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("reader recurrence runtime argument"));
+    }
+
+    #[test]
+    fn rejects_a_missing_compute_recurrence_device_define() {
+        let invalid =
+            PROGRAM_SOURCE.replace(COMPUTE_RECURRENCE_DEVICE_DEFINE, "compute.defines.clear();");
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("compute must receive the recurrence diagnostic define");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("compute recurrence device define"));
+    }
+
+    #[test]
+    fn rejects_a_hard_coded_recurrence_device_define() {
+        let invalid =
+            PROGRAM_SOURCE.replace(RECURRENCE_DEVICE_DEFINE_VALUE, "true ? \"1\" : \"0\"");
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("device define must match the configured runtime mode");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("recurrence device-define value"));
+    }
+
+    #[test]
+    fn rejects_an_asymmetric_receipt_without_fp32_recurrence_binding() {
+        let invalid = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_FP32_RECURRENCE_RECEIPT,
+            "{\"fp32_recurrence_vectors_removed\", false}",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("physical receipt must bind FP32 recurrence vectors");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(
+            error
+                .detail
+                .contains("FP32 recurrence-bound asymmetric receipt")
+        );
+    }
+
+    #[test]
+    fn rejects_a_direct_bfloat16_recurrent_readout_buffer() {
+        let invalid = PROGRAM_SOURCE.replace(
+            FP32_READOUT_CB,
+            "make_cb(kReadoutCb, bf16_format, kHeadTileCount, core_ranges)",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("the recurrent readout matmul must retain its FP32 output buffer");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("FP32 recurrent readout CB"));
+    }
+
+    #[test]
+    fn rejects_a_missing_diagnostic_bfloat16_readout_row_buffer() {
+        let invalid = PROGRAM_SOURCE.replace(
+            BF16_READOUT_ROW_CB,
+            "make_cb(kReadoutRowCb, fp32_format, kHeadTileCount, core_ranges)",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("diagnostic correction needs a BF16 readout row buffer");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("diagnostic BF16 readout row CB"));
+    }
+
+    #[test]
+    fn rejects_a_missing_production_fp32_readout_row_buffer() {
+        let invalid = PROGRAM_SOURCE.replace(
+            FP32_READOUT_ROW_CB,
+            "make_cb(kReadoutRowCb, fp32_format, kStateTileCount, core_ranges)",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("production must retain its FP32 readout row");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("production FP32 readout row CB"));
     }
 
     #[test]

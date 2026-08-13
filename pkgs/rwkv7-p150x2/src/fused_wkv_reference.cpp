@@ -55,16 +55,17 @@ float bfloat16_bits_to_float(std::uint16_t bits) {
 } // namespace
 
 DiagnosticBuildDecision validate_diagnostic_build(
-    std::string_view runtime_name, bool bfloat16_readout_boundary) {
-  if (runtime_name != kDiagnosticRuntimeName) {
-    return DiagnosticBuildDecision{false,
-                                   "unexpected_diagnostic_runtime_name"};
-  }
-  if (!bfloat16_readout_boundary) {
-    return DiagnosticBuildDecision{false,
-                                   "bfloat16_readout_boundary_disabled"};
-  }
-  return DiagnosticBuildDecision{true, "diagnostic_build_bound"};
+    std::string_view runtime_name, bool bfloat16_readout_boundary, bool fp32_recurrence_vectors) {
+    if (runtime_name != kDiagnosticRuntimeName) {
+        return DiagnosticBuildDecision{false, "unexpected_diagnostic_runtime_name"};
+    }
+    if (!bfloat16_readout_boundary) {
+        return DiagnosticBuildDecision{false, "bfloat16_readout_boundary_disabled"};
+    }
+    if (!fp32_recurrence_vectors) {
+        return DiagnosticBuildDecision{false, "fp32_recurrence_vectors_disabled"};
+    }
+    return DiagnosticBuildDecision{true, "diagnostic_build_bound"};
 }
 
 Result evaluate(const Inputs &inputs) {

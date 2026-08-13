@@ -11,6 +11,11 @@ option(
   "Build a diagnostic fused WKV with the generic BF16 readout boundary"
   OFF
 )
+option(
+  RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS
+  "Build a diagnostic fused WKV with generic FP32 recurrence vectors"
+  OFF
+)
 
 find_package(PkgConfig REQUIRED)
 find_package(enchantum REQUIRED)

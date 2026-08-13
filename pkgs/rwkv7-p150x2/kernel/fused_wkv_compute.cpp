@@ -7,6 +7,7 @@
 #include "api/compute/compute_kernel_hw_startup.h"
 #include "api/compute/eltwise_binary.h"
 #include "api/compute/eltwise_binary_sfpu.h"
+#include "api/compute/eltwise_unary/eltwise_unary.h"
 #include "api/compute/eltwise_unary/fill.h"
 #include "api/compute/eltwise_unary/rsqrt.h"
 #include "api/compute/matmul.h"
@@ -112,6 +113,12 @@ constexpr std::uint32_t kCorrectionVectorCb =
     static_cast<std::uint32_t>(tt::CBIndex::c_30);
 constexpr std::uint32_t kReductionScalerCb =
     static_cast<std::uint32_t>(tt::CBIndex::c_31);
+constexpr std::uint32_t kExactStateCb = kReadoutRowCb;
+constexpr std::uint32_t kDecayCb = kMeanCb;
+constexpr std::uint32_t kRankUpdateCb = kCenteredCb;
+constexpr std::uint32_t kOuterUpdateCb = kSquaredCb;
+constexpr std::uint32_t kFirstAddCb = kVarianceCb;
+constexpr std::uint32_t kBinaryOperandCount = 2U;
 
 constexpr std::uint32_t kRawVectorCbs[kRawVectorCount] = {
     kRawACb,
@@ -148,6 +155,9 @@ void wait_for_work_item() {
     cb_wait_front(kRawVectorCbs[vector], kHeadTileCount);
   }
   cb_wait_front(kStateCb, kStateTileCount);
+#if RWKV7_FUSED_WKV_SPLIT_READOUT
+  cb_wait_front(kExactStateCb, kStateTileCount);
+#endif
 }
 
 void release_work_item() {
@@ -155,6 +165,9 @@ void release_work_item() {
     cb_pop_front(kRawVectorCbs[vector], kHeadTileCount);
   }
   cb_pop_front(kStateCb, kStateTileCount);
+#if RWKV7_FUSED_WKV_SPLIT_READOUT
+  cb_pop_front(kExactStateCb, kStateTileCount);
+#endif
 }
 
 void copy_vector(std::uint32_t input_cb, std::uint32_t output_cb) {
@@ -241,49 +254,183 @@ void compute_state_dot_a() {
   cb_wait_front(kStateDotACb, kHeadTileCount);
 }
 
+void release_state_dot_a() { cb_pop_front(kStateDotACb, kHeadTileCount); }
+
+#if RWKV7_FUSED_WKV_SPLIT_READOUT
+void compute_exact_decay() {
+    cb_reserve_back(kDecayCb, kStateTileCount);
+    unary_op_init_common(kExactStateCb, kDecayCb);
+    mul_binary_tile_init();
+    tile_regs_acquire();
+
+    copy_tile_to_dst_init_short_with_dt(kWCb, kExactStateCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        copy_tile(kExactStateCb, tile, tile * kBinaryOperandCount);
+    }
+
+    copy_tile_to_dst_init_short_with_dt(kExactStateCb, kWCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        const std::uint32_t column_tile = tile % kHeadTileCount;
+        const std::uint32_t state_dst = tile * kBinaryOperandCount;
+        const std::uint32_t decay_dst = state_dst + 1U;
+        copy_tile(kWCb, column_tile, decay_dst);
+        mul_binary_tile(state_dst, decay_dst, state_dst);
+    }
+
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_reconfig_data_format(kDecayCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        pack_tile(tile * kBinaryOperandCount, kDecayCb, tile);
+    }
+    tile_regs_release();
+    cb_push_back(kDecayCb, kStateTileCount);
+    cb_wait_front(kDecayCb, kStateTileCount);
+}
+
+void compute_exact_rank_update() {
+    cb_reserve_back(kRankUpdateCb, kStateTileCount);
+    mm_init(kStateDotACb, kBCb, kRankUpdateCb);
+    tile_regs_acquire();
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        const std::uint32_t row_tile = tile / kHeadTileCount;
+        const std::uint32_t column_tile = tile % kHeadTileCount;
+        matmul_tiles(kStateDotACb, kBCb, row_tile, column_tile, tile);
+    }
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_reconfig_data_format(kRankUpdateCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        pack_tile(tile, kRankUpdateCb, tile);
+    }
+    tile_regs_release();
+    cb_push_back(kRankUpdateCb, kStateTileCount);
+    cb_wait_front(kRankUpdateCb, kStateTileCount);
+    release_state_dot_a();
+}
+
+void compute_exact_outer_update() {
+    cb_reserve_back(kOuterUpdateCb, kStateTileCount);
+    mm_init(kVCb, kKCb, kOuterUpdateCb);
+    tile_regs_acquire();
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        const std::uint32_t row_tile = tile / kHeadTileCount;
+        const std::uint32_t column_tile = tile % kHeadTileCount;
+        matmul_tiles(kVCb, kKCb, row_tile, column_tile, tile);
+    }
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_reconfig_data_format(kOuterUpdateCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        pack_tile(tile, kOuterUpdateCb, tile);
+    }
+    tile_regs_release();
+    cb_push_back(kOuterUpdateCb, kStateTileCount);
+    cb_wait_front(kOuterUpdateCb, kStateTileCount);
+}
+
+template <std::uint32_t LhsCb, std::uint32_t RhsCb, std::uint32_t OutputCb, bool WaitForOutput>
+void compute_exact_add() {
+    cb_reserve_back(OutputCb, kStateTileCount);
+    unary_op_init_common(LhsCb, OutputCb);
+    add_binary_tile_init();
+    tile_regs_acquire();
+
+    copy_tile_to_dst_init_short_with_dt(LhsCb, LhsCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        copy_tile(LhsCb, tile, tile * kBinaryOperandCount);
+    }
+    copy_tile_to_dst_init_short_with_dt(LhsCb, RhsCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        const std::uint32_t lhs_dst = tile * kBinaryOperandCount;
+        const std::uint32_t rhs_dst = lhs_dst + 1U;
+        copy_tile(RhsCb, tile, rhs_dst);
+        add_binary_tile(lhs_dst, rhs_dst, lhs_dst);
+    }
+
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_reconfig_data_format(OutputCb);
+    for (std::uint32_t tile = 0U; tile < kStateTileCount; ++tile) {
+        pack_tile(tile * kBinaryOperandCount, OutputCb, tile);
+    }
+    tile_regs_release();
+    cb_push_back(OutputCb, kStateTileCount);
+    if constexpr (WaitForOutput) {
+        cb_wait_front(OutputCb, kStateTileCount);
+    }
+}
+
+void compute_exact_next_state() {
+    compute_exact_decay();
+    compute_exact_rank_update();
+    compute_exact_outer_update();
+    compute_exact_add<kDecayCb, kRankUpdateCb, kFirstAddCb, true>();
+    cb_pop_front(kDecayCb, kStateTileCount);
+    cb_pop_front(kRankUpdateCb, kStateTileCount);
+    compute_exact_add<kFirstAddCb, kOuterUpdateCb, kNextStateCb, false>();
+    cb_pop_front(kFirstAddCb, kStateTileCount);
+    cb_pop_front(kOuterUpdateCb, kStateTileCount);
+}
+#endif
+
 void compute_next_state() {
-  cb_reserve_back(kNextStateCb, kStateTileCount);
-  tile_regs_acquire();
+    cb_reserve_back(kNextStateCb, kStateTileCount);
 
-  // S' = S * diag(w) + (S @ a) outer b + v outer k.
-  reconfig_data_format(kStateCb, kWCb);
-  mul_bcast_rows_init_short(kStateCb, kWCb);
-  for (std::uint32_t output_tile = 0; output_tile < kStateTileCount;
-       ++output_tile) {
-    const std::uint32_t column_tile = output_tile % kHeadTileCount;
-    mul_tiles_bcast_rows(
-        kStateCb, kWCb, output_tile, column_tile, output_tile);
-  }
+    // S' = S * diag(w) + (S @ a) outer b + v outer k.
+#if RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS
+    // Match generic binary-ng: materialized FP32 row broadcast, exact FP32
+    // unpack, and SFPU multiplication. Keep output slots 0..3 available for
+    // the two later matmul accumulations.
+    unary_op_init_common(kStateCb, kNextStateCb);
+    mul_binary_tile_init();
+    tile_regs_acquire();
+    copy_tile_to_dst_init_short_with_dt(kWCb, kStateCb);
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        copy_tile(kStateCb, output_tile, output_tile);
+    }
+    copy_tile_to_dst_init_short_with_dt(kStateCb, kWCb);
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        const std::uint32_t column_tile = output_tile % kHeadTileCount;
+        const std::uint32_t decay_operand_tile = output_tile + kStateTileCount;
+        copy_tile(kWCb, column_tile, decay_operand_tile);
+        mul_binary_tile(output_tile, decay_operand_tile, output_tile);
+    }
+#else
+    reconfig_data_format(kStateCb, kWCb);
+    mul_bcast_rows_init_short(kStateCb, kWCb);
+    tile_regs_acquire();
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        const std::uint32_t column_tile = output_tile % kHeadTileCount;
+        mul_tiles_bcast_rows(kStateCb, kWCb, output_tile, column_tile, output_tile);
+    }
+#endif
 
-  reconfig_data_format(kBCb, kStateDotACb);
-  mm_init_short(kStateDotACb, kBCb, 0);
-  for (std::uint32_t output_tile = 0; output_tile < kStateTileCount;
-       ++output_tile) {
-    const std::uint32_t row_tile = output_tile / kHeadTileCount;
-    const std::uint32_t column_tile = output_tile % kHeadTileCount;
-    matmul_tiles(
-        kStateDotACb, kBCb, row_tile, column_tile, output_tile);
-  }
+    reconfig_data_format(kBCb, kStateDotACb);
+    mm_init_short(kStateDotACb, kBCb, 0);
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        const std::uint32_t row_tile = output_tile / kHeadTileCount;
+        const std::uint32_t column_tile = output_tile % kHeadTileCount;
+        matmul_tiles(kStateDotACb, kBCb, row_tile, column_tile, output_tile);
+    }
 
-  reconfig_data_format(kKCb, kVCb);
-  mm_init_short(kVCb, kKCb, 0);
-  for (std::uint32_t output_tile = 0; output_tile < kStateTileCount;
-       ++output_tile) {
-    const std::uint32_t row_tile = output_tile / kHeadTileCount;
-    const std::uint32_t column_tile = output_tile % kHeadTileCount;
-    matmul_tiles(kVCb, kKCb, row_tile, column_tile, output_tile);
-  }
+    reconfig_data_format(kKCb, kVCb);
+    mm_init_short(kVCb, kKCb, 0);
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        const std::uint32_t row_tile = output_tile / kHeadTileCount;
+        const std::uint32_t column_tile = output_tile % kHeadTileCount;
+        matmul_tiles(kVCb, kKCb, row_tile, column_tile, output_tile);
+    }
 
-  tile_regs_commit();
-  tile_regs_wait();
-  pack_reconfig_data_format(kNextStateCb);
-  for (std::uint32_t output_tile = 0; output_tile < kStateTileCount;
-       ++output_tile) {
-    pack_tile(output_tile, kNextStateCb, output_tile);
-  }
-  tile_regs_release();
-  cb_push_back(kNextStateCb, kStateTileCount);
-  cb_wait_front(kNextStateCb, kStateTileCount);
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_reconfig_data_format(kNextStateCb);
+    for (std::uint32_t output_tile = 0; output_tile < kStateTileCount; ++output_tile) {
+        pack_tile(output_tile, kNextStateCb, output_tile);
+    }
+    tile_regs_release();
+    cb_push_back(kNextStateCb, kStateTileCount);
+    cb_wait_front(kNextStateCb, kStateTileCount);
 }
 
 void compute_readout() {
@@ -573,7 +720,7 @@ void apply_gate_and_emit_output() {
   tile_regs_commit();
   tile_regs_wait();
 
-  // This is the only BF16 boundary in the fused attention result.
+  // This is the final BF16 boundary in the fused attention result.
   pack_reconfig_data_format(kOutputCb);
   for (std::uint32_t tile = 0; tile < kHeadTileCount; ++tile) {
     pack_tile(tile, kOutputCb, tile);
@@ -604,9 +751,9 @@ void emit_next_state() {
 }
 
 void release_recurrence_intermediates() {
-  cb_pop_front(kStateDotACb, kHeadTileCount);
-  cb_pop_front(kNextStateCb, kStateTileCount);
-  cb_pop_front(kReadoutCb, kHeadTileCount);
+    release_state_dot_a();
+    cb_pop_front(kNextStateCb, kStateTileCount);
+    cb_pop_front(kReadoutCb, kHeadTileCount);
 }
 
 void compute_corrected_output() {
@@ -640,11 +787,15 @@ void kernel_main() {
     wait_for_work_item();
     orient_vectors();
     compute_state_dot_a();
+#if RWKV7_FUSED_WKV_SPLIT_READOUT
+    compute_exact_next_state();
+#else
     compute_next_state();
     compute_readout();
     compute_corrected_output();
     emit_next_state();
     release_recurrence_intermediates();
+#endif
     release_oriented_vectors();
     release_work_item();
   }

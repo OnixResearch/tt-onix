@@ -13,12 +13,14 @@ constexpr std::uint32_t kOutputCb =
     static_cast<std::uint32_t>(tt::CBIndex::c_16);
 constexpr std::uint32_t kNextStateOutputCb =
     static_cast<std::uint32_t>(tt::CBIndex::c_17);
+constexpr std::uint32_t kSplitNextStateCb = static_cast<std::uint32_t>(tt::CBIndex::c_9);
 
 constexpr std::uint32_t kOutputAddressArg = 0;
 constexpr std::uint32_t kStateAddressArg = 1;
 constexpr std::uint32_t kCompletionSemaphoreIdArg = 2;
-constexpr std::uint32_t kWorkCountArg = 3;
-constexpr std::uint32_t kWorkListStartArg = 4;
+constexpr std::uint32_t kSplitReadoutArg = 3;
+constexpr std::uint32_t kWorkCountArg = 4;
+constexpr std::uint32_t kWorkListStartArg = 5;
 
 constexpr std::uint32_t kOutputAccessorArgOffset = 0;
 constexpr std::uint32_t kOutputAccessorArgCount =
@@ -55,6 +57,7 @@ void kernel_main() {
       get_arg_val<std::uint32_t>(kStateAddressArg);
   const std::uint32_t completion_semaphore_id =
       get_arg_val<std::uint32_t>(kCompletionSemaphoreIdArg);
+  const bool split_readout = get_arg_val<std::uint32_t>(kSplitReadoutArg) == 1U;
   const std::uint32_t work_count =
       get_arg_val<std::uint32_t>(kWorkCountArg);
 
@@ -68,14 +71,11 @@ void kernel_main() {
        ++work_index) {
     const std::uint32_t work_item = get_arg_val<std::uint32_t>(
         kWorkListStartArg + work_index);
+    if (!split_readout) {
+        write_tiles(kOutputCb, kHeadTileCount, work_item * kHeadTileCount, output_address, output_accessor_args);
+    }
     write_tiles(
-        kOutputCb,
-        kHeadTileCount,
-        work_item * kHeadTileCount,
-        output_address,
-        output_accessor_args);
-    write_tiles(
-        kNextStateOutputCb,
+        split_readout ? kSplitNextStateCb : kNextStateOutputCb,
         kStateTileCount,
         work_item * kStateTileCount,
         next_state_address,

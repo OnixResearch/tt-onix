@@ -554,6 +554,24 @@
       "blake3": "02f65ea5223aab029b4fb33d1dcdf8043fce3ce6ef6e435fa1f60e890a44c0d8"
     },
     {
+      "path": "cairn/archive/2026-08-13-complete-rwkv7-fused-readback/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2067,
+      "blake3": "d656da98cc816a026eab0e74655463c9396aac79a04d3fb1c0ad9b2a3eda2c53"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-complete-rwkv7-fused-readback/evidence/llk-hazard-audit.md",
+      "class": "portable_evidence",
+      "byte_count": 7710,
+      "blake3": "a9f94c53d1061555e9effe1ef2ccbcefe9986a01e54febc59f28f9e738c62337"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-complete-rwkv7-fused-readback/evidence/physical-diagnostic-result.json",
+      "class": "portable_evidence",
+      "byte_count": 3535,
+      "blake3": "ecc58803354862db37911b43270c0d1c4de013d26fe028c5516837ce48433e84"
+    },
+    {
       "path": "cairn/archive/2026-08-13-unblock-rwkv7-window16-parity/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2530,

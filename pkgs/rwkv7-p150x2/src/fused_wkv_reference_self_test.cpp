@@ -74,14 +74,18 @@ void run_fused_wkv_reference_self_tests() {
             "fused WKV reference produced non-finite state");
   }
 
-  const DiagnosticBuildDecision valid_build = validate_diagnostic_build(
-      kDiagnosticRuntimeName, true);
+  const DiagnosticBuildDecision valid_build = validate_diagnostic_build(kDiagnosticRuntimeName, true, true);
   require(valid_build.valid,
           "diagnostic runtime binding rejected the expected package");
-  require(!validate_diagnostic_build("rwkv7-p150x2-runtime", true).valid,
-          "diagnostic runtime binding accepted production");
-  require(!validate_diagnostic_build(kDiagnosticRuntimeName, false).valid,
-          "diagnostic runtime binding accepted an FP32 readout");
+  require(
+      !validate_diagnostic_build("rwkv7-p150x2-runtime", true, true).valid,
+      "diagnostic runtime binding accepted production");
+  require(
+      !validate_diagnostic_build(kDiagnosticRuntimeName, false, true).valid,
+      "diagnostic runtime binding accepted an FP32 readout");
+  require(
+      !validate_diagnostic_build(kDiagnosticRuntimeName, true, false).valid,
+      "diagnostic runtime binding accepted BF16 recurrence vectors");
 
   Inputs malformed = valid_inputs();
   malformed.state.pop_back();

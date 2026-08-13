@@ -30,7 +30,33 @@ struct Inputs {
 struct Outputs {
   ttnn::Tensor next_state;
   ttnn::Tensor output;
+  bool correction_complete;
 };
+
+[[nodiscard]] ttnn::Tensor run_state_dot_a_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root);
+
+[[nodiscard]] ttnn::Tensor run_decay_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root);
+
+[[nodiscard]] ttnn::Tensor run_rank_update_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root);
+
+[[nodiscard]] ttnn::Tensor run_outer_update_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root);
+
+[[nodiscard]] ttnn::Tensor run_first_add_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh,
+    const Inputs& inputs,
+    const ttnn::Tensor& lhs,
+    const ttnn::Tensor& rhs,
+    const std::filesystem::path& kernel_root);
+
+[[nodiscard]] ttnn::Tensor run_bf16_readout_diagnostic(
+    tt::tt_metal::distributed::MeshDevice& mesh,
+    const Inputs& inputs,
+    const ttnn::Tensor& state,
+    const std::filesystem::path& kernel_root);
 
 struct DispatchDecision {
   bool capability_supported;

@@ -36,6 +36,7 @@ using ProgramDescriptor = tt::tt_metal::ProgramDescriptor;
 using SemaphoreDescriptor = tt::tt_metal::SemaphoreDescriptor;
 
 constexpr std::uint32_t kTileWidth = 32U;
+constexpr std::size_t kCircularBufferCount = 64U;
 constexpr std::uint32_t kHeadTileCount = kHeadSize / kTileWidth;
 constexpr std::uint32_t kStateTileCount =
     kHeadTileCount * kHeadTileCount;
@@ -93,6 +94,15 @@ constexpr std::uint8_t kAffineCb = 28U;
 constexpr std::uint8_t kCorrectionScalarCb = 29U;
 constexpr std::uint8_t kCorrectionVectorCb = 30U;
 constexpr std::uint8_t kReductionScalerCb = 31U;
+constexpr std::uint8_t kFirstAddLhsCb = 0U;
+constexpr std::uint8_t kFirstAddRhsCb = 1U;
+constexpr std::uint8_t kBf16ReadoutStateCb = 0U;
+constexpr std::uint8_t kBf16ReadoutRCb = 1U;
+constexpr std::uint8_t kExactStateCb = 22U;
+constexpr std::uint8_t kDecayCb = 23U;
+constexpr std::uint8_t kRankUpdateCb = 24U;
+constexpr std::uint8_t kOuterUpdateCb = 25U;
+constexpr std::uint8_t kFirstAddCb = 26U;
 
 constexpr std::array<std::uint8_t, kVectorCount> kRawVectorCbs = {
     kRawACb,
@@ -108,10 +118,33 @@ constexpr std::array<std::uint8_t, kVectorCount> kRawVectorCbs = {
 };
 constexpr std::array<std::uint8_t, kRecurrenceVectorCount>
     kOrientedVectorCbs = {kACb, kWCb, kKCb, kVCb, kRCb, kBCb};
+constexpr std::array<bool, kRecurrenceVectorCount> kGenericFp32RecurrenceVector = {true, true, true, true, false, true};
 
 constexpr std::string_view kReaderKernelName = "fused_wkv_reader.cpp";
 constexpr std::string_view kWriterKernelName = "fused_wkv_writer.cpp";
 constexpr std::string_view kComputeKernelName = "fused_wkv_compute.cpp";
+constexpr std::string_view kStateDotAReaderKernelName = "fused_wkv_state_dot_a_reader.cpp";
+constexpr std::string_view kStateDotAWriterKernelName = "fused_wkv_state_dot_a_writer.cpp";
+constexpr std::string_view kStateDotAComputeKernelName = "fused_wkv_state_dot_a_compute.cpp";
+constexpr std::string_view kDecayReaderKernelName = "fused_wkv_decay_reader.cpp";
+constexpr std::string_view kDecayWriterKernelName = "fused_wkv_decay_writer.cpp";
+constexpr std::string_view kDecayComputeKernelName = "fused_wkv_decay_compute.cpp";
+constexpr std::string_view kRankUpdateReaderKernelName = "fused_wkv_rank_update_reader.cpp";
+constexpr std::string_view kRankUpdateWriterKernelName = "fused_wkv_rank_update_writer.cpp";
+constexpr std::string_view kRankUpdateComputeKernelName = "fused_wkv_rank_update_compute.cpp";
+constexpr std::string_view kOuterUpdateReaderKernelName = "fused_wkv_outer_update_reader.cpp";
+constexpr std::string_view kOuterUpdateWriterKernelName = "fused_wkv_outer_update_writer.cpp";
+constexpr std::string_view kOuterUpdateComputeKernelName = "fused_wkv_outer_update_compute.cpp";
+constexpr std::string_view kFirstAddReaderKernelName = "fused_wkv_first_add_reader.cpp";
+constexpr std::string_view kFirstAddWriterKernelName = "fused_wkv_first_add_writer.cpp";
+constexpr std::string_view kFirstAddComputeKernelName = "fused_wkv_first_add_compute.cpp";
+constexpr std::string_view kBf16ReadoutReaderKernelName = "fused_wkv_bf16_readout_reader.cpp";
+constexpr std::string_view kBf16ReadoutWriterKernelName = "fused_wkv_bf16_readout_writer.cpp";
+constexpr std::string_view kBf16ReadoutComputeKernelName = "fused_wkv_bf16_readout_compute.cpp";
+constexpr std::string_view kFp32RecurrenceVectorsDefine = "RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS";
+constexpr std::string_view kSplitReadoutDefine = "RWKV7_FUSED_WKV_SPLIT_READOUT";
+constexpr bool kSplitReadout =
+    RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0 && RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;
 
 [[noreturn]] void fail(std::string_view message) {
   throw std::runtime_error(std::string(message));
@@ -261,23 +294,34 @@ make_cbs(const CoreRangeSet &core_ranges) {
       make_cb(kStateDotACb, fp32_format, kHeadTileCount, core_ranges));
   cbs.push_back(
       make_cb(kNextStateCb, fp32_format, kStateTileCount, core_ranges));
-#if RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY
-  // Diagnostic correction: match generic_wkv_step by packing the FP32
-  // recurrent readout to BF16 before group normalization.
-  cbs.push_back(make_cb(kReadoutCb, bf16_format, kHeadTileCount, core_ranges));
-#else
+  // Preserve the known-completing FP32 matmul output. The diagnostic BF16
+  // boundary is applied when this column is transposed into a row.
   cbs.push_back(make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges));
+  for (std::size_t vector = 0U; vector < kOrientedVectorCbs.size(); ++vector) {
+#if RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS
+      const tt::DataFormat format = kGenericFp32RecurrenceVector[vector] ? fp32_format : bf16_format;
+#else
+      const tt::DataFormat format = bf16_format;
 #endif
-  for (const std::uint8_t cb : kOrientedVectorCbs) {
-    cbs.push_back(make_cb(cb, bf16_format, kHeadTileCount, core_ranges));
+      cbs.push_back(make_cb(kOrientedVectorCbs[vector], format, kHeadTileCount, core_ranges));
   }
   cbs.push_back(make_cb(kOutputCb, bf16_format, kHeadTileCount, core_ranges));
   cbs.push_back(
       make_cb(kNextStateOutputCb, fp32_format, kStateTileCount, core_ranges));
-  for (const std::uint8_t cb :
-       {kReadoutRowCb, kCenteredCb, kSquaredCb, kAffineCb,
-        kCorrectionVectorCb}) {
-    cbs.push_back(make_cb(cb, fp32_format, kHeadTileCount, core_ranges));
+#if (RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0) && (RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0)
+  for (const std::uint8_t cb : {kExactStateCb, kDecayCb, kRankUpdateCb, kOuterUpdateCb, kFirstAddCb}) {
+      cbs.push_back(make_cb(cb, fp32_format, kStateTileCount, core_ranges));
+  }
+#else
+#if RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY
+  // Match generic_wkv_step by packing the FP32 recurrent readout to BF16
+  // before group normalization without making BF16 the matmul output CB.
+  cbs.push_back(make_cb(kReadoutRowCb, bf16_format, kHeadTileCount, core_ranges));
+#else
+  cbs.push_back(make_cb(kReadoutRowCb, fp32_format, kHeadTileCount, core_ranges));
+#endif
+  for (const std::uint8_t cb : {kCenteredCb, kSquaredCb, kAffineCb, kCorrectionVectorCb}) {
+      cbs.push_back(make_cb(cb, fp32_format, kHeadTileCount, core_ranges));
   }
   cbs.push_back(make_cb(kCorrectionScalarCb, fp32_format,
                         kCorrectionScalarTileCapacity, core_ranges));
@@ -285,7 +329,15 @@ make_cbs(const CoreRangeSet &core_ranges) {
        {kMeanCb, kVarianceCb, kInverseStdCb, kReductionScalerCb}) {
     cbs.push_back(make_cb(cb, fp32_format, kScalarTileCount, core_ranges));
   }
+#endif
   return cbs;
+}
+
+KernelDescriptor::Defines recurrence_kernel_defines() {
+    return {
+        {std::string(kFp32RecurrenceVectorsDefine), RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS ? "1" : "0"},
+        {std::string(kSplitReadoutDefine), kSplitReadout ? "1" : "0"},
+    };
 }
 
 KernelDescriptor::CompileTimeArgs reader_compile_args(const Tensor &vector,
@@ -318,6 +370,8 @@ void add_reader_runtime_args(KernelDescriptor &reader,
       args.push_back(buffer);
     }
     args.push_back(state_buffer);
+    args.push_back(RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS ? 1U : 0U);
+    args.push_back(kSplitReadout ? 1U : 0U);
     args.push_back(static_cast<std::uint32_t>(work.size()));
     args.append(work);
     reader.emplace_runtime_args(plan.cores[core_index], args);
@@ -336,6 +390,7 @@ void add_writer_runtime_args(KernelDescriptor &writer,
     args.push_back(output_buffer);
     args.push_back(next_state_buffer);
     args.push_back(kCompletionSemaphoreId);
+    args.push_back(kSplitReadout ? 1U : 0U);
     args.push_back(static_cast<std::uint32_t>(work.size()));
     args.append(work);
     writer.emplace_runtime_args(plan.cores[core_index], args);
@@ -353,6 +408,73 @@ void add_compute_runtime_args(KernelDescriptor &compute,
         plan.cores[core_index],
         {static_cast<std::uint32_t>(work.size())});
   }
+}
+
+ProgramDescriptor::CBDescriptors make_state_dot_a_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat bf16_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::BFLOAT16);
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kRawACb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawWCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawKCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, fp32_format, kHeadTileCount, core_ranges));
+    return cbs;
+}
+
+ProgramDescriptor::CBDescriptors make_decay_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat bf16_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::BFLOAT16);
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kRawACb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawWCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawKCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, fp32_format, kStateTileCount, core_ranges));
+    return cbs;
+}
+
+ProgramDescriptor::CBDescriptors make_rank_update_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat bf16_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::BFLOAT16);
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kRawACb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawWCb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawKCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawVCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawRCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawBCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, fp32_format, kStateTileCount, core_ranges));
+    return cbs;
+}
+
+ProgramDescriptor::CBDescriptors make_outer_update_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat bf16_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::BFLOAT16);
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kRawACb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawWCb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawKCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kRawVCb, fp32_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, fp32_format, kStateTileCount, core_ranges));
+    return cbs;
+}
+
+ProgramDescriptor::CBDescriptors make_first_add_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kFirstAddLhsCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kFirstAddRhsCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, fp32_format, kStateTileCount, core_ranges));
+    return cbs;
+}
+
+ProgramDescriptor::CBDescriptors make_bf16_readout_cbs(const CoreRangeSet& core_ranges) {
+    const tt::DataFormat bf16_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::BFLOAT16);
+    const tt::DataFormat fp32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::FLOAT32);
+    ProgramDescriptor::CBDescriptors cbs;
+    cbs.push_back(make_cb(kBf16ReadoutStateCb, fp32_format, kStateTileCount, core_ranges));
+    cbs.push_back(make_cb(kBf16ReadoutRCb, bf16_format, kHeadTileCount, core_ranges));
+    cbs.push_back(make_cb(kOutputCb, bf16_format, kHeadTileCount, core_ranges));
+    return cbs;
 }
 
 ProgramDescriptor make_program_descriptor(
@@ -378,9 +500,18 @@ ProgramDescriptor make_program_descriptor(
   compute_config.fp32_dest_acc_en = true;
   compute_config.dst_full_sync_en = false;
   compute_config.math_approx_mode = false;
+  if (kSplitReadout) {
+      compute_config.unpack_to_dest_mode.assign(kCircularBufferCount, tt::tt_metal::UnpackToDestMode::Default);
+      const std::array<std::uint8_t, 6U> exact_fp32_cbs = {
+          kExactStateCb, kWCb, kDecayCb, kRankUpdateCb, kOuterUpdateCb, kFirstAddCb};
+      for (const std::uint8_t cb : exact_fp32_cbs) {
+          compute_config.unpack_to_dest_mode[cb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+      }
+  }
   KernelDescriptor compute{};
   compute.kernel_source = (kernel_root / kComputeKernelName).string();
   compute.core_ranges = core_ranges;
+  compute.defines = recurrence_kernel_defines();
   compute.config = std::move(compute_config);
 
   std::array<Buffer *, kVectorCount> vector_buffers{};
@@ -406,6 +537,420 @@ ProgramDescriptor make_program_descriptor(
   return descriptor;
 }
 
+ProgramDescriptor make_state_dot_a_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& a,
+    const Tensor& state,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kStateDotAReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    reader.compile_time_args = reader_compile_args(a, state);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kStateDotAWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;
+    compute_config.fp32_dest_acc_en = true;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kStateDotAComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(
+            work.size() <= std::numeric_limits<std::uint32_t>::max(), "state_dot_a diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(a.buffer());
+        reader_args.push_back(state.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_state_dot_a_cbs(core_ranges);
+    return descriptor;
+}
+
+ProgramDescriptor make_decay_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& w,
+    const Tensor& state,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kDecayReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    reader.compile_time_args = reader_compile_args(w, state);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kDecayWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;
+    compute_config.fp32_dest_acc_en = true;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    compute_config.unpack_to_dest_mode.assign(kCircularBufferCount, tt::tt_metal::UnpackToDestMode::Default);
+    compute_config.unpack_to_dest_mode[kRawWCb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+    compute_config.unpack_to_dest_mode[kRawKCb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kDecayComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(work.size() <= std::numeric_limits<std::uint32_t>::max(), "decay diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(w.buffer());
+        reader_args.push_back(state.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_decay_cbs(core_ranges);
+    return descriptor;
+}
+
+ProgramDescriptor make_rank_update_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& a,
+    const Tensor& b,
+    const Tensor& state,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kRankUpdateReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    reader.compile_time_args = reader_compile_args(a, state);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kRankUpdateWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;
+    compute_config.fp32_dest_acc_en = true;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kRankUpdateComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(
+            work.size() <= std::numeric_limits<std::uint32_t>::max(), "rank_update diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(a.buffer());
+        reader_args.push_back(b.buffer());
+        reader_args.push_back(state.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_rank_update_cbs(core_ranges);
+    return descriptor;
+}
+
+ProgramDescriptor make_outer_update_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& v,
+    const Tensor& k,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kOuterUpdateReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*v.buffer()).append_to(reader.compile_time_args);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kOuterUpdateWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;
+    compute_config.fp32_dest_acc_en = true;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kOuterUpdateComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(
+            work.size() <= std::numeric_limits<std::uint32_t>::max(), "outer_update diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(v.buffer());
+        reader_args.push_back(k.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_outer_update_cbs(core_ranges);
+    return descriptor;
+}
+
+ProgramDescriptor make_first_add_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& lhs,
+    const Tensor& rhs,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kFirstAddReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*lhs.buffer()).append_to(reader.compile_time_args);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kFirstAddWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi4;
+    compute_config.fp32_dest_acc_en = true;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    compute_config.unpack_to_dest_mode.assign(kCircularBufferCount, tt::tt_metal::UnpackToDestMode::Default);
+    compute_config.unpack_to_dest_mode[kFirstAddLhsCb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+    compute_config.unpack_to_dest_mode[kFirstAddRhsCb] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kFirstAddComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(work.size() <= std::numeric_limits<std::uint32_t>::max(), "first_add diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(lhs.buffer());
+        reader_args.push_back(rhs.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_first_add_cbs(core_ranges);
+    return descriptor;
+}
+
+ProgramDescriptor make_bf16_readout_program_descriptor(
+    const std::filesystem::path& kernel_root,
+    const OwnershipPlan& plan,
+    const Tensor& r,
+    const Tensor& state,
+    Tensor& output) {
+    const CoreRangeSet core_ranges = make_core_ranges(plan.cores);
+
+    KernelDescriptor reader{};
+    reader.kernel_source = (kernel_root / kBf16ReadoutReaderKernelName).string();
+    reader.core_ranges = core_ranges;
+    reader.compile_time_args = reader_compile_args(r, state);
+    reader.config = tt::tt_metal::ReaderConfigDescriptor{};
+
+    KernelDescriptor writer{};
+    writer.kernel_source = (kernel_root / kBf16ReadoutWriterKernelName).string();
+    writer.core_ranges = core_ranges;
+    tt::tt_metal::TensorAccessorArgs(*output.buffer()).append_to(writer.compile_time_args);
+    writer.config = tt::tt_metal::WriterConfigDescriptor{};
+
+    tt::tt_metal::ComputeConfigDescriptor compute_config{};
+    compute_config.math_fidelity = tt::tt_metal::MathFidelity::HiFi2;
+    compute_config.fp32_dest_acc_en = false;
+    compute_config.dst_full_sync_en = false;
+    compute_config.math_approx_mode = false;
+    KernelDescriptor compute{};
+    compute.kernel_source = (kernel_root / kBf16ReadoutComputeKernelName).string();
+    compute.core_ranges = core_ranges;
+    compute.config = std::move(compute_config);
+
+    for (std::size_t core_index = 0U; core_index < plan.cores.size(); ++core_index) {
+        const auto& work = plan.work_by_core[core_index];
+        require(
+            work.size() <= std::numeric_limits<std::uint32_t>::max(), "BF16 readout diagnostic work count overflows");
+        const std::uint32_t work_count = static_cast<std::uint32_t>(work.size());
+
+        KernelDescriptor::RTArgList reader_args;
+        reader_args.push_back(r.buffer());
+        reader_args.push_back(state.buffer());
+        reader_args.push_back(work_count);
+        reader_args.append(work);
+        reader.emplace_runtime_args(plan.cores[core_index], reader_args);
+
+        KernelDescriptor::RTArgList writer_args;
+        writer_args.push_back(output.buffer());
+        writer_args.push_back(kCompletionSemaphoreId);
+        writer_args.push_back(work_count);
+        writer_args.append(work);
+        writer.emplace_runtime_args(plan.cores[core_index], writer_args);
+
+        compute.emplace_runtime_args(plan.cores[core_index], {work_count});
+    }
+
+    SemaphoreDescriptor semaphore{};
+    semaphore.id = kCompletionSemaphoreId;
+    semaphore.core_type = tt::CoreType::WORKER;
+    semaphore.core_ranges = core_ranges;
+    semaphore.initial_value = kInitialSemaphoreValue;
+
+    ProgramDescriptor descriptor{};
+    descriptor.kernels.push_back(std::move(reader));
+    descriptor.kernels.push_back(std::move(writer));
+    descriptor.kernels.push_back(std::move(compute));
+    descriptor.semaphores.push_back(std::move(semaphore));
+    descriptor.cbs = make_bf16_readout_cbs(core_ranges);
+    return descriptor;
+}
+
 std::vector<Tensor> device_tensors(const Tensor &tensor) {
   return ttnn::distributed::get_device_tensors(tensor);
 }
@@ -414,9 +959,28 @@ void validate_kernel_root(const std::filesystem::path &kernel_root) {
   require(kernel_root.is_absolute(),
           "fused WKV kernel root must be an absolute path");
   for (const std::string_view kernel :
-       {kReaderKernelName, kWriterKernelName, kComputeKernelName}) {
-    require(std::filesystem::is_regular_file(kernel_root / kernel),
-            "fused WKV kernel source is missing");
+       {kReaderKernelName,
+        kWriterKernelName,
+        kComputeKernelName,
+        kStateDotAReaderKernelName,
+        kStateDotAWriterKernelName,
+        kStateDotAComputeKernelName,
+        kDecayReaderKernelName,
+        kDecayWriterKernelName,
+        kDecayComputeKernelName,
+        kRankUpdateReaderKernelName,
+        kRankUpdateWriterKernelName,
+        kRankUpdateComputeKernelName,
+        kOuterUpdateReaderKernelName,
+        kOuterUpdateWriterKernelName,
+        kOuterUpdateComputeKernelName,
+        kFirstAddReaderKernelName,
+        kFirstAddWriterKernelName,
+        kFirstAddComputeKernelName,
+        kBf16ReadoutReaderKernelName,
+        kBf16ReadoutWriterKernelName,
+        kBf16ReadoutComputeKernelName}) {
+      require(std::filesystem::is_regular_file(kernel_root / kernel), "fused WKV kernel source is missing");
   }
 }
 
@@ -481,6 +1045,261 @@ DispatchDecision select_dispatch(const Inputs &inputs,
     return DispatchDecision{true, false, false, "physical_admission_missing"};
   }
   return DispatchDecision{true, true, true, "fused_wkv_admitted"};
+}
+
+Tensor run_state_dot_a_diagnostic(MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "state_dot_a diagnostic does not satisfy the fused capability contract");
+    require(inputs.state.device() == &mesh, "state_dot_a diagnostic state is on a different mesh");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = inputs.state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        ttnn::Shape({batch_size, kHeadCount, kHeadSize, 1U}),
+        tt::tt_metal::DataType::FLOAT32,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.state.memory_config());
+
+    const std::vector<Tensor> a_shards = device_tensors(inputs.a);
+    const std::vector<Tensor> state_shards = device_tensors(inputs.state);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = state_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "state_dot_a diagnostic state shard count differs from the mesh");
+    require(
+        a_shards.size() == device_count && output_shards.size() == device_count,
+        "state_dot_a diagnostic shard count differs from the state");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = state_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_state_dot_a_program_descriptor(
+            kernel_root, plan, a_shards[device_index], state_shards[device_index], output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{inputs.a, inputs.state, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
+}
+
+Tensor run_decay_diagnostic(MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "decay diagnostic does not satisfy the fused capability contract");
+    require(inputs.state.device() == &mesh, "decay diagnostic state is on a different mesh");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = inputs.state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        inputs.state.logical_shape(),
+        tt::tt_metal::DataType::FLOAT32,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.state.memory_config());
+
+    const std::vector<Tensor> w_shards = device_tensors(inputs.w);
+    const std::vector<Tensor> state_shards = device_tensors(inputs.state);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = state_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "decay diagnostic state shard count differs from the mesh");
+    require(
+        w_shards.size() == device_count && output_shards.size() == device_count,
+        "decay diagnostic shard count differs from the state");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = state_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_decay_program_descriptor(
+            kernel_root, plan, w_shards[device_index], state_shards[device_index], output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{inputs.w, inputs.state, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
+}
+
+Tensor run_rank_update_diagnostic(MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "rank_update diagnostic does not satisfy the fused capability contract");
+    require(inputs.state.device() == &mesh, "rank_update diagnostic state is on a different mesh");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = inputs.state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        inputs.state.logical_shape(),
+        tt::tt_metal::DataType::FLOAT32,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.state.memory_config());
+
+    const std::vector<Tensor> a_shards = device_tensors(inputs.a);
+    const std::vector<Tensor> b_shards = device_tensors(inputs.b);
+    const std::vector<Tensor> state_shards = device_tensors(inputs.state);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = state_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "rank_update diagnostic state shard count differs from the mesh");
+    require(
+        a_shards.size() == device_count && b_shards.size() == device_count && output_shards.size() == device_count,
+        "rank_update diagnostic shard count differs from the state");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = state_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_rank_update_program_descriptor(
+            kernel_root,
+            plan,
+            a_shards[device_index],
+            b_shards[device_index],
+            state_shards[device_index],
+            output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{inputs.a, inputs.b, inputs.state, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
+}
+
+Tensor run_outer_update_diagnostic(MeshDevice& mesh, const Inputs& inputs, const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "outer_update diagnostic does not satisfy the fused capability contract");
+    require(inputs.state.device() == &mesh, "outer_update diagnostic state is on a different mesh");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = inputs.state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        inputs.state.logical_shape(),
+        tt::tt_metal::DataType::FLOAT32,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.state.memory_config());
+
+    const std::vector<Tensor> v_shards = device_tensors(inputs.v);
+    const std::vector<Tensor> k_shards = device_tensors(inputs.k);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = output_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "outer_update diagnostic output shard count differs from the mesh");
+    require(
+        v_shards.size() == device_count && k_shards.size() == device_count,
+        "outer_update diagnostic shard count differs from the output");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = output_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_outer_update_program_descriptor(
+            kernel_root, plan, v_shards[device_index], k_shards[device_index], output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{inputs.v, inputs.k, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
+}
+
+Tensor run_first_add_diagnostic(
+    MeshDevice& mesh,
+    const Inputs& inputs,
+    const Tensor& lhs,
+    const Tensor& rhs,
+    const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "first_add diagnostic does not satisfy the fused capability contract");
+    require(lhs.device() == &mesh && rhs.device() == &mesh, "first_add diagnostic input is on a different mesh");
+    require(
+        lhs.logical_shape() == inputs.state.logical_shape() && rhs.logical_shape() == inputs.state.logical_shape(),
+        "first_add diagnostic input has the wrong shape");
+    require(
+        lhs.dtype() == tt::tt_metal::DataType::FLOAT32 && rhs.dtype() == tt::tt_metal::DataType::FLOAT32,
+        "first_add diagnostic input has the wrong dtype");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = inputs.state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        inputs.state.logical_shape(),
+        tt::tt_metal::DataType::FLOAT32,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.state.memory_config());
+
+    const std::vector<Tensor> lhs_shards = device_tensors(lhs);
+    const std::vector<Tensor> rhs_shards = device_tensors(rhs);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = output_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "first_add diagnostic output shard count differs from the mesh");
+    require(
+        lhs_shards.size() == device_count && rhs_shards.size() == device_count,
+        "first_add diagnostic shard count differs from the output");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = output_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_first_add_program_descriptor(
+            kernel_root, plan, lhs_shards[device_index], rhs_shards[device_index], output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{lhs, rhs, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
+}
+
+Tensor run_bf16_readout_diagnostic(
+    MeshDevice& mesh, const Inputs& inputs, const Tensor& state, const std::filesystem::path& kernel_root) {
+    const DispatchDecision decision = select_dispatch(inputs, true);
+    require(decision.use_fused_path, "BF16 readout diagnostic does not satisfy the fused capability contract");
+    require(
+        state.device() == &mesh && state.logical_shape() == inputs.state.logical_shape(),
+        "BF16 readout diagnostic state is incompatible");
+    require(state.dtype() == tt::tt_metal::DataType::FLOAT32, "BF16 readout diagnostic state has the wrong dtype");
+    validate_kernel_root(kernel_root);
+
+    const std::uint32_t batch_size = state.logical_shape()[kBatchDimension];
+    Tensor output = ttnn::empty(
+        ttnn::Shape({batch_size, kHeadCount, kHeadSize, 1U}),
+        tt::tt_metal::DataType::BFLOAT16,
+        ttnn::Layout::TILE,
+        &mesh,
+        inputs.r.memory_config());
+
+    const std::vector<Tensor> r_shards = device_tensors(inputs.r);
+    const std::vector<Tensor> state_shards = device_tensors(state);
+    std::vector<Tensor> output_shards = device_tensors(output);
+    const std::size_t device_count = state_shards.size();
+    require(
+        device_count > 0U && device_count == mesh.num_devices(),
+        "BF16 readout diagnostic state shard count differs from the mesh");
+    require(
+        r_shards.size() == device_count && output_shards.size() == device_count,
+        "BF16 readout diagnostic shard count differs from the state");
+
+    tt::tt_metal::experimental::MeshProgramDescriptor mesh_descriptor;
+    for (std::size_t device_index = 0U; device_index < device_count; ++device_index) {
+        const CoreCoord grid = state_shards[device_index].device()->compute_with_storage_grid_size();
+        const OwnershipPlan plan = make_ownership_plan(grid, batch_size);
+        ProgramDescriptor descriptor = make_bf16_readout_program_descriptor(
+            kernel_root, plan, r_shards[device_index], state_shards[device_index], output_shards[device_index]);
+        const ttnn::MeshCoordinate coordinate(kMeshRow, static_cast<std::uint32_t>(device_index));
+        mesh_descriptor.mesh_programs.emplace_back(ttnn::MeshCoordinateRange(coordinate), std::move(descriptor));
+    }
+
+    std::vector<Tensor> io_tensors{inputs.r, state, output};
+    return ttnn::generic_op(io_tensors, mesh_descriptor);
 }
 
 Outputs run(MeshDevice &mesh, const Inputs &inputs,
@@ -548,7 +1367,11 @@ Outputs run(MeshDevice &mesh, const Inputs &inputs,
   io_tensors.push_back(output);
   io_tensors.push_back(next_state);
   Tensor returned_state = ttnn::generic_op(io_tensors, mesh_descriptor);
-  return Outputs{std::move(returned_state), std::move(output)};
+  if (kSplitReadout) {
+      Tensor raw_readout = run_bf16_readout_diagnostic(mesh, inputs, returned_state, kernel_root);
+      return Outputs{std::move(returned_state), std::move(raw_readout), false};
+  }
+  return Outputs{std::move(returned_state), std::move(output), true};
 }
 
 } // namespace rwkv7::fused_wkv

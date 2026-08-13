@@ -214,6 +214,7 @@
         persistentDecodeProfile = ../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl;
         maximumGeneratedTokens = windowSixteenMaximumGeneratedTokens;
         fusedWkvBf16ReadoutBoundary = true;
+        fusedWkvFp32RecurrenceVectors = true;
         runtimeName = "rwkv7-p150x2-window16-readout-diagnostic-runtime";
       };
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]

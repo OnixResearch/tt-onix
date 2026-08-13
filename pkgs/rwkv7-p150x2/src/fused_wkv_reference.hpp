@@ -38,6 +38,6 @@ struct DiagnosticBuildDecision {
 Result evaluate(const Inputs &inputs);
 
 DiagnosticBuildDecision validate_diagnostic_build(
-    std::string_view runtime_name, bool bfloat16_readout_boundary);
+    std::string_view runtime_name, bool bfloat16_readout_boundary, bool fp32_recurrence_vectors);
 
 } // namespace rwkv7::fused_wkv_reference

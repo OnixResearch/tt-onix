@@ -139,6 +139,7 @@ constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kRuntimeName = RWKV7_RUNTIME_NAME;
 constexpr bool kFusedWkvBfloat16ReadoutBoundary =
     RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0;
+constexpr bool kFusedWkvFp32RecurrenceVectors = RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kHardwareCounterSmokeArgument =
     "--hardware-counter-smoke";
@@ -1559,6 +1560,11 @@ struct WkvOutput {
   Tensor k_rows;
   Tensor v_rows;
   bool correction_complete;
+  std::optional<Tensor> state_dot_a;
+  std::optional<Tensor> decay;
+  std::optional<Tensor> rank_update;
+  std::optional<Tensor> outer_update;
+  std::optional<Tensor> first_add;
 };
 
 WkvOutput generic_wkv_step(DeviceContext &context, const Tensor &state,
@@ -1584,14 +1590,14 @@ WkvOutput generic_wkv_step(DeviceContext &context, const Tensor &state,
   const Tensor decay = op_multiply(context, state, w_state_rows);
   const Tensor outer =
       op_matmul_transpose_left(context, v_state_rows, k_state_rows);
-  const Tensor next_state =
-      op_add(context, op_add(context, decay, rank_update), outer);
+  const Tensor first_add = op_add(context, decay, rank_update);
+  const Tensor next_state = op_add(context, first_add, outer);
   const Tensor output_for_hidden =
       fp32_state
           ? op_matmul_transpose_right_bf16(context, next_state, r_rows)
           : op_matmul_transpose_right(context, next_state, r_rows);
-  return WkvOutput{next_state, output_for_hidden, r_rows, k_rows, v_rows,
-                   false};
+  return WkvOutput{
+      next_state, output_for_hidden, r_rows, k_rows, v_rows, false, state_dot_a, decay, rank_update, outer, first_add};
 }
 
 WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
@@ -1642,8 +1648,18 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
         context.checked(std::move(fused.next_state), "fused-wkv-state");
     Tensor fused_output =
         context.checked(std::move(fused.output), "fused-wkv-output");
-    return WkvOutput{std::move(fused_state), std::move(fused_output), r_rows,
-                     k_rows, v_rows, true};
+    return WkvOutput{
+        std::move(fused_state),
+        std::move(fused_output),
+        r_rows,
+        k_rows,
+        v_rows,
+        fused.correction_complete,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt};
   };
   if (execution_policy == WkvExecutionPolicy::RequireFusedCandidate) {
     require(decision.capability_supported,
@@ -1660,6 +1676,23 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
   return run_generic_reference();
 }
 
+Tensor apply_attention_correction(
+    DeviceContext& context,
+    const Tensor& rows,
+    const Tensor& r_rows,
+    const Tensor& k_rows,
+    const Tensor& v_rows,
+    const Tensor& r_k,
+    const Tensor& group_norm_weight,
+    const Tensor& group_norm_bias,
+    const Tensor& gate_rows) {
+    const Tensor normalized_rows = op_layer_norm(context, rows, kGroupNormEpsilon);
+    const Tensor scaled_rows =
+        op_add(context, op_multiply(context, normalized_rows, group_norm_weight), group_norm_bias);
+    const Tensor scalar = op_sum_last(context, op_multiply(context, op_multiply(context, r_rows, k_rows), r_k));
+    return op_multiply(context, op_add(context, scaled_rows, op_multiply(context, scalar, v_rows)), gate_rows);
+}
+
 Tensor corrected_attention_rows(DeviceContext &context,
                                 const LayerWeights &weights,
                                 const TimePreparation &preparation,
@@ -1671,22 +1704,16 @@ Tensor corrected_attention_rows(DeviceContext &context,
   if (wkv.correction_complete) {
     return rows;
   }
-  const Tensor normalized_rows =
-      op_layer_norm(context, rows, kGroupNormEpsilon);
-  const Tensor scaled_rows =
-      op_add(context,
-             op_multiply(context, normalized_rows,
-                         weights.at("group_norm_weight")),
-             weights.at("group_norm_bias"));
-  const Tensor scalar = op_sum_last(
+  return apply_attention_correction(
       context,
-      op_multiply(context, op_multiply(context, wkv.r_rows, wkv.k_rows),
-                  weights.at("r_k")));
-  return op_multiply(
-      context, op_add(context, scaled_rows,
-                      op_multiply(context, scalar, wkv.v_rows)),
-      op_reshape(context, preparation.gate,
-                 {batch_size, kHeadCount, 1U, kHeadSize}));
+      rows,
+      wkv.r_rows,
+      wkv.k_rows,
+      wkv.v_rows,
+      weights.at("r_k"),
+      weights.at("group_norm_weight"),
+      weights.at("group_norm_bias"),
+      op_reshape(context, preparation.gate, {batch_size, kHeadCount, 1U, kHeadSize}));
 }
 
 Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
@@ -3444,9 +3471,8 @@ std::vector<float> asymmetric_fp32_values(std::size_t element_count) {
 void run_fused_wkv_asymmetric_probe(
     const std::filesystem::path &output_path) {
   using ReferenceInputs = rwkv7::fused_wkv_reference::Inputs;
-  const auto build_decision =
-      rwkv7::fused_wkv_reference::validate_diagnostic_build(
-          kRuntimeName, kFusedWkvBfloat16ReadoutBoundary);
+  const auto build_decision = rwkv7::fused_wkv_reference::validate_diagnostic_build(
+      kRuntimeName, kFusedWkvBfloat16ReadoutBoundary, kFusedWkvFp32RecurrenceVectors);
   require(build_decision.valid,
           std::string("fused WKV asymmetric probe rejected its build: ") +
               build_decision.reason);
@@ -3548,41 +3574,155 @@ void run_fused_wkv_asymmetric_probe(
       state};
   std::cout << "fused-wkv-asymmetric-stage: fused-launch-start\n"
             << std::flush;
-  rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(
-      context.mesh(), fused_inputs, kernel_root);
-  const Tensor fused_state = context.checked(
-      std::move(fused.next_state), "fused-wkv-asymmetric-state");
-  const Tensor fused_output = context.checked(
-      std::move(fused.output), "fused-wkv-asymmetric-output");
-  std::cout << "fused-wkv-asymmetric-stage: fused-launch-finished\n"
-            << std::flush;
+  std::cout << "fused-wkv-asymmetric-stage: state-dot-a-launch-start\n" << std::flush;
+  const Tensor fused_state_dot_a = context.checked(
+      rwkv7::fused_wkv::run_state_dot_a_diagnostic(context.mesh(), fused_inputs, kernel_root),
+      "fused-wkv-asymmetric-state-dot-a");
+  std::cout << "fused-wkv-asymmetric-stage: state-dot-a-launch-finished\n" << std::flush;
+  const std::vector<float> fused_state_dot_a_values =
+      read_fused_wkv_probe_values<float>(context, fused_state_dot_a, false);
+  std::cout << "fused-wkv-asymmetric-stage: state-dot-a-readback-finished\n" << std::flush;
 
-  const std::vector<float> fused_state_values =
-      read_fused_wkv_probe_values<float>(context, fused_state, false);
-  const std::vector<bfloat16> fused_output_values =
-      read_fused_wkv_probe_values<bfloat16>(context, fused_output, true);
-  std::vector<std::uint16_t> fused_output_bits;
-  fused_output_bits.reserve(fused_output_values.size());
-  for (const bfloat16 value : fused_output_values) {
-    fused_output_bits.push_back(std::bit_cast<std::uint16_t>(value));
-  }
-  std::cout << "fused-wkv-asymmetric-stage: readback-finished\n"
-            << std::flush;
+  std::cout << "fused-wkv-asymmetric-stage: decay-launch-start\n" << std::flush;
+  const Tensor fused_decay = context.checked(
+      rwkv7::fused_wkv::run_decay_diagnostic(context.mesh(), fused_inputs, kernel_root), "fused-wkv-asymmetric-decay");
+  std::cout << "fused-wkv-asymmetric-stage: decay-launch-finished\n" << std::flush;
+  const std::vector<float> fused_decay_values = read_fused_wkv_probe_values<float>(context, fused_decay, false);
+  std::cout << "fused-wkv-asymmetric-stage: decay-readback-finished\n" << std::flush;
 
-  const float state_error =
-      compared_max_error(reference.next_state, fused_state_values);
-  const float output_error =
-      compared_max_error(reference.corrected_rows_bfloat16,
-                         fused_output_bits);
-  const bool exact_state = reference.next_state == fused_state_values;
-  const bool exact_output =
-      reference.corrected_rows_bfloat16 == fused_output_bits;
-  const bool exact = exact_state && exact_output;
+  std::cout << "fused-wkv-asymmetric-stage: rank-update-launch-start\n" << std::flush;
+  const Tensor fused_rank_update = context.checked(
+      rwkv7::fused_wkv::run_rank_update_diagnostic(context.mesh(), fused_inputs, kernel_root),
+      "fused-wkv-asymmetric-rank-update");
+  std::cout << "fused-wkv-asymmetric-stage: rank-update-launch-finished\n" << std::flush;
+  const std::vector<float> fused_rank_update_values =
+      read_fused_wkv_probe_values<float>(context, fused_rank_update, false);
+  std::cout << "fused-wkv-asymmetric-stage: rank-update-readback-finished\n" << std::flush;
+
+  std::cout << "fused-wkv-asymmetric-stage: outer-update-launch-start\n" << std::flush;
+  const Tensor fused_outer_update = context.checked(
+      rwkv7::fused_wkv::run_outer_update_diagnostic(context.mesh(), fused_inputs, kernel_root),
+      "fused-wkv-asymmetric-outer-update");
+  std::cout << "fused-wkv-asymmetric-stage: outer-update-launch-finished\n" << std::flush;
+  const std::vector<float> fused_outer_update_values =
+      read_fused_wkv_probe_values<float>(context, fused_outer_update, false);
+  std::cout << "fused-wkv-asymmetric-stage: outer-update-readback-finished\n" << std::flush;
+
+  std::cout << "fused-wkv-asymmetric-stage: first-add-launch-start\n" << std::flush;
+  const Tensor fused_first_add = context.checked(
+      rwkv7::fused_wkv::run_first_add_diagnostic(
+          context.mesh(), fused_inputs, fused_decay, fused_rank_update, kernel_root),
+      "fused-wkv-asymmetric-first-add");
+  std::cout << "fused-wkv-asymmetric-stage: first-add-launch-finished\n" << std::flush;
+  const std::vector<float> fused_first_add_values = read_fused_wkv_probe_values<float>(context, fused_first_add, false);
+  std::cout << "fused-wkv-asymmetric-stage: first-add-readback-finished\n" << std::flush;
+
+  std::cout << "fused-wkv-asymmetric-stage: final-state-launch-start\n" << std::flush;
+  const Tensor fused_final_state = context.checked(
+      rwkv7::fused_wkv::run_first_add_diagnostic(
+          context.mesh(), fused_inputs, fused_first_add, fused_outer_update, kernel_root),
+      "fused-wkv-asymmetric-final-state");
+  std::cout << "fused-wkv-asymmetric-stage: final-state-launch-finished\n" << std::flush;
+  const std::vector<float> fused_final_state_values =
+      read_fused_wkv_probe_values<float>(context, fused_final_state, false);
+  std::cout << "fused-wkv-asymmetric-stage: final-state-readback-finished\n" << std::flush;
+
+  std::cout << "fused-wkv-asymmetric-stage: bf16-readout-launch-start\n" << std::flush;
+  const Tensor fused_bf16_readout = context.checked(
+      rwkv7::fused_wkv::run_bf16_readout_diagnostic(context.mesh(), fused_inputs, fused_final_state, kernel_root),
+      "fused-wkv-asymmetric-bf16-readout");
+  std::cout << "fused-wkv-asymmetric-stage: bf16-readout-launch-finished\n" << std::flush;
+  const std::vector<bfloat16> fused_bf16_readout_values =
+      read_fused_wkv_probe_values<bfloat16>(context, fused_bf16_readout, false);
+  std::cout << "fused-wkv-asymmetric-stage: bf16-readout-readback-finished\n" << std::flush;
+
+  std::cout << "fused-wkv-asymmetric-stage: full-split-launch-start\n" << std::flush;
+  rwkv7::fused_wkv::Outputs full_split = rwkv7::fused_wkv::run(context.mesh(), fused_inputs, kernel_root);
+  const bool full_split_correction_complete = full_split.correction_complete;
+  const Tensor full_split_state =
+      context.checked(std::move(full_split.next_state), "fused-wkv-asymmetric-full-split-state");
+  const Tensor full_split_readout =
+      context.checked(std::move(full_split.output), "fused-wkv-asymmetric-full-split-readout");
+  std::cout << "fused-wkv-asymmetric-stage: full-split-launch-finished\n" << std::flush;
+  const std::vector<float> full_split_state_values =
+      read_fused_wkv_probe_values<float>(context, full_split_state, false);
+  const std::vector<bfloat16> full_split_readout_values =
+      read_fused_wkv_probe_values<bfloat16>(context, full_split_readout, false);
+  std::cout << "fused-wkv-asymmetric-stage: full-split-readback-finished\n" << std::flush;
+  const Tensor full_split_readout_rows = op_reshape(context, full_split_readout, vector_shape);
+  const Tensor full_split_corrected = apply_attention_correction(
+      context, full_split_readout_rows, r, k, v, r_k, group_norm_weight, group_norm_bias, gate);
+  const std::vector<bfloat16> full_split_corrected_values =
+      read_fused_wkv_probe_values<bfloat16>(context, full_split_corrected, false);
+  std::cout << "fused-wkv-asymmetric-stage: full-split-correction-finished\n" << std::flush;
+
+  const WkvOutput generic = generic_wkv_step(context, state, a, b, w, v, k, r);
+  require(generic.state_dot_a.has_value(), "generic WKV control omitted state_dot_a");
+  require(generic.decay.has_value(), "generic WKV control omitted decay");
+  require(generic.rank_update.has_value(), "generic WKV control omitted rank_update");
+  require(generic.outer_update.has_value(), "generic WKV control omitted outer_update");
+  require(generic.first_add.has_value(), "generic WKV control omitted first_add");
+  const std::vector<float> generic_state_dot_a_values =
+      read_fused_wkv_probe_values<float>(context, *generic.state_dot_a, false);
+  const std::vector<float> generic_decay_values = read_fused_wkv_probe_values<float>(context, *generic.decay, false);
+  const std::vector<float> generic_rank_update_values =
+      read_fused_wkv_probe_values<float>(context, *generic.rank_update, false);
+  const std::vector<float> generic_outer_update_values =
+      read_fused_wkv_probe_values<float>(context, *generic.outer_update, false);
+  const std::vector<float> generic_first_add_values =
+      read_fused_wkv_probe_values<float>(context, *generic.first_add, false);
+  const std::vector<float> generic_final_state_values =
+      read_fused_wkv_probe_values<float>(context, generic.state, false);
+  const std::vector<bfloat16> generic_bf16_readout_values =
+      read_fused_wkv_probe_values<bfloat16>(context, generic.output_for_hidden, false);
+  const Tensor generic_readout_rows = op_reshape(context, generic.output_for_hidden, vector_shape);
+  const Tensor generic_corrected =
+      apply_attention_correction(context, generic_readout_rows, r, k, v, r_k, group_norm_weight, group_norm_bias, gate);
+  const std::vector<bfloat16> generic_corrected_values =
+      read_fused_wkv_probe_values<bfloat16>(context, generic_corrected, false);
+  std::cout << "fused-wkv-asymmetric-stage: generic-control-finished\n" << std::flush;
+
+  const float state_dot_a_error = compared_max_error(generic_state_dot_a_values, fused_state_dot_a_values);
+  const bool exact_state_dot_a = generic_state_dot_a_values == fused_state_dot_a_values;
+  const float decay_error = compared_max_error(generic_decay_values, fused_decay_values);
+  const bool exact_decay = generic_decay_values == fused_decay_values;
+  const float rank_update_error = compared_max_error(generic_rank_update_values, fused_rank_update_values);
+  const bool exact_rank_update = generic_rank_update_values == fused_rank_update_values;
+  const float outer_update_error = compared_max_error(generic_outer_update_values, fused_outer_update_values);
+  const bool exact_outer_update = generic_outer_update_values == fused_outer_update_values;
+  const float first_add_error = compared_max_error(generic_first_add_values, fused_first_add_values);
+  const bool exact_first_add = generic_first_add_values == fused_first_add_values;
+  const float final_state_error = compared_max_error(generic_final_state_values, fused_final_state_values);
+  const bool exact_final_state = generic_final_state_values == fused_final_state_values;
+  const float bf16_readout_error = compared_max_error(generic_bf16_readout_values, fused_bf16_readout_values);
+  const bool exact_bf16_readout = generic_bf16_readout_values == fused_bf16_readout_values;
+  const float full_split_state_error = compared_max_error(generic_final_state_values, full_split_state_values);
+  const bool exact_full_split_state = generic_final_state_values == full_split_state_values;
+  const float full_split_readout_error = compared_max_error(generic_bf16_readout_values, full_split_readout_values);
+  const bool exact_full_split_readout = generic_bf16_readout_values == full_split_readout_values;
+  const float full_split_corrected_error = compared_max_error(generic_corrected_values, full_split_corrected_values);
+  const bool exact_full_split_corrected = generic_corrected_values == full_split_corrected_values;
+  const bool exact_full_split = exact_full_split_state && exact_full_split_readout && exact_full_split_corrected &&
+                                !full_split_correction_complete;
+  const bool exact_recurrence_prefix = exact_state_dot_a && exact_decay && exact_rank_update && exact_outer_update &&
+                                       exact_first_add && exact_final_state && exact_bf16_readout;
+  const bool exact_full_path = exact_recurrence_prefix && exact_full_split;
   const bool simulated = std::getenv("TT_METAL_SIMULATOR") != nullptr;
   const Json receipt{
       {"schema_version", kSchemaVersion},
-      {"outcome", exact ? "fused_wkv_asymmetric_host_parity"
-                        : "fused_wkv_asymmetric_host_mismatch"},
+      {"outcome",
+       !exact_state_dot_a               ? "fused_wkv_state_dot_a_generic_mismatch"
+       : !exact_decay                   ? "fused_wkv_decay_generic_mismatch"
+       : !exact_rank_update             ? "fused_wkv_rank_update_generic_mismatch"
+       : !exact_outer_update            ? "fused_wkv_outer_update_generic_mismatch"
+       : !exact_first_add               ? "fused_wkv_first_add_generic_mismatch"
+       : !exact_final_state             ? "fused_wkv_final_state_generic_mismatch"
+       : !exact_bf16_readout            ? "fused_wkv_bf16_readout_generic_mismatch"
+       : !exact_full_split_state        ? "fused_wkv_full_split_state_generic_mismatch"
+       : !exact_full_split_readout      ? "fused_wkv_full_split_readout_generic_mismatch"
+       : full_split_correction_complete ? "fused_wkv_full_split_correction_ownership_mismatch"
+       : exact_full_split_corrected     ? "fused_wkv_full_split_generic_parity"
+                                        : "fused_wkv_full_split_corrected_generic_mismatch"},
       {"simulated", simulated},
       {"physical_hardware", !simulated},
       {"architecture", "blackhole"},
@@ -3590,30 +3730,82 @@ void run_fused_wkv_asymmetric_probe(
       {"batch_size", kFusedWkvAsymmetricProbeBatchSize},
       {"fixture", "asymmetric_indexed_values_v1"},
       {"runtime_name", kRuntimeName},
-      {"bfloat16_readout_boundary",
-       kFusedWkvBfloat16ReadoutBoundary},
+      {"bfloat16_readout_boundary", kFusedWkvBfloat16ReadoutBoundary},
+      {"fp32_recurrence_vectors", kFusedWkvFp32RecurrenceVectors},
       {"reference", "pure_host_fused_wkv_v1"},
       {"generic_device_operations_before_fused_launch", 0U},
-      {"exact_fp32_state_parity", exact_state},
-      {"exact_bfloat16_output_parity", exact_output},
+      {"generic_device_operations_after_fused_readback", true},
+      {"exact_fused_generic_state_dot_a_parity", exact_state_dot_a},
+      {"exact_fused_generic_decay_parity", exact_decay},
+      {"exact_fused_generic_rank_update_parity", exact_rank_update},
+      {"exact_fused_generic_outer_update_parity", exact_outer_update},
+      {"exact_fused_generic_first_add_parity", exact_first_add},
+      {"exact_fused_generic_final_state_parity", exact_final_state},
+      {"exact_fused_generic_bf16_readout_parity", exact_bf16_readout},
+      {"exact_fused_generic_recurrence_prefix_parity", exact_recurrence_prefix},
+      {"full_split_correction_complete", full_split_correction_complete},
+      {"full_split_caller_owns_correction", !full_split_correction_complete},
+      {"exact_full_split_generic_state_parity", exact_full_split_state},
+      {"exact_full_split_generic_bf16_readout_parity", exact_full_split_readout},
+      {"exact_full_split_generic_corrected_row_parity", exact_full_split_corrected},
+      {"exact_full_split_generic_parity", exact_full_split},
+      {"exact_full_path_generic_parity", exact_full_path},
       {"maximum_absolute_error",
-       {{"fp32_state", state_error},
-        {"bfloat16_output_bits", output_error}}},
+       {{"fused_generic_state_dot_a", state_dot_a_error},
+        {"fused_generic_decay", decay_error},
+        {"fused_generic_rank_update", rank_update_error},
+        {"fused_generic_outer_update", outer_update_error},
+        {"fused_generic_first_add", first_add_error},
+        {"fused_generic_final_state", final_state_error},
+        {"fused_generic_bf16_readout", bf16_readout_error},
+        {"full_split_generic_final_state", full_split_state_error},
+        {"full_split_generic_bf16_readout", full_split_readout_error},
+        {"full_split_generic_corrected_row", full_split_corrected_error}}},
       {"host_reference_value_summary",
        {{"state", fixture_summary(reference.next_state, state_elements)},
-        {"output_bits",
-         fixture_summary(reference.corrected_rows_bfloat16,
-                         vector_elements)}}},
-      {"fused_value_summary",
-       {{"state", fixture_summary(fused_state_values, state_elements)},
-        {"output_bits",
-         fixture_summary(fused_output_bits, vector_elements)}}},
+        {"output_bits", fixture_summary(reference.corrected_rows_bfloat16, vector_elements)}}},
+      {"recurrence_stage_value_summary",
+       {{"state_dot_a",
+         {{"fused", fixture_summary(fused_state_dot_a_values, vector_elements)},
+          {"generic", fixture_summary(generic_state_dot_a_values, vector_elements)}}},
+        {"decay",
+         {{"fused", fixture_summary(fused_decay_values, state_elements)},
+          {"generic", fixture_summary(generic_decay_values, state_elements)}}},
+        {"rank_update",
+         {{"fused", fixture_summary(fused_rank_update_values, state_elements)},
+          {"generic", fixture_summary(generic_rank_update_values, state_elements)}}},
+        {"outer_update",
+         {{"fused", fixture_summary(fused_outer_update_values, state_elements)},
+          {"generic", fixture_summary(generic_outer_update_values, state_elements)}}},
+        {"first_add",
+         {{"fused", fixture_summary(fused_first_add_values, state_elements)},
+          {"generic", fixture_summary(generic_first_add_values, state_elements)}}},
+        {"final_state",
+         {{"fused", fixture_summary(fused_final_state_values, state_elements)},
+          {"generic", fixture_summary(generic_final_state_values, state_elements)}}},
+        {"bf16_readout",
+         {{"fused", fixture_summary(fused_bf16_readout_values, vector_elements)},
+          {"generic", fixture_summary(generic_bf16_readout_values, vector_elements)}}},
+        {"full_split",
+         {{"state", fixture_summary(full_split_state_values, state_elements)},
+          {"readout", fixture_summary(full_split_readout_values, vector_elements)},
+          {"corrected_rows", fixture_summary(full_split_corrected_values, vector_elements)}}}}},
       {"candidate_dispatch", true},
       {"production_physically_admitted", false},
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
   write_json(output_path, receipt);
-  require(exact, "fused WKV asymmetric fixture differs from the host reference");
+  require(exact_state_dot_a, "dedicated fused state_dot_a differs from generic TT-NN");
+  require(exact_decay, "dedicated fused decay differs from generic TT-NN");
+  require(exact_rank_update, "dedicated fused rank_update differs from generic TT-NN");
+  require(exact_outer_update, "dedicated fused outer_update differs from generic TT-NN");
+  require(exact_first_add, "dedicated fused first_add differs from generic TT-NN");
+  require(exact_final_state, "dedicated fused final_state differs from generic TT-NN");
+  require(exact_bf16_readout, "dedicated fused BF16 readout differs from generic TT-NN");
+  require(exact_full_split_state, "full split fused state differs from generic TT-NN");
+  require(exact_full_split_readout, "full split fused BF16 readout differs from generic TT-NN");
+  require(!full_split_correction_complete, "full split fused output claimed correction completion");
+  require(exact_full_split_corrected, "full split corrected rows differ from generic TT-NN");
   std::cout << "fused-wkv-asymmetric-stage: receipt-written\n"
             << output_path << '\n'
             << std::flush;
