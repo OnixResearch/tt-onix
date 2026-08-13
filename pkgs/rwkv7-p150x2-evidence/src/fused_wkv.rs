@@ -142,6 +142,44 @@ pub struct FusedWkvResult {
     pub output: Vec<f32>,
 }
 
+/// Precision policy at the WKV readout boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadoutPrecision {
+    /// Match the admitted generic path: pack the FP32 readout to BF16 before
+    /// attention group normalization.
+    GenericBfloat16Boundary,
+    /// Preserve the rejected fused behavior for a negative regression.
+    RejectedFloat32Boundary,
+}
+
+/// Apply the selected readout precision boundary without changing FP32 state.
+pub fn apply_readout_precision(
+    output: &[f32],
+    precision: ReadoutPrecision,
+) -> Result<Vec<f32>, Rejection> {
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err(Rejection::new(
+            "non_finite_reference_input",
+            "readout contains a non-finite value",
+        ));
+    }
+    match precision {
+        ReadoutPrecision::GenericBfloat16Boundary => output
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                round_to_bfloat16(*value).ok_or_else(|| {
+                    Rejection::new(
+                        "readout_overflow",
+                        format!("readout value at index {index} exceeds the BF16 finite bound"),
+                    )
+                })
+            })
+            .collect(),
+        ReadoutPrecision::RejectedFloat32Boundary => Ok(output.to_vec()),
+    }
+}
+
 /// The accepted fused WKV equation, per head, per token:
 ///
 /// ```text
@@ -314,18 +352,20 @@ pub fn attention_correction(
             "attention correction epsilon must be finite and positive",
         ));
     }
+    let readout =
+        apply_readout_precision(&inputs.output, ReadoutPrecision::GenericBfloat16Boundary)?;
     let d = inputs.head_size;
     let mut corrected_rows = Vec::with_capacity(rows);
     for head in 0..inputs.head_count {
         let base = head * d;
         let mut mean = 0.0_f32;
         for i in 0..d {
-            mean += inputs.output[base + i];
+            mean += readout[base + i];
         }
         mean /= d as f32;
         let mut variance = 0.0_f32;
         for i in 0..d {
-            let diff = inputs.output[base + i] - mean;
+            let diff = readout[base + i] - mean;
             variance += diff * diff;
         }
         variance /= d as f32;
@@ -334,7 +374,7 @@ pub fn attention_correction(
             .map(|i| inputs.r_rows[base + i] * inputs.k_rows[base + i] * inputs.r_k[base + i])
             .sum::<f32>();
         for i in 0..d {
-            let normalized = (inputs.output[base + i] - mean) * inv_std;
+            let normalized = (readout[base + i] - mean) * inv_std;
             let scaled =
                 normalized * inputs.group_norm_weight[base + i] + inputs.group_norm_bias[base + i];
             let corrected = (scaled + scalar * inputs.v_rows[base + i]) * inputs.gate[base + i];
@@ -880,6 +920,50 @@ mod tests {
         assert!((result.next_state[3] - 16.44).abs() < 1e-6);
         assert!((result.output[0] - 34.05).abs() < 1e-6);
         assert!((result.output[1] - 44.71).abs() < 1e-6);
+    }
+
+    #[test]
+    fn asymmetric_readout_matches_the_generic_bfloat16_boundary() {
+        let readout = vec![
+            -3.140625_f32,
+            -0.33325195_f32,
+            0.0078126_f32,
+            1.0009766_f32,
+            2.7182817_f32,
+            17.03125_f32,
+        ];
+        let bounded = apply_readout_precision(&readout, ReadoutPrecision::GenericBfloat16Boundary)
+            .expect("valid readout");
+        let expected = readout
+            .iter()
+            .map(|value| round_to_bfloat16(*value).expect("finite BF16 value"))
+            .collect::<Vec<_>>();
+        assert_eq!(bounded, expected);
+        assert_ne!(bounded, readout);
+    }
+
+    #[test]
+    fn rejected_float32_readout_boundary_is_detected() {
+        let readout = vec![0.33325195_f32, 1.0009766_f32, -3.140625_f32];
+        let generic = apply_readout_precision(&readout, ReadoutPrecision::GenericBfloat16Boundary)
+            .expect("generic boundary");
+        let rejected = apply_readout_precision(&readout, ReadoutPrecision::RejectedFloat32Boundary)
+            .expect("rejected boundary model");
+        let first_divergence = generic
+            .iter()
+            .zip(&rejected)
+            .position(|(expected, actual)| expected.to_bits() != actual.to_bits());
+        assert_eq!(first_divergence, Some(0));
+    }
+
+    #[test]
+    fn rejects_non_finite_readout_boundary() {
+        let rejection = apply_readout_precision(
+            &[1.0_f32, f32::INFINITY],
+            ReadoutPrecision::GenericBfloat16Boundary,
+        )
+        .expect_err("non-finite readout");
+        assert_eq!(rejection.code, "non_finite_reference_input");
     }
 
     #[test]

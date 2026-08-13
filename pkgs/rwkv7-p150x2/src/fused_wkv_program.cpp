@@ -1,3 +1,4 @@
+#include "config.hpp"
 #include "fused_wkv_program.hpp"
 
 #include <tt-metalium/program_descriptors.hpp>
@@ -260,7 +261,13 @@ make_cbs(const CoreRangeSet &core_ranges) {
       make_cb(kStateDotACb, fp32_format, kHeadTileCount, core_ranges));
   cbs.push_back(
       make_cb(kNextStateCb, fp32_format, kStateTileCount, core_ranges));
+#if RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY
+  // Diagnostic correction: match generic_wkv_step by packing the FP32
+  // recurrent readout to BF16 before group normalization.
+  cbs.push_back(make_cb(kReadoutCb, bf16_format, kHeadTileCount, core_ranges));
+#else
   cbs.push_back(make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges));
+#endif
   for (const std::uint8_t cb : kOrientedVectorCbs) {
     cbs.push_back(make_cb(cb, bf16_format, kHeadTileCount, core_ranges));
   }

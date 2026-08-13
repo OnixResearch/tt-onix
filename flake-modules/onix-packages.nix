@@ -209,6 +209,13 @@
         maximumGeneratedTokens = windowSixteenMaximumGeneratedTokens;
         runtimeName = "rwkv7-p150x2-window16-candidate-runtime";
       };
+      rwkv7P150x2Window16ReadoutDiagnosticRuntime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
+        targetContext = rwkvTargetContext;
+        persistentDecodeProfile = ../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl;
+        maximumGeneratedTokens = windowSixteenMaximumGeneratedTokens;
+        fusedWkvBf16ReadoutBoundary = true;
+        runtimeName = "rwkv7-p150x2-window16-readout-diagnostic-runtime";
+      };
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
       rwkv7P150x2Evidence = rwkvTarget.evidence;
       rwkv7P150x2Window8CandidateEvidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
@@ -751,6 +758,7 @@
         rwkv7-p150x2-window8-candidate-runtime = rwkv7P150x2Window8CandidateRuntime;
         rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
         rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
+        rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
         rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
@@ -785,6 +793,7 @@
         rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
         rwkv7-p150x2-window8-candidate-closure = rwkv7P150x2Window8CandidateClosure;
         rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
+        rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
         rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
         rwkv7-p150x2-window16-candidate-closure = rwkv7P150x2Window16CandidateClosure;
         rwkv7-p150x2-fused-wkv-architecture = rwkv7P150x2FusedWkvArchitectureCheck;

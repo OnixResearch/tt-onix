@@ -6,6 +6,7 @@ pub mod persistent_decode_canary;
 pub mod persistent_decode_contract;
 pub mod persistent_decode_monitoring;
 pub mod throughput;
+pub mod window16_parity;
 
 use half::bf16;
 use model_target_core::{TargetIdentity, TopologyIdentity};

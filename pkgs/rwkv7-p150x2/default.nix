@@ -18,6 +18,7 @@
   tt-umd,
   targetContext,
   fetchQueueDiagnostics ? false,
+  fusedWkvBf16ReadoutBoundary ? false,
   persistentDecodeProfile ? ./persistent-decode-profile.ncl,
   maximumGeneratedTokens ? 8,
   runtimeName ? null,
@@ -107,6 +108,7 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "RWKV7_VOCABULARY_SIZE" (toString profile.resources.vocabulary_size))
     (lib.cmakeFeature "RWKV7_MAXIMUM_PROMPT_TOKENS" (toString profile.resources.maximum_prompt_tokens))
     (lib.cmakeBool "RWKV7_FETCH_QUEUE_DIAGNOSTICS" fetchQueueDiagnostics)
+    (lib.cmakeBool "RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY" fusedWkvBf16ReadoutBoundary)
   ];
 
   postInstall = ''

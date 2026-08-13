@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "outcome": "bounded_physical_diagnostic_blocked",
+  "date": "2026-08-12",
+  "production": {
+    "profile_id": "rwkv7-p150x2-persistent-decode-v3",
+    "admitted_decode_windows": [2, 4, 8],
+    "admission_changed": false
+  },
+  "known_token_boundary": {
+    "prior_matching_generated_token_index": 9,
+    "first_divergent_generated_token_index": 10,
+    "cpu_and_generic_token_id": 46170,
+    "rejected_fused_token_id": 64390,
+    "generic_tt_nn_reaches_cpu_token": true
+  },
+  "root_cause_hypothesis": {
+    "value_boundary": "fused_wkv_readout_before_group_normalization",
+    "generic_precision": "bfloat16",
+    "rejected_fused_precision": "float32",
+    "classification": "leading_source_level_precision_boundary_mismatch",
+    "confirmed_on_physical_hardware": false
+  },
+  "diagnostic_correction": {
+    "package": "rwkv7-p150x2-window16-readout-diagnostic-runtime",
+    "build_flag": "RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY",
+    "production_build_flag": false,
+    "rejected_candidate_build_flag": false,
+    "diagnostic_build_flag": true,
+    "new_immutable_admission_candidate_created": false
+  },
+  "physical_attempt": {
+    "physical_device_ids": [0],
+    "fixture": "asymmetric_indexed_values_v1",
+    "comparison": ["fp32_recurrent_state", "bfloat16_corrected_attention_rows"],
+    "timeout_seconds": 3600,
+    "kernel_execution_receipt_written": false,
+    "terminal_boundary": "device_initialized_program_cache_enabled_before_fused_kernel_execution",
+    "raw_log_blake3": "8c66b255abff35969f0fc50916306d434550638eaa674e7f8132d2fa88e56252",
+    "retry_performed": true,
+    "additional_physical_retry_allowed_for_this_change": false
+  },
+  "build_evidence": {
+    "production_runtime": "/nix/store/968gc5wi45p7gdix2ir02x4hmcq4n09g-rwkv7-p150x2-runtime-0.1.0",
+    "rejected_window16_candidate_runtime": "/nix/store/5wdyibiaxhaf58abcd6dgfyla9xi97ga-rwkv7-p150x2-window16-candidate-runtime-0.1.0",
+    "readout_diagnostic_runtime": "/nix/store/13qm04rvh317iybfca778awjsb5bz827-rwkv7-p150x2-window16-readout-diagnostic-runtime-0.1.0",
+    "combined_build_log_blake3": "80ed537f417c5eef8b7934eeb7feeb2d86664f532221d760fe9354f406b97b76",
+    "all_runtime_self_tests_passed": true
+  },
+  "decision": {
+    "window16_admission": "blocked",
+    "later_simulator_and_physical_admission_gates": "not_started",
+    "reason": "the diagnostic BF16 readout correction did not reach kernel execution within the bounded physical budget"
+  }
+}

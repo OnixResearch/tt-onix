@@ -49,9 +49,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -140,6 +142,8 @@ constexpr std::string_view kSimulatorSmokeArgument = "--simulator-smoke";
 constexpr std::string_view kFusedWkvLayerSmokeArgument =
     "--fused-wkv-layer-smoke";
 constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
+constexpr std::string_view kFusedWkvAsymmetricProbeArgument =
+    "--fused-wkv-asymmetric-probe";
 constexpr std::string_view kPersistentDecodeSimulatorSmokeArgument =
     "--persistent-decode-simulator-smoke";
 constexpr std::string_view kFastDeviceArgument = "--device";
@@ -281,6 +285,34 @@ constexpr float kFusedWkvProbePositiveOutput = 1.875F;
 constexpr std::uint32_t kFusedWkvProbeNegativeWidth = kHeadSize / 2U;
 constexpr float kFusedWkvProbeExactTolerance = 0.0F;
 constexpr std::size_t kFusedWkvProbeComparisonCount = 4U;
+constexpr std::uint32_t kFusedWkvAsymmetricProbeBatchSize = 1U;
+constexpr std::size_t kFusedWkvAsymmetricComparisonCount = 2U;
+constexpr float kFusedWkvAsymmetricExactTolerance = 0.0F;
+struct AsymmetricVectorPattern {
+  float base;
+  float linear_scale;
+  float modular_scale;
+};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricA{0.03125F, 0.00001F,
+                                                       0.001F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricW{0.75F, -0.00001F,
+                                                       0.002F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricK{-0.125F, 0.00002F,
+                                                       0.003F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricV{0.25F, -0.00002F,
+                                                       0.004F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricR{0.375F, 0.00001F,
+                                                       -0.003F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricB{-0.0625F, 0.00001F,
+                                                       0.002F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricRk{0.5F, 0.00001F,
+                                                        -0.001F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricGroupNormWeight{
+    0.75F, -0.00001F, 0.002F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricGroupNormBias{
+    -0.125F, 0.00001F, 0.001F};
+constexpr AsymmetricVectorPattern kFusedWkvAsymmetricGate{0.625F, -0.00001F,
+                                                          0.001F};
 
 static_assert(sizeof(bfloat16) == kBf16Bytes);
 static_assert(std::is_trivially_copyable_v<bfloat16>);
@@ -1623,35 +1655,41 @@ WkvOutput wkv_step(DeviceContext &context, const LayerWeights &weights,
   return run_generic_reference();
 }
 
-Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
-                        const TimePreparation &preparation,
-                        const WkvOutput &wkv) {
+Tensor corrected_attention_rows(DeviceContext &context,
+                                const LayerWeights &weights,
+                                const TimePreparation &preparation,
+                                const WkvOutput &wkv) {
   const std::uint32_t batch_size = wkv.output_for_hidden.logical_shape()[0];
   const Tensor rows = op_reshape(
       context, wkv.output_for_hidden,
       {batch_size, kHeadCount, 1U, kHeadSize});
-  const Tensor corrected_rows = [&]() {
-    if (wkv.correction_complete) {
-      return rows;
-    }
-    const Tensor normalized_rows =
-        op_layer_norm(context, rows, kGroupNormEpsilon);
-    const Tensor scaled_rows =
-        op_add(context,
-               op_multiply(context, normalized_rows,
-                           weights.at("group_norm_weight")),
-               weights.at("group_norm_bias"));
-    const Tensor scalar = op_sum_last(
-        context,
-        op_multiply(context,
-                    op_multiply(context, wkv.r_rows, wkv.k_rows),
-                    weights.at("r_k")));
-    return op_multiply(
-        context, op_add(context, scaled_rows,
-                        op_multiply(context, scalar, wkv.v_rows)),
-        op_reshape(context, preparation.gate,
-                   {batch_size, kHeadCount, 1U, kHeadSize}));
-  }();
+  if (wkv.correction_complete) {
+    return rows;
+  }
+  const Tensor normalized_rows =
+      op_layer_norm(context, rows, kGroupNormEpsilon);
+  const Tensor scaled_rows =
+      op_add(context,
+             op_multiply(context, normalized_rows,
+                         weights.at("group_norm_weight")),
+             weights.at("group_norm_bias"));
+  const Tensor scalar = op_sum_last(
+      context,
+      op_multiply(context, op_multiply(context, wkv.r_rows, wkv.k_rows),
+                  weights.at("r_k")));
+  return op_multiply(
+      context, op_add(context, scaled_rows,
+                      op_multiply(context, scalar, wkv.v_rows)),
+      op_reshape(context, preparation.gate,
+                 {batch_size, kHeadCount, 1U, kHeadSize}));
+}
+
+Tensor finish_attention(DeviceContext &context, const LayerWeights &weights,
+                        const TimePreparation &preparation,
+                        const WkvOutput &wkv) {
+  const std::uint32_t batch_size = wkv.output_for_hidden.logical_shape()[0];
+  const Tensor corrected_rows =
+      corrected_attention_rows(context, weights, preparation, wkv);
   return op_matmul(
       context,
       op_reshape(context, corrected_rows,
@@ -2983,6 +3021,12 @@ std::filesystem::path parse_fused_wkv_probe_output(
                           "fused WKV probe");
 }
 
+std::filesystem::path parse_fused_wkv_asymmetric_probe_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments, kFusedWkvAsymmetricProbeArgument,
+                          "fused WKV asymmetric probe");
+}
+
 std::filesystem::path parse_persistent_decode_simulator_smoke_output(
     const std::vector<std::string> &arguments) {
   return parse_new_output(arguments,
@@ -3338,6 +3382,188 @@ Json fixture_summary(const std::vector<Value> &values,
               {"minimum", minimum},
               {"maximum", maximum},
               {"nonzero_count", nonzero_count}};
+}
+
+template <typename Value>
+float compared_max_error(const std::vector<Value> &expected,
+                         const std::vector<Value> &actual) {
+  require(expected.size() == actual.size() && !expected.empty(),
+          "fused WKV comparison has the wrong geometry");
+  float maximum_error = 0.0F;
+  for (std::size_t index = 0U; index < expected.size(); ++index) {
+    const float expected_value = static_cast<float>(expected[index]);
+    const float actual_value = static_cast<float>(actual[index]);
+    require(std::isfinite(expected_value) && std::isfinite(actual_value),
+            "fused WKV comparison contains a non-finite value");
+    maximum_error =
+        std::max(maximum_error, std::abs(expected_value - actual_value));
+  }
+  return maximum_error;
+}
+
+std::vector<bfloat16> asymmetric_bf16_values(std::size_t element_count,
+                                             float base, float linear_scale,
+                                             float modular_scale) {
+  std::vector<bfloat16> values;
+  values.reserve(element_count);
+  constexpr std::size_t kPatternModulus = 17U;
+  constexpr std::size_t kPatternCenter = kPatternModulus / 2U;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    const auto centered = static_cast<std::int64_t>(index % kPatternModulus) -
+                          static_cast<std::int64_t>(kPatternCenter);
+    const float value =
+        base + linear_scale * static_cast<float>(index) +
+        modular_scale * static_cast<float>(centered);
+    values.emplace_back(value);
+  }
+  return values;
+}
+
+std::vector<float> asymmetric_fp32_values(std::size_t element_count) {
+  std::vector<float> values;
+  values.reserve(element_count);
+  constexpr std::size_t kPatternModulus = 23U;
+  constexpr std::size_t kPatternCenter = kPatternModulus / 2U;
+  constexpr float kBase = -0.03125F;
+  constexpr float kLinearScale = 0.000003F;
+  constexpr float kModularScale = 0.0007F;
+  for (std::size_t index = 0U; index < element_count; ++index) {
+    const auto centered = static_cast<std::int64_t>(index % kPatternModulus) -
+                          static_cast<std::int64_t>(kPatternCenter);
+    values.push_back(kBase + kLinearScale * static_cast<float>(index) +
+                     kModularScale * static_cast<float>(centered));
+  }
+  return values;
+}
+
+void run_fused_wkv_asymmetric_probe(
+    const std::filesystem::path &output_path) {
+  select_single_card_device(kPhysicalDeviceZero);
+  DeviceContext context(kPhysicalDeviceZero);
+  context.set_profiler_flush_enabled(false);
+
+  const std::vector<std::uint32_t> vector_shape = {
+      kFusedWkvAsymmetricProbeBatchSize, kHeadCount, 1U, kHeadSize};
+  const std::vector<std::uint32_t> shared_vector_shape = {
+      1U, kHeadCount, 1U, kHeadSize};
+  const std::vector<std::uint32_t> state_shape = {
+      kFusedWkvAsymmetricProbeBatchSize, kHeadCount, kHeadSize, kHeadSize};
+  const std::size_t vector_elements =
+      static_cast<std::size_t>(kFusedWkvAsymmetricProbeBatchSize) *
+      kHeadCount * kHeadSize;
+  const std::size_t state_elements = vector_elements * kHeadSize;
+  const auto bf16_tensor = [&](const std::vector<std::uint32_t> &shape,
+                               float base, float linear_scale,
+                               float modular_scale) {
+    const std::size_t elements = std::accumulate(
+        shape.begin(), shape.end(), std::size_t{1U}, std::multiplies<>{});
+    return context.bf16_tensor(
+        asymmetric_bf16_values(elements, base, linear_scale, modular_scale),
+        shape, ttnn::Layout::TILE);
+  };
+
+  const auto patterned_tensor = [&](const std::vector<std::uint32_t> &shape,
+                                    const AsymmetricVectorPattern &pattern) {
+    return bf16_tensor(shape, pattern.base, pattern.linear_scale,
+                       pattern.modular_scale);
+  };
+  const Tensor a = patterned_tensor(vector_shape, kFusedWkvAsymmetricA);
+  const Tensor w = patterned_tensor(vector_shape, kFusedWkvAsymmetricW);
+  const Tensor k = patterned_tensor(vector_shape, kFusedWkvAsymmetricK);
+  const Tensor v = patterned_tensor(vector_shape, kFusedWkvAsymmetricV);
+  const Tensor r = patterned_tensor(vector_shape, kFusedWkvAsymmetricR);
+  const Tensor b = patterned_tensor(vector_shape, kFusedWkvAsymmetricB);
+  const Tensor r_k =
+      patterned_tensor(shared_vector_shape, kFusedWkvAsymmetricRk);
+  const Tensor group_norm_weight = patterned_tensor(
+      shared_vector_shape, kFusedWkvAsymmetricGroupNormWeight);
+  const Tensor group_norm_bias = patterned_tensor(
+      shared_vector_shape, kFusedWkvAsymmetricGroupNormBias);
+  const Tensor gate =
+      patterned_tensor(vector_shape, kFusedWkvAsymmetricGate);
+  const Tensor state = context.float32_tensor(
+      asymmetric_fp32_values(state_elements), state_shape,
+      ttnn::Layout::TILE);
+
+  const WkvOutput generic_recurrence = generic_wkv_step(
+      context, state, a, b, w, v, k, r);
+  LayerWeights correction_weights{};
+  correction_weights.layer_index = 0U;
+  correction_weights.tensors.emplace("r_k", r_k);
+  correction_weights.tensors.emplace("group_norm_weight", group_norm_weight);
+  correction_weights.tensors.emplace("group_norm_bias", group_norm_bias);
+  TimePreparation generic_preparation{
+      v, r, w, k, v, a, b, gate,
+  };
+  const Tensor generic_output = corrected_attention_rows(
+      context, correction_weights, generic_preparation, generic_recurrence);
+
+  const char *const kernel_root =
+      std::getenv(kFusedWkvKernelRootEnvironment.data());
+  require(kernel_root != nullptr,
+          "fused WKV asymmetric probe has no kernel source root");
+  const rwkv7::fused_wkv::Inputs fused_inputs{
+      a, w, k, v, r, b, r_k, group_norm_weight, group_norm_bias, gate,
+      state};
+  rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(
+      context.mesh(), fused_inputs, kernel_root);
+  const Tensor fused_state = context.checked(
+      std::move(fused.next_state), "fused-wkv-asymmetric-state");
+  const Tensor fused_rows = context.checked(
+      std::move(fused.output), "fused-wkv-asymmetric-output");
+  const Tensor fused_output = op_reshape(
+      context, fused_rows, {1U, 1U, kFusedWkvAsymmetricProbeBatchSize,
+                            kHiddenSize});
+
+  const std::vector<float> generic_state_values =
+      read_fused_wkv_probe_values<float>(context, generic_recurrence.state,
+                                         false);
+  const std::vector<float> fused_state_values =
+      read_fused_wkv_probe_values<float>(context, fused_state, false);
+  const std::vector<bfloat16> generic_output_values =
+      read_fused_wkv_probe_values<bfloat16>(context, generic_output, true);
+  const std::vector<bfloat16> fused_output_values =
+      read_fused_wkv_probe_values<bfloat16>(context, fused_output, true);
+  const float state_error =
+      compared_max_error(generic_state_values, fused_state_values);
+  const float output_error =
+      compared_max_error(generic_output_values, fused_output_values);
+  const std::array<float, kFusedWkvAsymmetricComparisonCount> errors = {
+      state_error, output_error};
+  const bool exact = std::all_of(
+      errors.begin(), errors.end(), [](float error) {
+        return error <= kFusedWkvAsymmetricExactTolerance;
+      });
+  const bool simulated = std::getenv("TT_METAL_SIMULATOR") != nullptr;
+  const Json receipt{
+      {"schema_version", kSchemaVersion},
+      {"outcome", exact ? "fused_wkv_asymmetric_generic_parity"
+                        : "fused_wkv_asymmetric_generic_mismatch"},
+      {"simulated", simulated},
+      {"physical_hardware", !simulated},
+      {"architecture", "blackhole"},
+      {"selection_ordinal", kPhysicalDeviceZero},
+      {"batch_size", kFusedWkvAsymmetricProbeBatchSize},
+      {"fixture", "asymmetric_indexed_values_v1"},
+      {"generic_readout_boundary", "bfloat16_before_group_normalization"},
+      {"fused_readout_boundary", "bfloat16_before_group_normalization"},
+      {"exact_fp32_state_parity", state_error == 0.0F},
+      {"exact_bfloat16_output_parity", output_error == 0.0F},
+      {"maximum_absolute_error",
+       {{"fp32_state", state_error}, {"bfloat16_output", output_error}}},
+      {"generic_value_summary",
+       {{"state", fixture_summary(generic_state_values, state_elements)},
+        {"output", fixture_summary(generic_output_values, vector_elements)}}},
+      {"fused_value_summary",
+       {{"state", fixture_summary(fused_state_values, state_elements)},
+        {"output", fixture_summary(fused_output_values, vector_elements)}}},
+      {"candidate_dispatch", true},
+      {"production_physically_admitted", false},
+      {"performance_claim", false},
+      {"operation_counts", map_to_json(context.operation_counts())}};
+  write_json(output_path, receipt);
+  require(exact, "fused WKV asymmetric fixture differs from generic TT-NN");
+  std::cout << output_path << '\n';
 }
 
 void run_fused_wkv_probe(const std::filesystem::path &output_path) {
@@ -5684,6 +5910,13 @@ int main(int argc, char **argv) {
     if (arguments.size() == kSimulatorSmokeArgumentCount &&
         arguments[kModeArgumentIndex] == kFusedWkvProbeArgument) {
       run_fused_wkv_probe(parse_fused_wkv_probe_output(arguments));
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] ==
+            kFusedWkvAsymmetricProbeArgument) {
+      run_fused_wkv_asymmetric_probe(
+          parse_fused_wkv_asymmetric_probe_output(arguments));
       return EXIT_SUCCESS;
     }
     if (arguments.size() == kSimulatorSmokeArgumentCount &&

@@ -34,6 +34,10 @@ const WORMHOLE_BRANCH: &str = "ARCH_WORMHOLE";
 const OUTPUT_CB: &str = "tt::CBIndex::c_16";
 const NEXT_STATE_OUTPUT_CB: &str = "tt::CBIndex::c_17";
 const BF16_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kOutputCb);";
+const BF16_READOUT_CB: &str = "make_cb(kReadoutCb, bf16_format, kHeadTileCount, core_ranges)";
+const FP32_READOUT_CB: &str = "make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges)";
+const DIAGNOSTIC_READOUT_GUARD: &str = "#if RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY";
+const BF16_READOUT_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kReadoutCb);";
 const FP32_PACK_BOUNDARY: &str = "pack_reconfig_data_format(kOutputCb, kNextStateOutputCb);";
 const READ_BARRIER: &str = "noc_async_read_barrier();";
 const PADDING_CLEAR: &str = "clear_vector_padding(first_write_address + tile * tile_bytes);";
@@ -234,6 +238,11 @@ pub fn validate_fused_compute_source(source: &str) -> Result<(), KernelContractE
     require_once(source, "BF16 output CB", OUTPUT_CB)?;
     require_once(source, "FP32 next-state output CB", NEXT_STATE_OUTPUT_CB)?;
     require_once(source, "BF16 pack boundary", BF16_PACK_BOUNDARY)?;
+    require_once(
+        source,
+        "BF16 readout pack boundary",
+        BF16_READOUT_PACK_BOUNDARY,
+    )?;
     require_once(source, "FP32 pack boundary", FP32_PACK_BOUNDARY)?;
     require_once(source, "reduce uninitialization", REDUCE_UNINIT)?;
 
@@ -414,6 +423,9 @@ pub fn validate_fused_program_source(
             "three-tile correction scalar CB cycle",
             CORRECTION_SCALAR_CAPACITY,
         ),
+        ("diagnostic readout guard", DIAGNOSTIC_READOUT_GUARD),
+        ("diagnostic BF16 readout CB", BF16_READOUT_CB),
+        ("production FP32 readout CB", FP32_READOUT_CB),
         ("r_k fused input", "&inputs.r_k,"),
         (
             "group-normalization fused input",
@@ -815,6 +827,42 @@ mod tests {
                 .detail
                 .contains("three-tile correction scalar CB cycle")
         );
+    }
+
+    #[test]
+    fn rejects_a_missing_diagnostic_bfloat16_readout_buffer() {
+        let invalid = PROGRAM_SOURCE.replace(
+            BF16_READOUT_CB,
+            "make_cb(kReadoutCb, fp32_format, kHeadTileCount, core_ranges)",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("diagnostic correction needs a BF16 readout buffer");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("diagnostic BF16 readout CB"));
+    }
+
+    #[test]
+    fn rejects_a_missing_production_fp32_readout_buffer() {
+        let invalid = PROGRAM_SOURCE.replace(
+            FP32_READOUT_CB,
+            "make_cb(kReadoutCb, fp32_format, kStateTileCount, core_ranges)",
+        );
+        let error = validate_fused_program_source(&invalid, RUNTIME_SOURCE)
+            .expect_err("production must retain the unverified FP32 readout");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("production FP32 readout CB"));
+    }
+
+    #[test]
+    fn rejects_a_missing_bfloat16_readout_pack() {
+        let invalid = COMPUTE_SOURCE.replace(
+            BF16_READOUT_PACK_BOUNDARY,
+            "// invalid fixture removed the BF16 readout pack",
+        );
+        let error = validate_fused_compute_source(&invalid)
+            .expect_err("missing BF16 readout pack boundary");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("BF16 readout pack boundary"));
     }
 
     #[test]

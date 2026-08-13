@@ -536,6 +536,24 @@
       "blake3": "9391d0552f8ebbf03d8cab0aef2b9e0a1d336e146034b4d25f97a4691f049ea4"
     },
     {
+      "path": "cairn/archive/2026-08-12-resolve-rwkv7-window16-parity/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2225,
+      "blake3": "53c05a3881556478a76b869b38fa317de3f73d863d54454b1139c2d2cff46668"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-resolve-rwkv7-window16-parity/evidence/physical-diagnostic-blocker.json",
+      "class": "portable_evidence",
+      "byte_count": 2469,
+      "blake3": "3766a881eabb6beb772c73dcf6743156a42d8bfcd916963d45df0c4c040d74ca"
+    },
+    {
+      "path": "cairn/archive/2026-08-12-resolve-rwkv7-window16-parity/evidence/token-boundary-comparison.json",
+      "class": "portable_evidence",
+      "byte_count": 1274,
+      "blake3": "02f65ea5223aab029b4fb33d1dcdf8043fce3ce6ef6e435fa1f60e890a44c0d8"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,

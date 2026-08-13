@@ -6,6 +6,11 @@ option(
   "Build with diagnostic TT-Metal fetch-queue counters"
   OFF
 )
+option(
+  RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY
+  "Build a diagnostic fused WKV with the generic BF16 readout boundary"
+  OFF
+)
 
 find_package(PkgConfig REQUIRED)
 find_package(enchantum REQUIRED)
