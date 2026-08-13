@@ -28,6 +28,8 @@ configure_file(config.hpp.in generated/config.hpp @ONLY)
 add_executable(
   rwkv7-p150x2-runtime
   src/fused_wkv_program.cpp
+  src/fused_wkv_reference.cpp
+  src/fused_wkv_reference_self_test.cpp
   src/main.cpp
   src/persistent_decode.cpp
   src/persistent_decode_self_test.cpp

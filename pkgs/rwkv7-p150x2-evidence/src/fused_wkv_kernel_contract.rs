@@ -93,6 +93,16 @@ const STATE_RANK_VALIDATION: &str = "bool has_state_shape(const Tensor &tensor, 
 const STATE_DTYPE_VALIDATION: &str = "inputs.state.dtype() != tt::tt_metal::DataType::FLOAT32";
 const VECTOR_DTYPE_VALIDATION: &str = "vector->dtype() != tt::tt_metal::DataType::BFLOAT16";
 const VECTOR_LAYOUT_VALIDATION: &str = "vector->layout() != ttnn::Layout::TILE";
+const ASYMMETRIC_PROBE_START: &str = "void run_fused_wkv_asymmetric_probe(";
+const ASYMMETRIC_PROBE_END: &str = "\n}\n\nvoid run_fused_wkv_probe(";
+const ASYMMETRIC_HOST_REFERENCE: &str = "rwkv7::fused_wkv_reference::evaluate(ReferenceInputs{";
+const ASYMMETRIC_BUILD_BINDING: &str = "rwkv7::fused_wkv_reference::validate_diagnostic_build(";
+const ASYMMETRIC_FUSED_LAUNCH: &str = "rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(";
+const ASYMMETRIC_STAGE_MARKER: &str = "fused-wkv-asymmetric-stage: fused-launch-start";
+const ASYMMETRIC_RUNTIME_RECEIPT: &str = "{\"runtime_name\", kRuntimeName}";
+const ASYMMETRIC_PREWORK_COUNT: &str = "{\"generic_device_operations_before_fused_launch\", 0U}";
+const ASYMMETRIC_GENERIC_RECURRENCE: &str = "generic_wkv_step(";
+const ASYMMETRIC_GENERIC_CORRECTION: &str = "corrected_attention_rows(";
 
 const REQUIRED_RECURRENCE: [(&str, &str); 5] = [
     (
@@ -434,6 +444,50 @@ pub fn validate_fused_program_source(
         ("gate fused input", "&inputs.gate,"),
     ] {
         require_once(program_source, name, pattern)?;
+    }
+
+    let asymmetric_probe_start = runtime_source.find(ASYMMETRIC_PROBE_START).ok_or_else(|| {
+        KernelContractError::new(
+            "missing_asymmetric_probe",
+            "the fused-only asymmetric probe is absent",
+        )
+    })?;
+    let asymmetric_probe_tail = &runtime_source[asymmetric_probe_start..];
+    let asymmetric_probe_end = asymmetric_probe_tail
+        .find(ASYMMETRIC_PROBE_END)
+        .ok_or_else(|| {
+            KernelContractError::new(
+                "missing_asymmetric_probe_end",
+                "the fused-only asymmetric probe boundary is absent",
+            )
+        })?;
+    let asymmetric_probe = &asymmetric_probe_tail[..asymmetric_probe_end];
+    for (name, pattern) in [
+        ("pure host asymmetric reference", ASYMMETRIC_HOST_REFERENCE),
+        ("diagnostic build binding", ASYMMETRIC_BUILD_BINDING),
+        ("fused-only asymmetric launch", ASYMMETRIC_FUSED_LAUNCH),
+        ("bounded asymmetric stage marker", ASYMMETRIC_STAGE_MARKER),
+        (
+            "runtime-bound asymmetric receipt",
+            ASYMMETRIC_RUNTIME_RECEIPT,
+        ),
+        (
+            "zero generic device pre-work receipt",
+            ASYMMETRIC_PREWORK_COUNT,
+        ),
+    ] {
+        require_once(asymmetric_probe, name, pattern)?;
+    }
+    for (name, forbidden) in [
+        ("generic recurrence pre-work", ASYMMETRIC_GENERIC_RECURRENCE),
+        ("generic correction pre-work", ASYMMETRIC_GENERIC_CORRECTION),
+    ] {
+        if asymmetric_probe.contains(forbidden) {
+            return Err(KernelContractError::new(
+                "forbidden_asymmetric_prework",
+                format!("the fused-only asymmetric probe contains {name}"),
+            ));
+        }
     }
 
     for (name, pattern) in [
@@ -801,6 +855,40 @@ mod tests {
             .expect_err("missing vector-layout validation");
         assert_eq!(error.code, "source_pattern_count");
         assert!(error.detail.contains("tile vector validation"));
+    }
+
+    #[test]
+    fn rejects_asymmetric_probe_with_generic_device_prework() {
+        let invalid = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_FUSED_LAUNCH,
+            "const WkvOutput invalid = generic_wkv_step(context, state, a, b, w, v, k, r);\n  rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("generic recurrence before fused launch");
+        assert_eq!(error.code, "forbidden_asymmetric_prework");
+        assert!(error.detail.contains("generic recurrence pre-work"));
+    }
+
+    #[test]
+    fn rejects_asymmetric_probe_without_runtime_binding() {
+        let invalid = RUNTIME_SOURCE.replace(
+            ASYMMETRIC_BUILD_BINDING,
+            "rwkv7::fused_wkv_reference::invalid_diagnostic_build(",
+        );
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("missing diagnostic build binding");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("diagnostic build binding"));
+    }
+
+    #[test]
+    fn rejects_asymmetric_probe_without_fused_stage_marker() {
+        let invalid =
+            RUNTIME_SOURCE.replace(ASYMMETRIC_STAGE_MARKER, "invalid-asymmetric-stage-marker");
+        let error = validate_fused_program_source(PROGRAM_SOURCE, &invalid)
+            .expect_err("missing fused launch marker");
+        assert_eq!(error.code, "source_pattern_count");
+        assert!(error.detail.contains("bounded asymmetric stage marker"));
     }
 
     #[test]

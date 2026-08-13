@@ -1,5 +1,7 @@
 #include "config.hpp"
 #include "fused_wkv_program.hpp"
+#include "fused_wkv_reference.hpp"
+#include "fused_wkv_reference_self_test.hpp"
 #include "persistent_decode_self_test.hpp"
 #ifdef RWKV7_FETCH_QUEUE_DIAGNOSTICS_AVAILABLE
 #include "hardware_counter_diagnostics.hpp"
@@ -134,6 +136,9 @@ constexpr std::string_view kArchitectureAdapter = RWKV7_PINNED_ARCHITECTURE_ADAP
 constexpr std::string_view kEvidenceAdapter = RWKV7_PINNED_EVIDENCE_ADAPTER;
 constexpr std::string_view kTopologyId = RWKV7_PINNED_TOPOLOGY_ID;
 constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
+constexpr std::string_view kRuntimeName = RWKV7_RUNTIME_NAME;
+constexpr bool kFusedWkvBfloat16ReadoutBoundary =
+    RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0;
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kHardwareCounterSmokeArgument =
     "--hardware-counter-smoke";
@@ -3438,9 +3443,70 @@ std::vector<float> asymmetric_fp32_values(std::size_t element_count) {
 
 void run_fused_wkv_asymmetric_probe(
     const std::filesystem::path &output_path) {
+  using ReferenceInputs = rwkv7::fused_wkv_reference::Inputs;
+  const auto build_decision =
+      rwkv7::fused_wkv_reference::validate_diagnostic_build(
+          kRuntimeName, kFusedWkvBfloat16ReadoutBoundary);
+  require(build_decision.valid,
+          std::string("fused WKV asymmetric probe rejected its build: ") +
+              build_decision.reason);
+
+  const std::size_t vector_elements =
+      static_cast<std::size_t>(kFusedWkvAsymmetricProbeBatchSize) *
+      kHeadCount * kHeadSize;
+  const std::size_t state_elements = vector_elements * kHeadSize;
+  const auto pattern = [vector_elements](
+                           const AsymmetricVectorPattern &definition) {
+    return asymmetric_bf16_values(vector_elements, definition.base,
+                                  definition.linear_scale,
+                                  definition.modular_scale);
+  };
+  const std::vector<bfloat16> a_values = pattern(kFusedWkvAsymmetricA);
+  const std::vector<bfloat16> w_values = pattern(kFusedWkvAsymmetricW);
+  const std::vector<bfloat16> k_values = pattern(kFusedWkvAsymmetricK);
+  const std::vector<bfloat16> v_values = pattern(kFusedWkvAsymmetricV);
+  const std::vector<bfloat16> r_values = pattern(kFusedWkvAsymmetricR);
+  const std::vector<bfloat16> b_values = pattern(kFusedWkvAsymmetricB);
+  const std::vector<bfloat16> r_k_values = pattern(kFusedWkvAsymmetricRk);
+  const std::vector<bfloat16> group_norm_weight_values =
+      pattern(kFusedWkvAsymmetricGroupNormWeight);
+  const std::vector<bfloat16> group_norm_bias_values =
+      pattern(kFusedWkvAsymmetricGroupNormBias);
+  const std::vector<bfloat16> gate_values =
+      pattern(kFusedWkvAsymmetricGate);
+  const std::vector<float> state_values =
+      asymmetric_fp32_values(state_elements);
+  const auto as_float = [](const std::vector<bfloat16> &values) {
+    std::vector<float> converted;
+    converted.reserve(values.size());
+    for (const bfloat16 value : values) {
+      converted.push_back(static_cast<float>(value));
+    }
+    return converted;
+  };
+  const auto reference = rwkv7::fused_wkv_reference::evaluate(ReferenceInputs{
+      kHeadCount,
+      kHeadSize,
+      as_float(a_values),
+      as_float(w_values),
+      as_float(k_values),
+      as_float(v_values),
+      as_float(r_values),
+      as_float(b_values),
+      as_float(r_k_values),
+      as_float(group_norm_weight_values),
+      as_float(group_norm_bias_values),
+      as_float(gate_values),
+      state_values,
+      kGroupNormEpsilon,
+  });
+
+  std::cout << "fused-wkv-asymmetric-stage: host-reference-ready\n"
+            << std::flush;
   select_single_card_device(kPhysicalDeviceZero);
   DeviceContext context(kPhysicalDeviceZero);
   context.set_profiler_flush_enabled(false);
+  std::cout << "fused-wkv-asymmetric-stage: device-opened\n" << std::flush;
 
   const std::vector<std::uint32_t> vector_shape = {
       kFusedWkvAsymmetricProbeBatchSize, kHeadCount, 1U, kHeadSize};
@@ -3448,55 +3514,30 @@ void run_fused_wkv_asymmetric_probe(
       1U, kHeadCount, 1U, kHeadSize};
   const std::vector<std::uint32_t> state_shape = {
       kFusedWkvAsymmetricProbeBatchSize, kHeadCount, kHeadSize, kHeadSize};
-  const std::size_t vector_elements =
-      static_cast<std::size_t>(kFusedWkvAsymmetricProbeBatchSize) *
-      kHeadCount * kHeadSize;
-  const std::size_t state_elements = vector_elements * kHeadSize;
-  const auto bf16_tensor = [&](const std::vector<std::uint32_t> &shape,
-                               float base, float linear_scale,
-                               float modular_scale) {
-    const std::size_t elements = std::accumulate(
-        shape.begin(), shape.end(), std::size_t{1U}, std::multiplies<>{});
-    return context.bf16_tensor(
-        asymmetric_bf16_values(elements, base, linear_scale, modular_scale),
-        shape, ttnn::Layout::TILE);
-  };
-
-  const auto patterned_tensor = [&](const std::vector<std::uint32_t> &shape,
-                                    const AsymmetricVectorPattern &pattern) {
-    return bf16_tensor(shape, pattern.base, pattern.linear_scale,
-                       pattern.modular_scale);
-  };
-  const Tensor a = patterned_tensor(vector_shape, kFusedWkvAsymmetricA);
-  const Tensor w = patterned_tensor(vector_shape, kFusedWkvAsymmetricW);
-  const Tensor k = patterned_tensor(vector_shape, kFusedWkvAsymmetricK);
-  const Tensor v = patterned_tensor(vector_shape, kFusedWkvAsymmetricV);
-  const Tensor r = patterned_tensor(vector_shape, kFusedWkvAsymmetricR);
-  const Tensor b = patterned_tensor(vector_shape, kFusedWkvAsymmetricB);
-  const Tensor r_k =
-      patterned_tensor(shared_vector_shape, kFusedWkvAsymmetricRk);
-  const Tensor group_norm_weight = patterned_tensor(
-      shared_vector_shape, kFusedWkvAsymmetricGroupNormWeight);
-  const Tensor group_norm_bias = patterned_tensor(
-      shared_vector_shape, kFusedWkvAsymmetricGroupNormBias);
+  const Tensor a =
+      context.bf16_tensor(a_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor w =
+      context.bf16_tensor(w_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor k =
+      context.bf16_tensor(k_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor v =
+      context.bf16_tensor(v_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor r =
+      context.bf16_tensor(r_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor b =
+      context.bf16_tensor(b_values, vector_shape, ttnn::Layout::TILE);
+  const Tensor r_k = context.bf16_tensor(
+      r_k_values, shared_vector_shape, ttnn::Layout::TILE);
+  const Tensor group_norm_weight = context.bf16_tensor(
+      group_norm_weight_values, shared_vector_shape, ttnn::Layout::TILE);
+  const Tensor group_norm_bias = context.bf16_tensor(
+      group_norm_bias_values, shared_vector_shape, ttnn::Layout::TILE);
   const Tensor gate =
-      patterned_tensor(vector_shape, kFusedWkvAsymmetricGate);
+      context.bf16_tensor(gate_values, vector_shape, ttnn::Layout::TILE);
   const Tensor state = context.float32_tensor(
-      asymmetric_fp32_values(state_elements), state_shape,
-      ttnn::Layout::TILE);
-
-  const WkvOutput generic_recurrence = generic_wkv_step(
-      context, state, a, b, w, v, k, r);
-  LayerWeights correction_weights{};
-  correction_weights.layer_index = 0U;
-  correction_weights.tensors.emplace("r_k", r_k);
-  correction_weights.tensors.emplace("group_norm_weight", group_norm_weight);
-  correction_weights.tensors.emplace("group_norm_bias", group_norm_bias);
-  TimePreparation generic_preparation{
-      v, r, w, k, v, a, b, gate,
-  };
-  const Tensor generic_output = corrected_attention_rows(
-      context, correction_weights, generic_preparation, generic_recurrence);
+      state_values, state_shape, ttnn::Layout::TILE);
+  std::cout << "fused-wkv-asymmetric-stage: device-inputs-ready\n"
+            << std::flush;
 
   const char *const kernel_root =
       std::getenv(kFusedWkvKernelRootEnvironment.data());
@@ -3505,65 +3546,77 @@ void run_fused_wkv_asymmetric_probe(
   const rwkv7::fused_wkv::Inputs fused_inputs{
       a, w, k, v, r, b, r_k, group_norm_weight, group_norm_bias, gate,
       state};
+  std::cout << "fused-wkv-asymmetric-stage: fused-launch-start\n"
+            << std::flush;
   rwkv7::fused_wkv::Outputs fused = rwkv7::fused_wkv::run(
       context.mesh(), fused_inputs, kernel_root);
   const Tensor fused_state = context.checked(
       std::move(fused.next_state), "fused-wkv-asymmetric-state");
-  const Tensor fused_rows = context.checked(
+  const Tensor fused_output = context.checked(
       std::move(fused.output), "fused-wkv-asymmetric-output");
-  const Tensor fused_output = op_reshape(
-      context, fused_rows, {1U, 1U, kFusedWkvAsymmetricProbeBatchSize,
-                            kHiddenSize});
+  std::cout << "fused-wkv-asymmetric-stage: fused-launch-finished\n"
+            << std::flush;
 
-  const std::vector<float> generic_state_values =
-      read_fused_wkv_probe_values<float>(context, generic_recurrence.state,
-                                         false);
   const std::vector<float> fused_state_values =
       read_fused_wkv_probe_values<float>(context, fused_state, false);
-  const std::vector<bfloat16> generic_output_values =
-      read_fused_wkv_probe_values<bfloat16>(context, generic_output, true);
   const std::vector<bfloat16> fused_output_values =
       read_fused_wkv_probe_values<bfloat16>(context, fused_output, true);
+  std::vector<std::uint16_t> fused_output_bits;
+  fused_output_bits.reserve(fused_output_values.size());
+  for (const bfloat16 value : fused_output_values) {
+    fused_output_bits.push_back(std::bit_cast<std::uint16_t>(value));
+  }
+  std::cout << "fused-wkv-asymmetric-stage: readback-finished\n"
+            << std::flush;
+
   const float state_error =
-      compared_max_error(generic_state_values, fused_state_values);
+      compared_max_error(reference.next_state, fused_state_values);
   const float output_error =
-      compared_max_error(generic_output_values, fused_output_values);
-  const std::array<float, kFusedWkvAsymmetricComparisonCount> errors = {
-      state_error, output_error};
-  const bool exact = std::all_of(
-      errors.begin(), errors.end(), [](float error) {
-        return error <= kFusedWkvAsymmetricExactTolerance;
-      });
+      compared_max_error(reference.corrected_rows_bfloat16,
+                         fused_output_bits);
+  const bool exact_state = reference.next_state == fused_state_values;
+  const bool exact_output =
+      reference.corrected_rows_bfloat16 == fused_output_bits;
+  const bool exact = exact_state && exact_output;
   const bool simulated = std::getenv("TT_METAL_SIMULATOR") != nullptr;
   const Json receipt{
       {"schema_version", kSchemaVersion},
-      {"outcome", exact ? "fused_wkv_asymmetric_generic_parity"
-                        : "fused_wkv_asymmetric_generic_mismatch"},
+      {"outcome", exact ? "fused_wkv_asymmetric_host_parity"
+                        : "fused_wkv_asymmetric_host_mismatch"},
       {"simulated", simulated},
       {"physical_hardware", !simulated},
       {"architecture", "blackhole"},
       {"selection_ordinal", kPhysicalDeviceZero},
       {"batch_size", kFusedWkvAsymmetricProbeBatchSize},
       {"fixture", "asymmetric_indexed_values_v1"},
-      {"generic_readout_boundary", "bfloat16_before_group_normalization"},
-      {"fused_readout_boundary", "bfloat16_before_group_normalization"},
-      {"exact_fp32_state_parity", state_error == 0.0F},
-      {"exact_bfloat16_output_parity", output_error == 0.0F},
+      {"runtime_name", kRuntimeName},
+      {"bfloat16_readout_boundary",
+       kFusedWkvBfloat16ReadoutBoundary},
+      {"reference", "pure_host_fused_wkv_v1"},
+      {"generic_device_operations_before_fused_launch", 0U},
+      {"exact_fp32_state_parity", exact_state},
+      {"exact_bfloat16_output_parity", exact_output},
       {"maximum_absolute_error",
-       {{"fp32_state", state_error}, {"bfloat16_output", output_error}}},
-      {"generic_value_summary",
-       {{"state", fixture_summary(generic_state_values, state_elements)},
-        {"output", fixture_summary(generic_output_values, vector_elements)}}},
+       {{"fp32_state", state_error},
+        {"bfloat16_output_bits", output_error}}},
+      {"host_reference_value_summary",
+       {{"state", fixture_summary(reference.next_state, state_elements)},
+        {"output_bits",
+         fixture_summary(reference.corrected_rows_bfloat16,
+                         vector_elements)}}},
       {"fused_value_summary",
        {{"state", fixture_summary(fused_state_values, state_elements)},
-        {"output", fixture_summary(fused_output_values, vector_elements)}}},
+        {"output_bits",
+         fixture_summary(fused_output_bits, vector_elements)}}},
       {"candidate_dispatch", true},
       {"production_physically_admitted", false},
       {"performance_claim", false},
       {"operation_counts", map_to_json(context.operation_counts())}};
   write_json(output_path, receipt);
-  require(exact, "fused WKV asymmetric fixture differs from generic TT-NN");
-  std::cout << output_path << '\n';
+  require(exact, "fused WKV asymmetric fixture differs from the host reference");
+  std::cout << "fused-wkv-asymmetric-stage: receipt-written\n"
+            << output_path << '\n'
+            << std::flush;
 }
 
 void run_fused_wkv_probe(const std::filesystem::path &output_path) {
@@ -5840,6 +5893,7 @@ void run_self_test() {
   require(!persistent_workload_eligible(ineligible_persistent_request,
                                         persistent_profile.profile),
           "persistent decode accepted a mismatched output bound");
+  rwkv7::fused_wkv_reference::run_fused_wkv_reference_self_tests();
   rwkv7::persistent_decode::run_persistent_decode_self_test(
       persistent_profile.profile, persistent_profile.bytes);
   std::cout << "rwkv7 P150x2 runtime self-test: PASS\n";

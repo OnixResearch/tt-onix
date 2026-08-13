@@ -27,6 +27,13 @@ let
   profile = targetContext.profile;
   artifacts = targetContext.artifacts;
   model = artifacts.checkpoint.path;
+  resolvedRuntimeName =
+    if runtimeName != null then
+      runtimeName
+    else if fetchQueueDiagnostics then
+      "rwkv7-p150x2-fetch-queue-diagnostic-runtime"
+    else
+      "rwkv7-p150x2-runtime";
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
   persistentDecodeProfileFile = builtins.baseNameOf (toString persistentDecodeProfile);
   metaliumRuntime = symlinkJoin {
@@ -46,13 +53,7 @@ let
   singleCardMeshDescriptor = "${metaliumRoot}/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto";
 in
 stdenv.mkDerivation {
-  pname =
-    if runtimeName != null then
-      runtimeName
-    else if fetchQueueDiagnostics then
-      "rwkv7-p150x2-fetch-queue-diagnostic-runtime"
-    else
-      "rwkv7-p150x2-runtime";
+  pname = resolvedRuntimeName;
   version = "0.1.0";
 
   src = lib.cleanSource ./.;
@@ -86,6 +87,7 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
     (lib.cmakeFeature "RWKV7_PERSISTENT_DECODE_PROFILE_PATH" "${placeholder "out"}/share/rwkv7-p150x2/persistent-decode-profile.json")
     (lib.cmakeFeature "RWKV7_MAXIMUM_GENERATED_TOKENS" (toString maximumGeneratedTokens))
+    (lib.cmakeFeature "RWKV7_RUNTIME_NAME" resolvedRuntimeName)
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
     (lib.cmakeFeature "RWKV7_SINGLE_CARD_MESH_DESCRIPTOR_PATH" singleCardMeshDescriptor)
     (lib.cmakeFeature "RWKV7_METALIUM_ROOT" metaliumRoot)

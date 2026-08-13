@@ -554,6 +554,18 @@
       "blake3": "02f65ea5223aab029b4fb33d1dcdf8043fce3ce6ef6e435fa1f60e890a44c0d8"
     },
     {
+      "path": "cairn/archive/2026-08-13-unblock-rwkv7-window16-parity/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2530,
+      "blake3": "3cd90270f5c26ed09ef6f0102786ea090bb406a1be9268821c2991494903aa80"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-unblock-rwkv7-window16-parity/evidence/physical-diagnostic-result.json",
+      "class": "portable_evidence",
+      "byte_count": 3154,
+      "blake3": "3b4969d8cd636fbcc7437938b90b2d756cda97af00cd01474b92043abb27e8dc"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
