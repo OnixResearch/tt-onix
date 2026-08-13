@@ -23,6 +23,12 @@ const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
 const WINDOW_SIXTEEN_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window16-v1";
+const WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window16-v2";
+const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
+const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3: &str =
+    "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6";
 const WINDOW_SIXTEEN_DECODE_WINDOW: u32 = 16;
 const PRODUCTION_ADMITTED_WINDOWS: [u32; 3] = [
     SHORT_DECODE_WINDOW,
@@ -74,6 +80,10 @@ const FALLBACK_REASONS: [&str; 9] = [
 pub struct MonitoringPolicy {
     pub schema_version: u32,
     pub policy_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_profile_blake3: Option<String>,
     pub maximum_batch_events: usize,
     pub maximum_event_bytes: usize,
     pub maximum_timing_seconds: f64,
@@ -249,11 +259,22 @@ impl RawSafetySignals {
     }
 }
 
-fn valid_policy_window_set(policy_id: &str, admitted_windows: &[u32]) -> bool {
-    ((policy_id == MONITORING_POLICY_ID || policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID)
-        && admitted_windows == PRODUCTION_ADMITTED_WINDOWS)
-        || (policy_id == WINDOW_SIXTEEN_MONITORING_POLICY_ID
-            && admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS)
+fn valid_policy_binding(policy: &MonitoringPolicy) -> bool {
+    let has_persistent_binding =
+        policy.persistent_profile_id.is_some() || policy.persistent_profile_blake3.is_some();
+    if policy.policy_id == WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID {
+        return policy.admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS
+            && policy.persistent_profile_id.as_deref()
+                == Some(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID)
+            && policy.persistent_profile_blake3.as_deref()
+                == Some(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3);
+    }
+    !has_persistent_binding
+        && (((policy.policy_id == MONITORING_POLICY_ID
+            || policy.policy_id == WINDOW_EIGHT_MONITORING_POLICY_ID)
+            && policy.admitted_windows == PRODUCTION_ADMITTED_WINDOWS)
+            || (policy.policy_id == WINDOW_SIXTEEN_MONITORING_POLICY_ID
+                && policy.admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS))
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_monitoring.policy]
@@ -271,7 +292,7 @@ pub fn parse_monitoring_policy(policy_json: &str) -> Result<MonitoringPolicy, Mo
     let valid_timing =
         policy.maximum_timing_seconds.is_finite() && policy.maximum_timing_seconds > 0.0;
     if policy.schema_version != MONITORING_SCHEMA_VERSION
-        || !valid_policy_window_set(&policy.policy_id, &policy.admitted_windows)
+        || !valid_policy_binding(&policy)
         || policy.maximum_batch_events == 0
         || policy.maximum_batch_events > HARD_MAXIMUM_BATCH_EVENTS
         || policy.maximum_event_bytes == 0
@@ -838,6 +859,27 @@ mod tests {
         assert_eq!(
             parse_monitoring_policy(&policy.to_string())
                 .expect_err("window-sixteen policy drift")
+                .code,
+            "invalid_monitoring_policy"
+        );
+    }
+
+    #[test]
+    fn accepts_window_sixteen_v2_binding_and_rejects_v1_reuse() {
+        let mut policy: JsonValue = serde_json::from_str(POLICY_JSON).expect("policy fixture");
+        policy["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID);
+        policy["persistent_profile_id"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID);
+        policy["persistent_profile_blake3"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3);
+        policy["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+        parse_monitoring_policy(&policy.to_string()).expect("window-sixteen v2 policy");
+
+        policy["persistent_profile_blake3"] =
+            serde_json::json!("0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a");
+        assert_eq!(
+            parse_monitoring_policy(&policy.to_string())
+                .expect_err("reused window-sixteen v1 profile")
                 .code,
             "invalid_monitoring_policy"
         );

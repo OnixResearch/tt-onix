@@ -23,10 +23,12 @@ constexpr std::uint32_t kWindowSixteenDecodeWindow = 16U;
 constexpr std::uint32_t kUnlistedDecodeWindow = 3U;
 constexpr std::string_view kWindowEightCandidateProfileId =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
-constexpr std::string_view kWindowSixteenCandidateProfileId =
-    "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
+constexpr std::string_view kWindowSixteenCandidateV1ProfileId = "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
+constexpr std::string_view kWindowSixteenCandidateV2ProfileId = "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
 constexpr std::uint32_t kExcessiveDecodeWindow = 6U;
 constexpr std::string_view kFailureCode = "self_test_failure";
+constexpr std::string_view kSyntheticAdmittedProfileId =
+    "rwkv7-p150x2-persistent-decode-self-test-admitted";
 constexpr double kTelemetrySetupSeconds = 0.25;
 constexpr double kTelemetryReplaySeconds = 0.5;
 constexpr double kTelemetryCleanupSeconds = 0.125;
@@ -62,6 +64,16 @@ RequestState acknowledge_and_zero(RequestState state, const Profile &profile) {
   require(!slot_releasable(state),
           "persistent decode released a slot before state zeroing");
   return apply(state, simple_event(EventKind::StateZeroed), profile);
+}
+
+Profile admitted_test_profile(const Profile &profile) {
+  Profile admitted = profile;
+  admitted.profile_id = kSyntheticAdmittedProfileId;
+  admitted.physically_admitted = true;
+  admitted.candidate_lineage = std::nullopt;
+  require(validate_profile(admitted).valid,
+          "persistent decode synthetic admitted profile is invalid");
+  return admitted;
 }
 
 BindingSet sample_bindings(const Profile &profile) {
@@ -240,8 +252,7 @@ void test_fail_closed_mode_selection(const Profile &profile) {
   const ValidationResult stable = validate_bindings(bindings, bindings);
   const CapabilityEvidence complete{true, true, true, true,
                                     true, true, true};
-  Profile admitted = profile;
-  admitted.physically_admitted = true;
+  const Profile admitted = admitted_test_profile(profile);
   require(select_execution_mode(admitted, stable, complete).mode ==
               ExecutionMode::PersistentTrace,
           "persistent decode rejected complete admission evidence");
@@ -395,20 +406,26 @@ void test_window_selection(const Profile &profile) {
                 !saw_window_sixteen,
             "window-8 candidate changed its fail-closed profile boundary");
   }
-  if (profile.profile_id == kWindowSixteenCandidateProfileId) {
-    require(!profile.physically_admitted &&
-                profile.limits.maximum_decode_steps ==
-                    kWindowSixteenDecodeWindow &&
-                select_window_limits(profile, kWindowSixteenDecodeWindow)
-                    .accepted &&
-                saw_window_sixteen,
-            "window-16 candidate changed its fail-closed profile boundary");
+  if (profile.profile_id == kWindowSixteenCandidateV1ProfileId ||
+      profile.profile_id == kWindowSixteenCandidateV2ProfileId) {
+      require(
+          !profile.physically_admitted && profile.limits.maximum_decode_steps == kWindowSixteenDecodeWindow &&
+              select_window_limits(profile, kWindowSixteenDecodeWindow).accepted && saw_window_sixteen,
+          "window-16 candidate changed its fail-closed profile boundary");
+  }
+  if (profile.profile_id == kWindowSixteenCandidateV2ProfileId) {
+      require(
+          profile.candidate_lineage.has_value() && profile.candidate_lineage->precision.fp32_recurrence_vectors &&
+              profile.candidate_lineage->precision.bf16_readout_boundary &&
+              profile.candidate_lineage->precision.recurrence_math_fidelity == "HiFi4" &&
+              profile.candidate_lineage->precision.readout_math_fidelity == "HiFi2" &&
+              profile.candidate_lineage->precision.correction_owner == "caller_once_after_row_reshape",
+          "window-16 v2 candidate changed its exact precision boundary");
   }
 }
 
 void test_persistent_telemetry_summary(const Profile &profile) {
-  Profile admitted = profile;
-  admitted.physically_admitted = true;
+  const Profile admitted = admitted_test_profile(profile);
   RequestState completed = start_request(kFirstSlot, admitted);
   completed = apply(completed, simple_event(EventKind::Complete), admitted);
   completed = acknowledge_and_zero(std::move(completed), admitted);
@@ -493,8 +510,7 @@ void test_persistent_telemetry_summary(const Profile &profile) {
 }
 
 void test_invalid_persistent_telemetry(const Profile &profile) {
-  Profile admitted = profile;
-  admitted.physically_admitted = true;
+  const Profile admitted = admitted_test_profile(profile);
   RequestState completed = start_request(kFirstSlot, admitted);
   completed = apply(completed, simple_event(EventKind::Complete), admitted);
   completed = acknowledge_and_zero(std::move(completed), admitted);
@@ -590,6 +606,30 @@ void test_invalid_profile(const Profile &profile) {
   invalid.admission.require_exact_parity = false;
   require(!validate_profile(invalid).valid,
           "persistent decode accepted an open admission profile");
+  if (profile.profile_id == kWindowSixteenCandidateV2ProfileId) {
+      require(profile.candidate_lineage.has_value(), "window-16 v2 self-test lacks candidate lineage");
+      invalid = profile;
+      invalid.candidate_lineage->precision.fp32_recurrence_vectors = false;
+      require(!validate_profile(invalid).valid, "persistent decode accepted a v2 precision downgrade");
+      invalid = profile;
+      invalid.candidate_lineage->predecessor_profile_blake3 = profile.model_profile_blake3;
+      require(!validate_profile(invalid).valid, "persistent decode accepted a reused v2 predecessor identity");
+      invalid = profile;
+      invalid.candidate_lineage = std::nullopt;
+      require(!validate_profile(invalid).valid, "persistent decode accepted missing v2 lineage");
+      require(
+          validate_precision_binding(profile, true, true).valid,
+          "persistent decode rejected the v2 runtime precision binding");
+      require(
+          !validate_precision_binding(profile, false, true).valid &&
+              !validate_precision_binding(profile, true, false).valid,
+          "persistent decode accepted a v2 runtime precision mismatch");
+  } else {
+      require(
+          validate_precision_binding(profile, false, false).valid &&
+              validate_precision_binding(profile, true, true).valid,
+          "persistent decode rejected a legacy runtime precision binding");
+  }
 }
 
 } // namespace

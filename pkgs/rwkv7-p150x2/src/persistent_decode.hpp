@@ -120,6 +120,20 @@ struct AdmissionRequirements {
   bool require_stable_physical_gain;
 };
 
+struct PrecisionRequirements {
+  bool fp32_recurrence_vectors;
+  bool bf16_readout_boundary;
+  std::string recurrence_math_fidelity;
+  std::string readout_math_fidelity;
+  std::string correction_owner;
+};
+
+struct CandidateLineage {
+  std::string predecessor_profile_blake3;
+  std::string diagnostic_receipt_blake3;
+  PrecisionRequirements precision;
+};
+
 struct Profile {
   std::uint32_t schema_version;
   std::string profile_id;
@@ -128,6 +142,7 @@ struct Profile {
   bool physically_admitted;
   Limits limits;
   AdmissionRequirements admission;
+  std::optional<CandidateLineage> candidate_lineage;
 };
 
 struct BindingSet {
@@ -265,6 +280,10 @@ telemetry_cleanup_status_name(TelemetryCleanupStatus status);
 
 [[nodiscard]] Profile parse_profile(const nlohmann::json &document);
 [[nodiscard]] ValidationResult validate_profile(const Profile &profile);
+[[nodiscard]] ValidationResult
+validate_precision_binding(const Profile &profile,
+                           bool fp32_recurrence_vectors_enabled,
+                           bool bf16_readout_boundary_enabled);
 [[nodiscard]] WindowLimitsResult
 select_window_limits(const Profile &profile, std::uint32_t decode_steps);
 

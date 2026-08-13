@@ -202,6 +202,7 @@
         runtimeName = "rwkv7-p150x2-window8-candidate-runtime";
       };
       windowSixteenMaximumGeneratedTokens = 16;
+      windowSixteenCandidateV2ProfileBlake3 = "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6";
       # r[impl tenstorrent.rwkv7_p150x2.persistent_decode_window_16]
       rwkv7P150x2Window16CandidateRuntime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
         targetContext = rwkvTargetContext;
@@ -217,6 +218,15 @@
         fusedWkvFp32RecurrenceVectors = true;
         runtimeName = "rwkv7-p150x2-window16-readout-diagnostic-runtime";
       };
+      rwkv7P150x2Window16CandidateV2Runtime = pkgs.callPackage ../pkgs/rwkv7-p150x2 {
+        targetContext = rwkvTargetContext;
+        persistentDecodeProfile = ../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-v2-profile.ncl;
+        expectedPersistentDecodeProfileBlake3 = windowSixteenCandidateV2ProfileBlake3;
+        maximumGeneratedTokens = windowSixteenMaximumGeneratedTokens;
+        fusedWkvBf16ReadoutBoundary = true;
+        fusedWkvFp32RecurrenceVectors = true;
+        runtimeName = "rwkv7-p150x2-window16-candidate-v2-runtime";
+      };
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
       rwkv7P150x2Evidence = rwkvTarget.evidence;
       rwkv7P150x2Window8CandidateEvidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
@@ -231,6 +241,20 @@
         diagnosticDeviceRuntime = rwkv7P150x2DiagnosticRuntime;
         packageName = "rwkv7-p150x2-window16-candidate-evidence";
       };
+      rwkv7P150x2Window16CandidateV2Evidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
+        targetContext = rwkvTargetContext;
+        deviceRuntime = rwkv7P150x2Window16CandidateV2Runtime;
+        diagnosticDeviceRuntime = rwkv7P150x2Window16CandidateV2Runtime;
+        packageName = "rwkv7-p150x2-window16-candidate-v2-evidence";
+        persistentDecodeProfile = ../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-v2-profile.ncl;
+        persistentDecodeProfileBlake3 = windowSixteenCandidateV2ProfileBlake3;
+        monitoringPolicy = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-monitoring-policy.ncl;
+        canaryPolicy = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-canary-policy.ncl;
+        throughputProfile = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-throughput-profile.ncl;
+        canaryThroughputProfile = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-canary-throughput-profile.ncl;
+        deploymentPolicy = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-deployment-policy.ncl;
+        observationPolicy = ../pkgs/rwkv7-p150x2-evidence/persistent-decode-window16-candidate-v2-observation-policy.ncl;
+      };
       rwkv7P150x2FusedWkvArchitectureCheck =
         pkgs.callPackage ../pkgs/rwkv7-p150x2/fused-wkv-architecture-check.nix
           { };
@@ -242,6 +266,9 @@
       };
       rwkv7P150x2Window16CandidateClosure = pkgs.closureInfo {
         rootPaths = [ rwkv7P150x2Window16CandidateEvidence ];
+      };
+      rwkv7P150x2Window16CandidateV2Closure = pkgs.closureInfo {
+        rootPaths = [ rwkv7P150x2Window16CandidateV2Evidence ];
       };
       rwkv7P150x2Attempt3Evidence =
         pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence/terminal-attempt-3.nix
@@ -264,6 +291,7 @@
             persistent_decode_profile=${../pkgs/rwkv7-p150x2/persistent-decode-profile.ncl}
             persistent_decode_window8_profile=${../pkgs/rwkv7-p150x2/persistent-decode-window8-candidate-profile.ncl}
             persistent_decode_window16_profile=${../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl}
+            persistent_decode_window16_v2_profile=${../pkgs/rwkv7-p150x2/persistent-decode-window16-candidate-v2-profile.ncl}
             persistent_decode_evidence_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_contract.rs}
             persistent_decode_monitoring_source=${../pkgs/rwkv7-p150x2-evidence/src/persistent_decode_monitoring.rs}
             persistent_decode_monitoring_command=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-persistent-decode-monitor.rs}
@@ -314,6 +342,12 @@
             grep -F 'physically_admitted = false' "$persistent_decode_window16_profile"
             grep -F 'admitted_decode_windows = contracts.AdmittedDecodeWindows' \
               "$persistent_decode_window16_profile"
+            grep -F 'profile_id = "rwkv7-p150x2-persistent-decode-window16-candidate-v2"' \
+              "$persistent_decode_window16_v2_profile"
+            grep -F 'predecessor_profile_blake3 = "0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a"' \
+              "$persistent_decode_window16_v2_profile"
+            grep -F 'fp32_recurrence_vectors = true' "$persistent_decode_window16_v2_profile"
+            grep -F 'bf16_readout_boundary = true' "$persistent_decode_window16_v2_profile"
             grep -F 'validate_persistent_receipt' "$persistent_decode_evidence_source"
             grep -F 'validate_persistent_telemetry_receipt' "$persistent_decode_evidence_source"
             grep -F 'validated_persistent_telemetry' "$persistent_decode_evidence_source"
@@ -761,6 +795,8 @@
         rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
         rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
         rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
+        rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
+        rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
@@ -797,6 +833,9 @@
         rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
         rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
         rwkv7-p150x2-window16-candidate-closure = rwkv7P150x2Window16CandidateClosure;
+        rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
+        rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
+        rwkv7-p150x2-window16-candidate-v2-closure = rwkv7P150x2Window16CandidateV2Closure;
         rwkv7-p150x2-fused-wkv-architecture = rwkv7P150x2FusedWkvArchitectureCheck;
         rwkv7-p150x2-source-boundary = rwkv7P150x2SourceCheck;
         rwkv7-p150x2-production-closure = rwkv7P150x2ClosureCheck;

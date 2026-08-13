@@ -57,6 +57,10 @@ pub struct ThroughputProfile {
     pub schema_version: u32,
     pub profile_id: String,
     pub model_profile_blake3: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persistent_profile_blake3: Option<String>,
     pub repeat_count: usize,
     pub workload: WorkloadProfile,
     pub scheduler: SchedulerProfile,
@@ -344,6 +348,52 @@ fn validate_profile(profile: &ThroughputProfile) -> Result<(), Rejection> {
         return Err(Rejection::new(
             "invalid_throughput_profile",
             "profile identity fields are empty or malformed",
+        ));
+    }
+    const WINDOW_SIXTEEN_V2_THROUGHPUT_PROFILE_ID: &str =
+        "rwkv7-p150x2-window16-candidate-v2-throughput-v1";
+    const WINDOW_SIXTEEN_V2_CANARY_THROUGHPUT_PROFILE_ID: &str =
+        "rwkv7-p150x2-window16-candidate-v2-canary-throughput-v1";
+    const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID: &str =
+        "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
+    const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3: &str =
+        "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6";
+    const WINDOW_SIXTEEN_DECODE_WINDOW: usize = 16;
+    const WINDOW_SIXTEEN_REPEAT_COUNT: usize = 5;
+    const WINDOW_SIXTEEN_CANARY_REPEAT_COUNT: usize = 4;
+    const MINIMUM_PAIRED_SPEEDUP: f64 = 1.0;
+    const WORKER_WARMUP_TOKEN_COUNT: usize = 4;
+    let is_window_sixteen_v2 = matches!(
+        profile.profile_id.as_str(),
+        WINDOW_SIXTEEN_V2_THROUGHPUT_PROFILE_ID | WINDOW_SIXTEEN_V2_CANARY_THROUGHPUT_PROFILE_ID
+    );
+    let expected_repeat_count =
+        if profile.profile_id == WINDOW_SIXTEEN_V2_CANARY_THROUGHPUT_PROFILE_ID {
+            WINDOW_SIXTEEN_CANARY_REPEAT_COUNT
+        } else {
+            WINDOW_SIXTEEN_REPEAT_COUNT
+        };
+    let has_persistent_binding =
+        profile.persistent_profile_id.is_some() || profile.persistent_profile_blake3.is_some();
+    if is_window_sixteen_v2 {
+        let v2_binding_valid = profile.persistent_profile_id.as_deref()
+            == Some(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID)
+            && profile.persistent_profile_blake3.as_deref()
+                == Some(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3)
+            && profile.workload.generated_token_count == WINDOW_SIXTEEN_DECODE_WINDOW
+            && profile.repeat_count == expected_repeat_count
+            && profile.timing.warmup_token_count == WORKER_WARMUP_TOKEN_COUNT
+            && profile.admission.minimum_dual_card_speedup == MINIMUM_PAIRED_SPEEDUP;
+        if !v2_binding_valid {
+            return Err(Rejection::new(
+                "invalid_throughput_profile",
+                "window-sixteen v2 throughput profile has a wrong candidate binding",
+            ));
+        }
+    } else if has_persistent_binding {
+        return Err(Rejection::new(
+            "invalid_throughput_profile",
+            "legacy throughput profile contains an unexpected candidate binding",
         ));
     }
     if profile.repeat_count < MINIMUM_SAMPLE_COUNT {
@@ -974,6 +1024,8 @@ mod tests {
             schema_version: THROUGHPUT_SCHEMA_VERSION,
             profile_id: "rwkv7-p150x2-throughput-v1".to_owned(),
             model_profile_blake3: MODEL_PROFILE_BLAKE3.to_owned(),
+            persistent_profile_id: None,
+            persistent_profile_blake3: None,
             repeat_count: RUN_COUNT,
             workload: WorkloadProfile {
                 request_count: REQUEST_COUNT,

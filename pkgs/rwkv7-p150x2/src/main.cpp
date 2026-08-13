@@ -137,6 +137,8 @@ constexpr std::string_view kEvidenceAdapter = RWKV7_PINNED_EVIDENCE_ADAPTER;
 constexpr std::string_view kTopologyId = RWKV7_PINNED_TOPOLOGY_ID;
 constexpr std::string_view kReplication = RWKV7_PINNED_REPLICATION;
 constexpr std::string_view kRuntimeName = RWKV7_RUNTIME_NAME;
+constexpr std::string_view kPersistentDecodeProfileBlake3 =
+    RWKV7_PERSISTENT_DECODE_PROFILE_BLAKE3;
 constexpr bool kFusedWkvBfloat16ReadoutBoundary =
     RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0;
 constexpr bool kFusedWkvFp32RecurrenceVectors = RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;
@@ -4487,8 +4489,16 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   require(persistent_profile.profile.model_profile_blake3 ==
               RWKV7_PINNED_TARGET_PROFILE_BLAKE3,
           "persistent decode profile targets a different model profile");
+  const rwkv7::persistent_decode::ValidationResult precision_binding =
+      rwkv7::persistent_decode::validate_precision_binding(
+          persistent_profile.profile, kFusedWkvFp32RecurrenceVectors,
+          kFusedWkvBfloat16ReadoutBoundary);
+  require(precision_binding.valid, precision_binding.reason);
   const std::string persistent_profile_identity =
       rwkv7::persistent_decode::blake3_hex(persistent_profile.bytes);
+  require(kPersistentDecodeProfileBlake3.empty() ||
+              persistent_profile_identity == kPersistentDecodeProfileBlake3,
+          "persistent decode profile identity differs from the immutable runtime");
   const LoadedCanaryInterlock canary_interlock =
       load_canary_interlock(persistent_profile);
   const rwkv7::persistent_decode::BindingSet expected_persistent_bindings =
@@ -6012,6 +6022,16 @@ void run_self_test() {
   validate_checkpoint_schema(checkpoint);
   const LoadedPersistentDecodeProfile persistent_profile =
       load_persistent_decode_profile();
+  const rwkv7::persistent_decode::ValidationResult precision_binding =
+      rwkv7::persistent_decode::validate_precision_binding(
+          persistent_profile.profile, kFusedWkvFp32RecurrenceVectors,
+          kFusedWkvBfloat16ReadoutBoundary);
+  require(precision_binding.valid, precision_binding.reason);
+  const std::string persistent_profile_identity =
+      rwkv7::persistent_decode::blake3_hex(persistent_profile.bytes);
+  require(kPersistentDecodeProfileBlake3.empty() ||
+              persistent_profile_identity == kPersistentDecodeProfileBlake3,
+          "persistent decode self-test profile identity differs from the runtime");
   require(parse_persistent_decode_control(std::nullopt) ==
               PersistentDecodeControl::ProfileDefault,
           "persistent decode omitted the profile-default control");

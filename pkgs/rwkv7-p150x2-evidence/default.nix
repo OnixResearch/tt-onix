@@ -4,6 +4,7 @@
   nickel,
   jq,
   coreutils,
+  b3sum,
   python3,
   ttsim,
   tt-smi,
@@ -11,6 +12,14 @@
   deviceRuntime,
   diagnosticDeviceRuntime,
   packageName ? "rwkv7-p150x2-evidence",
+  persistentDecodeProfile ? ../rwkv7-p150x2/persistent-decode-profile.ncl,
+  persistentDecodeProfileBlake3 ? "",
+  monitoringPolicy ? ./persistent-decode-monitoring-policy.ncl,
+  canaryPolicy ? ./persistent-decode-canary-policy.ncl,
+  throughputProfile ? ./persistent-decode-throughput-profile.ncl,
+  canaryThroughputProfile ? ./persistent-decode-canary-throughput-profile.ncl,
+  deploymentPolicy ? null,
+  observationPolicy ? null,
 }:
 let
   pythonEnvironment = python3.withPackages (packages: [
@@ -22,6 +31,15 @@ let
   profile = targetContext.profile;
   artifacts = targetContext.artifacts;
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
+  persistentDecodeProfileFile = builtins.baseNameOf (toString persistentDecodeProfile);
+  monitoringPolicyFile = builtins.baseNameOf (toString monitoringPolicy);
+  canaryPolicyFile = builtins.baseNameOf (toString canaryPolicy);
+  throughputProfileFile = builtins.baseNameOf (toString throughputProfile);
+  canaryThroughputProfileFile = builtins.baseNameOf (toString canaryThroughputProfile);
+  deploymentPolicyFile =
+    if deploymentPolicy == null then null else builtins.baseNameOf (toString deploymentPolicy);
+  observationPolicyFile =
+    if observationPolicy == null then null else builtins.baseNameOf (toString observationPolicy);
   packageSource = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -42,6 +60,8 @@ let
       ../rwkv7-p150x2/persistent-decode-window8-candidate-profile.ncl
       ../rwkv7-p150x2/persistent-decode-window16-contracts.ncl
       ../rwkv7-p150x2/persistent-decode-window16-candidate-profile.ncl
+      ../rwkv7-p150x2/persistent-decode-window16-candidate-v2-contracts.ncl
+      ../rwkv7-p150x2/persistent-decode-window16-candidate-v2-profile.ncl
     ];
   };
 in
@@ -53,6 +73,7 @@ rustPlatform.buildRustPackage {
   sourceRoot = "source/rwkv7-p150x2-evidence";
   cargoLock.lockFile = ./Cargo.lock;
   nativeBuildInputs = [
+    b3sum
     nickel
     pythonEnvironment
   ];
@@ -78,11 +99,21 @@ rustPlatform.buildRustPackage {
   RWKV7_CPU_REFERENCE_MODEL = artifacts.checkpoint.path;
   RWKV7_DEVICE_RUNTIME = deviceRuntime;
   RWKV7_DIAGNOSTIC_DEVICE_RUNTIME = diagnosticDeviceRuntime;
+  RWKV7_PERSISTENT_DECODE_PROFILE_BLAKE3 = persistentDecodeProfileBlake3;
   TT_SMI_PATH = tt-smi;
 
   postInstall = ''
     mkdir -p "$out/share/model-target" "$out/share/rwkv7-p150x2-throughput"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
+    nickel export --format json \
+      ../rwkv7-p150x2/${lib.escapeShellArg persistentDecodeProfileFile} \
+      >"$out/share/rwkv7-p150x2-throughput/persistent-decode-profile.json"
+    ${lib.optionalString (persistentDecodeProfileBlake3 != "") ''
+      actual_profile_blake3="$(${lib.getExe b3sum} "$out/share/rwkv7-p150x2-throughput/persistent-decode-profile.json" | cut -d' ' -f1)"
+      test "$actual_profile_blake3" = ${lib.escapeShellArg persistentDecodeProfileBlake3}
+      echo "$actual_profile_blake3" \
+        >"$out/share/rwkv7-p150x2-throughput/persistent-decode-profile-blake3"
+    ''}
     cp throughput-contracts.ncl throughput-profile.ncl \
       persistent-decode-throughput-profile.ncl \
       persistent-decode-monitoring-contracts.ncl \
@@ -102,6 +133,16 @@ rustPlatform.buildRustPackage {
       persistent-decode-window16-canary-policy.ncl \
       persistent-decode-window16-throughput-profile.ncl \
       persistent-decode-window16-canary-throughput-profile.ncl \
+      persistent-decode-window16-candidate-v2-monitoring-contracts.ncl \
+      persistent-decode-window16-candidate-v2-monitoring-policy.ncl \
+      persistent-decode-window16-candidate-v2-canary-contracts.ncl \
+      persistent-decode-window16-candidate-v2-canary-policy.ncl \
+      persistent-decode-window16-candidate-v2-throughput-profile.ncl \
+      persistent-decode-window16-candidate-v2-canary-throughput-profile.ncl \
+      persistent-decode-window16-candidate-v2-deployment-contracts.ncl \
+      persistent-decode-window16-candidate-v2-deployment-policy.ncl \
+      persistent-decode-window16-candidate-v2-observation-contracts.ncl \
+      persistent-decode-window16-candidate-v2-observation-policy.ncl \
       throughput-saturated-profile.ncl throughput-capacity-profile.ncl \
       fused-wkv-physical-profile.ncl fused-wkv-stall-profile.ncl \
       fixtures/throughput-workload.json \
@@ -111,6 +152,9 @@ rustPlatform.buildRustPackage {
       fixtures/persistent-decode-window8-lifecycle-workload.json \
       fixtures/persistent-decode-window16-workload.json \
       fixtures/persistent-decode-window16-lifecycle-workload.json \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-throughput-profile.ncl \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-deployment-policy.ncl \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-observation-policy.ncl \
       fixtures/throughput-saturated-workload.json \
       fixtures/fused-wkv-physical-workload.json \
       fixtures/fused-wkv-stall-workload.json \
@@ -118,14 +162,22 @@ rustPlatform.buildRustPackage {
       "$out/share/rwkv7-p150x2-throughput/"
     nickel export --format json throughput-profile.ncl \
       >"$out/share/rwkv7-p150x2-throughput/throughput-profile.json"
-    nickel export --format json persistent-decode-throughput-profile.ncl \
+    nickel export --format json ${lib.escapeShellArg throughputProfileFile} \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-throughput-profile.json"
-    nickel export --format json persistent-decode-monitoring-policy.ncl \
+    nickel export --format json ${lib.escapeShellArg monitoringPolicyFile} \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
-    nickel export --format json persistent-decode-canary-policy.ncl \
+    nickel export --format json ${lib.escapeShellArg canaryPolicyFile} \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-policy.json"
-    nickel export --format json persistent-decode-canary-throughput-profile.ncl \
+    nickel export --format json ${lib.escapeShellArg canaryThroughputProfileFile} \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-throughput-profile.json"
+    ${lib.optionalString (deploymentPolicy != null) ''
+      nickel export --format json ${lib.escapeShellArg deploymentPolicyFile} \
+        >"$out/share/rwkv7-p150x2-throughput/persistent-decode-deployment-policy.json"
+    ''}
+    ${lib.optionalString (observationPolicy != null) ''
+      nickel export --format json ${lib.escapeShellArg observationPolicyFile} \
+        >"$out/share/rwkv7-p150x2-throughput/persistent-decode-observation-policy.json"
+    ''}
     nickel export --format json persistent-decode-window8-monitoring-policy.ncl \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-window8-monitoring-policy.json"
     nickel export --format json persistent-decode-window8-canary-policy.ncl \
@@ -269,6 +321,10 @@ rustPlatform.buildRustPackage {
       >monitoring-window16-policy-second.json
     cmp monitoring-window16-policy-first.json monitoring-window16-policy-second.json
     test "$(jq -c '.admitted_windows' monitoring-window16-policy-first.json)" = '[2,4,8,16]'
+    selected_monitoring_policy="$out/share/rwkv7-p150x2-throughput/persistent-decode-monitoring-policy.json"
+    nickel export --format json ${lib.escapeShellArg monitoringPolicyFile} \
+      >selected-monitoring-policy-check.json
+    cmp selected-monitoring-policy-check.json "$selected_monitoring_policy"
 
     monitoring="$out/bin/rwkv7-p150x2-persistent-decode-monitor"
     persistent_fixture=fixtures/monitoring/physical-persistent-telemetry-receipt.json
@@ -401,6 +457,63 @@ rustPlatform.buildRustPackage {
       -eq "$window_sixteen_generated_tokens"
     test "$(jq -r '.timing.warmup_token_count' canary-window16-throughput-first.json)" \
       -eq "$window_sixteen_worker_warmup_tokens"
+    selected_canary_policy="$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-policy.json"
+    selected_throughput_profile="$out/share/rwkv7-p150x2-throughput/persistent-decode-throughput-profile.json"
+    selected_canary_throughput_profile="$out/share/rwkv7-p150x2-throughput/persistent-decode-canary-throughput-profile.json"
+    nickel export --format json ${lib.escapeShellArg canaryPolicyFile} \
+      >selected-canary-policy-check.json
+    nickel export --format json ${lib.escapeShellArg throughputProfileFile} \
+      >selected-throughput-profile-check.json
+    nickel export --format json ${lib.escapeShellArg canaryThroughputProfileFile} \
+      >selected-canary-throughput-profile-check.json
+    cmp selected-canary-policy-check.json "$selected_canary_policy"
+    cmp selected-throughput-profile-check.json "$selected_throughput_profile"
+    cmp selected-canary-throughput-profile-check.json \
+      "$selected_canary_throughput_profile"
+    nickel export --format json \
+      persistent-decode-window16-candidate-v2-deployment-policy.ncl \
+      >window16-v2-deployment-policy-first.json
+    nickel export --format json \
+      persistent-decode-window16-candidate-v2-deployment-policy.ncl \
+      >window16-v2-deployment-policy-second.json
+    cmp window16-v2-deployment-policy-first.json \
+      window16-v2-deployment-policy-second.json
+    nickel export --format json \
+      persistent-decode-window16-candidate-v2-observation-policy.ncl \
+      >window16-v2-observation-policy-first.json
+    nickel export --format json \
+      persistent-decode-window16-candidate-v2-observation-policy.ncl \
+      >window16-v2-observation-policy-second.json
+    cmp window16-v2-observation-policy-first.json \
+      window16-v2-observation-policy-second.json
+    if nickel export --format json \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-deployment-policy.ncl \
+      >invalid-window16-v2-deployment.json \
+      2>invalid-window16-v2-deployment.log; then
+      echo "invalid window-16 v2 deployment policy passed validation" >&2
+      exit 1
+    fi
+    test -s invalid-window16-v2-deployment.log
+    if nickel export --format json \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-observation-policy.ncl \
+      >invalid-window16-v2-observation.json \
+      2>invalid-window16-v2-observation.log; then
+      echo "invalid window-16 v2 observation policy passed validation" >&2
+      exit 1
+    fi
+    test -s invalid-window16-v2-observation.log
+    ${lib.optionalString (deploymentPolicy != null) ''
+      selected_deployment_policy="$out/share/rwkv7-p150x2-throughput/persistent-decode-deployment-policy.json"
+      nickel export --format json ${lib.escapeShellArg deploymentPolicyFile} \
+        >selected-deployment-policy-check.json
+      cmp selected-deployment-policy-check.json "$selected_deployment_policy"
+    ''}
+    ${lib.optionalString (observationPolicy != null) ''
+      selected_observation_policy="$out/share/rwkv7-p150x2-throughput/persistent-decode-observation-policy.json"
+      nickel export --format json ${lib.escapeShellArg observationPolicyFile} \
+        >selected-observation-policy-check.json
+      cmp selected-observation-policy-check.json "$selected_observation_policy"
+    ''}
 
     canary="$out/bin/rwkv7-p150x2-persistent-decode-canary"
     if "$canary" >canary-missing.out 2>canary-missing.err; then
@@ -468,6 +581,14 @@ rustPlatform.buildRustPackage {
       exit 1
     fi
     test -s invalid-profile.log
+    if nickel export --format json \
+      fixtures/invalid-persistent-decode-window16-candidate-v2-throughput-profile.ncl \
+      >invalid-window16-v2-throughput.json \
+      2>invalid-window16-v2-throughput.log; then
+      echo "invalid window-16 v2 throughput profile passed validation" >&2
+      exit 1
+    fi
+    test -s invalid-window16-v2-throughput.log
 
     throughput_core="$out/bin/rwkv7-p150x2-throughput"
     profile_identity="$($throughput_core profile-identity throughput-profile-first.json)"

@@ -17,9 +17,11 @@ namespace rwkv7::persistent_decode {
 namespace {
 
 constexpr std::uint32_t kProfileSchemaVersion = 1U;
-constexpr std::size_t kProfileFieldCount = 7U;
+constexpr std::size_t kBaseProfileFieldCount = 7U;
+constexpr std::size_t kCandidateLineageFieldCount = 3U;
 constexpr std::size_t kLimitFieldCount = 6U;
 constexpr std::size_t kAdmissionFieldCount = 4U;
+constexpr std::size_t kPrecisionFieldCount = 5U;
 constexpr std::size_t kBlake3DigestBytes = 32U;
 constexpr std::size_t kHexCharactersPerByte = 2U;
 constexpr std::size_t kBlake3HexCharacters =
@@ -34,6 +36,16 @@ constexpr std::string_view kReceiptDomain =
     "rwkv7-persistent-decode-receipt-v1";
 constexpr std::string_view kPersistentMechanism =
     "bounded_metal_trace_chunk";
+constexpr std::string_view kWindowSixteenCandidateV2ProfileId =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
+constexpr std::string_view kWindowSixteenCandidateV1Blake3 =
+    "0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a";
+constexpr std::string_view kWindowSixteenDiagnosticReceiptBlake3 =
+    "f53b9364e95295188ce1c48eec27014e8fa90d37c1c0bc813b83d578eaca7264";
+constexpr std::string_view kRecurrenceMathFidelity = "HiFi4";
+constexpr std::string_view kReadoutMathFidelity = "HiFi2";
+constexpr std::string_view kCorrectionOwner =
+    "caller_once_after_row_reshape";
 
 bool valid_blake3_hex(std::string_view value) {
   if (value.size() != kBlake3HexCharacters) {
@@ -292,9 +304,18 @@ telemetry_cleanup_status_name(TelemetryCleanupStatus status) {
 }
 
 Profile parse_profile(const nlohmann::json &document) {
-  if (!document.is_object() || document.size() != kProfileFieldCount) {
+  if (!document.is_object()) {
+    throw std::invalid_argument("persistent decode profile must be an object");
+  }
+  const std::string profile_id = document.at("profile_id").get<std::string>();
+  const bool has_candidate_lineage =
+      profile_id == kWindowSixteenCandidateV2ProfileId;
+  const std::size_t expected_profile_field_count =
+      kBaseProfileFieldCount +
+      (has_candidate_lineage ? kCandidateLineageFieldCount : 0U);
+  if (document.size() != expected_profile_field_count) {
     throw std::invalid_argument(
-        "persistent decode profile must contain exactly seven fields");
+        "persistent decode profile has the wrong field count");
   }
   const nlohmann::json &limits = document.at("limits");
   const nlohmann::json &admission = document.at("admission");
@@ -306,9 +327,26 @@ Profile parse_profile(const nlohmann::json &document) {
     throw std::invalid_argument(
         "persistent decode admission must contain exactly four fields");
   }
+  std::optional<CandidateLineage> candidate_lineage;
+  if (has_candidate_lineage) {
+    const nlohmann::json &precision = document.at("precision");
+    if (!precision.is_object() || precision.size() != kPrecisionFieldCount) {
+      throw std::invalid_argument(
+          "persistent decode precision must contain exactly five fields");
+    }
+    candidate_lineage = CandidateLineage{
+        document.at("predecessor_profile_blake3").get<std::string>(),
+        document.at("diagnostic_receipt_blake3").get<std::string>(),
+        PrecisionRequirements{
+            precision.at("fp32_recurrence_vectors").get<bool>(),
+            precision.at("bf16_readout_boundary").get<bool>(),
+            precision.at("recurrence_math_fidelity").get<std::string>(),
+            precision.at("readout_math_fidelity").get<std::string>(),
+            precision.at("correction_owner").get<std::string>()}};
+  }
   Profile profile{
       document.at("schema_version").get<std::uint32_t>(),
-      document.at("profile_id").get<std::string>(),
+      profile_id,
       document.at("model_profile_blake3").get<std::string>(),
       document.at("mechanism").get<std::string>(),
       document.at("physically_admitted").get<bool>(),
@@ -320,12 +358,12 @@ Profile parse_profile(const nlohmann::json &document) {
              limits.at("output_capacity_tokens").get<std::uint32_t>(),
              limits.at("admitted_decode_windows")
                  .get<std::vector<std::uint32_t>>()},
-
       AdmissionRequirements{
           admission.at("require_exact_parity").get<bool>(),
           admission.at("require_simulator_smoke").get<bool>(),
           admission.at("require_zero_per_token_host_submissions").get<bool>(),
-          admission.at("require_stable_physical_gain").get<bool>()}};
+          admission.at("require_stable_physical_gain").get<bool>()},
+      std::move(candidate_lineage)};
   const ValidationResult validation = validate_profile(profile);
   if (!validation.valid) {
     throw std::invalid_argument(validation.reason);
@@ -392,6 +430,54 @@ ValidationResult validate_profile(const Profile &profile) {
       !profile.admission.require_stable_physical_gain) {
     return invalid_result(
         "persistent decode admission requirements must remain fail closed");
+  }
+  const bool is_window_sixteen_candidate_v2 =
+      profile.profile_id == kWindowSixteenCandidateV2ProfileId;
+  if (is_window_sixteen_candidate_v2 !=
+      profile.candidate_lineage.has_value()) {
+    return invalid_result(
+        "persistent decode v2 candidate lineage is missing or unexpected");
+  }
+  if (profile.candidate_lineage.has_value()) {
+    const CandidateLineage &lineage = *profile.candidate_lineage;
+    const PrecisionRequirements &precision = lineage.precision;
+    if (profile.physically_admitted ||
+        lineage.predecessor_profile_blake3 !=
+            kWindowSixteenCandidateV1Blake3 ||
+        lineage.diagnostic_receipt_blake3 !=
+            kWindowSixteenDiagnosticReceiptBlake3 ||
+        lineage.predecessor_profile_blake3 == profile.model_profile_blake3 ||
+        !precision.fp32_recurrence_vectors ||
+        !precision.bf16_readout_boundary ||
+        precision.recurrence_math_fidelity != kRecurrenceMathFidelity ||
+        precision.readout_math_fidelity != kReadoutMathFidelity ||
+        precision.correction_owner != kCorrectionOwner) {
+      return invalid_result(
+          "persistent decode v2 candidate lineage or precision is invalid");
+    }
+  }
+  return valid_result();
+}
+
+ValidationResult
+validate_precision_binding(const Profile &profile,
+                           bool fp32_recurrence_vectors_enabled,
+                           bool bf16_readout_boundary_enabled) {
+  const ValidationResult profile_validation = validate_profile(profile);
+  if (!profile_validation.valid) {
+    return profile_validation;
+  }
+  if (!profile.candidate_lineage.has_value()) {
+    return valid_result();
+  }
+  const PrecisionRequirements &precision =
+      profile.candidate_lineage->precision;
+  if (precision.fp32_recurrence_vectors !=
+          fp32_recurrence_vectors_enabled ||
+      precision.bf16_readout_boundary !=
+          bf16_readout_boundary_enabled) {
+    return invalid_result(
+        "persistent decode runtime precision differs from the profile");
   }
   return valid_result();
 }

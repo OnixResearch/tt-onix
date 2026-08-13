@@ -318,8 +318,12 @@ const MAXIMUM_RECEIPT_QUEUE_DEPTH: usize = 4;
 const PRODUCTION_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
 const WINDOW_EIGHT_CANDIDATE_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
-const WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID: &str =
+const WINDOW_SIXTEEN_CANDIDATE_V1_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
+const WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
+const WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_BLAKE3: &str =
+    "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6";
 const SHORT_DECODE_WINDOW: u32 = 2;
 const LONG_DECODE_WINDOW: u32 = 4;
 const WINDOW_EIGHT_DECODE_WINDOW: u32 = 8;
@@ -360,7 +364,7 @@ fn expected_profile_windows(profile_id: &str) -> Option<(&'static [u32], u32)> {
         PRODUCTION_PROFILE_ID | WINDOW_EIGHT_CANDIDATE_PROFILE_ID => {
             Some((&ADMITTED_DECODE_WINDOWS, WINDOW_EIGHT_DECODE_WINDOW))
         }
-        WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID => Some((
+        WINDOW_SIXTEEN_CANDIDATE_V1_PROFILE_ID | WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID => Some((
             &WINDOW_SIXTEEN_CANDIDATE_WINDOWS,
             WINDOW_SIXTEEN_DECODE_WINDOW,
         )),
@@ -611,6 +615,14 @@ pub fn validate_persistent_receipt(
             "persistent decode profile is not an accepted production or evaluation candidate profile",
         ));
     };
+    if persistent.profile_id == WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID
+        && persistent.profile_blake3 != WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_BLAKE3
+    {
+        return Err(PersistentReceiptError::new(
+            "invalid_profile_identity",
+            "window-sixteen v2 receipt does not bind the immutable candidate profile",
+        ));
+    }
     if persistent.admitted_decode_windows != expected_windows
         || persistent
             .selected_decode_window_steps
@@ -1161,10 +1173,13 @@ mod tests {
         receipt
     }
 
-    fn valid_window_sixteen_candidate_receipt() -> serde_json::Value {
+    fn valid_window_sixteen_candidate_receipt(profile_id: &str) -> serde_json::Value {
         let mut receipt = valid_candidate_receipt();
-        receipt["persistent_decode"]["profile_id"] =
-            serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_PROFILE_ID);
+        receipt["persistent_decode"]["profile_id"] = serde_json::json!(profile_id);
+        if profile_id == WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID {
+            receipt["persistent_decode"]["profile_blake3"] =
+                serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_BLAKE3);
+        }
         receipt["persistent_decode"]["admitted_decode_windows"] =
             serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
         receipt["persistent_decode"]["selected_decode_window_steps"] =
@@ -1420,10 +1435,15 @@ mod tests {
         validate_value(&candidate, PersistentReceiptPolicy::Candidate)
             .expect("simulated candidate receipt");
         validate_value(
-            &valid_window_sixteen_candidate_receipt(),
+            &valid_window_sixteen_candidate_receipt(WINDOW_SIXTEEN_CANDIDATE_V1_PROFILE_ID),
             PersistentReceiptPolicy::Candidate,
         )
-        .expect("simulated window-sixteen candidate receipt");
+        .expect("simulated window-sixteen v1 candidate receipt");
+        validate_value(
+            &valid_window_sixteen_candidate_receipt(WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID),
+            PersistentReceiptPolicy::Candidate,
+        )
+        .expect("simulated window-sixteen v2 candidate receipt");
 
         let mut production = candidate;
         production["physical_hardware"] = serde_json::json!(true);
@@ -1442,7 +1462,17 @@ mod tests {
 
     #[test]
     fn rejects_window_sixteen_profile_drift() {
-        let mut invalid = valid_window_sixteen_candidate_receipt();
+        let mut invalid =
+            valid_window_sixteen_candidate_receipt(WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID);
+        invalid["persistent_decode"]["profile_blake3"] = serde_json::json!(VALID_HASH);
+        assert_eq!(
+            validate_value(&invalid, PersistentReceiptPolicy::Candidate)
+                .expect_err("window-sixteen v1 hash reuse")
+                .code,
+            "invalid_profile_identity"
+        );
+
+        invalid = valid_window_sixteen_candidate_receipt(WINDOW_SIXTEEN_CANDIDATE_V2_PROFILE_ID);
         invalid["persistent_decode"]["admitted_decode_windows"] =
             serde_json::json!(ADMITTED_DECODE_WINDOWS);
         assert_eq!(

@@ -23,6 +23,7 @@
   persistentDecodeProfile ? ./persistent-decode-profile.ncl,
   maximumGeneratedTokens ? 8,
   runtimeName ? null,
+  expectedPersistentDecodeProfileBlake3 ? null,
 }:
 let
   profile = targetContext.profile;
@@ -37,6 +38,8 @@ let
       "rwkv7-p150x2-runtime";
   artifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) artifacts;
   persistentDecodeProfileFile = builtins.baseNameOf (toString persistentDecodeProfile);
+  expectedPersistentDecodeProfileIdentity =
+    if expectedPersistentDecodeProfileBlake3 == null then "" else expectedPersistentDecodeProfileBlake3;
   metaliumRuntime = symlinkJoin {
     name = "rwkv7-p150x2-metalium-runtime";
     paths = [ "${tt-metal}/libexec/tt-metalium" ];
@@ -87,6 +90,7 @@ stdenv.mkDerivation {
   cmakeFlags = [
     (lib.cmakeFeature "RWKV7_CHECKPOINT_PATH" (toString model))
     (lib.cmakeFeature "RWKV7_PERSISTENT_DECODE_PROFILE_PATH" "${placeholder "out"}/share/rwkv7-p150x2/persistent-decode-profile.json")
+    (lib.cmakeFeature "RWKV7_PERSISTENT_DECODE_PROFILE_BLAKE3" expectedPersistentDecodeProfileIdentity)
     (lib.cmakeFeature "RWKV7_MAXIMUM_GENERATED_TOKENS" (toString maximumGeneratedTokens))
     (lib.cmakeFeature "RWKV7_RUNTIME_NAME" resolvedRuntimeName)
     (lib.cmakeFeature "RWKV7_MESH_DESCRIPTOR_PATH" meshDescriptor)
@@ -153,6 +157,14 @@ stdenv.mkDerivation {
       echo 'invalid window-16 candidate profile passed validation' >&2
       exit 1
     fi
+    nickel export --format json \
+      ../persistent-decode-window16-candidate-v2-profile.ncl \
+      >persistent-decode-window16-candidate-v2-profile.json
+    if nickel export --format json \
+      ../fixtures/invalid-persistent-decode-window16-candidate-v2-profile.ncl; then
+      echo 'invalid window-16 v2 candidate profile passed validation' >&2
+      exit 1
+    fi
     "$out/bin/rwkv7-p150x2-runtime" --self-test >self-test.log
     grep -F 'rwkv7 P150x2 runtime self-test: PASS' self-test.log
     runHook postInstallCheck
@@ -166,6 +178,7 @@ stdenv.mkDerivation {
       model
       profile
       ;
+    persistentDecodeProfileIdentity = expectedPersistentDecodeProfileIdentity;
     profileIdentity = profile.profile_identity;
     targetName = profile.target_name;
   };

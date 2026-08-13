@@ -12,6 +12,8 @@ pub const CANARY_SCHEMA_VERSION: u32 = 1;
 pub const CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-v2";
 const WINDOW_EIGHT_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window8-v1";
 const WINDOW_SIXTEEN_CANARY_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-canary-window16-v1";
+const WINDOW_SIXTEEN_V2_CANARY_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-canary-window16-v2";
 pub const CANARY_RECEIPT_KIND: &str = "rwkv7_persistent_decode_canary";
 pub const CANARY_INTERLOCK_KIND: &str = "rwkv7_persistent_decode_canary_interlock";
 pub const PERSISTENT_PROFILE_ID: &str = "rwkv7-p150x2-persistent-decode-v3";
@@ -19,11 +21,17 @@ const WINDOW_EIGHT_PERSISTENT_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window8-candidate-v1";
 const WINDOW_SIXTEEN_PERSISTENT_PROFILE_ID: &str =
     "rwkv7-p150x2-persistent-decode-window16-candidate-v1";
+const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID: &str =
+    "rwkv7-p150x2-persistent-decode-window16-candidate-v2";
+const WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3: &str =
+    "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6";
 pub const MONITORING_POLICY_ID: &str = "rwkv7-p150x2-persistent-decode-monitoring-v2";
 const WINDOW_EIGHT_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window8-v1";
 const WINDOW_SIXTEEN_MONITORING_POLICY_ID: &str =
     "rwkv7-p150x2-persistent-decode-monitoring-window16-v1";
+const WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID: &str =
+    "rwkv7-p150x2-persistent-decode-monitoring-window16-v2";
 pub const HASH_ALGORITHM: &str = "blake3";
 pub const CLEAN_ACTION: &str = "retain";
 pub const WARNING_ACTION: &str = "hold";
@@ -342,6 +350,11 @@ fn valid_policy_identity(policy: &CanaryPolicy) -> bool {
             && policy.persistent_profile_id == WINDOW_SIXTEEN_PERSISTENT_PROFILE_ID
             && policy.monitoring_policy_id == WINDOW_SIXTEEN_MONITORING_POLICY_ID
             && policy.admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS)
+        || (policy.policy_id == WINDOW_SIXTEEN_V2_CANARY_POLICY_ID
+            && policy.persistent_profile_id == WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID
+            && policy.persistent_profile_blake3 == WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3
+            && policy.monitoring_policy_id == WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID
+            && policy.admitted_windows == WINDOW_SIXTEEN_CANDIDATE_WINDOWS)
 }
 
 // r[impl tenstorrent.rwkv7_p150x2.persistent_decode_canary.policy]
@@ -440,10 +453,23 @@ pub fn build_canary_context(
     let policy = parse_canary_policy(policy_json)?;
     let monitoring_policy = parse_monitoring_policy(monitoring_policy_json)
         .map_err(|error| CanaryError::new("invalid_monitoring_policy", error.to_string()))?;
-    if monitoring_policy.policy_id != policy.monitoring_policy_id {
+    if monitoring_policy.policy_id != policy.monitoring_policy_id
+        || monitoring_policy.persistent_profile_id.as_deref()
+            != (if policy.policy_id == WINDOW_SIXTEEN_V2_CANARY_POLICY_ID {
+                Some(policy.persistent_profile_id.as_str())
+            } else {
+                None
+            })
+        || monitoring_policy.persistent_profile_blake3.as_deref()
+            != (if policy.policy_id == WINDOW_SIXTEEN_V2_CANARY_POLICY_ID {
+                Some(policy.persistent_profile_blake3.as_str())
+            } else {
+                None
+            })
+    {
         return Err(CanaryError::new(
             "canary_monitoring_policy_mismatch",
-            "monitoring policy ID differs from the canary policy",
+            "monitoring policy binding differs from the canary policy",
         ));
     }
     let throughput_profile: ThroughputProfile = serde_json::from_str(throughput_profile_json)
@@ -454,6 +480,18 @@ pub fn build_canary_context(
         usize::try_from(*policy.admitted_windows.last().expect("admitted windows"))
             .expect("admitted window must fit usize");
     if throughput_profile.repeat_count != policy.sample_count
+        || throughput_profile.persistent_profile_id.as_deref()
+            != (if policy.policy_id == WINDOW_SIXTEEN_V2_CANARY_POLICY_ID {
+                Some(policy.persistent_profile_id.as_str())
+            } else {
+                None
+            })
+        || throughput_profile.persistent_profile_blake3.as_deref()
+            != (if policy.policy_id == WINDOW_SIXTEEN_V2_CANARY_POLICY_ID {
+                Some(policy.persistent_profile_blake3.as_str())
+            } else {
+                None
+            })
         || throughput_profile.workload.request_count != policy.requests_per_worker
         || throughput_profile.scheduler.per_card_slot_count != policy.requests_per_worker
         || throughput_profile.workload.generated_token_count != selected_window
@@ -931,6 +969,7 @@ mod tests {
 
     const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const TEST_SPEEDUP: f64 = 2.0;
+    const WINDOW_SIXTEEN_DECODE_WINDOW: usize = 16;
     const POLICY: &str = r#"{
       "schema_version": 1,
       "policy_id": "rwkv7-p150x2-persistent-decode-canary-v2",
@@ -1209,6 +1248,54 @@ mod tests {
             .expect_err("decode-window warmup drift")
             .code,
             "canary_throughput_profile_mismatch"
+        );
+    }
+
+    #[test]
+    fn accepts_window_sixteen_v2_binding_and_rejects_v1_reuse() {
+        let mut policy: JsonValue = serde_json::from_str(POLICY).expect("base canary policy");
+        policy["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_V2_CANARY_POLICY_ID);
+        policy["persistent_profile_id"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID);
+        policy["persistent_profile_blake3"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3);
+        policy["monitoring_policy_id"] = serde_json::json!(WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID);
+        policy["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+        let mut throughput: JsonValue =
+            serde_json::from_str(THROUGHPUT_PROFILE).expect("base throughput profile");
+        throughput["profile_id"] =
+            serde_json::json!("rwkv7-p150x2-window16-candidate-v2-canary-throughput-v1");
+        throughput["persistent_profile_id"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID);
+        throughput["persistent_profile_blake3"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3);
+        throughput["workload"]["generated_token_count"] =
+            serde_json::json!(WINDOW_SIXTEEN_DECODE_WINDOW);
+        throughput["admission"]["minimum_dual_card_speedup"] =
+            serde_json::json!(EXPECTED_MINIMUM_PAIRED_SPEEDUP);
+        let mut monitoring: JsonValue =
+            serde_json::from_str(MONITORING_POLICY).expect("base monitoring policy");
+        monitoring["policy_id"] = serde_json::json!(WINDOW_SIXTEEN_V2_MONITORING_POLICY_ID);
+        monitoring["persistent_profile_id"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_ID);
+        monitoring["persistent_profile_blake3"] =
+            serde_json::json!(WINDOW_SIXTEEN_V2_PERSISTENT_PROFILE_BLAKE3);
+        monitoring["admitted_windows"] = serde_json::json!(WINDOW_SIXTEEN_CANDIDATE_WINDOWS);
+        build_canary_context(
+            &policy.to_string(),
+            &throughput.to_string(),
+            WORKLOAD,
+            &monitoring.to_string(),
+        )
+        .expect("window-sixteen v2 canary context");
+
+        policy["persistent_profile_blake3"] =
+            serde_json::json!("0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a");
+        assert_eq!(
+            parse_canary_policy(&policy.to_string())
+                .expect_err("reused window-sixteen v1 profile")
+                .code,
+            "invalid_canary_policy"
         );
     }
 

@@ -572,6 +572,24 @@
       "blake3": "ecc58803354862db37911b43270c0d1c4de013d26fe028c5516837ce48433e84"
     },
     {
+      "path": "cairn/archive/2026-08-13-evaluate-rwkv7-window16-corrected-v2/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 2419,
+      "blake3": "4d76ca609e5fa481850c7aca536dbce2aa98c35cf3d16866e0a7c909e01494f8"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-evaluate-rwkv7-window16-corrected-v2/evidence/physical-correctness-rejection.json",
+      "class": "portable_evidence",
+      "byte_count": 4792,
+      "blake3": "20b1b120c445846145ed78a012bd815f3728b50e69599c56cc288eb91ec22e16"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-evaluate-rwkv7-window16-corrected-v2/evidence/simulator-smoke.json",
+      "class": "portable_evidence",
+      "byte_count": 1412,
+      "blake3": "b15d3d43a7683e886640837b1b490e5b3a9a023e2e52ef7df13572ac88e9a835"
+    },
+    {
       "path": "cairn/archive/2026-08-13-unblock-rwkv7-window16-parity/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2530,
