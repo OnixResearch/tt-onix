@@ -33,6 +33,7 @@ CHECKPOINT_BLAKE3: Final = (
 )
 REFERENCE_METHOD: Final = "pinned_fp32_full_sequence_greedy_argmax"
 BINDING_DOMAIN: Final = b"rwkv7-window16-cpu-continuation-v1\x00"
+RECURRENT_MATRIX_HASH_DOMAIN: Final = b"rwkv7-window16-fp32-recurrent-matrix-v1\x00"
 FLA_REFERENCE_VERSION: Final = "0.3.0"
 OFFICIAL_REFERENCE_REVISION: Final = "952102498e9ed367ea0a59ee64106916d474d30f"
 
@@ -521,6 +522,23 @@ def state_blake3(
     return digest.hexdigest()
 
 
+def recurrent_matrix_blake3(
+    state: list[LayerState],
+    orientation: Literal["fla", "official"],
+) -> str:
+    digest = blake3.blake3(RECURRENT_MATRIX_HASH_DOMAIN)
+    for layer_index, layer in enumerate(state):
+        digest.update(f"{layer_index}:matrix\x00".encode("ascii"))
+        digest.update(
+            normalized_state_matrix(layer.matrix, orientation)
+            .detach()
+            .contiguous()
+            .numpy()
+            .tobytes()
+        )
+    return digest.hexdigest()
+
+
 def maximum_state_difference(primary: ModelRun, audit: ModelRun) -> float:
     require(len(primary.state) == len(audit.state), "audit state layer counts differ")
     maximum = 0.0
@@ -660,6 +678,12 @@ def build_receipt(
             "maximum_final_logit_abs_difference": logit_difference,
             "primary_state_blake3": state_blake3(primary.state, "fla"),
             "secondary_state_blake3": state_blake3(audit.state, "official"),
+            "primary_fp32_recurrent_matrix_blake3": recurrent_matrix_blake3(
+                primary.state, "fla"
+            ),
+            "secondary_fp32_recurrent_matrix_blake3": recurrent_matrix_blake3(
+                audit.state, "official"
+            ),
         },
         "bounds": {
             "prompt_token_count": len(KNOWN_PROMPT_TOKEN_IDS),

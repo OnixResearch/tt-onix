@@ -141,7 +141,17 @@ constexpr std::string_view kPersistentDecodeProfileBlake3 =
     RWKV7_PERSISTENT_DECODE_PROFILE_BLAKE3;
 constexpr bool kFusedWkvBfloat16ReadoutBoundary =
     RWKV7_FUSED_WKV_BF16_READOUT_BOUNDARY != 0;
-constexpr bool kFusedWkvFp32RecurrenceVectors = RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;
+constexpr bool kFusedWkvFp32RecurrenceVectors =
+    RWKV7_FUSED_WKV_FP32_RECURRENCE_VECTORS != 0;
+constexpr bool kHighPrecisionBf16Matmul = RWKV7_HIGH_PRECISION_BF16_MATMUL != 0;
+constexpr std::uint64_t kBf16MatmulDiagnosticModelStepIndex = 17U;
+constexpr std::uint32_t kBf16MatmulDiagnosticGeneratedTokenIndex = 10U;
+constexpr std::uint32_t kBf16MatmulDiagnosticLayerIndex = 0U;
+constexpr std::string_view kBf16MatmulDiagnosticOperation = "r_projection";
+constexpr std::string_view kBf16MatmulDiagnosticValueFamily =
+    "projection_output";
+constexpr std::string_view kBf16MatmulDiagnosticTargetStage =
+    "fast-batch-step-17-layer-0-time-mix-preparation";
 constexpr std::string_view kSelfTestArgument = "--self-test";
 constexpr std::string_view kHardwareCounterSmokeArgument =
     "--hardware-counter-smoke";
@@ -881,10 +891,44 @@ public:
   }
 
   void set_stage(std::string stage) {
-    if (!operation_recording_enabled_) {
+    if (!operation_recording_enabled_ && !kHighPrecisionBf16Matmul) {
       return;
     }
     stage_ = sanitize_stage(std::move(stage));
+  }
+
+  [[nodiscard]] bool
+  should_run_bf16_matmul_shadow(std::string_view operation) const {
+    return kHighPrecisionBf16Matmul &&
+           operation == kBf16MatmulDiagnosticOperation &&
+           (!bf16_matmul_shadow_warmed_ ||
+            stage_ == kBf16MatmulDiagnosticTargetStage);
+  }
+
+  [[nodiscard]] bool
+  should_capture_bf16_matmul_boundary(std::string_view operation) const {
+    return kHighPrecisionBf16Matmul &&
+           operation == kBf16MatmulDiagnosticOperation &&
+           stage_ == kBf16MatmulDiagnosticTargetStage;
+  }
+
+  void mark_bf16_matmul_shadow_warmed() {
+    require(kHighPrecisionBf16Matmul,
+            "default BF16 matmul shadow ran outside its diagnostic build");
+    bf16_matmul_shadow_warmed_ = true;
+  }
+
+  void record_bf16_matmul_boundary(Json boundary) {
+    require(should_capture_bf16_matmul_boundary(kBf16MatmulDiagnosticOperation),
+            "BF16 matmul boundary capture used the wrong stage");
+    require(!bf16_matmul_boundary_.has_value(),
+            "BF16 matmul boundary was captured more than once");
+    bf16_matmul_boundary_ = std::move(boundary);
+  }
+
+  [[nodiscard]] Json bf16_matmul_boundary() const {
+    return bf16_matmul_boundary_.has_value() ? *bf16_matmul_boundary_
+                                             : Json(nullptr);
   }
 
   void set_profiler_flush_enabled(bool enabled) {
@@ -895,8 +939,7 @@ public:
     operation_recording_enabled_ = enabled;
   }
 
-  void flush_profiler(std::string stage,
-                      bool close_device_after_read = false) {
+  void flush_profiler(std::string stage, bool close_device_after_read = false) {
     if (!profiler_flush_enabled_) {
       return;
     }
@@ -1047,6 +1090,8 @@ private:
   bool profiler_flush_enabled_ = true;
   bool operation_recording_enabled_ = true;
   std::string stage_ = "initialization";
+  bool bf16_matmul_shadow_warmed_ = false;
+  std::optional<Json> bf16_matmul_boundary_;
   std::map<std::string, std::uint64_t> operation_counts_;
   std::map<std::string, std::map<std::string, std::uint64_t>>
       stage_operation_counts_;
@@ -1312,15 +1357,111 @@ Tensor op_lerp(DeviceContext &context, const Tensor &input, const Tensor &end,
   return context.checked(ttnn::lerp(input, end, weight), "lerp");
 }
 
+bool high_precision_bf16_matmul_required(ttnn::DataType left,
+                                         ttnn::DataType right,
+                                         bool diagnostic_enabled) {
+  return diagnostic_enabled && left == ttnn::DataType::BFLOAT16 &&
+         right == ttnn::DataType::BFLOAT16;
+}
+
+ttnn::DeviceComputeKernelConfig high_precision_bf16_matmul_config() {
+  return ttnn::DeviceComputeKernelConfig{.math_fidelity =
+                                             tt::tt_metal::MathFidelity::HiFi4,
+                                         .math_approx_mode = false,
+                                         .fp32_dest_acc_en = true,
+                                         .packer_l1_acc = false,
+                                         .dst_full_sync_en = false};
+}
+
+template <typename Value>
+std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
+                                               const Tensor &input,
+                                               bool untilize);
+
+Json bf16_matmul_boundary_summary(const std::vector<bfloat16> &package_default,
+                                  const std::vector<bfloat16> &high_precision) {
+  require(package_default.size() == high_precision.size() &&
+              !package_default.empty(),
+          "BF16 matmul boundary comparison has the wrong geometry");
+  float maximum_absolute_error = 0.0F;
+  std::optional<std::size_t> first_differing_element;
+  for (std::size_t index = 0U; index < package_default.size(); ++index) {
+    const float default_value = static_cast<float>(package_default[index]);
+    const float high_precision_value =
+        static_cast<float>(high_precision[index]);
+    require(std::isfinite(default_value) && std::isfinite(high_precision_value),
+            "BF16 matmul boundary comparison contains a non-finite value");
+    maximum_absolute_error = std::max(
+        maximum_absolute_error, std::abs(default_value - high_precision_value));
+    if (!first_differing_element.has_value() &&
+        std::bit_cast<std::uint16_t>(package_default[index]) !=
+            std::bit_cast<std::uint16_t>(high_precision[index])) {
+      first_differing_element = index;
+    }
+  }
+  return Json{
+      {"generated_token_index", kBf16MatmulDiagnosticGeneratedTokenIndex},
+      {"model_step_index", kBf16MatmulDiagnosticModelStepIndex},
+      {"layer_index", kBf16MatmulDiagnosticLayerIndex},
+      {"operation", kBf16MatmulDiagnosticOperation},
+      {"value_family", kBf16MatmulDiagnosticValueFamily},
+      {"dtype", "bf16"},
+      {"element_count", package_default.size()},
+      {"package_default_blake3",
+       blake3_hex(package_default.data(),
+                  package_default.size() * sizeof(bfloat16))},
+      {"diagnostic_blake3",
+       blake3_hex(high_precision.data(),
+                  high_precision.size() * sizeof(bfloat16))},
+      {"maximum_absolute_error", maximum_absolute_error},
+      {"first_differing_element", first_differing_element.has_value()
+                                      ? Json(*first_differing_element)
+                                      : Json(nullptr)},
+      {"exact", !first_differing_element.has_value()},
+      {"package_default_contract", "hifi2_bf16_dest_acc"},
+      {"diagnostic_contract", "hifi4_fp32_dest_acc"}};
+}
+
 Tensor op_matmul(DeviceContext &context, const Tensor &left,
-                 const Tensor &right) {
-  return context.checked(ttnn::matmul(left, right), "matmul");
+                 const Tensor &right, std::string_view operation = "matmul") {
+  if (high_precision_bf16_matmul_required(left.dtype(), right.dtype(),
+                                          kHighPrecisionBf16Matmul)) {
+    std::optional<Tensor> package_default;
+    if (context.should_run_bf16_matmul_shadow(operation)) {
+      package_default = context.checked(ttnn::matmul(left, right),
+                                        "matmul-default-bf16-shadow");
+      context.mark_bf16_matmul_shadow_warmed();
+    }
+    Tensor high_precision =
+        context.checked(ttnn::matmul(left, right, false, false, std::nullopt,
+                                     std::nullopt, std::nullopt, std::nullopt,
+                                     high_precision_bf16_matmul_config()),
+                        "matmul-high-precision-bf16");
+    if (context.should_capture_bf16_matmul_boundary(operation)) {
+      require(package_default.has_value(),
+              "BF16 matmul boundary omitted its package-default control");
+      context.record_bf16_matmul_boundary(bf16_matmul_boundary_summary(
+          read_fused_wkv_probe_values<bfloat16>(context, *package_default,
+                                                false),
+          read_fused_wkv_probe_values<bfloat16>(context, high_precision,
+                                                false)));
+    }
+    return high_precision;
+  }
+  return context.checked(ttnn::matmul(left, right), operation);
 }
 
 Tensor op_linear_bias(DeviceContext &context, const Tensor &input,
                       const Tensor &weight, const Tensor &bias) {
-  return context.checked(ttnn::linear(input, weight, bias),
-                         "linear-with-bias");
+  if (high_precision_bf16_matmul_required(input.dtype(), weight.dtype(),
+                                          kHighPrecisionBf16Matmul)) {
+    return context.checked(ttnn::linear(input, weight, bias, false, false,
+                                        std::nullopt, std::nullopt,
+                                        std::nullopt, std::nullopt,
+                                        high_precision_bf16_matmul_config()),
+                           "linear-with-bias-high-precision-bf16");
+  }
+  return context.checked(ttnn::linear(input, weight, bias), "linear-with-bias");
 }
 
 Tensor op_matmul_transpose_left(DeviceContext &context, const Tensor &left,
@@ -1431,7 +1572,8 @@ TimePreparation prepare_time_mix(DeviceContext &context,
   const Tensor x_a = mixed(context, input, previous, weights.at("x_a"));
   const Tensor x_g = mixed(context, input, previous, weights.at("x_g"));
 
-  const Tensor r = op_matmul(context, x_r, weights.at("r_projection"));
+  const Tensor r = op_matmul(context, x_r, weights.at("r_projection"),
+                             kBf16MatmulDiagnosticOperation);
   const Tensor raw_k = op_matmul(context, x_k, weights.at("k_projection"));
   const Tensor projected_value =
       op_matmul(context, x_v, weights.at("v_projection"));
@@ -3068,11 +3210,6 @@ std::filesystem::path parse_persistent_decode_simulator_smoke_output(
                           "persistent decode simulator smoke");
 }
 
-template <typename Value>
-std::vector<Value> read_fused_wkv_probe_values(DeviceContext &context,
-                                                const Tensor &input,
-                                                bool untilize);
-
 void run_simulator_smoke(const std::filesystem::path &output_path,
                          WkvExecutionPolicy wkv_execution_policy) {
   static_assert(kMinimumGeneratedTokens == kSecondSimulatorSmokeStep + 1U);
@@ -3347,10 +3484,8 @@ std::string persistent_model_state_blake3(DeviceContext &context,
                        kStateHashDomain.size());
   const auto hash_values = [&hasher]<typename Value>(
                                const std::vector<Value> &values) {
-    require(!values.empty(),
-            "persistent state hash received an empty tensor");
-    blake3_hasher_update(&hasher, values.data(),
-                         values.size() * sizeof(Value));
+    require(!values.empty(), "persistent state hash received an empty tensor");
+    blake3_hasher_update(&hasher, values.data(), values.size() * sizeof(Value));
   };
   for (const LayerState &layer : state.layers) {
     require(layer.attention_previous.dtype() == ttnn::DataType::BFLOAT16 &&
@@ -3361,8 +3496,38 @@ std::string persistent_model_state_blake3(DeviceContext &context,
         context, layer.attention_previous, true));
     hash_values(read_fused_wkv_probe_values<bfloat16>(
         context, layer.ffn_previous, true));
-    hash_values(read_fused_wkv_probe_values<float>(context, layer.matrix,
-                                                   false));
+    hash_values(
+        read_fused_wkv_probe_values<float>(context, layer.matrix, false));
+  }
+  std::array<std::uint8_t, kBlake3DigestBytes> digest{};
+  blake3_hasher_finalize(&hasher, digest.data(), digest.size());
+  return digest_hex(digest);
+}
+
+std::string fp32_recurrent_matrix_blake3(DeviceContext &context,
+                                         const ModelState &state) {
+  require(state.layers.size() == kLayerCount,
+          "FP32 recurrent matrix hash has the wrong layer count");
+  constexpr std::string_view kHashDomain =
+      "rwkv7-window16-fp32-recurrent-matrix-v1";
+  constexpr char kHashSeparator = '\0';
+  blake3_hasher hasher;
+  blake3_hasher_init(&hasher);
+  blake3_hasher_update(&hasher, kHashDomain.data(), kHashDomain.size());
+  blake3_hasher_update(&hasher, &kHashSeparator, sizeof(kHashSeparator));
+  for (std::size_t layer_index = 0U; layer_index < state.layers.size();
+       ++layer_index) {
+    const LayerState &layer = state.layers[layer_index];
+    require(layer.matrix.dtype() == ttnn::DataType::FLOAT32,
+            "FP32 recurrent matrix hash found a non-FP32 matrix");
+    const std::string label = std::to_string(layer_index) + ":matrix";
+    blake3_hasher_update(&hasher, label.data(), label.size());
+    blake3_hasher_update(&hasher, &kHashSeparator, sizeof(kHashSeparator));
+    const std::vector<float> values =
+        read_fused_wkv_probe_values<float>(context, layer.matrix, false);
+    require(!values.empty(),
+            "FP32 recurrent matrix hash found an empty matrix");
+    blake3_hasher_update(&hasher, values.data(), values.size() * sizeof(float));
   }
   std::array<std::uint8_t, kBlake3DigestBytes> digest{};
   blake3_hasher_finalize(&hasher, digest.data(), digest.size());
@@ -3383,13 +3548,10 @@ float patterned_fixture_max_error(const std::vector<Value> &values,
     const float converted = static_cast<float>(values[index]);
     require(std::isfinite(converted),
             "fused WKV probe readback contains a non-finite value");
-    const std::size_t coordinate =
-        (index / coordinate_stride) % kHeadSize;
-    const float expected = coordinate < negative_width
-                               ? negative_expected
-                               : positive_expected;
-    maximum_error =
-        std::max(maximum_error, std::abs(converted - expected));
+    const std::size_t coordinate = (index / coordinate_stride) % kHeadSize;
+    const float expected =
+        coordinate < negative_width ? negative_expected : positive_expected;
+    maximum_error = std::max(maximum_error, std::abs(converted - expected));
   }
   return maximum_error;
 }
@@ -5105,6 +5267,10 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
           "fast worker elapsed time is not finite and positive");
   require(context.program_cache_entries() == cache_before_timed,
           "fast worker compiled a new program during timed decode");
+  const std::string normal_dispatch_fp32_recurrent_matrix_blake3 =
+      !use_persistent_trace && kHighPrecisionBf16Matmul
+          ? fp32_recurrent_matrix_blake3(context, state)
+          : std::string{};
   if (stall_probe_enabled) {
     require(step_wall_seconds.size() == batch_step_count,
             "stall probe step timing count differs from batch step count");
@@ -5149,8 +5315,14 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
   receipt["effective_batch_size"] = request.requests.size();
   receipt["queue_occupancy_fraction"] = queue_occupancy_fraction;
   receipt["batch_step_count"] = batch_step_count;
-  receipt["host_gap_accumulated_seconds"] =
-      host_gap_accumulated_seconds;
+  if (kHighPrecisionBf16Matmul) {
+    receipt["bf16_matmul_first_boundary"] = context.bf16_matmul_boundary();
+    receipt["normal_dispatch_fp32_recurrent_matrix_blake3"] =
+        normal_dispatch_fp32_recurrent_matrix_blake3.empty()
+            ? Json(nullptr)
+            : Json(normal_dispatch_fp32_recurrent_matrix_blake3);
+  }
+  receipt["host_gap_accumulated_seconds"] = host_gap_accumulated_seconds;
   receipt["primary_thread_cpu_affinity"] =
       primary_thread_cpu_affinity.has_value()
           ? Json(*primary_thread_cpu_affinity)
@@ -5343,6 +5515,18 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"lifecycle_receipts", std::move(persistent_lifecycle_receipts)}};
   receipt["execution"] = {
       {"scheduler_mode", "deterministic_continuous_batching"},
+      {"bf16_matmul_numerical_contract",
+       kHighPrecisionBf16Matmul
+           ? Json{{"mode", "diagnostic_hifi4_fp32_dest_acc"},
+                  {"math_fidelity", "HiFi4"},
+                  {"math_approx_mode", false},
+                  {"fp32_dest_acc_en", true},
+                  {"output_dtype", "bf16"}}
+           : Json{{"mode", "package_default_hifi2_bf16_dest_acc"},
+                  {"math_fidelity", "HiFi2"},
+                  {"math_approx_mode", false},
+                  {"fp32_dest_acc_en", false},
+                  {"output_dtype", "bf16"}}},
       {"scheduler_tie_break",
        "least_loaded_card_then_lowest_card_then_lowest_slot"},
       {"replica_mode", "independent_card_replica"},
@@ -5358,8 +5542,7 @@ void run_fast_worker(const FastWorkerArguments &arguments) {
       {"inspector_during_timing", false},
       {"fetch_queue_diagnostics_during_timing", stall_probe_enabled},
       {"hardware_counters_during_timing", stall_probe_enabled},
-      {"primary_thread_only_affinity",
-       primary_thread_cpu_affinity.has_value()},
+      {"primary_thread_only_affinity", primary_thread_cpu_affinity.has_value()},
       {"primary_thread_fifo_scheduling",
        primary_thread_fifo_priority.has_value()},
       {"synchronized_timed_start", true},
@@ -6017,6 +6200,24 @@ void run_self_test() {
                 expected_bits[index],
             "matrix transpose self-test changed orientation");
   }
+  require(high_precision_bf16_matmul_required(ttnn::DataType::BFLOAT16,
+                                              ttnn::DataType::BFLOAT16, true),
+          "high-precision BF16 matmul self-test rejected its valid pair");
+  require(!high_precision_bf16_matmul_required(
+              ttnn::DataType::FLOAT32, ttnn::DataType::BFLOAT16, true) &&
+              !high_precision_bf16_matmul_required(
+                  ttnn::DataType::BFLOAT16, ttnn::DataType::BFLOAT16, false),
+          "high-precision BF16 matmul self-test accepted an invalid pair");
+  const ttnn::DeviceComputeKernelConfig diagnostic_matmul_config =
+      high_precision_bf16_matmul_config();
+  require(diagnostic_matmul_config.math_fidelity ==
+                  tt::tt_metal::MathFidelity::HiFi4 &&
+              !diagnostic_matmul_config.math_approx_mode &&
+              diagnostic_matmul_config.fp32_dest_acc_en &&
+              !diagnostic_matmul_config.packer_l1_acc &&
+              !diagnostic_matmul_config.dst_full_sync_en,
+          "high-precision BF16 matmul self-test changed its contract");
+
   const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
   const CheckpointIndex checkpoint(checkpoint_file);
   validate_checkpoint_schema(checkpoint);

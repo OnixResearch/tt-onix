@@ -572,6 +572,18 @@
       "blake3": "ecc58803354862db37911b43270c0d1c4de013d26fe028c5516837ce48433e84"
     },
     {
+      "path": "cairn/archive/2026-08-13-diagnose-rwkv7-window16-v3/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 1118,
+      "blake3": "a6f295486d76e8e72b7f849adb4d631a0eb302f824f9623e118ed3b8ee3415f1"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-diagnose-rwkv7-window16-v3/evidence/bounded-diagnosis.json",
+      "class": "portable_evidence",
+      "byte_count": 2672,
+      "blake3": "80d3638a41d961fa47dfc6d343c95250540d0fad118ce04af23d9aefa8a03b83"
+    },
+    {
       "path": "cairn/archive/2026-08-13-evaluate-rwkv7-window16-corrected-v2/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 2419,

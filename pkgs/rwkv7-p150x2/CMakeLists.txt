@@ -16,6 +16,11 @@ option(
   "Build a diagnostic fused WKV with generic FP32 recurrence vectors"
   OFF
 )
+option(
+  RWKV7_HIGH_PRECISION_BF16_MATMUL
+  "Build a diagnostic runtime with HiFi4 FP32-accumulating BF16 matmuls"
+  OFF
+)
 
 find_package(PkgConfig REQUIRED)
 find_package(enchantum REQUIRED)

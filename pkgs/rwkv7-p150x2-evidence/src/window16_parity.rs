@@ -1,12 +1,23 @@
-//! Pure first-divergence comparator for the bounded window-16 diagnosis.
+//! Pure boundary and first-divergence contracts for the bounded window-16 diagnosis.
 //!
 //! r[impl tenstorrent.rwkv7_p150x2.window16_parity_diagnosis]
+//! r[impl tenstorrent.rwkv7_p150x2.window16_full_model_diagnosis]
+
+const BLAKE3_HEX_LENGTH: usize = 64;
+const MAXIMUM_GENERATED_TOKEN_INDEX: usize = 10;
+const MAXIMUM_LAYER_INDEX: usize = 11;
+
+pub const CPU_FP32_RECURRENT_MATRIX_BLAKE3: &str =
+    "0d904c3766a7cb13aaaeb13266e65623d516056ab6cfa2d697ccb3610dc593d7";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundaryPoint {
     pub generated_token_index: usize,
     pub layer_index: Option<usize>,
+    pub operation: String,
     pub value_family: String,
+    pub dtype: String,
+    pub blake3: String,
     pub values: Vec<f32>,
 }
 
@@ -14,14 +25,21 @@ pub struct BoundaryPoint {
 pub struct MatchingBoundary {
     pub generated_token_index: usize,
     pub layer_index: Option<usize>,
+    pub operation: String,
     pub value_family: String,
+    pub dtype: String,
+    pub blake3: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FirstDivergence {
     pub generated_token_index: usize,
     pub layer_index: Option<usize>,
+    pub operation: String,
     pub value_family: String,
+    pub dtype: String,
+    pub expected_blake3: String,
+    pub actual_blake3: String,
     pub element_index: usize,
     pub expected: f32,
     pub actual: f32,
@@ -52,11 +70,51 @@ impl std::fmt::Display for ComparisonError {
 
 impl std::error::Error for ComparisonError {}
 
+fn valid_blake3(value: &str) -> bool {
+    value.len() == BLAKE3_HEX_LENGTH
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn validate_point(point: &BoundaryPoint, side: &str) -> Result<(), ComparisonError> {
+    if point.generated_token_index > MAXIMUM_GENERATED_TOKEN_INDEX {
+        return Err(ComparisonError::new(
+            "token_bound_exceeded",
+            format!("{side} boundary exceeds generated-token index 10"),
+        ));
+    }
+    if point
+        .layer_index
+        .is_some_and(|layer| layer > MAXIMUM_LAYER_INDEX)
+    {
+        return Err(ComparisonError::new(
+            "layer_bound_exceeded",
+            format!("{side} boundary exceeds layer index 11"),
+        ));
+    }
+    if point.operation.is_empty() {
+        return Err(ComparisonError::new(
+            "empty_operation",
+            format!("{side} boundary has an empty operation"),
+        ));
+    }
     if point.value_family.is_empty() {
         return Err(ComparisonError::new(
             "empty_value_family",
             format!("{side} boundary has an empty value family"),
+        ));
+    }
+    if point.dtype != "bf16" && point.dtype != "fp32" && point.dtype != "u32" {
+        return Err(ComparisonError::new(
+            "unsupported_dtype",
+            format!("{side} boundary has an unsupported dtype"),
+        ));
+    }
+    if !valid_blake3(&point.blake3) {
+        return Err(ComparisonError::new(
+            "invalid_blake3",
+            format!("{side} boundary has an invalid BLAKE3"),
         ));
     }
     if point.values.is_empty() {
@@ -77,22 +135,43 @@ fn validate_point(point: &BoundaryPoint, side: &str) -> Result<(), ComparisonErr
 fn matching_identity(left: &BoundaryPoint, right: &BoundaryPoint) -> bool {
     left.generated_token_index == right.generated_token_index
         && left.layer_index == right.layer_index
+        && left.operation == right.operation
         && left.value_family == right.value_family
+        && left.dtype == right.dtype
+}
+
+pub fn exact_fp32_recurrent_matrix_parity(device_blake3: &str) -> Result<(), ComparisonError> {
+    if !valid_blake3(device_blake3) {
+        return Err(ComparisonError::new(
+            "invalid_device_state_blake3",
+            "device FP32 recurrent-matrix BLAKE3 is invalid",
+        ));
+    }
+    if device_blake3 != CPU_FP32_RECURRENT_MATRIX_BLAKE3 {
+        return Err(ComparisonError::new(
+            "fp32_recurrent_matrix_mismatch",
+            "device FP32 recurrent-matrix BLAKE3 differs from the pinned CPU authority",
+        ));
+    }
+    Ok(())
 }
 
 fn matching_boundary(point: &BoundaryPoint) -> MatchingBoundary {
     MatchingBoundary {
         generated_token_index: point.generated_token_index,
         layer_index: point.layer_index,
+        operation: point.operation.clone(),
         value_family: point.value_family.clone(),
+        dtype: point.dtype.clone(),
+        blake3: point.blake3.clone(),
     }
 }
 
 /// Compare ordered CPU and device boundaries with exact FP32 bit equality.
 ///
-/// The shell must order points by generated token, layer, and value family.
-/// This pure core stops at the first different value and reports the prior
-/// matching boundary. Length, identity, and finite-value faults reject.
+/// The shell must order points by generated token, layer, operation, and value
+/// family. This pure core stops at the first different value. It also checks
+/// that an exact value match has the same deterministic BLAKE3.
 pub fn first_divergence(
     expected: &[BoundaryPoint],
     actual: &[BoundaryPoint],
@@ -154,13 +233,23 @@ pub fn first_divergence(
             return Ok(Some(FirstDivergence {
                 generated_token_index: expected_point.generated_token_index,
                 layer_index: expected_point.layer_index,
+                operation: expected_point.operation.clone(),
                 value_family: expected_point.value_family.clone(),
+                dtype: expected_point.dtype.clone(),
+                expected_blake3: expected_point.blake3.clone(),
+                actual_blake3: actual_point.blake3.clone(),
                 element_index,
                 expected: expected_value,
                 actual: actual_value,
                 maximum_absolute_error,
                 prior_matching_boundary,
             }));
+        }
+        if expected_point.blake3 != actual_point.blake3 {
+            return Err(ComparisonError::new(
+                "hash_value_inconsistency",
+                format!("boundary {boundary_index} has equal values but different hashes"),
+            ));
         }
         prior_matching_boundary = Some(matching_boundary(expected_point));
     }
@@ -175,21 +264,43 @@ mod tests {
     const DIVERGENT_TOKEN_INDEX: usize = 10;
     const EXPECTED_TOKEN: f32 = 46_170.0;
     const ACTUAL_TOKEN: f32 = 64_390.0;
+    const VALID_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    const OTHER_HASH: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
-    fn token_boundary(index: usize, token: f32) -> BoundaryPoint {
+    fn token_boundary(index: usize, token: f32, hash: &str) -> BoundaryPoint {
         BoundaryPoint {
             generated_token_index: index,
             layer_index: None,
+            operation: "argmax".to_owned(),
             value_family: "selected_token".to_owned(),
+            dtype: "u32".to_owned(),
+            blake3: hash.to_owned(),
             values: vec![token],
         }
     }
 
     #[test]
+    fn accepts_the_pinned_cpu_recurrent_matrix_identity() {
+        exact_fp32_recurrent_matrix_parity(CPU_FP32_RECURRENT_MATRIX_BLAKE3)
+            .expect("pinned CPU matrix identity");
+    }
+
+    #[test]
+    fn rejects_invalid_or_different_recurrent_matrix_identities() {
+        let invalid =
+            exact_fp32_recurrent_matrix_parity("not-a-hash").expect_err("invalid matrix identity");
+        assert_eq!(invalid.code, "invalid_device_state_blake3");
+
+        let mismatch =
+            exact_fp32_recurrent_matrix_parity(OTHER_HASH).expect_err("different matrix identity");
+        assert_eq!(mismatch.code, "fp32_recurrent_matrix_mismatch");
+    }
+
+    #[test]
     fn equal_boundaries_have_no_divergence() {
         let boundaries = vec![
-            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0),
-            token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN),
+            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0, VALID_HASH),
+            token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN, OTHER_HASH),
         ];
         assert_eq!(
             first_divergence(&boundaries, &boundaries).expect("valid comparison"),
@@ -200,17 +311,18 @@ mod tests {
     #[test]
     fn reports_the_known_first_token_divergence() {
         let expected = vec![
-            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0),
-            token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN),
+            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0, VALID_HASH),
+            token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN, VALID_HASH),
         ];
         let actual = vec![
-            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0),
-            token_boundary(DIVERGENT_TOKEN_INDEX, ACTUAL_TOKEN),
+            token_boundary(MATCHING_TOKEN_INDEX, 5_230.0, VALID_HASH),
+            token_boundary(DIVERGENT_TOKEN_INDEX, ACTUAL_TOKEN, OTHER_HASH),
         ];
         let divergence = first_divergence(&expected, &actual)
             .expect("valid comparison")
             .expect("known divergence");
         assert_eq!(divergence.generated_token_index, DIVERGENT_TOKEN_INDEX);
+        assert_eq!(divergence.operation, "argmax");
         assert_eq!(divergence.value_family, "selected_token");
         assert_eq!(divergence.expected, EXPECTED_TOKEN);
         assert_eq!(divergence.actual, ACTUAL_TOKEN);
@@ -225,18 +337,47 @@ mod tests {
 
     #[test]
     fn rejects_different_boundary_identities() {
-        let expected = vec![token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN)];
+        let expected = vec![token_boundary(
+            DIVERGENT_TOKEN_INDEX,
+            EXPECTED_TOKEN,
+            VALID_HASH,
+        )];
         let mut actual = expected.clone();
-        actual[0].layer_index = Some(1);
+        actual[0].operation = "language_model_head".to_owned();
         let error = first_divergence(&expected, &actual).expect_err("identity mismatch");
         assert_eq!(error.code, "boundary_identity_mismatch");
     }
 
     #[test]
-    fn rejects_non_finite_values() {
-        let expected = vec![token_boundary(DIVERGENT_TOKEN_INDEX, EXPECTED_TOKEN)];
-        let actual = vec![token_boundary(DIVERGENT_TOKEN_INDEX, f32::NAN)];
+    fn rejects_non_finite_values_and_invalid_hashes() {
+        let expected = vec![token_boundary(
+            DIVERGENT_TOKEN_INDEX,
+            EXPECTED_TOKEN,
+            VALID_HASH,
+        )];
+        let actual = vec![token_boundary(DIVERGENT_TOKEN_INDEX, f32::NAN, VALID_HASH)];
         let error = first_divergence(&expected, &actual).expect_err("non-finite value");
         assert_eq!(error.code, "non_finite_boundary");
+
+        let mut invalid_hash = expected.clone();
+        invalid_hash[0].blake3 = "not-a-hash".to_owned();
+        let error = first_divergence(&invalid_hash, &expected).expect_err("invalid hash");
+        assert_eq!(error.code, "invalid_blake3");
+    }
+
+    #[test]
+    fn rejects_hashes_that_disagree_with_equal_values() {
+        let expected = vec![token_boundary(
+            DIVERGENT_TOKEN_INDEX,
+            EXPECTED_TOKEN,
+            VALID_HASH,
+        )];
+        let actual = vec![token_boundary(
+            DIVERGENT_TOKEN_INDEX,
+            EXPECTED_TOKEN,
+            OTHER_HASH,
+        )];
+        let error = first_divergence(&expected, &actual).expect_err("hash mismatch");
+        assert_eq!(error.code, "hash_value_inconsistency");
     }
 }

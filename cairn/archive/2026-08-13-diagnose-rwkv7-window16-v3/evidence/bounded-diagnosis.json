@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "outcome": "root_cause_proven_correction_blocked_on_fp32_recurrent_matrix_parity",
+  "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "checkpoint_blake3": "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5",
+  "rejected_candidate_v2_blake3": "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6",
+  "production_profile_blake3": "c5bfa37d83c026bfdb9255da4810bc90af71c7a0e949f05c9c5bf3e709654568",
+  "production_windows_retained": [2, 4, 8],
+  "root_cause": {
+    "mechanism": "package_default_bf16_model_matmul_numerical_contract",
+    "package_default_contract": "hifi2_bf16_dest_acc",
+    "diagnostic_contract": "hifi4_fp32_dest_acc",
+    "first_causal_boundary": {
+      "generated_token_index": 10,
+      "model_step_index": 17,
+      "layer_index": 0,
+      "operation": "r_projection",
+      "value_family": "projection_output",
+      "dtype": "bf16",
+      "element_count": 768,
+      "first_differing_element": 1,
+      "maximum_absolute_error": 0.00390625,
+      "package_default_blake3": "7d32f9f4e57724bbb408e2366c137b7a326102693110f2bcd5f98d8703ba37b2",
+      "diagnostic_blake3": "ab5d39fa71e92c9f07c822a77f9218cc6cfb2ef7fb179c20c13b50273754b296"
+    },
+    "package_default_selected_token_at_index_10": 64390,
+    "diagnostic_selected_token_at_index_10": 46170
+  },
+  "correction_probe": {
+    "physical_device_id": 0,
+    "simulated": false,
+    "dispatch": "normal",
+    "wkv_execution_policy": "generic-reference",
+    "generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47],
+    "cpu_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47],
+    "exact_generated_token_parity": true,
+    "device_fp32_recurrent_matrix_blake3": "9aca7260763e0a728b30175c40f65d43eee5743b68aea593675f94936d507c98",
+    "cpu_fp32_recurrent_matrix_blake3": "0d904c3766a7cb13aaaeb13266e65623d516056ab6cfa2d697ccb3610dc593d7",
+    "exact_fp32_recurrent_matrix_parity": false,
+    "receipt_blake3": "6f6603e423ff9057a3f5b8bf72ba8b0b15c769862944970153cb8b6487efc3d3",
+    "runtime_blake3": "9eca54ca0d4a29a67e2d0e8290bcfce71ec139829ff11aec7abd67b05cc600fd"
+  },
+  "decision": {
+    "candidate_v3_created": false,
+    "admission_gates_started": false,
+    "blocker": "fp32_recurrent_matrix_parity_mismatch"
+  },
+  "retention": {
+    "aggregate_only": true,
+    "raw_tensor_values_retained": false,
+    "raw_logs_retained": false,
+    "compiler_output_retained": false,
+    "profiler_output_retained": false,
+    "model_cache_retained": false
+  }
+}

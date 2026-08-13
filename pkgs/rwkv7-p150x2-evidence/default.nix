@@ -277,6 +277,7 @@ rustPlatform.buildRustPackage {
       .outcome == "validated_cpu_continuation" and
       .known_prefix_matched == true and
       .audit.generated_tokens_equal == true and
+      .audit.primary_fp32_recurrent_matrix_blake3 == "0d904c3766a7cb13aaaeb13266e65623d516056ab6cfa2d697ccb3610dc593d7" and
       .generated_token_ids == [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
     ' "$window_sixteen_cpu_receipt" >/dev/null
     jq -e '
