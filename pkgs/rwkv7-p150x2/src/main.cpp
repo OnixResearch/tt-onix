@@ -162,6 +162,10 @@ constexpr std::string_view kFusedWkvLayerSmokeArgument =
 constexpr std::string_view kFusedWkvProbeArgument = "--fused-wkv-probe";
 constexpr std::string_view kFusedWkvAsymmetricProbeArgument =
     "--fused-wkv-asymmetric-probe";
+constexpr std::string_view kFp32RecurrentMatrixProbeArgument =
+    "--fp32-recurrent-matrix-probe";
+constexpr std::string_view kFp32RecurrentMatrixCorrectionProbeArgument =
+    "--fp32-recurrent-matrix-correction-probe";
 constexpr std::string_view kPersistentDecodeSimulatorSmokeArgument =
     "--persistent-decode-simulator-smoke";
 constexpr std::string_view kFastDeviceArgument = "--device";
@@ -1717,7 +1721,7 @@ WkvOutput generic_wkv_step(DeviceContext &context, const Tensor &state,
                            const Tensor &k_rows, const Tensor &r_rows) {
   const bool fp32_state = state.dtype() == ttnn::DataType::FLOAT32;
   const auto source_to_state = [&](const Tensor &rows) {
-    return fp32_state
+    return fp32_state && rows.dtype() != ttnn::DataType::FLOAT32
                ? op_typecast(context, rows, ttnn::DataType::FLOAT32,
                              "typecast-recurrence-fp32")
                : rows;
@@ -3203,6 +3207,19 @@ std::filesystem::path parse_fused_wkv_asymmetric_probe_output(
                           "fused WKV asymmetric probe");
 }
 
+std::filesystem::path parse_fp32_recurrent_matrix_probe_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments, kFp32RecurrentMatrixProbeArgument,
+                          "FP32 recurrent-matrix probe");
+}
+
+std::filesystem::path parse_fp32_recurrent_matrix_correction_probe_output(
+    const std::vector<std::string> &arguments) {
+  return parse_new_output(arguments,
+                          kFp32RecurrentMatrixCorrectionProbeArgument,
+                          "FP32 recurrent-matrix correction probe");
+}
+
 std::filesystem::path parse_persistent_decode_simulator_smoke_output(
     const std::vector<std::string> &arguments) {
   return parse_new_output(arguments,
@@ -3502,6 +3519,146 @@ std::string persistent_model_state_blake3(DeviceContext &context,
   std::array<std::uint8_t, kBlake3DigestBytes> digest{};
   blake3_hasher_finalize(&hasher, digest.data(), digest.size());
   return digest_hex(digest);
+}
+
+Json fp32_recurrent_boundary(std::string_view operation,
+                             const std::vector<float> &values) {
+  require(!operation.empty(), "FP32 recurrent boundary has no operation");
+  require(!values.empty(), "FP32 recurrent boundary is empty");
+  require(std::all_of(values.begin(), values.end(),
+                      [](float value) { return std::isfinite(value); }),
+          "FP32 recurrent boundary contains a non-finite value");
+  return Json{
+      {"model_step_index", 0U},
+      {"layer_index", kLayerZero},
+      {"operation", operation},
+      {"dtype", "fp32"},
+      {"element_count", values.size()},
+      {"blake3", blake3_hex(values.data(), values.size() * sizeof(float))},
+      {"values", values}};
+}
+
+std::vector<float> tensor_values_as_fp32(DeviceContext &context,
+                                         const Tensor &input) {
+  if (input.dtype() == ttnn::DataType::FLOAT32) {
+    return read_fused_wkv_probe_values<float>(context, input, false);
+  }
+  require(input.dtype() == ttnn::DataType::BFLOAT16,
+          "FP32 recurrent input has an unsupported dtype");
+  const std::vector<bfloat16> values =
+      read_fused_wkv_probe_values<bfloat16>(context, input, false);
+  std::vector<float> converted;
+  converted.reserve(values.size());
+  std::transform(values.begin(), values.end(), std::back_inserter(converted),
+                 [](bfloat16 value) { return static_cast<float>(value); });
+  return converted;
+}
+
+void run_fp32_recurrent_matrix_probe(const std::filesystem::path &output_path,
+                                     bool fp32_model_activation_correction) {
+  require(kHighPrecisionBf16Matmul, "FP32 recurrent-matrix probe requires the "
+                                    "high-precision BF16 matmul build");
+  require(kFusedWkvFp32RecurrenceVectors,
+          "FP32 recurrent-matrix probe requires FP32 recurrence vectors");
+  select_single_card_device(kPhysicalDeviceZero);
+  const MappedFile checkpoint_file(RWKV7_PINNED_CHECKPOINT_PATH);
+  const CheckpointIndex checkpoint(checkpoint_file);
+  DeviceContext context(kFilteredLogicalDevice);
+  context.set_profiler_flush_enabled(false);
+  context.set_operation_recording_enabled(false);
+  const ModelWeights weights = load_model(context, checkpoint);
+  ModelState state = zero_fast_model_state(context, 1U, 1U);
+  LayerState &layer_state = state.layers[kFirstIndex];
+  const std::vector<float> initial_state =
+      read_fused_wkv_probe_values<float>(context, layer_state.matrix, false);
+
+  context.set_stage("fp32-recurrent-probe/embedding");
+  const Tensor token = context.uint32_tensor({kGenerationEosToken}, {1U, 1U});
+  Tensor hidden =
+      context.checked(ttnn::embedding(token, weights.embeddings, std::nullopt,
+                                      ttnn::Layout::TILE),
+                      "fp32-recurrent-probe-embedding");
+  hidden = op_reshape(context, hidden, {1U, 1U, 1U, kHiddenSize});
+  LayerWeights corrected_layer{kLayerZero, {}};
+  const LayerWeights *layer = &weights.layers[kFirstIndex];
+  Tensor attention_previous = layer_state.attention_previous;
+  if (fp32_model_activation_correction) {
+    hidden = op_typecast(context, hidden, ttnn::DataType::FLOAT32,
+                         "typecast-fp32-model-embedding");
+    attention_previous =
+        op_typecast(context, attention_previous, ttnn::DataType::FLOAT32,
+                    "typecast-fp32-model-attention-state");
+    for (const auto &[name, tensor] : layer->tensors) {
+      corrected_layer.tensors.emplace(
+          name, op_typecast(context, tensor, ttnn::DataType::FLOAT32,
+                            "typecast-fp32-model-weight"));
+    }
+    layer = &corrected_layer;
+  }
+  context.set_stage("fp32-recurrent-probe/layer-0/pre-norm");
+  const Tensor residual =
+      op_layer_norm(context, hidden, layer->at("pre_norm_weight"),
+                    layer->at("pre_norm_bias"), kLayerNormEpsilon);
+  const Tensor attention_input =
+      op_layer_norm(context, residual, layer->at("attn_norm_weight"),
+                    layer->at("attn_norm_bias"), kLayerNormEpsilon);
+  context.set_stage("fp32-recurrent-probe/layer-0/time-mix-preparation");
+  const TimePreparation preparation = prepare_time_mix(
+      context, *layer, attention_input, attention_previous, std::nullopt);
+  context.set_stage("fp32-recurrent-probe/layer-0/wkv");
+  const WkvOutput wkv =
+      wkv_step(context, *layer, layer_state.matrix, preparation,
+               WkvExecutionPolicy::RequireGenericReference);
+  require(wkv.state_dot_a.has_value() && wkv.decay.has_value() &&
+              wkv.rank_update.has_value() && wkv.outer_update.has_value() &&
+              wkv.first_add.has_value(),
+          "FP32 recurrent-matrix probe omitted a generic recurrence boundary");
+
+  const Json recurrence_inputs = Json::array(
+      {fp32_recurrent_boundary("key_rows",
+                               tensor_values_as_fp32(context, wkv.k_rows)),
+       fp32_recurrent_boundary("value_rows",
+                               tensor_values_as_fp32(context, wkv.v_rows))});
+  const Json boundaries = Json::array(
+      {fp32_recurrent_boundary("initial_state", initial_state),
+       fp32_recurrent_boundary("state_dot_a",
+                               read_fused_wkv_probe_values<float>(
+                                   context, *wkv.state_dot_a, false)),
+       fp32_recurrent_boundary("rank_update",
+                               read_fused_wkv_probe_values<float>(
+                                   context, *wkv.rank_update, false)),
+       fp32_recurrent_boundary("decay", read_fused_wkv_probe_values<float>(
+                                            context, *wkv.decay, false)),
+       fp32_recurrent_boundary("outer_update",
+                               read_fused_wkv_probe_values<float>(
+                                   context, *wkv.outer_update, false)),
+       fp32_recurrent_boundary(
+           "first_add",
+           read_fused_wkv_probe_values<float>(context, *wkv.first_add, false)),
+       fp32_recurrent_boundary("next_state", read_fused_wkv_probe_values<float>(
+                                                 context, wkv.state, false))});
+  const Json receipt{{"schema_version", kSchemaVersion},
+                     {"outcome", "temporary_fp32_recurrent_matrix_boundaries"},
+                     {"runtime_name", kRuntimeName},
+                     {"physical_hardware", true},
+                     {"simulated", false},
+                     {"physical_device_id", kPhysicalDeviceZero},
+                     {"dispatch", "normal"},
+                     {"wkv_execution_policy", kGenericReferenceWkvPolicy},
+                     {"model_step_count", 1U},
+                     {"layer_count", 1U},
+                     {"model_step_index", 0U},
+                     {"layer_index", kLayerZero},
+                     {"input_token_id", kGenerationEosToken},
+                     {"model_activation_precision",
+                      fp32_model_activation_correction ? "fp32" : "bf16"},
+                     {"recurrence_inputs", recurrence_inputs},
+                     {"boundaries", boundaries},
+                     {"temporary_raw_tensor_values", true},
+                     {"performance_claim", false},
+                     {"production_physically_admitted", false}};
+  write_json(output_path, receipt);
+  std::cout << output_path << '\n';
 }
 
 std::string fp32_recurrent_matrix_blake3(DeviceContext &context,
@@ -6384,6 +6541,19 @@ int main(int argc, char **argv) {
             kFusedWkvAsymmetricProbeArgument) {
       run_fused_wkv_asymmetric_probe(
           parse_fused_wkv_asymmetric_probe_output(arguments));
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] == kFp32RecurrentMatrixProbeArgument) {
+      run_fp32_recurrent_matrix_probe(
+          parse_fp32_recurrent_matrix_probe_output(arguments), false);
+      return EXIT_SUCCESS;
+    }
+    if (arguments.size() == kSimulatorSmokeArgumentCount &&
+        arguments[kModeArgumentIndex] ==
+            kFp32RecurrentMatrixCorrectionProbeArgument) {
+      run_fp32_recurrent_matrix_probe(
+          parse_fp32_recurrent_matrix_correction_probe_output(arguments), true);
       return EXIT_SUCCESS;
     }
     if (arguments.size() == kSimulatorSmokeArgumentCount &&

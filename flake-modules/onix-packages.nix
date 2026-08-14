@@ -237,6 +237,22 @@
         highPrecisionBf16Matmul = true;
         runtimeName = "rwkv7-p150x2-window16-high-precision-matmul-diagnostic-runtime";
       };
+      rwkv7Window16CpuRecurrentDiagnostic =
+        let
+          pythonEnvironment = pkgs.python3.withPackages (packages: [
+            packages.blake3
+            packages.numpy
+            packages.safetensors
+            packages.torch
+          ]);
+        in
+        pkgs.writeShellApplication {
+          name = "rwkv7-window16-cpu-recurrent-diagnostic";
+          runtimeInputs = [ pythonEnvironment ];
+          text = ''
+            exec python ${../pkgs/rwkv7-p150x2-evidence/reference/rwkv7_cpu_continuation_window16.py} "$@"
+          '';
+        };
       # r[impl tenstorrent.rwkv7_p150x2.evidence_classifier]
       rwkv7P150x2Evidence = rwkvTarget.evidence;
       rwkv7P150x2Window8CandidateEvidence = pkgs.callPackage ../pkgs/rwkv7-p150x2-evidence {
@@ -312,6 +328,8 @@
             hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
+            window16_parity_source=${../pkgs/rwkv7-p150x2-evidence/src/window16_parity.rs}
+            window16_cpu_reference_source=${../pkgs/rwkv7-p150x2-evidence/reference/rwkv7_cpu_continuation_window16.py}
             benchmark_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-throughput-benchmark.rs}
             runtime_cmake_source=${../pkgs/rwkv7-p150x2/CMakeLists.txt}
             runtime_package_source=${../pkgs/rwkv7-p150x2/default.nix}
@@ -340,6 +358,11 @@
             grep -F 'trace_setup_seconds' "$runtime_source"
             grep -F 'trace_replay_seconds' "$runtime_source"
             grep -F 'cleanup_seconds' "$runtime_source"
+            grep -F 'run_fp32_recurrent_matrix_probe' "$runtime_source"
+            grep -F 'kFp32RecurrentMatrixCorrectionProbeArgument' "$runtime_source"
+            grep -F 'first_recurrent_divergence' "$window16_parity_source"
+            grep -F 'build_recurrent_diagnosis' "$window16_cpu_reference_source"
+            grep -F 'bf16_recurrence_input_materialization' "$window16_cpu_reference_source"
             grep -F 'rwkv7-persistent-decode-binding-v1' "$persistent_decode_source"
             grep -F 'summarize_persistent_telemetry' "$persistent_decode_source"
             grep -F 'validate_persistent_telemetry' "$persistent_decode_source"
@@ -808,6 +831,7 @@
         rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
         rwkv7-p150x2-window16-high-precision-matmul-diagnostic-runtime =
           rwkv7P150x2Window16HighPrecisionMatmulDiagnosticRuntime;
+        rwkv7-window16-cpu-recurrent-diagnostic = rwkv7Window16CpuRecurrentDiagnostic;
         rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
@@ -848,6 +872,7 @@
         rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
         rwkv7-p150x2-window16-high-precision-matmul-diagnostic-runtime =
           rwkv7P150x2Window16HighPrecisionMatmulDiagnosticRuntime;
+        rwkv7-window16-cpu-recurrent-diagnostic = rwkv7Window16CpuRecurrentDiagnostic;
         rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
         rwkv7-p150x2-window16-candidate-v2-closure = rwkv7P150x2Window16CandidateV2Closure;
         rwkv7-p150x2-fused-wkv-architecture = rwkv7P150x2FusedWkvArchitectureCheck;
