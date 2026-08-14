@@ -5,6 +5,7 @@ mod generated_model_target_identity;
 pub mod persistent_decode_canary;
 pub mod persistent_decode_contract;
 pub mod persistent_decode_monitoring;
+pub mod serve;
 pub mod throughput;
 pub mod window16_parity;
 
@@ -1685,23 +1686,44 @@ impl BoundedTokenizer {
     }
 }
 
-pub fn tokenize_request(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenizationLimits {
+    pub maximum_prompt_tokens: usize,
+    pub minimum_generated_tokens: usize,
+    pub maximum_generated_tokens: usize,
+}
+
+pub fn tokenize_request_with_limits(
     vocabulary: &[u8],
     user_message: String,
     max_prompt_tokens: usize,
     max_new_tokens: usize,
+    limits: TokenizationLimits,
 ) -> Result<TokenizedRequest, String> {
     require(
         user_message.len() <= MAXIMUM_MESSAGE_BYTE_COUNT,
         "user message exceeds the package byte cap",
     )?;
     require(
-        (1..=MAXIMUM_PROMPT_TOKEN_COUNT).contains(&max_prompt_tokens),
-        "prompt token bound is outside the package cap",
+        limits.maximum_prompt_tokens > 0,
+        "maximum prompt token limit must be positive",
     )?;
     require(
-        (MINIMUM_GENERATED_TOKEN_COUNT..=MAXIMUM_GENERATED_TOKEN_COUNT).contains(&max_new_tokens),
-        "generation bound is outside the full-device proof range",
+        limits.minimum_generated_tokens > 0,
+        "minimum generated token limit must be positive",
+    )?;
+    require(
+        limits.maximum_generated_tokens >= limits.minimum_generated_tokens,
+        "generated token limits are reversed",
+    )?;
+    require(
+        (1..=limits.maximum_prompt_tokens).contains(&max_prompt_tokens),
+        "prompt token bound is outside the caller limit",
+    )?;
+    require(
+        (limits.minimum_generated_tokens..=limits.maximum_generated_tokens)
+            .contains(&max_new_tokens),
+        "generation bound is outside the caller range",
     )?;
     let rendered_chat_prompt =
         format!("<|rwkv_tokenizer_end_of_text|>User: {user_message}\n\nAssistant:");
@@ -1711,7 +1733,11 @@ pub fn tokenize_request(
         prompt_token_ids.len() <= max_prompt_tokens,
         "encoded prompt exceeds the caller token bound",
     )?;
-    let mut token_bytes = Vec::with_capacity(prompt_token_ids.len() * size_of::<u32>());
+    let token_byte_capacity = prompt_token_ids
+        .len()
+        .checked_mul(size_of::<u32>())
+        .ok_or_else(|| "prompt token byte capacity overflows".to_owned())?;
+    let mut token_bytes = Vec::with_capacity(token_byte_capacity);
     for token in &prompt_token_ids {
         let token = u32::try_from(*token).map_err(|_| "prompt token ID overflows u32")?;
         token_bytes.extend_from_slice(&token.to_le_bytes());
@@ -1724,6 +1750,34 @@ pub fn tokenize_request(
         max_prompt_tokens,
         max_new_tokens,
         prompt_token_ids_blake3: blake3::hash(&token_bytes).to_hex().to_string(),
+    })
+}
+
+pub fn tokenize_request(
+    vocabulary: &[u8],
+    user_message: String,
+    max_prompt_tokens: usize,
+    max_new_tokens: usize,
+) -> Result<TokenizedRequest, String> {
+    tokenize_request_with_limits(
+        vocabulary,
+        user_message,
+        max_prompt_tokens,
+        max_new_tokens,
+        TokenizationLimits {
+            maximum_prompt_tokens: MAXIMUM_PROMPT_TOKEN_COUNT,
+            minimum_generated_tokens: MINIMUM_GENERATED_TOKEN_COUNT,
+            maximum_generated_tokens: MAXIMUM_GENERATED_TOKEN_COUNT,
+        },
+    )
+    .map_err(|error| {
+        if error == "generation bound is outside the caller range" {
+            "generation bound is outside the full-device proof range".to_owned()
+        } else if error == "prompt token bound is outside the caller limit" {
+            "prompt token bound is outside the package cap".to_owned()
+        } else {
+            error
+        }
     })
 }
 

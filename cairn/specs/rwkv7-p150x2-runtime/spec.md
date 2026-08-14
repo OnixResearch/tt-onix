@@ -732,3 +732,39 @@ The runtime MUST provide a bounded diagnosis for the window-16 FP32 recurrent-ma
 - **AND** candidate v3 remains absent
 - **AND** production admission remains `[2, 4, 8]`
 - **AND** later performance, canary, deployment, observation, and admission gates do not start
+
+### Requirement: Bounded text inference service
+
+r[tenstorrent.rwkv7_p150x2.bounded_text_service]
+
+The package MUST provide a loopback-only text completion service. The CPU MUST own tokenization, request routing, and text decoding. Model arithmetic and token selection MUST run on physical Tenstorrent cards. A typed Nickel profile MUST own every network, request, worker, device, and capacity bound.
+
+#### Scenario: Strict completion succeeds
+
+- **GIVEN** a valid text request with a decode window in `[2, 4, 8]`
+- **WHEN** the service executes one bounded physical worker
+- **THEN** the worker uses the persistent trace and reports exact normal-dispatch token and FP32 recurrent-state parity
+- **AND** the service returns an OpenAI-compatible text completion
+- **AND** it makes no arbitrary-prompt CPU parity claim
+
+#### Scenario: Experimental completion is requested
+
+- **GIVEN** a valid request for at most `64` generated tokens
+- **WHEN** the caller explicitly selects experimental mode
+- **THEN** the service forces normal dispatch
+- **AND** the response states that exact CPU parity is not claimed
+
+#### Scenario: Scheduler capability is absent
+
+- **GIVEN** the service process lacks `CAP_SYS_NICE`
+- **WHEN** it starts a bounded card worker
+- **THEN** the worker omits FIFO scheduling
+- **AND** production dispatch fails closed to generic TT-NN WKV on the card
+- **AND** no CPU model fallback occurs
+
+#### Scenario: Input or worker evidence is invalid
+
+- **GIVEN** an external bind address, oversized HTTP input, unknown field, unsupported window, wrong device, simulated receipt, parity failure, timeout, or incomplete worker receipt
+- **WHEN** the service validates the request or result
+- **THEN** it rejects the completion without publishing generated text
+- **AND** it removes per-request files

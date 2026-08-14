@@ -327,6 +327,9 @@
             persistent_decode_canary_policy=${../pkgs/rwkv7-p150x2-evidence/persistent-decode-canary-policy.ncl}
             hardware_counter_source=${../pkgs/rwkv7-p150x2/src/hardware_counter_diagnostics.cpp}
             command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-command.rs}
+            serve_core_source=${../pkgs/rwkv7-p150x2-evidence/src/serve.rs}
+            serve_command_source=${../pkgs/rwkv7-p150x2-evidence/src/bin/rwkv7-p150x2-serve.rs}
+            serve_profile_source=${../pkgs/rwkv7-p150x2-evidence/serve-profile.ncl}
             throughput_source=${../pkgs/rwkv7-p150x2-evidence/src/throughput.rs}
             window16_parity_source=${../pkgs/rwkv7-p150x2-evidence/src/window16_parity.rs}
             window16_cpu_reference_source=${../pkgs/rwkv7-p150x2-evidence/reference/rwkv7_cpu_continuation_window16.py}
@@ -485,6 +488,14 @@
             grep -F '!environment.dprint_cores.has_value()' "$runtime_source"
             grep -F 'remove_environment(WATCHER_ENVIRONMENT)' "$command_source"
             grep -F 'remove_environment(DPRINT_CORES_ENVIRONMENT)' "$command_source"
+            grep -F 'listen_address.starts_with("127.0.0.1:")' "$serve_core_source"
+            grep -F 'exact_cpu_parity_claimed: false' "$serve_core_source"
+            grep -F '.env_remove("TT_METAL_WATCHER")' "$serve_command_source"
+            grep -F 'classify_worker_barrier(barrier.is_dir(), barrier.exists())' "$serve_command_source"
+            grep -F 'ServeMode::Strict => "1"' "$serve_command_source"
+            grep -F 'ServeMode::Experimental => "0"' "$serve_command_source"
+            grep -F 'configured_strict_decode_windows = [2, 4, 8]' "$serve_profile_source"
+            grep -F 'retain_request_artifacts = false' "$serve_profile_source"
 
             for output in \
               ${rwkv7P150x2Runtime} \

@@ -104,10 +104,13 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     mkdir -p "$out/share/model-target" "$out/share/rwkv7-p150x2-throughput"
+    ln -s "$out/bin/rwkv7-p150x2-serve" "$out/bin/rwkv7-serve"
     echo '${profile.profile_identity}' >"$out/share/model-target/profile-blake3"
     nickel export --format json \
       ../rwkv7-p150x2/${lib.escapeShellArg persistentDecodeProfileFile} \
       >"$out/share/rwkv7-p150x2-throughput/persistent-decode-profile.json"
+    nickel export --format json serve-profile.ncl \
+      >"$out/share/rwkv7-p150x2-throughput/serve-profile.json"
     ${lib.optionalString (persistentDecodeProfileBlake3 != "") ''
       actual_profile_blake3="$(${lib.getExe b3sum} "$out/share/rwkv7-p150x2-throughput/persistent-decode-profile.json" | cut -d' ' -f1)"
       test "$actual_profile_blake3" = ${lib.escapeShellArg persistentDecodeProfileBlake3}
@@ -256,6 +259,8 @@ rustPlatform.buildRustPackage {
     runHook preInstallCheck
     "$out/bin/rwkv7-p150x2-evidence" --self-test
     "$out/bin/rwkv7-p150x2-command" --self-test
+    "$out/bin/rwkv7-p150x2-serve" --self-test
+    "$out/bin/rwkv7-serve" --self-test
     cpu_reference_root="$out/share/rwkv7-p150x2-throughput"
     cpu_reference_receipt="$cpu_reference_root/persistent-decode-window8-cpu-reference-receipt.json"
     cpu_reference_self_test="$cpu_reference_root/persistent-decode-window8-cpu-reference-self-test.json"

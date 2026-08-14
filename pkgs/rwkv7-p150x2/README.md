@@ -26,6 +26,41 @@ The worker keeps one static batch per card. Each batch row has independent FP32 
 
 The saturated benchmark supports at most two process waves. It never assigns more active state slots to one worker than the admitted card-local capacity.
 
+## Bounded text service
+
+`rwkv7-serve` provides a loopback-only OpenAI-compatible completion endpoint. The service tokenizes and decodes text on the CPU. Each bounded worker executes the model on one physical P150 card.
+
+The strict mode accepts decode windows `[2, 4, 8]`. It rejects a response unless the worker reports persistent-trace token and FP32 recurrent-state parity. The experimental mode accepts from 1 through 64 generated tokens, forces normal dispatch, and makes no exact CPU-parity claim.
+
+The controller routes concurrent batches to the least-loaded card. Strict batches contain at most four equal-length prompts. Experimental batches contain at most sixteen prompts. The health response reports aggregate batch, token, connection, and per-card load counters. The service removes per-request worker files after it reads the result. It retains only the card-local TT-Metal kernel cache.
+
+Build and start the service:
+
+```sh
+EVIDENCE="$(nix build --no-link --print-out-paths .#rwkv7-p150x2-evidence)"
+PROFILE="$EVIDENCE/share/rwkv7-p150x2-throughput/serve-profile.json"
+STATE_ROOT=/var/tmp/rwkv7-p150x2-serve
+mkdir -p "$STATE_ROOT"
+"$EVIDENCE/bin/rwkv7-serve" serve \
+  --profile "$PROFILE" \
+  --state-root "$STATE_ROOT"
+```
+
+Send a strict request:
+
+```sh
+curl --fail-with-body \
+  --header 'Content-Type: application/json' \
+  --data '{"model":"RWKV/RWKV7-Goose-World2.8-0.1B-HF","prompt":"Hello","max_tokens":8,"mode":"strict"}' \
+  http://127.0.0.1:8080/v1/completions
+```
+
+Set `mode` to `experimental` only when a caller accepts the explicit parity non-claim. The service binds only to `127.0.0.1`. It has no remote authentication or TLS boundary.
+
+The controller is long-running, but this first service version launches one bounded runtime worker per batch. It does not keep model weights resident between HTTP batches. The per-card kernel cache remains warm.
+
+FIFO scheduling needs root or `CAP_SYS_NICE`. Without that capability, the runtime uses the generic TT-NN WKV path on the card.
+
 ## Card-local capacity plan
 
 Nickel owns the typed capacity candidates B4, B16, B32, and B64 (`throughput-capacity-profile.ncl` in the evidence package). The pure planner (`rwkv7-p150x2-throughput capacity-plan`) validates every candidate device-free: it derives FP32 recurrent-state bytes, BF16 token-shift bytes, temporary tensor estimates, and a safety reserve with checked arithmetic, and it rejects overflow or an insufficient device budget before any device opens.
