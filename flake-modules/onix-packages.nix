@@ -594,6 +594,30 @@
       ttVibeThinkerBench = pkgs.callPackage ../pkgs/tt-vibethinker-bench { };
       ttsim = pkgs.ttsim;
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
+      # r[impl tenstorrent.qwen36.deployable]
+      qwen36 = pkgs.callPackage ../pkgs/qwen36 { };
+      # r[verify tenstorrent.qwen36.upstream_authority.valid]
+      # Evaluation-time negative gate: a drifted adoption authority (wrong
+      # upstream commit) must be rejected by the validator; if it is admitted,
+      # the check fails to evaluate.
+      qwen36AuthorityNegativeCheck =
+        let
+          qwen36Validator = qwen36.passthru.authorityValidator;
+          qwen36Canonical = qwen36.passthru.canonicalAuthority;
+          driftedAuthority = qwen36Canonical // {
+            upstream = qwen36Canonical.upstream // {
+              commit = "0000000000000000000000000000000000000000";
+            };
+          };
+          driftAdmission = builtins.tryEval (qwen36Validator.admit driftedAuthority);
+        in
+        if driftAdmission.success then
+          throw "qwen36 authority negative check: drifted adoption was admitted"
+        else
+          pkgs.runCommand "qwen36-authority-negative" { } ''
+            mkdir -p "$out"
+            printf '%s\n' "qwen36 authority negative check: PASS" > "$out/result"
+          '';
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
       rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
       repositoryQuality = import ../checks/repository-quality.nix {
@@ -858,6 +882,7 @@
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
         repository-quality = repositoryQuality.repositoryQualityPackage;
+        qwen36 = qwen36;
       };
 
       checks = lib.optionalAttrs isSupportedSystem {
@@ -916,6 +941,8 @@
         repository-quality = repositoryQualityAggregate;
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;
+        qwen36 = qwen36;
+        qwen36-authority-negative = qwen36AuthorityNegativeCheck;
         repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;
         repository-quality-nix = repositoryQuality.nixQuality;
         repository-quality-policy = repositoryQuality.policyQuality;

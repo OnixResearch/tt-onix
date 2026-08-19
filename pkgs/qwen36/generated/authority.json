@@ -1,0 +1,184 @@
+{
+  "machine_facts": {
+    "caveats": [
+      "GDN B=32 PCC is not green under QWEN36_GDN_BF4=1",
+      "BF4 opt-in caches use distinct .bfp4 names; default BFP8 bins are not overwritten",
+      "long-context KV (128k/150k/256k) requires QWEN_SDPA_BF8=1",
+      "vLLM 0.10 serve is text-only; Qwen3.5 multimodal helpers are skipped when absent"
+    ],
+    "default_weight_precision": "BFP8 on-device cache; opt-in BF4 via QWEN36_LM_HEAD_BF4/QWEN36_MLP_DOWN_BF4/QWEN36_GDN_BF4",
+    "measured": {
+      "measured_flags": "QWEN36_LM_HEAD_BF4=1 QWEN36_MLP_DOWN_BF4=1 QWEN36_GDN_BF4=1 QWEN_SDPA_BF8=1",
+      "traced_150k_tokens_per_s": 25.54,
+      "traced_4k_tokens_per_s": 28.69,
+      "vllm_e2e_4096_tokens_per_s": 22.63
+    },
+    "minimum_mesh": "P150x4 (1x4)",
+    "supported_meshes": [
+      "P150x4",
+      "P150x8"
+    ],
+    "vllm": {
+      "mode": "text-only",
+      "multimodal_supported": false,
+      "version": "0.10.1.1"
+    }
+  },
+  "non_claims": [
+    "no silicon execution on this repository",
+    "no profiler attribution",
+    "no thermal or device-health claim",
+    "no Qwen3.8-27B placement on a mesh other than P150x4/P150x8",
+    "no claim that upstream merged the PR"
+  ],
+  "pr": {
+    "additions": 117,
+    "changed_files": 9,
+    "deletions": 40,
+    "head_commit": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "merged": false,
+    "number": "53543",
+    "state": "closed",
+    "title": "[Feature] Enable Qwen3.8-27B on the existing qwen36 Blackhole path"
+  },
+  "release": {
+    "architecture": "Qwen3_5ForConditionalGeneration",
+    "artifacts": [
+      {
+        "blake3": "319a0c20a852b956eb00b4b7428ef6f69d14c7311ba2412b24026ba7ccfc86d3",
+        "byte_count": 11544,
+        "name": "LICENSE",
+        "nix_hash": "sha256-u+3D/aMwWCC5dyZfAbhhnYdXCmc53jpVgsNGSEDx5Xo=",
+        "role": "model_license",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/LICENSE"
+      },
+      {
+        "blake3": "a19b66576a666e181293906ba585c13edcb2caa946d342a6a42b9d6a873a119d",
+        "byte_count": 4312,
+        "name": "config.json",
+        "nix_hash": "sha256-GR4K8jIQTti2UljPP7K4QuKIAIusp2M8EbgqGscgOqs=",
+        "role": "model_config",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/config.json"
+      },
+      {
+        "blake3": "a407ed470f71314944fe7787423cea270cce0c4af1d5b1ff00fdedda4b450a7b",
+        "byte_count": 202,
+        "name": "generation_config.json",
+        "nix_hash": "sha256-5wwTbBt43cH7CQW6yOczpNxEjU+FKl3XUUP//HC+VQ4=",
+        "role": "generation_config",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/generation_config.json"
+      },
+      {
+        "blake3": "2c33f8cdef566b382601557af419ab781af5bbb88b0dcbe3a2f09c7487e2620a",
+        "byte_count": 8952,
+        "name": "chat_template.jinja",
+        "nix_hash": "sha256-w8+eNKv0+eNsLXIWWqnBMtPipyW2wlhqqjqK+deoEEE=",
+        "role": "chat_template",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/chat_template.jinja"
+      },
+      {
+        "blake3": "f937fa059a976a7aa9a7ac7c32265ad21fbabfa8c1339fb731c276bd923921a3",
+        "byte_count": 12809320,
+        "name": "tokenizer.json",
+        "nix_hash": "sha256-CZf0EMV6H05TsJ5L6PShctkO3ZVkNo+whHAwk3IpufM=",
+        "role": "tokenizer",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer.json"
+      },
+      {
+        "blake3": "6061ff346ad8dee02a46ef90d255e19a679ae9f4c7a2b360145e5848677c4e25",
+        "byte_count": 17928,
+        "name": "tokenizer_config.json",
+        "nix_hash": "sha256-sRNJqvp83GoyB2fPfOsp7YL37aXWXo4IGedvDOlHvyc=",
+        "role": "tokenizer_config",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/tokenizer_config.json"
+      },
+      {
+        "blake3": "4426f51005e065a810456b4fee816e9d8aea2d4b08283e179593ee9dccf17605",
+        "byte_count": 6722759,
+        "name": "vocab.json",
+        "nix_hash": "sha256-zpm0yymD0RiAbOCot3ejWwk+IAClA+veJYUyhMnfoAM=",
+        "role": "tokenizer_vocabulary",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/vocab.json"
+      },
+      {
+        "blake3": "484ef1ce44341f3e58ea331d07d51fd749630e9f37d9a48260985125c8003868",
+        "byte_count": 3353259,
+        "name": "merges.txt",
+        "nix_hash": "sha256-qdNW173x70lJ4+dI6VuOEK2dTi6Djt3Digp7a5TR240=",
+        "role": "tokenizer_merges",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/merges.txt"
+      },
+      {
+        "blake3": "45c300d2e115ccc23b4bac21099918486d65d0bbb7b3844cec470cea767f41ba",
+        "byte_count": 390,
+        "name": "preprocessor_config.json",
+        "nix_hash": "sha256-JyJUUKycZSmHLuGST8sJYv9WNINPgXBA9EQRgRb05RY=",
+        "role": "image_preprocessor_config",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/preprocessor_config.json"
+      },
+      {
+        "blake3": "335d49e545e01d37d570b7c5eec92c3f2c57e7ba3cbb73f760b61c6e1cca68ae",
+        "byte_count": 385,
+        "name": "video_preprocessor_config.json",
+        "nix_hash": "sha256-d2ivJ8H6+pzJARwdwgBn4D+JFeA7Y1BFUOEdUGaYbRM=",
+        "role": "video_preprocessor_config",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/video_preprocessor_config.json"
+      },
+      {
+        "blake3": "fa14db207db12c9337128b26c78f0127535b48e9644d94cb39b770030cf66af0",
+        "byte_count": 112216,
+        "name": "model.safetensors.index.json",
+        "nix_hash": "sha256-dwQglAdmEbaXkaYQBl8otwE7jGIXlfqG3czIusfRud8=",
+        "role": "checkpoint_index",
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0/model.safetensors.index.json"
+      }
+    ],
+    "checkpoint_shard_count": 18,
+    "checkpoint_shard_names": [
+      "model-00001-of-00018.safetensors",
+      "model-00002-of-00018.safetensors",
+      "model-00003-of-00018.safetensors",
+      "model-00004-of-00018.safetensors",
+      "model-00005-of-00018.safetensors",
+      "model-00006-of-00018.safetensors",
+      "model-00007-of-00018.safetensors",
+      "model-00008-of-00018.safetensors",
+      "model-00009-of-00018.safetensors",
+      "model-00010-of-00018.safetensors",
+      "model-00011-of-00018.safetensors",
+      "model-00012-of-00018.safetensors",
+      "model-00013-of-00018.safetensors",
+      "model-00014-of-00018.safetensors",
+      "model-00015-of-00018.safetensors",
+      "model-00016-of-00018.safetensors",
+      "model-00017-of-00018.safetensors",
+      "model-00018-of-00018.safetensors"
+    ],
+    "full_attention_layer_count": 8,
+    "hidden_size": 5120,
+    "layer_count": 64,
+    "license": "Apache-2.0",
+    "linear_attention_layer_count": 56,
+    "linear_conv_kernel_dim": 4,
+    "linear_key_head_dim": 128,
+    "linear_num_key_heads": 16,
+    "linear_num_value_heads": 48,
+    "linear_value_head_dim": 128,
+    "max_position_embeddings": 262144,
+    "model_id": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "text_model_type": "qwen3_5_text",
+    "weights_excluded": true
+  },
+  "schema_version": 1,
+  "upstream": {
+    "adopted_files_count": 9,
+    "base_commit": "c71ea3ca13e8fc18ee0f102970817b5486fd1a58",
+    "branch": "qwen38-qb2",
+    "commit": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "merged_upstream": false,
+    "patch_source": "https://github.com/tenstorrent/tt-metal/pull/53543",
+    "repository_url": "https://github.com/tenstorrent/tt-metal.git",
+    "subtree": "models"
+  }
+}

@@ -126,6 +126,10 @@ boundary and non-claims.
 - [Knight-Ops/tt-metal `qwen3_6_a3b-bringup`](https://github.com/Knight-Ops/tt-metal/tree/qwen3_6_a3b-bringup/models/demos/qwen3_6_a3b) — upstream tt-nn bring-up of Qwen3.6-35B-A3B for one Blackhole P150.
 - [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) — candidate checkpoint and tokenizer source for the Qwen3.6-A3B model target.
 
+### Qwen3.8-27B adoption reference
+
+- [tenstorrent/tt-metal PR 53543](https://github.com/tenstorrent/tt-metal/pull/53543) — adopted Qwen3.8-27B-on-qwen36 change (closed-unmerged upstream). See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) and `pkgs/qwen36/authority.ncl` for the reviewed pin.
+
 ### Tenstorrent platform references
 
 - [tenstorrent/tenstorrent.github.io](https://github.com/tenstorrent/tenstorrent.github.io) — source for the public Tenstorrent documentation site.
