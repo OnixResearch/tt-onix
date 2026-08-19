@@ -62,6 +62,12 @@ stdenvNoCC.mkDerivation {
     # advertisement that TP=2 requires (on-device sampling is certified only for
     # 1x4/1x8). Generated from the adopted tree; validates with patch -p1.
     ./p150x2-tp.patch
+    # r[impl tenstorrent.qwen36.generate_tp_reset]
+    # Hardware-found upstream bug: reset_tp() calls reset_state() on every
+    # layer, but single-device full attention (Qwen36GatedAttention) only
+    # exposes reset_cache(); only GDN and the TP wrappers expose reset_state.
+    # The 9B single-device generate_tp oracle crashes without this dispatch.
+    ./generate-tp-reset.patch
   ];
   nativeBuildInputs = [
     makeWrapper
@@ -94,8 +100,21 @@ stdenvNoCC.mkDerivation {
     # The overlay is a symlink tree of the packaged runtime, so every real
     # Metalium file stays reachable without copying.
     mkdir -p "$out/libexec" "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
-    chmod u+w "$out/libexec/tt-metalium"
     cp -as ${metaliumRoot}/. "$out/libexec/tt-metalium/"
+    # cp -as preserved the store's read-only dir modes; make every REAL
+    # directory writable (find -type d never matches symlinks) so the api
+    # subtree can be replaced below.
+    find "$out/libexec/tt-metalium" -type d -exec chmod u+w {} +
+    # The packaged 0.74 runtime include tree ships only part of
+    # tt_metal/hw/inc/api (e.g. compute/experimental lacks matmul_custom.h,
+    # which the qwen36 SDPA kernels JIT-include). Replace the api subtree with
+    # real files from the package-matched tt-metal source — the same overlay
+    # pattern the rwkv7-p150x2 runtime uses for the unary headers. (A plain
+    # merge fails: parts of api, e.g. debug/, are symlinks into the store.)
+    api_src=${tt-metal.src}/tt_metal/hw/inc/api
+    api_dst="$out/libexec/tt-metalium/tt_metal/hw/inc/api"
+    rm -rf "$api_dst"
+    cp -r --no-preserve=mode "$api_src" "$api_dst"
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
     overlayRoot="$out/libexec/tt-metalium"
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36" \
@@ -116,6 +135,10 @@ stdenvNoCC.mkDerivation {
       --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
       --add-flags "-m" \
       --add-flags "vllm.entrypoints.openai.api_server"
+
+    # Positive: the overlay provides the JIT headers the packaged runtime
+    # omits (matmul_custom.h is required by the qwen36 SDPA kernels).
+    test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
 
     runHook postInstall
   '';

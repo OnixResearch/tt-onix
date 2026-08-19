@@ -21,7 +21,7 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
     patch_source = "https://github.com/tenstorrent/tt-metal/pull/53543",
     subtree = "models",
     adopted_files_count = 9,
-    local_patches = [ "p150x2-tp" ],
+    local_patches = [ "p150x2-tp", "generate-tp-reset" ],
   },
   pr = {
     number = "53543",

@@ -247,6 +247,17 @@ def probe_p150x2_gate():
         "device-name mapping lost the 2-device P300 entry",
     )
 
+    # generate-tp-reset: reset_tp must dispatch by layer attention API (the
+    # single-device full-attention layer only exposes reset_cache).
+    require(
+        "attention.reset_cache()" in model_source,
+        "reset_tp lost its reset_cache fallback for single-device full attention",
+    )
+    require(
+        'hasattr(attention, "reset_state")' in model_source,
+        "reset_tp lost its reset_state dispatch",
+    )
+
 
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)

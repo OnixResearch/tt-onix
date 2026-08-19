@@ -52,6 +52,7 @@ let
       authority.upstream.merged_upstream == false
     ) "qwen36 adoption records an upstream merge for a closed-but-unmerged PR")
     (require (builtins.elem "p150x2-tp" authority.upstream.local_patches) "qwen36 adoption lost the carried p150x2-tp patch")
+    (require (builtins.elem "generate-tp-reset" authority.upstream.local_patches) "qwen36 adoption lost the carried generate-tp-reset patch (hardware-found reset_tp bug)")
     (require (
       authority.pr.state == "closed" && authority.pr.merged == false
     ) "qwen36 PR state does not match closed-unmerged")

@@ -140,6 +140,44 @@ greedy `test_generate_tp.py` Paris, carry GDN recurrent state, receipt marked
 3. hardware — same commands on the two-P150 box, `tests/pcc_thresholds.json`
 TP=2 rows, then TTFT/tok/s with the BF4/BF8 flags.
 
+## Hardware evidence (2026-08-19, britton-desktop)
+
+The two-P150 box validated the adopted stack on real silicon with the packaged
+0.74 runtime (no runtime bump):
+
+- **Silicon op roundtrip** — device open on physical chip 1, host→device,
+BF16 matmul 32x1024x1024, device→host; cosine 0.999968 against torch
+  (`evidence/2026-08-19/hw-silicon-matmul.log`).
+- **Qwen3.5-9B single-device generation — PASS**: the demo's own paged path
+  (`_run_paged_generation`) produced `"The capital of France is Paris."` with
+first generated token `Paris` and a non-degenerate continuation
+  (`evidence/2026-08-19/hw-9b-paged-generate.log`). Physical chip 1,
+`TT_VISIBLE_DEVICES=1`, `TT_MESH_GRAPH_DESC_PATH` unset (the ambient p150_x2
+descriptor cannot map onto one device — the same hazard `rwkv7-chat`
+documents).
+
+Two blockers were found and fixed on the way, both recorded as carried patches
+or package fixes:
+
+1. `generate_tp` crashed on single-device models: `reset_tp()` calls
+   `reset_state()` on every layer, but single-device full attention only
+   exposes `reset_cache()` — carried as `generate-tp-reset.patch`. The PR's
+   own oracle test box was unchecked upstream; the single-device oracle had
+   never been run. (`generate_tp`/`prefill_tp` remain TP-only entry points —
+   the 4D fractured-residual layout is wrong for single-device use; the 9B
+   validation above uses the served paged path instead.)
+2. The packaged 0.74 runtime include tree lacks
+   `api/compute/experimental/matmul_custom.h` (and more), which the qwen36 SDPA
+   kernels JIT-include; the package now replaces the overlay's `hw/inc/api`
+   subtree with real files from the package-matched source — the same pattern
+   the rwkv7-p150x2 runtime uses for unary headers.
+
+Non-claims: no TP=2 silicon run yet (chip 0 is held by the vibethinker
+`llama-server` system service; freeing it needs one privileged `systemctl
+stop`), no throughput or TTFT measurement, no P150x2 PCC row. The 27B weights
+are prefetched locally so the TP=2 run starts immediately once both cards are
+free.
+
 ## Upstream state watch
 
 The PR is closed-unmerged. If upstream merges it or the qwen36 path moves,

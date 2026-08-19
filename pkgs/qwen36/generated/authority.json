@@ -180,7 +180,8 @@
     "branch": "qwen38-qb2",
     "commit": "d102e7f4512060e09e580e40cf26a870bfa88c55",
     "local_patches": [
-      "p150x2-tp"
+      "p150x2-tp",
+      "generate-tp-reset"
     ],
     "merged_upstream": false,
     "patch_source": "https://github.com/tenstorrent/tt-metal/pull/53543",
