@@ -71,6 +71,7 @@ let AuthorityContract = {
     patch_source | HttpsUrl,
     subtree | NonEmpty,
     adopted_files_count | Positive,
+    local_patches | Array NonEmpty,
   },
   pr = {
     number | NonEmpty,

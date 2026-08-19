@@ -55,7 +55,14 @@ stdenvNoCC.mkDerivation {
   src = source;
   dontConfigure = true;
   dontBuild = true;
-  dontPatch = true;
+  patches = [
+    # r[impl tenstorrent.qwen36.p150x2_tp]
+    # TP=2 (P150x2 / P300) support carried on top of the adopted PR: registers
+    # the P150x2 mesh maps, the P300 prefill-chunk entries, and the host-sampling
+    # advertisement that TP=2 requires (on-device sampling is certified only for
+    # 1x4/1x8). Generated from the adopted tree; validates with patch -p1.
+    ./p150x2-tp.patch
+  ];
   nativeBuildInputs = [
     makeWrapper
     nickel

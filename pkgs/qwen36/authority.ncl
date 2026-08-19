@@ -21,6 +21,7 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
     patch_source = "https://github.com/tenstorrent/tt-metal/pull/53543",
     subtree = "models",
     adopted_files_count = 9,
+    local_patches = [ "p150x2-tp" ],
   },
   pr = {
     number = "53543",
@@ -160,7 +161,7 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
   },
   machine_facts = {
     minimum_mesh = "P150x4 (1x4)",
-    supported_meshes = [ "P150x4", "P150x8" ],
+    supported_meshes = [ "P150x2", "P150x4", "P150x8" ],
     default_weight_precision = "BFP8 on-device cache; opt-in BF4 via QWEN36_LM_HEAD_BF4/QWEN36_MLP_DOWN_BF4/QWEN36_GDN_BF4",
     vllm = {
       version = "0.10.1.1",
@@ -177,13 +178,15 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
       "BF4 opt-in caches use distinct .bfp4 names; default BFP8 bins are not overwritten",
       "long-context KV (128k/150k/256k) requires QWEN_SDPA_BF8=1",
       "vLLM 0.10 serve is text-only; Qwen3.5 multimodal helpers are skipped when absent",
+      "P150x2 (P300) is a carried 27B TP=2 path: host sampling only (on-device sampling is certified for 1x4/1x8), frozen TP=4 prefill tuning, no silicon validation in this repository",
     ],
   },
   non_claims = [
     "no silicon execution on this repository",
     "no profiler attribution",
     "no thermal or device-health claim",
-    "no Qwen3.8-27B placement on a mesh other than P150x4/P150x8",
+    "no Qwen3.8-27B placement on a mesh other than P150x2/P150x4/P150x8",
+    "no P150x2 throughput or validity claim (carried, unvalidated)",
     "no claim that upstream merged the PR",
   ],
 } | contracts.Authority

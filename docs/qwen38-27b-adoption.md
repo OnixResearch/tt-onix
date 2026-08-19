@@ -78,9 +78,12 @@ Drift in any recorded fact fails the package evaluation. A separate
 
 ## Deployment (hardware)
 
-The PR's 27B configurations require a P150x4 or P150x8 mesh. This repository's
-hardware evidence currently covers P150x1 / P150x2, so Qwen3.8-27B cannot be
-placed on the documented training mesh. Deployment to a 4- or 8-card box is:
+The 27B configurations require a P150x4 or P150x8 mesh for the PR's certified
+path. This repository additionally carries a **P150x2 (`P300`)** build so the
+two-P150 deployment can attempt Qwen3.8-27B at 2-way tensor parallel without
+waiting for a larger box.
+
+On a P150x4/x8 box:
 
 ```sh
 HF_MODEL=Qwen/Qwen3.8-27B MESH_DEVICE=P150x4 nix run .#qwen36 -- \
@@ -106,6 +109,36 @@ The adoption makes no silicon, placement, profiler, thermal, or performance
 claim on this repository. The device-free check proves imports and gate
 behavior only. Physical validation must run on a P150x4/x8 box (or a bounded
 ttsim smoke for the single-device 9B path) before any runnable claim.
+
+## Carried P150x2 (P300) build
+
+`pkgs/qwen36/p150x2-tp.patch` adds a TP=2 path on top of the adopted PR. It:
+
+- registers `P150x2 → (1, 2)` in the demo and test mesh maps;
+- adds `P300` prefill-chunk entries (`2` in 1024-token units) for
+  Qwen3.5/3.6/3.8-27B — `P300` is the unit-test built-in device name for
+  two Blackhole devices (`determine_device_name`) and already appears in
+  `get_trace_prefill_supported_seq_lens`;
+- advertises **host sampling** at TP=2: `supports_sample_on_device` is made
+  mesh-conditional because on-device sampling is certified only for 1x4/1x8
+  (the Top-K 65536-logits/device shard limit; Qwen3.8-27B gives 124160
+  logits/device at TP=2).
+
+Why TP=2 divisibility is safe for this checkpoint: 24 heads, 4 KV heads,
+16/48 linear-attention heads, hidden 5120, intermediate 17408, and vocab
+248320 all divide by 2; no KV-head replication is needed (that path exists for
+TP=8). The carried tree is not silicon-validated: the prefill tuning falls back
+to frozen TP=4 values, and decode throughput at TP=2 (host sampling, 2x
+per-device weight traffic versus 4-way TP) is unmeasured.
+
+Validation remaining for P150x2:
+
+1. device-free gate — done (`qwen36-check` TP=2/P300 probes PASS);
+2. simulator — open a 1x2 mesh under the packaged `libttsim_bh_x2.so`, run
+greedy `test_generate_tp.py` Paris, carry GDN recurrent state, receipt marked
+`simulated`;
+3. hardware — same commands on the two-P150 box, `tests/pcc_thresholds.json`
+TP=2 rows, then TTFT/tok/s with the BF4/BF8 flags.
 
 ## Upstream state watch
 

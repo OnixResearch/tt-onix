@@ -9,9 +9,7 @@ let
   shardCount = canonicalAuthority.release.checkpoint_shard_count;
   artifactRoles =
     authority:
-    builtins.sort builtins.lessThan (
-      map (artifact: artifact.role) authority.release.artifacts
-    );
+    builtins.sort builtins.lessThan (map (artifact: artifact.role) authority.release.artifacts);
   artifactIdentities =
     authority:
     builtins.listToAttrs (
@@ -25,9 +23,7 @@ let
   shardNamesUnique =
     authority:
     builtins.length authority.release.checkpoint_shard_names
-    == builtins.length (
-      lib.unique authority.release.checkpoint_shard_names
-    );
+    == builtins.length (lib.unique authority.release.checkpoint_shard_names);
   shardNamesMatchCount =
     authority:
     builtins.length authority.release.checkpoint_shard_names
@@ -55,15 +51,14 @@ let
     (require (
       authority.upstream.merged_upstream == false
     ) "qwen36 adoption records an upstream merge for a closed-but-unmerged PR")
+    (require (builtins.elem "p150x2-tp" authority.upstream.local_patches) "qwen36 adoption lost the carried p150x2-tp patch")
     (require (
       authority.pr.state == "closed" && authority.pr.merged == false
     ) "qwen36 PR state does not match closed-unmerged")
     (require (
       authority.pr.head_commit == authority.upstream.commit
     ) "qwen36 PR head commit does not equal the adopted pin")
-    (require (
-      authority.release.model_id == "Qwen/Qwen3.8-27B"
-    ) "qwen36 release model id mismatch")
+    (require (authority.release.model_id == "Qwen/Qwen3.8-27B") "qwen36 release model id mismatch")
     (require (
       authority.release.architecture == "Qwen3_5ForConditionalGeneration"
     ) "qwen36 release architecture mismatch")

@@ -8,6 +8,7 @@
 # no silicon, placement, profiler, or performance claim.
 import os
 import sys
+from types import SimpleNamespace
 
 FAILURES = []
 
@@ -146,6 +147,107 @@ def probe_source_env_gates():
     )
 
 
+def probe_p150x2_gate():
+    """TP=2 (P150x2 / P300) invariants carried by p150x2-tp.patch.
+
+    Positive: the adopted tree registers P150x2 in the mesh maps, registers a
+    P300 prefill-chunk value for the 27B checkpoints, and advertises host
+    sampling for uncertified TP. Negative: the on-device sampling certification
+    set must stay limited to 1x4/1x8, so TP=2 always falls back to host sampling.
+    """
+    import pathlib
+
+    qwen36 = pathlib.Path(
+        __import__("models.demos.blackhole.qwen36", fromlist=["__path__"]).__path__[0]
+    )
+
+    text_demo = (qwen36 / "demo" / "text_demo.py").read_text()
+    require(
+        '"P150x2": (1, 2)' in text_demo, "text_demo.py lacks the P150x2 mesh map entry"
+    )
+    require(
+        '"P150"' in text_demo and '"P150x8"' in text_demo,
+        "text_demo.py lost an existing mesh map entry",
+    )
+
+    test_factory = (qwen36 / "tests" / "test_factory.py").read_text()
+    require(
+        '"P150x2": (1, 2)' in test_factory,
+        "test_factory.py lacks the P150x2 mesh map entry",
+    )
+    require(
+        '}.get(os.environ.get("MESH_DEVICE"))' in test_factory,
+        "test_factory.py mesh resolver changed shape",
+    )
+
+    vllm_adapter = (qwen36 / "tt" / "qwen36_vllm.py").read_text()
+    require(
+        "_supports_on_device_sampling" in vllm_adapter,
+        "qwen36_vllm.py lacks the host-sampling override for uncertified TP",
+    )
+    require(
+        '"supports_sample_on_device": True' in vllm_adapter,
+        "qwen36_vllm.py lost the certified-topology on-device default",
+    )
+    require(
+        "self.model_capabilities" in vllm_adapter,
+        "qwen36_vllm.py lacks the instance capabilities override",
+    )
+
+    model_source = (qwen36 / "tt" / "model.py").read_text()
+    require(
+        "(1, 4), (1, 8)" in model_source,
+        "on-device sampling certification set must stay 1x4/1x8 for TP=2 host sampling",
+    )
+
+    # Real-path probe of get_max_prefill_chunk_size: unbound call with a minimal
+    # stub, MAX_PREFILL_CHUNK_SIZE unset so the table is exercised.
+    ttc = __import__(
+        "models.tt_transformers.tt.model_config",
+        fromlist=["ModelArgs"],
+    )
+    require(ttc.ModelArgs is not None, "ModelArgs missing from model_config")
+    os.environ.pop("MAX_PREFILL_CHUNK_SIZE", None)
+
+    for model_name in ("Qwen3.5-27B", "Qwen3.6-27B", "Qwen3.8-27B"):
+        stub_p300 = SimpleNamespace(
+            base_model_name=model_name, device_name="P300", model_name=model_name
+        )
+        chunk_p300 = ttc.ModelArgs.get_max_prefill_chunk_size(stub_p300)
+        require(
+            chunk_p300 == 2 * 1024,
+            f"{model_name} P300 prefill chunk != 2K ({chunk_p300})",
+        )
+
+        stub_x4 = SimpleNamespace(
+            base_model_name=model_name, device_name="P150x4", model_name=model_name
+        )
+        chunk_x4 = ttc.ModelArgs.get_max_prefill_chunk_size(stub_x4)
+        require(
+            chunk_x4 == 2 * 1024,
+            f"{model_name} P150x4 prefill chunk changed ({chunk_x4})",
+        )
+
+        # Negative: unknown device must not crash; the table falls back to 4K.
+        stub_unknown = SimpleNamespace(
+            base_model_name=model_name, device_name="P150x16", model_name=model_name
+        )
+        chunk_unknown = ttc.ModelArgs.get_max_prefill_chunk_size(stub_unknown)
+        require(
+            chunk_unknown == 4 * 1024,
+            f"{model_name} unknown-device fallback changed ({chunk_unknown})",
+        )
+
+    # 2-device Blackhole meshes resolve to the P300 device name by construct.
+    tt_transformers_config = (
+        qwen36.parent.parent.parent / "tt_transformers" / "tt" / "model_config.py"
+    ).read_text()
+    require(
+        '2: "P300"' in tt_transformers_config,
+        "device-name mapping lost the 2-device P300 entry",
+    )
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -157,6 +259,7 @@ def main():
     probe("MLP down-proj BF4 gate defaults", probe_mlp_down_gate)
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
+    probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
