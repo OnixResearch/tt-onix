@@ -5,6 +5,8 @@ result-*
 # Ignore automatically generated local build and environment output.
 .direnv
 target/
+__pycache__/
+*.pyc
 .pi/
 
 # Runtime inspector and watcher logs are private operational artifacts.

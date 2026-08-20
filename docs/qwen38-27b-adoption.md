@@ -105,10 +105,11 @@ tok/s. These are upstream-reported numbers, not repository evidence.
 
 ## Non-claims
 
-Local silicon evidence now proves one bounded Qwen3.8-27B TP=2 oracle on this
-two-P150 box. It does not validate the upstream P150x4/x8 claims. It also makes
-no TP=2 PCC, long-context, paged-serving, TTFT, throughput, thermal, or profiler
-claim.
+Local silicon evidence proves a bounded TP=2 oracle, component PCC, recurrent
+state carry, and serialized short-prompt paged serving. It does not prove full
+64-layer logits PCC against a CPU model. It also makes no long-context,
+streaming, parallel-request, batch-serving, TTFT, throughput, thermal, or
+profiler claim.
 
 ## Carried P150x2 (P300) build
 
@@ -127,14 +128,17 @@ claim.
 Why TP=2 divisibility is safe for this checkpoint: 24 heads, 4 KV heads,
 16/48 linear-attention heads, hidden 5120, intermediate 17408, and vocab
 248320 all divide by 2. No KV-head replication is needed. The bounded silicon
-oracle now passes, but decode throughput remains unmeasured.
+oracle now passes, but admitted decode throughput remains unmeasured.
 
 P150x2 validation status:
 
 1. device-free gate — passed (`qwen36-check` TP=2/P300 probes);
 2. simulator — pending for the experimental `libttsim_bh_x2.so` path;
 3. hardware oracle — passed on a physical 1x2 mesh with eight greedy tokens;
-4. TP=2 PCC, paged serving, long context, TTFT, and throughput — pending.
+4. component PCC and GDN state carry — passed against PyTorch references;
+5. eight-layer paged-contract logits — passed against the bespoke path;
+6. full 64-layer serialized paged service — passed for two sequential requests;
+7. long context, streaming, parallel requests, TTFT, and throughput — pending.
 
 ## Hardware evidence (2026-08-19, britton-desktop)
 
@@ -201,12 +205,63 @@ and SFPI `7.70.0[847]`. Model loading took 77.221 seconds. Generation took
 78.244 seconds, including first-run compilation. These timings are diagnostic,
 not admitted performance results.
 
+The physical PCC gate also passed:
+
+- GDN component minimum PCC: `0.99999`;
+- attention component minimum PCC: `0.99993`;
+- MLP component PCC: `0.9992400660601553`;
+- GDN four-step recurrent output/state minimum PCC: `0.999964`/`0.999995`;
+- paged-contract prefill/decode minimum PCC: `0.9998629502385343`/
+  `0.9999042691604841`;
+- masked-bucket prefill PCC: `0.9998459531124145`.
+
+The full 64-layer serialized paged path then served two requests from one
+loaded model. It completed France with `" Paris.\nThe"` and Germany with
+`" Berlin.\nThe"`. The packaged HTTP shell passed health, model, completion,
+and chat requests. It also rejected streaming, wrong-model, and unknown-route
+requests.
+
+The full-model 2048-token chunk-trace warmup collided with L1 allocation on
+runtime 0.74. The admitted service therefore uses masked-bucket paged prefill
+and eager paged decode. Prompt plus generation is limited to 2048 tokens.
+
 Evidence:
 
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-summary.log`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-pcc-receipt.json`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-pcc-summary.log`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-receipt.json`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-summary.log`
 
-Both inference services remain stopped for Qwen work.
+## Serialized P150x2 service
+
+The package provides `qwen36-p150x2-serve`. The NixOS module owns a matching
+`qwen38-p150x2.service` unit:
+
+```nix
+hardware.tenstorrent = {
+  enable = true;
+  qwen38 = {
+    enable = true;
+    modelPath = "/path/to/the/pinned/Qwen3.8-27B/snapshot";
+    conflictingUnits = [
+      "llamacpp-server-vibethinker-britton-desktop.service"
+      "docker-tt-inference-server-llama-3-1-8b-instruct-p150.service"
+    ];
+  };
+};
+```
+
+The service listens on `127.0.0.1:8000` by default. It provides `/healthz`,
+`/v1/models`, `/v1/completions`, and `/v1/chat/completions`. Requests are
+serialized because one process owns both P150 devices. Only greedy,
+non-streaming responses are admitted.
+
+This host runs the final package as the lingering per-user
+`qwen38-p150x2.service` unit on `127.0.0.1:8000`. Both previous inference
+services remain stopped while Qwen owns the devices. A live 64-token request
+also passed on the final deployed package.
 
 ## Upstream state watch
 

@@ -11,9 +11,9 @@ nixpkgs.overlays = [ tenstorrent.overlays.default ];
 ```
 
 Provides top-level `tt-umd`, `tt-logger`, `tt-metal`, `tt-smi`, `tt-burnin`,
-`tt-topology`, `tt-system-tools`, and `luwen`, extends every Python package set
-with `pyluwen`, `tt-flash`, and `tt-tools-common`, and extends kernel package
-sets with `tt-kmd`.
+`tt-topology`, `tt-system-tools`, `luwen`, and `qwen36`. It extends every Python
+package set with `pyluwen`, `tt-flash`, and `tt-tools-common`. It also extends
+kernel package sets with `tt-kmd`.
 
 ## NixOS module
 
@@ -60,6 +60,9 @@ for the canonical profile edit, regeneration, and freshness workflow.
 
 See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
 metadata-only profile, bounded simulator verdict, and explicit non-claims.
+
+See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
+P150x2 path and serialized NixOS inference service.
 
 Build a stable result link when you need to inspect or run several commands:
 

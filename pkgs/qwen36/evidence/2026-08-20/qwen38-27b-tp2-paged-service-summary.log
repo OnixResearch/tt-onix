@@ -1,0 +1,20 @@
+# Qwen3.8-27B TP=2 physical paged-service summary
+# Date: 2026-08-20. Physical PCIe devices: 0, 1. Mesh: 1x2. Fabric: FABRIC_1D.
+Full 64-layer model loaded once.
+Sequential paged request 0: "The capital of France is" -> " Paris.\nThe", PASS
+Sequential paged request 1: "The capital of Germany is" -> " Berlin.\nThe", PASS
+Packaged HTTP health endpoint: 200, PASS
+Packaged HTTP model endpoint: 200, PASS
+Packaged HTTP completion endpoint: 200, four tokens, PASS
+Packaged HTTP chat endpoint: 200, four tokens, PASS
+Streaming request: 400, rejected as unsupported, PASS
+Wrong model request: 400, rejected, PASS
+Unknown route: 404, rejected, PASS
+Service limit: prompt plus generation must not exceed 2048 tokens.
+Known blocker: the full-model 2048-token chunk-trace warmup collided with L1 allocation on runtime 0.74.
+The admitted service uses serialized masked-bucket paged prefill and eager paged decode.
+Devices closed cleanly after acceptance.
+Final per-user systemd unit: qwen38-p150x2.service, active on 127.0.0.1:8000.
+Final package completion: "The capital of France is" -> " Paris.\nThe", PASS.
+Final 64-token limit request: 64 completion tokens returned, PASS.
+Previous VibeThinker unit: failed and not running. Previous Llama unit: inactive.

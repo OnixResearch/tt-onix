@@ -1,0 +1,12 @@
+# Qwen3.8-27B TP=2 physical PCC and state-carry summary
+# Date: 2026-08-20. Physical PCIe devices: 0, 1. Mesh: 1x2. Fabric: FABRIC_1D.
+PCC policy positive: identical vectors PCC=1.0, threshold=0.99
+PCC policy negative: reversed vectors PCC=-1.0, rejected
+GDN recurrence fp32: minimum output PCC=0.999983, minimum state PCC=0.999995, PASS
+GDN recurrence bf16: minimum output PCC=0.999964, minimum state PCC=0.999995, PASS
+GDN component against PyTorch: minimum PCC=0.99999, PASS
+Attention component against PyTorch: minimum PCC=0.99993, PASS
+MLP component against PyTorch: PCC=0.9992400660601553, PASS
+Paged contract versus bespoke logits: prefill=0.9998629502385343, decode minimum=0.9999042691604841, PASS
+Masked-bucket prefill versus bespoke logits: PCC=0.9998459531124145, PASS
+Devices closed cleanly.

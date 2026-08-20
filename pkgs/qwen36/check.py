@@ -317,6 +317,125 @@ def probe_p150x2_gate():
     )
 
 
+def probe_service_contract():
+    """Positive and negative tests for the pure HTTP request policy."""
+    from qwen36_service.core import (
+        Endpoint,
+        RequestValidationError,
+        build_completion_response,
+        parse_completion_request,
+        parse_endpoint,
+    )
+
+    admitted_model = "Qwen3.8-27B"
+    maximum_generation_tokens = 64
+    requested_generation_tokens = 4
+
+    require(
+        parse_endpoint("/v1/completions") is Endpoint.COMPLETIONS,
+        "completion route did not resolve",
+    )
+    require(
+        parse_endpoint("/v1/chat/completions") is Endpoint.CHAT_COMPLETIONS,
+        "chat-completion route did not resolve",
+    )
+
+    completion = parse_completion_request(
+        {
+            "max_tokens": requested_generation_tokens,
+            "model": admitted_model,
+            "prompt": "The capital of France is",
+            "temperature": 0,
+        },
+        Endpoint.COMPLETIONS,
+        admitted_model,
+        maximum_generation_tokens,
+    )
+    require(
+        completion.prompt == "The capital of France is", "completion prompt changed"
+    )
+    require(
+        completion.max_tokens == requested_generation_tokens,
+        "completion max_tokens changed",
+    )
+
+    chat = parse_completion_request(
+        {
+            "max_tokens": requested_generation_tokens,
+            "messages": [{"content": "Name France's capital.", "role": "user"}],
+            "model": admitted_model,
+        },
+        Endpoint.CHAT_COMPLETIONS,
+        admitted_model,
+        maximum_generation_tokens,
+    )
+    require(len(chat.messages) == 1, "valid chat request lost its message")
+    prompt_token_count = 5
+    generated_token_count = 1
+    response = build_completion_response(
+        request=chat,
+        request_id="cmpl-test",
+        created=0,
+        generated_text="Paris",
+        prompt_token_count=prompt_token_count,
+        generated_token_count=generated_token_count,
+    )
+    require(
+        response["choices"][0]["message"]["content"] == "Paris",
+        "chat response changed generated text",
+    )
+    require(
+        response["usage"]["total_tokens"] == prompt_token_count + generated_token_count,
+        "chat response token total changed",
+    )
+
+    rejected = (
+        ([], Endpoint.COMPLETIONS, "JSON object"),
+        ({"prompt": ""}, Endpoint.COMPLETIONS, "non-empty"),
+        ({"prompt": "ok", "max_tokens": 0}, Endpoint.COMPLETIONS, "between"),
+        (
+            {"prompt": "ok", "max_tokens": maximum_generation_tokens + 1},
+            Endpoint.COMPLETIONS,
+            "between",
+        ),
+        ({"prompt": "ok", "stream": True}, Endpoint.COMPLETIONS, "streaming"),
+        ({"prompt": "ok", "temperature": 1}, Endpoint.COMPLETIONS, "greedy"),
+        ({"prompt": "ok", "n": 2}, Endpoint.COMPLETIONS, "n must be 1"),
+        ({"prompt": "ok", "model": "wrong"}, Endpoint.COMPLETIONS, "model must be"),
+        (
+            {"messages": [{"content": "answer", "role": "assistant"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "user message",
+        ),
+        (
+            {"messages": [{"content": [{"type": "text"}], "role": "user"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "non-empty text",
+        ),
+    )
+    for payload, endpoint, diagnostic in rejected:
+        try:
+            parse_completion_request(
+                payload,
+                endpoint,
+                admitted_model,
+                maximum_generation_tokens,
+            )
+        except RequestValidationError as error:
+            require(diagnostic in str(error), f"wrong rejection diagnostic: {error}")
+        else:
+            require(False, f"invalid service request was accepted: {payload!r}")
+
+    try:
+        parse_endpoint("/unsupported")
+    except RequestValidationError as error:
+        require(
+            "unsupported endpoint" in str(error), "wrong route rejection diagnostic"
+        )
+    else:
+        require(False, "unsupported service route was accepted")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -329,6 +448,7 @@ def main():
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
+    probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

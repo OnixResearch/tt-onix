@@ -91,6 +91,8 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/lib/python${python3.pythonVersion}/site-packages"
     cp -r models "$out/lib/python${python3.pythonVersion}/site-packages/models"
+    cp -r ${./service/qwen36_service} \
+      "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service"
     # The tt-metal models tree carries upstream-relative symlinks whose targets
     # live outside models/ (e.g. tests/didt/... under the repo root). Prune the
     # dangling links so the installed tree is self-contained.
@@ -147,8 +149,22 @@ stdenvNoCC.mkDerivation {
       --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
       --add-flags "$out/share/qwen36/check.py"
 
-    # qwen36-serve fails closed unless a text-only vLLM 0.10 is importable;
-    # the PR adapter intentionally skips Qwen3.5 multimodal helpers.
+    # The serialized P150x2 service owns request policy and uses the validated
+    # paged prefill/decode path without an external vLLM dependency.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-serve" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.server"
+
+    # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
+    # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-serve" \
       --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
       --set TT_METAL_HOME "$overlayRoot" \
@@ -175,6 +191,9 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/tp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
+    test -x "$out/bin/qwen36-p150x2-serve"
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \

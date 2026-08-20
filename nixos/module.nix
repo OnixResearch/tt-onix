@@ -15,6 +15,7 @@ let
 
   cfg = config.hardware.tenstorrent;
   training = cfg.training;
+  qwen38 = cfg.qwen38;
 
   defaultDriverPackage = config.boot.kernelPackages.callPackage ../pkgs/tt-kmd { };
   admittedTrainingDriverVersion = "2.10.0";
@@ -29,6 +30,14 @@ let
   permissiveHugepageMode = "0777";
   evidenceParentMode = "0750";
   evidenceRootMode = "0770";
+  defaultQwenListenAddress = "127.0.0.1";
+  defaultQwenPort = 8000;
+  defaultQwenMaximumSequenceLength = 2048;
+  defaultQwenMaximumGenerationTokens = 64;
+  qwenRestartSeconds = 10;
+  qwenStopTimeoutSeconds = 120;
+  qwenStateDirectory = "qwen38-p150x2";
+  qwenStateDirectoryMode = "0750";
 
   deviceMode =
     if cfg.accessPolicy == "group-restricted" then defaultDeviceMode else permissiveDeviceMode;
@@ -91,6 +100,64 @@ in
       '';
     };
 
+    qwen38 = {
+      enable = mkEnableOption "the serialized Qwen3.8-27B P150x2 inference service";
+
+      package = mkOption {
+        type = types.package;
+        default = pkgs.qwen36;
+        defaultText = lib.literalExpression "pkgs.qwen36";
+        description = "Qwen package that owns the P150x2 service executable.";
+      };
+
+      modelPath = mkOption {
+        type = types.str;
+        default = "";
+        example = "/var/lib/qwen38-p150x2/model";
+        description = "Absolute path to the pinned Qwen3.8-27B snapshot and P300 tensor cache.";
+      };
+
+      modelAlias = mkOption {
+        type = types.str;
+        default = "Qwen3.8-27B";
+        description = "Model identifier exposed by the OpenAI-compatible API.";
+      };
+
+      listenAddress = mkOption {
+        type = types.str;
+        default = defaultQwenListenAddress;
+        description = "Address for the serialized HTTP service.";
+      };
+
+      port = mkOption {
+        type = types.port;
+        default = defaultQwenPort;
+        description = "TCP port for the serialized HTTP service.";
+      };
+
+      maximumSequenceLength = mkOption {
+        type = types.ints.positive;
+        default = defaultQwenMaximumSequenceLength;
+        description = "Maximum prompt and generation token count.";
+      };
+
+      maximumGenerationTokens = mkOption {
+        type = types.ints.positive;
+        default = defaultQwenMaximumGenerationTokens;
+        description = "Maximum generated token count for one request.";
+      };
+
+      conflictingUnits = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [
+          "llamacpp-server.service"
+          "docker-tt-inference-server.service"
+        ];
+        description = "Inference units that must stop before Qwen owns both P150 devices.";
+      };
+    };
+
     training = {
       enable = mkEnableOption "the admitted dual-P150A training host profile";
 
@@ -149,6 +216,76 @@ in
         TT_MESH_GRAPH_DESC_PATH = meshDescriptorPath;
       };
     }
+
+    (mkIf qwen38.enable {
+      assertions = [
+        {
+          assertion = lib.hasPrefix "/" qwen38.modelPath;
+          message = "hardware.tenstorrent.qwen38.modelPath must be an absolute path";
+        }
+        {
+          assertion = qwen38.maximumGenerationTokens <= qwen38.maximumSequenceLength;
+          message = "Qwen maximumGenerationTokens must not exceed maximumSequenceLength";
+        }
+      ];
+
+      systemd.services.qwen38-p150x2 = {
+        description = "Qwen3.8-27B serialized OpenAI-compatible service on P150x2";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        wantedBy = [ "multi-user.target" ];
+        conflicts = qwen38.conflictingUnits;
+
+        environment = {
+          HF_HUB_OFFLINE = "1";
+          HF_MODEL = qwen38.modelPath;
+          HOME = "/var/lib/${qwenStateDirectory}";
+          MESH_DEVICE = "P150x2";
+          MPLCONFIGDIR = "/var/lib/${qwenStateDirectory}/matplotlib";
+          PYTHONUNBUFFERED = "1";
+          QWEN35_TEMP = "0";
+          TT_CACHE_PATH = qwen38.modelPath;
+          XDG_CACHE_HOME = "/var/lib/${qwenStateDirectory}/cache";
+        };
+
+        unitConfig.ConditionPathExists = [
+          qwen38.modelPath
+          "/dev/tenstorrent/0"
+          "/dev/tenstorrent/1"
+        ];
+
+        serviceConfig = {
+          ExecStart = lib.escapeShellArgs [
+            "${qwen38.package}/bin/qwen36-p150x2-serve"
+            "--host"
+            qwen38.listenAddress
+            "--port"
+            (toString qwen38.port)
+            "--model-path"
+            qwen38.modelPath
+            "--model-alias"
+            qwen38.modelAlias
+            "--max-sequence-length"
+            (toString qwen38.maximumSequenceLength)
+            "--max-generation-tokens"
+            (toString qwen38.maximumGenerationTokens)
+          ];
+          Group = cfg.deviceGroup;
+          Restart = "on-failure";
+          RestartSec = "${toString qwenRestartSeconds}s";
+          StateDirectory = qwenStateDirectory;
+          StateDirectoryMode = qwenStateDirectoryMode;
+          TimeoutStartSec = 0;
+          TimeoutStopSec = qwenStopTimeoutSeconds;
+          UnsetEnvironment = [
+            "TT_MESH_GRAPH_DESC_PATH"
+            "TT_METAL_SIMULATOR"
+          ];
+          User = "root";
+          WorkingDirectory = "/var/lib/${qwenStateDirectory}";
+        };
+      };
+    })
 
     (mkIf training.enable {
       assertions = [

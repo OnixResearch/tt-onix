@@ -188,6 +188,77 @@
           grep -Fx 'd /var/lib/tenstorrent-training/evidence 0770 root tenstorrent - -' "$tmpfiles_rules"
           echo '${trainingPlatformExampleEval.config.hardware.tenstorrent.meshName}' > "$out"
         '';
+      qwenServiceModelPath = "/var/lib/qwen38-p150x2/model";
+      qwenServiceConflictingUnits = [
+        "llamacpp-server-vibethinker.service"
+        "docker-tt-inference-server.service"
+      ];
+      qwenServiceMaximumSequenceLength = 2048;
+      qwenServiceMaximumGenerationTokens = 64;
+      qwenServiceEval =
+        extraConfig:
+        import (inputs.nixpkgs + "/nixos/lib/eval-config.nix") {
+          inherit system;
+          modules = [
+            self.nixosModules.default
+            {
+              config = {
+                nixpkgs.hostPlatform = system;
+                system.stateVersion = "26.11";
+                fileSystems."/".device = "nodev";
+                fileSystems."/".fsType = "tmpfs";
+                boot.loader.grub.enable = false;
+                hardware.tenstorrent = {
+                  enable = true;
+                  qwen38 = {
+                    enable = true;
+                    modelPath = qwenServiceModelPath;
+                    conflictingUnits = qwenServiceConflictingUnits;
+                    maximumSequenceLength = qwenServiceMaximumSequenceLength;
+                    maximumGenerationTokens = qwenServiceMaximumGenerationTokens;
+                  };
+                };
+              };
+            }
+            { config = extraConfig; }
+          ];
+        };
+      qwenServiceValidEval = qwenServiceEval { };
+      qwenServiceInvalidModelPathEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.modelPath = lib.mkForce "";
+      };
+      qwenServiceInvalidTokenLimitEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.maximumSequenceLength = lib.mkForce qwenServiceMaximumGenerationTokens;
+        hardware.tenstorrent.qwen38.maximumGenerationTokens = lib.mkForce (
+          qwenServiceMaximumGenerationTokens + 1
+        );
+      };
+      qwenServiceInvalidModelPathRejected = hasFailedAssertion "modelPath must be an absolute path" qwenServiceInvalidModelPathEval;
+      qwenServiceInvalidTokenLimitRejected = hasFailedAssertion "must not exceed maximumSequenceLength" qwenServiceInvalidTokenLimitEval;
+      qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
+      qwenServiceCheck =
+        assert lib.assertMsg qwenServiceInvalidModelPathRejected
+          "the Qwen service must reject an empty model path";
+        assert lib.assertMsg qwenServiceInvalidTokenLimitRejected
+          "the Qwen service must reject a generation limit above the sequence limit";
+        assert lib.assertMsg (
+          qwenServiceUnit.conflicts == qwenServiceConflictingUnits
+        ) "the Qwen service must preserve device-owner conflicts";
+        assert lib.assertMsg (lib.hasInfix "qwen36-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
+          "the Qwen service must use the serialized package entry point";
+        pkgs.runCommand "qwen36-nixos-service" { } ''
+          set -euo pipefail
+          test -x ${qwen36}/bin/qwen36-p150x2-serve
+          exec_start=${pkgs.writeText "qwen-service-exec-start" qwenServiceUnit.serviceConfig.ExecStart}
+          grep -F -- '--model-path ${qwenServiceModelPath}' "$exec_start"
+          grep -F -- '--max-sequence-length ${toString qwenServiceMaximumSequenceLength}' "$exec_start"
+          grep -F -- '--max-generation-tokens ${toString qwenServiceMaximumGenerationTokens}' "$exec_start"
+          conditions=${pkgs.writeText "qwen-service-conditions" (lib.concatStringsSep "\n" qwenServiceUnit.unitConfig.ConditionPathExists)}
+          grep -Fx '${qwenServiceModelPath}' "$conditions"
+          grep -Fx '/dev/tenstorrent/0' "$conditions"
+          grep -Fx '/dev/tenstorrent/1' "$conditions"
+          touch "$out"
+        '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
         inherit (pkgs) nickel;
         inherit modelTargetConsumerGenerator modelTargets;
@@ -943,6 +1014,7 @@
         repository-quality-cairn = repositoryQuality.cairnQuality;
         qwen36 = qwen36;
         qwen36-authority-negative = qwen36AuthorityNegativeCheck;
+        qwen36-nixos-service = qwenServiceCheck;
         repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;
         repository-quality-nix = repositoryQuality.nixQuality;
         repository-quality-policy = repositoryQuality.policyQuality;
