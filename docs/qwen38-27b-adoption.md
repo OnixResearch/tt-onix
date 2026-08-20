@@ -168,15 +168,26 @@ or package fixes:
    validation above uses the served paged path instead.)
 2. The packaged 0.74 runtime include tree lacks
    `api/compute/experimental/matmul_custom.h` (and more), which the qwen36 SDPA
-   kernels JIT-include; the package now replaces the overlay's `hw/inc/api`
-   subtree with real files from the package-matched source — the same pattern
-   the rwkv7-p150x2 runtime uses for unary headers.
+   kernels JIT-include. The package replaces the overlay's `hw/inc/api`
+   subtree with files from the package-matched source.
+3. The 0.74 bindings lack `ttnn.transformer.chunk_gated_delta_rule`. The
+   `gdn-seq-fallback.patch` probes for that operator and uses
+   `gated_delta_attn_seq` when the fused path is absent.
+4. The installed runtime lacks required TP JIT kernel sources under
+   `ttnn/cpp`. The package overlays the complete package-matched `ttnn/cpp`
+   tree, including `all_gather_minimal_matmul_async`.
 
-Non-claims: no TP=2 silicon run yet (chip 0 is held by the vibethinker
-`llama-server` system service; freeing it needs one privileged `systemctl
-stop`), no throughput or TTFT measurement, no P150x2 PCC row. The 27B weights
-are prefetched locally so the TP=2 run starts immediately once both cards are
-free.
+The TP=2 attempt started at 20:00 EDT. It opened the exact 1x2 mesh and
+initialized `FABRIC_1D`. The console showed all 64 layers loaded and P300 cache
+generation complete.
+
+The run continued through sequence-path JIT compilation until the host reboot
+at 21:46 EDT. The reboot interrupted the run before its two-hour timeout and
+removed the temporary log. No fatal error appeared before the reboot, but the
+run produced no retained token, PCC, TTFT, or throughput result.
+
+Both inference services are active after the reboot. The TP=2 path remains
+unvalidated until a new bounded attempt produces a durable receipt.
 
 ## Upstream state watch
 

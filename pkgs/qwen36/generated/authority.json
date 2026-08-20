@@ -181,7 +181,8 @@
     "commit": "d102e7f4512060e09e580e40cf26a870bfa88c55",
     "local_patches": [
       "p150x2-tp",
-      "generate-tp-reset"
+      "generate-tp-reset",
+      "gdn-seq-fallback"
     ],
     "merged_upstream": false,
     "patch_source": "https://github.com/tenstorrent/tt-metal/pull/53543",

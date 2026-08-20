@@ -68,6 +68,13 @@ stdenvNoCC.mkDerivation {
     # exposes reset_cache(); only GDN and the TP wrappers expose reset_state.
     # The 9B single-device generate_tp oracle crashes without this dispatch.
     ./generate-tp-reset.patch
+    # r[impl tenstorrent.qwen36.gdn_seq_fallback]
+    # Hardware-found API drift: the adopted main-line code routes GDN TP
+    # prefill through ttnn.transformer.chunk_gated_delta_rule, which the
+    # packaged 0.74 bindings do not expose. The tree already carries a seq
+    # adapter built on gated_delta_attn_seq (present in 0.74); this patch makes
+    # the dispatch check the runtime instead of hardcoding the fused path.
+    ./gdn-seq-fallback.patch
   ];
   nativeBuildInputs = [
     makeWrapper
@@ -115,6 +122,14 @@ stdenvNoCC.mkDerivation {
     api_dst="$out/libexec/tt-metalium/tt_metal/hw/inc/api"
     rm -rf "$api_dst"
     cp -r --no-preserve=mode "$api_src" "$api_dst"
+    # The packaged runtime also ships only part of the ttnn C++ tree (2733 of
+    # 4691 operation files; e.g. the experimental CCL all-gather-fused-matmul
+    # kernels the qwen36 TP path JITs are absent). Replace ttnn/cpp with the
+    # full package-matched source tree so every JIT kernel source resolves.
+    ttcp_src=${tt-metal.src}/ttnn/cpp
+    ttcp_dst="$out/libexec/tt-metalium/ttnn/cpp"
+    rm -rf "$ttcp_dst"
+    cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
     overlayRoot="$out/libexec/tt-metalium"
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36" \
@@ -136,9 +151,11 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "vllm.entrypoints.openai.api_server"
 
-    # Positive: the overlay provides the JIT headers the packaged runtime
-    # omits (matmul_custom.h is required by the qwen36 SDPA kernels).
+    # Positive: the overlay provides the JIT headers and kernel sources the
+    # packaged runtime omits (matmul_custom.h for SDPA; the experimental CCL
+    # all-gather-fused-matmul kernels for the qwen36 TP path).
     test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
+    test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp"
 
     runHook postInstall
   '';

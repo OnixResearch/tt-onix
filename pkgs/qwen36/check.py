@@ -258,6 +258,30 @@ def probe_p150x2_gate():
         "reset_tp lost its reset_state dispatch",
     )
 
+    # gdn-seq-fallback: fused_chunk_enabled must probe the runtime for the
+    # fused op instead of hardcoding True (the packaged 0.74 bindings lack
+    # ttnn.transformer.chunk_gated_delta_rule and must use the seq adapter).
+    fused_chunk = (qwen36 / "tt" / "gdn" / "fused_chunk.py").read_text()
+    require(
+        'hasattr(ttnn.transformer, "chunk_gated_delta_rule")' in fused_chunk,
+        "fused_chunk_enabled lost its runtime probe for chunk_gated_delta_rule",
+    )
+    fn_body = fused_chunk.split("def fused_chunk_enabled", 1)[1].split("\ndef ", 1)[0]
+    require(
+        "return True" not in fn_body,
+        "fused_chunk_enabled must not return a constant",
+    )
+    import ttnn as _ttnn
+
+    require(
+        not hasattr(_ttnn.transformer, "chunk_gated_delta_rule"),
+        "packaged runtime unexpectedly exposes chunk_gated_delta_rule; revisit the seq fallback",
+    )
+    require(
+        hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
+        "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
+    )
+
 
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
