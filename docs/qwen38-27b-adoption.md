@@ -108,8 +108,8 @@ tok/s. These are upstream-reported numbers, not repository evidence.
 Local silicon evidence proves a bounded TP=2 oracle, component PCC, recurrent
 state carry, and serialized short-prompt paged serving. It does not prove full
 64-layer logits PCC against a CPU model. It also makes no long-context,
-streaming, parallel-request, batch-serving, TTFT, throughput, thermal, or
-profiler claim.
+streaming, parallel-request, batch-serving, thermal, or profiler claim. The
+TTFT and throughput result applies only to the recorded three-run scope.
 
 ## Carried P150x2 (P300) build
 
@@ -128,7 +128,7 @@ profiler claim.
 Why TP=2 divisibility is safe for this checkpoint: 24 heads, 4 KV heads,
 16/48 linear-attention heads, hidden 5120, intermediate 17408, and vocab
 248320 all divide by 2. No KV-head replication is needed. The bounded silicon
-oracle now passes, but admitted decode throughput remains unmeasured.
+oracle now passes. Only bounded warm-service decode throughput is measured.
 
 P150x2 validation status:
 
@@ -138,7 +138,8 @@ P150x2 validation status:
 4. component PCC and GDN state carry — passed against PyTorch references;
 5. eight-layer paged-contract logits — passed against the bespoke path;
 6. full 64-layer serialized paged service — passed for two sequential requests;
-7. long context, streaming, parallel requests, TTFT, and throughput — pending.
+7. bounded warm-service TTFT and decode throughput — passed for three runs;
+8. long context, streaming, parallel requests, and batch serving — pending.
 
 ## Hardware evidence (2026-08-19, britton-desktop)
 
@@ -233,6 +234,14 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-pcc-summary.log`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-summary.log`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-service-perf-receipt.json`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-service-perf-summary.log`
+
+The warm-service benchmark used one warmup and three measured requests. Each
+request had five prompt tokens and 64 generated tokens. Median TTFT was
+`0.5750412510024034` seconds. Median decode rate was
+`4.2306764265491275` tokens/second. These results do not extend to other
+prompt lengths, batches, request concurrency, or meshes.
 
 ## Serialized P150x2 service
 

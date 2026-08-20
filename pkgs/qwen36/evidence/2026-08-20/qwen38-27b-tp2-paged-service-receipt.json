@@ -8,7 +8,7 @@
     "maximum_completion_blake3": "0026f6996dae63d721042ef7106939c1cff0c8759a11d32f96993a173cf775a5",
     "maximum_completion_path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/final-64-token-completion.json",
     "maximum_completion_tokens": 64,
-    "package": "/nix/store/ihcm8pr6wjmvy66zbq939dpsqnvikvfb-qwen36-0.1.0",
+    "package": "/nix/store/nfb8mjxjvpjjwg8b1g97pxplz002gbj8-qwen36-0.1.0",
     "scope": "per-user systemd",
     "unit": "qwen38-p150x2.service",
     "unit_state": "active"

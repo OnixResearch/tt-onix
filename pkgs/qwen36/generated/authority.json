@@ -6,7 +6,8 @@
       "long-context KV (128k/150k/256k) requires QWEN_SDPA_BF8=1",
       "vLLM 0.10 serve is text-only; Qwen3.5 multimodal helpers are skipped when absent",
       "P150x2 (P300) passed physical component PCC, recurrent-state, paged-contract, and serialized two-request gates; host sampling remains required",
-      "The local serialized service limits prompt plus generation to 2048 tokens because full-model chunk-trace warmup collides with L1 allocation on runtime 0.74"
+      "The local serialized service limits prompt plus generation to 2048 tokens because full-model chunk-trace warmup collides with L1 allocation on runtime 0.74",
+      "Three warm P150x2 service runs at 5 prompt tokens and 64 generated tokens measured median TTFT 0.5750412510024034 seconds and median decode 4.2306764265491275 tokens/second"
     ],
     "default_weight_precision": "BFP8 on-device cache; opt-in BF4 via QWEN36_LM_HEAD_BF4/QWEN36_MLP_DOWN_BF4/QWEN36_GDN_BF4",
     "measured": {
@@ -31,7 +32,7 @@
     "no full 64-layer logits PCC against a CPU reference model",
     "no prompt-plus-generation length above 2048 tokens on the local P150x2 service",
     "no streaming, parallel-request, or batch-serving claim on the local P150x2 service",
-    "no admitted TTFT or throughput claim",
+    "no TTFT or throughput claim outside the recorded three-run short-prompt P150x2 scope",
     "no profiler attribution",
     "no thermal or device-health claim",
     "no Qwen3.8-27B placement on a mesh other than P150x2/P150x4/P150x8",

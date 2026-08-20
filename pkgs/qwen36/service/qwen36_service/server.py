@@ -167,13 +167,14 @@ class QwenEngine:
                 f"prompt and generation require {total_token_count} tokens; limit is {self.max_sequence_length}"
             )
 
+        request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         try:
             generated, perf = self._run_paged_generation(token_ids, request.max_tokens)
             generated_text = self.tokenizer.decode(generated, skip_special_tokens=True)
             response = build_completion_response(
                 request=request,
-                request_id=f"cmpl-{uuid.uuid4().hex}",
+                request_id=request_id,
                 created=int(time.time()),
                 generated_text=generated_text,
                 prompt_token_count=prompt_token_count,
@@ -185,6 +186,8 @@ class QwenEngine:
                 elapsed_seconds=time.monotonic() - started,
                 generated_token_count=len(generated),
                 prompt_token_count=prompt_token_count,
+                request_id=request_id,
+                ttft_seconds=perf["ttft_s"],
             )
             return response
         finally:
