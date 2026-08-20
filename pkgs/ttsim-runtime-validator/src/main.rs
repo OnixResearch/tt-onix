@@ -1,8 +1,8 @@
 use std::{env, fs, path::Path, process::ExitCode};
 use ttsim_runtime_validator::{
     BoundIdentity, DEFAULT_TIMEOUT_SECONDS, ProcessObservation, RECEIPT_SCHEMA_VERSION,
-    ReceiptIdentities, SimulatorReceipt, SmokeStatus, classify_smoke, required_non_claims,
-    validate_receipt,
+    ReceiptIdentities, SUPPORTED_SIMULATOR_VERSION, SimulatorReceipt, SmokeStatus, classify_smoke,
+    required_non_claims, validate_receipt,
 };
 
 const BLOCKED_EXIT_CODE: u8 = 2;
@@ -20,7 +20,6 @@ const HOST_SYSTEM_INDEX: usize = 8;
 const TT_METAL_IDENTITY_INDEX: usize = 9;
 const TIMEOUT_SECONDS_INDEX: usize = 10;
 const OUTPUT_PATH_INDEX: usize = 11;
-const SIMULATOR_VERSION: &str = "1.9.2";
 const TOPOLOGY: &str = "blackhole-x1";
 const DISPATCH_MODE: &str = "slow";
 const WORKLOAD: &str = "ttnn-ones-add-1x32x32";
@@ -97,7 +96,7 @@ fn emit_command(arguments: &[String]) -> Result<ExitCode, String> {
     let receipt = SimulatorReceipt {
         schema_version: RECEIPT_SCHEMA_VERSION,
         simulated: true,
-        simulator_version: SIMULATOR_VERSION.to_owned(),
+        simulator_version: SUPPORTED_SIMULATOR_VERSION.to_owned(),
         host_system: host_system.to_owned(),
         topology: TOPOLOGY.to_owned(),
         dispatch_mode: DISPATCH_MODE.to_owned(),

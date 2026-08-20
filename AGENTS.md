@@ -49,11 +49,15 @@ Read these package-matched or commit-pinned sources before you change hardware b
   Source: <https://github.com/tenstorrent/tt-low-level-documentation>.
   The downloaded checkout uses commit `cf344d2dda4cb9d06451d0cc62e9a12c7f1b9240`.
 - Read the host-driver sources at `.pi/references/tenstorrent/tt-umd` and `.pi/references/tenstorrent/tt-kmd`.
-  The `tt-umd` checkout uses tag `v0.9.6` and commit `740b6ae98afd3f4ec97e4dbe473f3a70af8cc2f1`.
-  The `tt-kmd` checkout uses tag `ttkmd-2.7.0` and commit `8e1017f5757fd3a4697e8391ef058adf122723d8`.
+  The `tt-umd` checkout uses tag `v0.9.9` and commit `8f2f3d293852ee4f129eea5a40f6c15f7d259add`.
+  The `tt-kmd` checkout uses tag `ttkmd-2.10.0` and commit `49ae9d88e177635746db4c085bd21a9481adb591`.
 - Read the device-free simulator source and ABI docs at `.pi/references/tenstorrent/ttsim`.
-  Source: <https://github.com/tenstorrent/ttsim/tree/v1.9.2>.
-  The downloaded checkout uses commit `f80c33939e58e8c3c6d5b04edc0e3a03e5144d13`.
+  Source: <https://github.com/tenstorrent/ttsim/tree/v1.10.1>.
+  The downloaded checkout uses commit `3d82cd1b8e3c3d8fa69abb8ac3835c4713e4e52a`.
+- Read the SFPI compiler source at `.pi/references/tenstorrent/sfpi`.
+  Source: <https://github.com/tenstorrent/sfpi/tree/7.70.0>.
+  The downloaded checkout uses commit `6659aeb9e350dd8eef69edbdfa4f963759b04c44`.
+  The tt-metal 0.74 source names SFPI 7.64.0. The Nix package intentionally carries 7.70.0 and rewrites the installed version metadata.
 - Read the training-platform frontend source at `.pi/references/tenstorrent/tt-xla`.
   Source: <https://github.com/tenstorrent/tt-xla>.
   The downloaded checkout uses commit `10b111f3885a598958b0c4e393a07d672584736a`.
@@ -95,8 +99,8 @@ Do not wait for full simulated inference when a smaller test can remove the same
 ### Tenstorrent system-management references
 
 - Read the package-matched Luwen source at `.pi/references/tenstorrent/luwen`.
-  Source: <https://github.com/tenstorrent/luwen/tree/v0.8.5>.
-  The downloaded checkout uses commit `774e36f2853fb15dfb3d1141c03e1725a76ca271`.
+  Source: <https://github.com/tenstorrent/luwen/tree/v0.9.0>.
+  The downloaded checkout uses commit `8d9175cc71da8c13cf86f46264f7468884f800d8`.
 
 Use Luwen for chip discovery, initialization, diagnostics, firmware communication, and Rust host-tooling behavior.
 
@@ -106,14 +110,14 @@ Use Luwen for chip discovery, initialization, diagnostics, firmware communicatio
   Source: <https://github.com/tenstorrent/tt-tools-common/tree/v1.6.0>.
   The downloaded checkout uses commit `dba5f77b5d9f29163fe1b971d5c79c7d89a47a3b`.
 - Read the package-matched diagnostics sources at `.pi/references/tenstorrent/tt-smi` and `.pi/references/tenstorrent/tt-topology`.
-  The `tt-smi` checkout uses tag `v5.2.0` and commit `3f7b6931fb0236a993a53cfdb0e144e77eb89b98`.
-  The `tt-topology` checkout uses tag `v1.2.13` and commit `20266aef47bf41dd4bcadc408e95216c89ac501a`.
+  The `tt-smi` checkout uses tag `v6.2.1` and commit `07208d7e783b8bb585440460db53f515b5828f16`.
+  The `tt-topology` checkout uses tag `v1.2.20` and commit `7bd675f888f9f0d27674fab7cb4188d5b1255481`.
 - Read the firmware update tool at `.pi/references/tenstorrent/tt-flash`.
-  Source: <https://github.com/tenstorrent/tt-flash/tree/v3.6.0>.
-  The downloaded checkout uses commit `48fe9c7df7c40e3d69c3c169f1cc9339c6687f61`.
+  Source: <https://github.com/tenstorrent/tt-flash/tree/v3.10.0>.
+  The downloaded checkout uses commit `3e9f69a14c2b60a54ee645863486b5d57bdbaf6a`.
 - Read the device stress tool at `.pi/references/tenstorrent/tt-burnin`.
-  Source: <https://github.com/tenstorrent/tt-burnin/tree/v0.2.4>.
-  The downloaded checkout uses commit `809f293d2c0344a1e62a40a4bcb14d6bdb70ac09`.
+  Source: <https://github.com/tenstorrent/tt-burnin/tree/v0.4.4>.
+  The downloaded checkout uses commit `e9124ab38517ac847607afb6720fdadd7a5faf30`.
 - Read the incident collection tools at `.pi/references/tenstorrent/tt-system-tools`.
   Source: <https://github.com/tenstorrent/tt-system-tools/tree/v1.4.1>.
   The downloaded checkout uses commit `8cea822ea86ba7336c16f164a3a9f939e2eb4392`.

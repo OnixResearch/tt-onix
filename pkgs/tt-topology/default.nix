@@ -2,19 +2,18 @@
   lib,
   python3Packages,
   fetchFromGitHub,
-  fetchpatch,
   versionCheckHook,
 }:
 python3Packages.buildPythonApplication rec {
   pname = "tt-topology";
-  version = "1.2.13";
+  version = "1.2.20";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "tenstorrent";
     repo = "tt-topology";
     tag = "v${version}";
-    hash = "sha256-hjUQMBTShdbl/tRlFF55P3kQDHi5gsGQVcGZSDgA0as=";
+    hash = "sha256-oPhzNnlZszcXLSy29xfbhU5ML+twgeu2U794zdqSssI=";
   };
 
   build-system = with python3Packages; [
@@ -43,11 +42,12 @@ python3Packages.buildPythonApplication rec {
     "pre-commit"
   ];
 
-  # Remove when https://github.com/tenstorrent/tt-topology/pull/51 is merged
+  # tt-topology 1.2.20 still caps Pyluwen below 0.9, while tt-smi 6.2.1 requires Pyluwen 0.9.0.
   pythonRelaxDeps = [
     "elasticsearch"
     "networkx"
     "matplotlib"
+    "pyluwen"
     "setuptools"
   ];
 

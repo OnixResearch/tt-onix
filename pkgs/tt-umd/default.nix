@@ -18,7 +18,7 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "tt-umd";
-  version = "0.9.6";
+  version = "0.9.9";
   __structuredAttrs = true;
   strictDeps = true;
 
@@ -31,18 +31,13 @@ stdenv.mkDerivation (finalAttrs: {
     owner = "tenstorrent";
     repo = "tt-umd";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-3IrgsKRaJP/rEXiMvi2LnzS9n2+Giu5d05RohzRgPw4=";
+    hash = "sha256-3xZxBMsADDc0pZyInxLc/YrZIxPgOO3y9eV5ZxiEyBQ=";
   };
 
   cpm = fetchurl {
     url = "https://github.com/cpm-cmake/CPM.cmake/releases/download/v0.40.2/CPM.cmake";
     hash = "sha256-yM3DLAOBZTjOInge1ylk3IZLKjSjENO3EEgSpcotg10=";
   };
-
-  patches = [
-    # https://github.com/tenstorrent/tt-umd/pull/2187
-    ./fix-targets.patch
-  ];
 
   postPatch = ''
     cp $cpm cmake/CPM.cmake

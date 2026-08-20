@@ -93,6 +93,23 @@ stdenv.mkDerivation (
       cp $cpm tt_metal/third_party/umd/cmake/CPM.cmake
       patchShebangs .
       substituteInPlace tt_metal/sfpi-info.sh --replace-fail "sfpi_dist=unknown" "sfpi_dist=debian"
+      # Keep TT-Metal's compiler guard and installed metadata aligned with the
+      # newer correctness-fix SFPI release carried by this package.
+      cat > tt_metal/sfpi-version <<'EOF'
+      # sfpi release ${finalAttrs.sfpi.version}
+
+      sfpi_repo="https://github.com/tenstorrent/sfpi"
+      sfpi_version="${finalAttrs.sfpi.version}"
+      sfpi_base=""
+      sfpi_build="${finalAttrs.sfpi.releaseBuild}"
+      sfpi_hashtype="sha256"
+      sfpi_aarch64_debian_txz_hash="${finalAttrs.sfpi.releaseHashes.aarch64DebianTxz}"
+      sfpi_aarch64_debian_deb_hash="${finalAttrs.sfpi.releaseHashes.aarch64DebianDeb}"
+      sfpi_x86_64_debian_txz_hash="${finalAttrs.sfpi.releaseHashes.x86_64DebianTxz}"
+      sfpi_x86_64_debian_deb_hash="${finalAttrs.sfpi.releaseHashes.x86_64DebianDeb}"
+      sfpi_x86_64_fedora_txz_hash="${finalAttrs.sfpi.releaseHashes.x86_64FedoraTxz}"
+      sfpi_x86_64_fedora_rpm_hash="${finalAttrs.sfpi.releaseHashes.x86_64FedoraRpm}"
+      EOF
       # Cap'n Proto's local-find-package.patch hunks don't apply to 0.74 (block
       # reordered); do them here so CPM finds nixpkgs capnproto offline. (0.74
       # already renames googletest -> GTest upstream, so that rewrite is dropped.)

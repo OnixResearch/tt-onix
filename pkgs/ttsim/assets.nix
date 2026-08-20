@@ -25,7 +25,7 @@ let
     blackhole = {
       x1 = mkAsset {
         name = "libttsim_bh.so";
-        hash = "sha256-Y8kLMIHrirZAJCBCABYNxDp8OHj7T1Dn/wNzIZnp49U=";
+        hash = "sha256-snal+6JgZOty/pZBJuNLrUu/UVF1iQVwui6u9nD+1XI=";
         chip = "blackhole";
         topology = "x1";
         hostSystem = "x86_64-linux";
@@ -33,7 +33,7 @@ let
       };
       x2 = mkAsset {
         name = "libttsim_bh_x2.so";
-        hash = "sha256-4Q3wpCCazxQ1oIjOlFaDuZg2iqvZxNug6YXCexY4OeQ=";
+        hash = "sha256-Ivz1uiNM1GEY5IPwLkKu9p2Pe2qUemcHSzjYiYO6LIo=";
         chip = "blackhole";
         topology = "x2";
         hostSystem = "x86_64-linux";
@@ -41,7 +41,7 @@ let
       };
       x32 = mkAsset {
         name = "libttsim_bh_x32.so";
-        hash = "sha256-USk4GpCf1Zy95jn0KEDkZ08DyEvWe05Mm781xIjBaxM=";
+        hash = "sha256-zYyqia5+gqePg3wAuIbwD3q+140IBYeLRXwv3UHBpo4=";
         chip = "blackhole";
         topology = "x32";
         hostSystem = "x86_64-linux";
@@ -51,7 +51,7 @@ let
     wormhole = {
       x1 = mkAsset {
         name = "libttsim_wh.so";
-        hash = "sha256-Qgh3wkwdD+cpEJbzW0ORRAOuUjwWReph+VAuXHluiPA=";
+        hash = "sha256-TwklPMcHx6g2J7ELpITvNgP97UgvEQ/Wn8yf7C6k2iM=";
         chip = "wormhole";
         topology = "x1";
         hostSystem = "x86_64-linux";
@@ -59,7 +59,7 @@ let
       };
       x2 = mkAsset {
         name = "libttsim_wh_x2.so";
-        hash = "sha256-/nRil/amdwXs9qpS2083b0bsTorkqRbWg+7en45sjwc=";
+        hash = "sha256-/VyrOkuLwkSFEMhwI6o9wwa44t4iXNqXLIdIAHEJz1E=";
         chip = "wormhole";
         topology = "x2";
         hostSystem = "x86_64-linux";
@@ -67,7 +67,7 @@ let
       };
       x8 = mkAsset {
         name = "libttsim_wh_x8.so";
-        hash = "sha256-C6D+9iW9UUIuTcz4rpwsz2c0XbuG9cBg1Uw1e5+e3ec=";
+        hash = "sha256-lS6vBsOStwPFwsaKmLmku9kCs9r1eG7ROSF5l0GYUMw=";
         chip = "wormhole";
         topology = "x8";
         hostSystem = "x86_64-linux";
@@ -75,7 +75,7 @@ let
       };
       x32 = mkAsset {
         name = "libttsim_wh_x32.so";
-        hash = "sha256-fydp5CWv9yDm8U8+es6t2nQR22gjgeaRhpaevSEpNI0=";
+        hash = "sha256-hZGdqET3CFgrEnxDqrClcIqqQnQCHiMdICafJ5SxYLk=";
         chip = "wormhole";
         topology = "x32";
         hostSystem = "x86_64-linux";
@@ -88,7 +88,7 @@ let
     blackhole = {
       x1 = mkAsset {
         name = "libttsim_bh_aarch64.so";
-        hash = "sha256-DGaC0AcDbYocohCYRQq6li4ekGs4vaoa4gJHtHt58bA=";
+        hash = "sha256-LfsXU1t8+9/uPnYNwCOi16P3uVyGM/YAm4/hrSzRIE4=";
         chip = "blackhole";
         topology = "x1";
         hostSystem = "aarch64-linux";
@@ -96,7 +96,7 @@ let
       };
       x2 = mkAsset {
         name = "libttsim_bh_x2_aarch64.so";
-        hash = "sha256-zdXeygka5PW1wNgsTYQtToG4rewneZQz8wbSPOA6sNM=";
+        hash = "sha256-OLFIs1zaZB+7K866+dvBo4+g9vJJ6IRTAoxmM2Fto/4=";
         chip = "blackhole";
         topology = "x2";
         hostSystem = "aarch64-linux";
@@ -106,7 +106,7 @@ let
     wormhole = {
       x1 = mkAsset {
         name = "libttsim_wh_aarch64.so";
-        hash = "sha256-797qt5AqCHc+W9Y5daNtdxPE5184TiIyjyINSCr7KSE=";
+        hash = "sha256-pEKfe9UJ9QarAFMj43NsF1oZztr2y5ESh8kkJnkkmio=";
         chip = "wormhole";
         topology = "x1";
         hostSystem = "aarch64-linux";
@@ -114,7 +114,7 @@ let
       };
       x2 = mkAsset {
         name = "libttsim_wh_x2_aarch64.so";
-        hash = "sha256-HP2RPpfkVRVXIC/fgonrCLNq8Xp7H9jQHveSW1WxUTU=";
+        hash = "sha256-S40GeSpPcBgW4oBTyx2Z5aDSlXq3qrTpMQqjdKjII5U=";
         chip = "wormhole";
         topology = "x2";
         hostSystem = "aarch64-linux";
@@ -122,7 +122,7 @@ let
       };
       x8 = mkAsset {
         name = "libttsim_wh_x8_aarch64.so";
-        hash = "sha256-vhe7qZVKzdQgqDSp4av7b7A6pvfBPSmgTAIME9G4Kto=";
+        hash = "sha256-6w5UwDFahhGK2/wlO92DSh2N+VuEj1W5atgtke8j5rw=";
         chip = "wormhole";
         topology = "x8";
         hostSystem = "aarch64-linux";
@@ -130,7 +130,7 @@ let
       };
       x32 = mkAsset {
         name = "libttsim_wh_x32_aarch64.so";
-        hash = "sha256-Xxkhfh3S99zN4BZi5Cdt9vHb0nr9kkX30CaWLEmwV6U=";
+        hash = "sha256-qvKtDFk8DCq16P411An2WMDO81uVWOrCumBx8tg0KLQ=";
         chip = "wormhole";
         topology = "x32";
         hostSystem = "aarch64-linux";

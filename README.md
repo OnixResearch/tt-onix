@@ -136,6 +136,7 @@ boundary and non-claims.
 - [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal) — package-matched TT-Metalium, TT-NN, tests, and technical documentation source.
 - [tenstorrent/tt-isa-documentation](https://github.com/tenstorrent/tt-isa-documentation) — instruction-set and hardware behavior reference.
 - [tenstorrent/tt-low-level-documentation](https://github.com/tenstorrent/tt-low-level-documentation) — LLK, NoC, overlay, and kernel performance reference.
+- [tenstorrent/sfpi](https://github.com/tenstorrent/sfpi) — packaged device compiler source and release metadata.
 
 ### Tenstorrent host and simulation references
 

@@ -52,7 +52,7 @@ let
   oppositeBlackhole =
     if stdenv.hostPlatform.system == "x86_64-linux" then armBlackhole else x86Blackhole;
   oppositeHostAsset = fetchurl {
-    url = "https://github.com/tenstorrent/ttsim/releases/download/v1.9.2/${oppositeBlackhole.name}";
+    url = "https://github.com/tenstorrent/ttsim/releases/download/v${ttsim.version}/${oppositeBlackhole.name}";
     hash = oppositeBlackhole.hash;
   };
 in
