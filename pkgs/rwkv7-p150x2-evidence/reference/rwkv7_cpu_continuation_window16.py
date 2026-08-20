@@ -34,9 +34,7 @@ CHECKPOINT_BLAKE3: Final = (
 REFERENCE_METHOD: Final = "pinned_fp32_full_sequence_greedy_argmax"
 BINDING_DOMAIN: Final = b"rwkv7-window16-cpu-continuation-v1\x00"
 RECURRENT_MATRIX_HASH_DOMAIN: Final = b"rwkv7-window16-fp32-recurrent-matrix-v1\x00"
-DEVICE_RECURRENT_PROBE_OUTCOME: Final = (
-    "temporary_fp32_recurrent_matrix_boundaries"
-)
+DEVICE_RECURRENT_PROBE_OUTCOME: Final = "temporary_fp32_recurrent_matrix_boundaries"
 FLA_REFERENCE_VERSION: Final = "0.3.0"
 OFFICIAL_REFERENCE_REVISION: Final = "952102498e9ed367ea0a59ee64106916d474d30f"
 
@@ -598,18 +596,15 @@ def initial_recurrent_boundaries(
         p=EUCLIDEAN_NORM,
         eps=NORMALIZATION_EPSILON,
     )
-    key = (
-        raw_key
-        * (1 + (attention_gate - 1) * weights[prefix + "attn.k_a"])
-    ).view(HEAD_COUNT, HEAD_SIZE)
+    key = (raw_key * (1 + (attention_gate - 1) * weights[prefix + "attn.k_a"])).view(
+        HEAD_COUNT, HEAD_SIZE
+    )
     value_rows = value.view(HEAD_COUNT, HEAD_SIZE)
     gate_rows = attention_gate.view(HEAD_COUNT, HEAD_SIZE)
     a_rows = -normalized_key
     b_rows = normalized_key * gate_rows
     w_rows = torch.exp(log_decay).view(HEAD_COUNT, HEAD_SIZE)
-    initial_state = torch.zeros(
-        (HEAD_COUNT, HEAD_SIZE, HEAD_SIZE), dtype=torch.float32
-    )
+    initial_state = torch.zeros((HEAD_COUNT, HEAD_SIZE, HEAD_SIZE), dtype=torch.float32)
     state_dot_a = torch.matmul(initial_state, a_rows.unsqueeze(-1))
     rank_update = torch.matmul(state_dot_a, b_rows.unsqueeze(1))
     decay = initial_state * w_rows.unsqueeze(1)
@@ -1231,7 +1226,9 @@ def main(arguments: list[str]) -> int:
     weights = load_fp32_weights(model_path)
     if parsed.compare_device_recurrent_probe is not None:
         require(parsed.mode is None, "recurrent comparison cannot select a run mode")
-        require(parsed.workload is None, "recurrent comparison cannot select a workload")
+        require(
+            parsed.workload is None, "recurrent comparison cannot select a workload"
+        )
         device_path: Path = parsed.compare_device_recurrent_probe
         require(device_path.is_absolute(), "device probe path must be absolute")
         require(device_path.is_file(), "device probe path must be a regular file")
