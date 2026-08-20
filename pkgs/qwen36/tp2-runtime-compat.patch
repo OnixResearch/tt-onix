@@ -1,0 +1,50 @@
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+index a2c9c9e..555d1d5 100644
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -24,6 +24,11 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_gated_deltanet i
+ from models.tt_transformers.tt.ccl import tt_all_reduce
+ 
+ 
++# The fused prefill output reduction is tuned for the admitted P150x4 and
++# P150x8 meshes. On P150x2, the 0.74 implementation can wait indefinitely.
++MIN_FUSED_PREFILL_REDUCTION_DEVICES = 4
++
++
+ def _softplus_add(a, bias):
+     """g-gate: softplus(a + bias) fused into one op (softplus as a post-activation on the add)."""
+     return ttnn.add(a, bias, activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.SOFTPLUS, 1.0, 20.0)])
+@@ -197,7 +202,9 @@ class TPGatedDeltaNet:
+         # PREFILL out-proj fusion (matmul_reduce_scatter, (8,8) grid). Slight TTFT cost at small ISL
+         # (~13k crossover from a fixed warmup/compile overhead) but a large win at long ISL (e.g.
+         # 128k ~-2s); overlaps the fp32 GDN-out reduce-scatter with the matmul.
+-        self._fuse_out_mmrs_prefill = not self._out_sharded and args.num_devices > 1
++        self._fuse_out_mmrs_prefill = (
++            not self._out_sharded and args.num_devices >= MIN_FUSED_PREFILL_REDUCTION_DEVICES
++        )
+         # Pre-build chunk masks once (trace-safe; avoids from_torch inside captured trace)
+         self.chunk_seq_masks = create_chunk_masks_seq(args.gdn_chunk_size, mesh)
+         # Prefill fused-op constant tiles, owned by this layer (avoids process-lifetime C++ cache vs device lifetime).
+diff --git a/models/demos/blackhole/qwen36/tt/tp_common.py b/models/demos/blackhole/qwen36/tt/tp_common.py
+index f802ec5..31f2742 100644
+--- a/models/demos/blackhole/qwen36/tt/tp_common.py
++++ b/models/demos/blackhole/qwen36/tt/tp_common.py
+@@ -391,9 +391,16 @@ def all_gather_matmul_prefill(
+     return out
+ 
+ 
++def _runtime_supports_fused_swiglu(signature_doc=None):
++    """Report whether all_gather_minimal_matmul_async accepts fuse_swiglu."""
++    if signature_doc is None:
++        signature_doc = ttnn.experimental.all_gather_minimal_matmul_async.__doc__
++    return "fuse_swiglu" in (signature_doc or "")
++
++
+ def mlp_gateup_agmm_enabled(num_devices):
+-    """Fuse the ff_norm all-gather into the MLP gate/up matmul (prefill). TP-only (needs the gather)."""
+-    return num_devices > 1
++    """Use fused gate/up AGMM only when the runtime binding accepts it."""
++    return num_devices > 1 and _runtime_supports_fused_swiglu()
+ 
+ 
+ def all_gather_swiglu_prefill(

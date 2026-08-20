@@ -54,6 +54,7 @@ let
     (require (builtins.elem "p150x2-tp" authority.upstream.local_patches) "qwen36 adoption lost the carried p150x2-tp patch")
     (require (builtins.elem "generate-tp-reset" authority.upstream.local_patches) "qwen36 adoption lost the carried generate-tp-reset patch (hardware-found reset_tp bug)")
     (require (builtins.elem "gdn-seq-fallback" authority.upstream.local_patches) "qwen36 adoption lost the carried gdn-seq-fallback patch (0.74 lacks chunk_gated_delta_rule)")
+    (require (builtins.elem "tp2-runtime-compat" authority.upstream.local_patches) "qwen36 adoption lost the carried tp2-runtime-compat patch (0.74 TP=2 fusion gaps)")
     (require (
       authority.pr.state == "closed" && authority.pr.merged == false
     ) "qwen36 PR state does not match closed-unmerged")

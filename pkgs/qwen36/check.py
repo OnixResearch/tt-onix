@@ -152,8 +152,9 @@ def probe_p150x2_gate():
 
     Positive: the adopted tree registers P150x2 in the mesh maps, registers a
     P300 prefill-chunk value for the 27B checkpoints, and advertises host
-    sampling for uncertified TP. Negative: the on-device sampling certification
-    set must stay limited to 1x4/1x8, so TP=2 always falls back to host sampling.
+    sampling for uncertified TP. It also verifies the packaged runtime disables
+    unsupported TP=2 GDN and MLP fusions. Negative: the on-device sampling
+    certification set must stay limited to 1x4/1x8.
     """
     import pathlib
 
@@ -280,6 +281,39 @@ def probe_p150x2_gate():
     require(
         hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
         "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
+    )
+
+    # tp2-runtime-compat: the TP=4-tuned fused GDN output reduction waits on
+    # P150x2. The packaged AGMM binding also rejects its newer fuse_swiglu
+    # keyword. Keep both safe fallbacks capability- and topology-gated.
+    import models.demos.blackhole.qwen36.tt.gdn.tp as gdn_tp
+    from models.demos.blackhole.qwen36.tt import tp_common
+
+    p150x2_device_count = 2
+    p150x4_device_count = 4
+    require(
+        gdn_tp.MIN_FUSED_PREFILL_REDUCTION_DEVICES == p150x4_device_count,
+        "GDN fused prefill reduction must start at the admitted P150x4 topology",
+    )
+    require(
+        p150x2_device_count < gdn_tp.MIN_FUSED_PREFILL_REDUCTION_DEVICES,
+        "P150x2 must not enter the hanging fused GDN output reduction",
+    )
+    require(
+        tp_common._runtime_supports_fused_swiglu("(..., fuse_swiglu=True)"),
+        "fused-SwiGLU capability probe rejects a positive signature",
+    )
+    require(
+        not tp_common._runtime_supports_fused_swiglu("(..., fused_activation=None)"),
+        "fused-SwiGLU capability probe accepts a signature without fuse_swiglu",
+    )
+    require(
+        not tp_common._runtime_supports_fused_swiglu(),
+        "packaged 0.74 runtime unexpectedly advertises fuse_swiglu; revisit the fallback",
+    )
+    require(
+        not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+        "P150x2 enables MLP gate/up AGMM despite the missing runtime keyword",
     )
 
 

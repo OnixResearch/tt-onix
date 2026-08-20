@@ -75,6 +75,11 @@ stdenvNoCC.mkDerivation {
     # adapter built on gated_delta_attn_seq (present in 0.74); this patch makes
     # the dispatch check the runtime instead of hardcoding the fused path.
     ./gdn-seq-fallback.patch
+    # r[impl tenstorrent.qwen36.p150x2_runtime_compat]
+    # Silicon-found 0.74 gaps: P150x2 waits in the TP=4-tuned GDN fused
+    # matmul-reduce-scatter, and the MLP AGMM binding rejects fuse_swiglu.
+    # Keep the optimized paths on capable runtimes and admitted larger meshes.
+    ./tp2-runtime-compat.patch
   ];
   nativeBuildInputs = [
     makeWrapper

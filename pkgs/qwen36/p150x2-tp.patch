@@ -28,7 +28,7 @@ diff --git a/models/demos/blackhole/qwen36/README.md b/models/demos/blackhole/qw
    single-device forward path (no collectives).
 +- A carried **P150x2** (`P300`) 27B mesh requires host sampling (on-device
 +  sampling is certified only for 1x4/1x8) and uses the frozen TP=4 prefill
-+  tuning; it is not validated on silicon in this tree.
++  tuning. A bounded physical oracle passes; serving, PCC, and performance remain unvalidated.
  - The **27B** variants (both Qwen3.5-27B and Qwen3.6-27B) run on a **P150x4**
    (a `(1, 4)` Blackhole mesh) using **4-way tensor parallelism (TP)**. The TP
    path needs `FABRIC_1D` for the cross-device collectives (all-reduce /

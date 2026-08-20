@@ -1,0 +1,60 @@
+{
+  "classification": "passed",
+  "date": "2026-08-20",
+  "execution": {
+    "fabric": "FABRIC_1D",
+    "generation_seconds": 78.244,
+    "load_seconds": 77.221,
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "simulated": false
+  },
+  "model": {
+    "hf_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "layer_count": 64,
+    "name": "Qwen3.8-27B",
+    "upstream_commit": "d102e7f4512060e09e580e40cf26a870bfa88c55"
+  },
+  "non_claims": [
+    "No TTFT or steady-state throughput claim",
+    "No long-context or paged-serving claim",
+    "No TP=2 PCC claim",
+    "No P150x4 or P150x8 local validation claim"
+  ],
+  "oracle": {
+    "first_token": "Paris",
+    "generated_text": "The capital of France is Paris.\nThe capital of Germany is",
+    "max_new_tokens": 8,
+    "new_token_ids": [
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9564,
+      369
+    ],
+    "prompt": "The capital of France is"
+  },
+  "raw_log": {
+    "blake3": "1e94132119886d23e45b05b4ddd4d36eba775ca3e9fbdd0448bfb6c36f2768e5",
+    "exit_status": 0,
+    "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-27b-tp2-final.log"
+  },
+  "runtime": {
+    "firmware": "19.11.0",
+    "kmd": "2.10.0",
+    "qwen_package": "/nix/store/kcdkgl48r2qskn38w9rd4im4msqxn1j1-qwen36-0.1.0",
+    "sfpi": "7.70.0[847]",
+    "tt_metal": "0.74.0-rc6",
+    "tt_umd": "0.9.9"
+  },
+  "schema_version": 1
+}

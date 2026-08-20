@@ -25,6 +25,7 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
       "p150x2-tp",
       "generate-tp-reset",
       "gdn-seq-fallback",
+      "tp2-runtime-compat",
     ],
   },
   pr = {

@@ -105,10 +105,10 @@ tok/s. These are upstream-reported numbers, not repository evidence.
 
 ## Non-claims
 
-The adoption makes no silicon, placement, profiler, thermal, or performance
-claim on this repository. The device-free check proves imports and gate
-behavior only. Physical validation must run on a P150x4/x8 box (or a bounded
-ttsim smoke for the single-device 9B path) before any runnable claim.
+Local silicon evidence now proves one bounded Qwen3.8-27B TP=2 oracle on this
+two-P150 box. It does not validate the upstream P150x4/x8 claims. It also makes
+no TP=2 PCC, long-context, paged-serving, TTFT, throughput, thermal, or profiler
+claim.
 
 ## Carried P150x2 (P300) build
 
@@ -126,19 +126,15 @@ ttsim smoke for the single-device 9B path) before any runnable claim.
 
 Why TP=2 divisibility is safe for this checkpoint: 24 heads, 4 KV heads,
 16/48 linear-attention heads, hidden 5120, intermediate 17408, and vocab
-248320 all divide by 2; no KV-head replication is needed (that path exists for
-TP=8). The carried tree is not silicon-validated: the prefill tuning falls back
-to frozen TP=4 values, and decode throughput at TP=2 (host sampling, 2x
-per-device weight traffic versus 4-way TP) is unmeasured.
+248320 all divide by 2. No KV-head replication is needed. The bounded silicon
+oracle now passes, but decode throughput remains unmeasured.
 
-Validation remaining for P150x2:
+P150x2 validation status:
 
-1. device-free gate — done (`qwen36-check` TP=2/P300 probes PASS);
-2. simulator — open a 1x2 mesh under the packaged `libttsim_bh_x2.so`, run
-greedy `test_generate_tp.py` Paris, carry GDN recurrent state, receipt marked
-`simulated`;
-3. hardware — same commands on the two-P150 box, `tests/pcc_thresholds.json`
-TP=2 rows, then TTFT/tok/s with the BF4/BF8 flags.
+1. device-free gate — passed (`qwen36-check` TP=2/P300 probes);
+2. simulator — pending for the experimental `libttsim_bh_x2.so` path;
+3. hardware oracle — passed on a physical 1x2 mesh with eight greedy tokens;
+4. TP=2 PCC, paged serving, long context, TTFT, and throughput — pending.
 
 ## Hardware evidence (2026-08-19, britton-desktop)
 
@@ -176,18 +172,41 @@ or package fixes:
 4. The installed runtime lacks required TP JIT kernel sources under
    `ttnn/cpp`. The package overlays the complete package-matched `ttnn/cpp`
    tree, including `all_gather_minimal_matmul_async`.
+5. The TP=4-tuned GDN `matmul_reduce_scatter_prefill` waits indefinitely on
+   P150x2. `tp2-runtime-compat.patch` disables that fusion below four devices
+   and uses row projection plus all-reduce.
+6. The 0.74 AGMM binding rejects the newer `fuse_swiglu` keyword.
+   `tp2-runtime-compat.patch` probes the binding signature and uses the
+   separate MLP matmuls when the keyword is absent.
 
-The TP=2 attempt started at 20:00 EDT. It opened the exact 1x2 mesh and
-initialized `FABRIC_1D`. The console showed all 64 layers loaded and P300 cache
-generation complete.
+The first TP=2 attempt started at 20:00 EDT. It opened the exact 1x2 mesh,
+initialized `FABRIC_1D`, and loaded all 64 layers. A host reboot interrupted it
+before token generation and removed its temporary log.
 
-The run continued through sequence-path JIT compilation until the host reboot
-at 21:46 EDT. The reboot interrupted the run before its two-hour timeout and
-removed the temporary log. No fatal error appeared before the reboot, but the
-run produced no retained token, PCC, TTFT, or throughput result.
+## Hardware evidence (2026-08-20, britton-desktop)
 
-Both inference services are active after the reboot. The TP=2 path remains
-unvalidated until a new bounded attempt produces a durable receipt.
+A later bounded run passed with both inference services stopped:
+
+- physical PCIe device IDs 0 and 1 formed an exact `(1, 2)` mesh;
+- `FABRIC_1D` initialized on both devices;
+- all 64 Qwen3.8-27B layers loaded from revision
+  `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`;
+- the bespoke TP state-carry oracle generated eight non-degenerate tokens;
+- the first generated token was `Paris`;
+- the full continuation was `The capital of France is Paris.\nThe capital of Germany is`;
+- UMD closed both devices cleanly.
+
+The run used tt-metal 0.74, TT-UMD 0.9.9, KMD 2.10.0, firmware 19.11.0,
+and SFPI `7.70.0[847]`. Model loading took 77.221 seconds. Generation took
+78.244 seconds, including first-run compilation. These timings are diagnostic,
+not admitted performance results.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-receipt.json`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-summary.log`
+
+Both inference services remain stopped for Qwen work.
 
 ## Upstream state watch
 

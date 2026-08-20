@@ -1,0 +1,12 @@
+2026-08-20 03:10:00.042 | UMD | Established firmware bundle version: 19.11.0
+2026-08-20 03:10:00.175 | UMD | Opening local chip ids/PCIe ids: {0, 1}/[0, 1]
+2026-08-20 03:10:00.175 | UMD | KMD version: 2.10.0
+{"pcie_device_ids": [0, 1], "simulated": false, "stage": "physical-devices-admitted"}
+2026-08-20 03:10:04.141 | Metal | Fabric initialized on 2 devices with FABRIC_1D
+{"fabric": "FABRIC_1D", "mesh_shape": [1, 2], "num_devices": 2, "stage": "mesh-opened"}
+{"layer_count": 64, "load_seconds": 77.221, "model_name": "Qwen3.8-27B", "stage": "model-loaded"}
+{"max_new_tokens": 8, "prompt": "The capital of France is", "prompt_token_count": 5, "stage": "generation-started"}
+{"first_token": "Paris", "generated_text": "The capital of France is Paris.\nThe capital of Germany is", "generation_seconds": 78.244, "new_token_ids": [11751, 13, 198, 760, 6511, 314, 9564, 369], "simulated": false, "stage": "passed"}
+2026-08-20 03:12:44.663 | BuildKernels | JIT cache stats: 0/764 hits, 359 build-once deduplications
+2026-08-20 03:12:44.935 | UMD | Closing devices in cluster completed
+raw_log_blake3=1e94132119886d23e45b05b4ddd4d36eba775ca3e9fbdd0448bfb6c36f2768e5
