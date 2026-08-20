@@ -1,5 +1,7 @@
 """Serialized OpenAI-compatible HTTP shell for Qwen3.8-27B on P150x2."""
 
+# r[impl tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
+
 from __future__ import annotations
 
 import argparse
@@ -142,6 +144,32 @@ class QwenEngine:
                 else "eager-selected"
             )
 
+    def _prefill_first_token(
+        self, token_ids: torch.Tensor, page_table: torch.Tensor
+    ) -> tuple[int, dict[str, Any]]:
+        """Run the unchanged TTFT interval and return phase observations."""
+        prompt_token_count = token_ids.shape[1]
+        prefill_started = time.monotonic()
+        logits_device = self.model.prefill_traced_chunked(
+            token_ids,
+            page_table,
+            actual_len=prompt_token_count,
+        )
+        ttnn.synchronize_device(self.model.device)
+        prefill_device_finished = time.monotonic()
+        logits = ttnn.to_torch(
+            logits_device,
+            mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
+        ).reshape(-1, self.model.args.vocab_size)[0]
+        next_token = int(torch.argmax(logits.float()).item())
+        first_token_finished = time.monotonic()
+        return next_token, {
+            "first_token_readback_s": first_token_finished - prefill_device_finished,
+            "prefill_device_s": prefill_device_finished - prefill_started,
+            "prefill_page_table_blocks": int(page_table.shape[1]),
+            "ttft_s": first_token_finished - prefill_started,
+        }
+
     def _run_paged_generation(
         self, token_ids: torch.Tensor, maximum_generation_tokens: int
     ) -> tuple[list[int], dict[str, Any]]:
@@ -158,20 +186,8 @@ class QwenEngine:
             kv_cache_shape, ttnn.bfloat16, batch_size=MAX_BATCH_SIZE
         )
 
-        prefill_started = time.monotonic()
-        logits_device = self.model.prefill_traced_chunked(
-            token_ids,
-            page_table,
-            actual_len=prompt_token_count,
-        )
-        ttnn.synchronize_device(self.model.device)
-        logits = ttnn.to_torch(
-            logits_device,
-            mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
-        ).reshape(-1, self.model.args.vocab_size)[0]
-        next_token = int(torch.argmax(logits.float()).item())
+        next_token, prefill_metrics = self._prefill_first_token(token_ids, page_table)
         generated = [next_token]
-        ttft_seconds = time.monotonic() - prefill_started
 
         decode_durations = []
         position = prompt_token_count
@@ -200,9 +216,11 @@ class QwenEngine:
 
         return generated, self._decode_metrics(
             decode_durations,
-            ttft_seconds,
+            prefill_metrics,
             decode_path=DECODE_MODE_EAGER,
+            decode_page_table_blocks=num_blocks,
             fallback_reason=self._startup_fallback_reason,
+            trace_prepare_seconds=0.0,
         )
 
     def _run_persistent_generation(
@@ -213,26 +231,22 @@ class QwenEngine:
     ) -> tuple[list[int], dict[str, Any]]:
         assert self._decode_adapter is not None
         prompt_token_count = token_ids.shape[1]
-        prefill_started = time.monotonic()
-        logits_device = self.model.prefill_traced_chunked(
-            token_ids,
-            self._decode_adapter.page_table,
-            actual_len=prompt_token_count,
+        prefill_page_table = self._decode_adapter.prefill_page_table(
+            prompt_tokens=prompt_token_count,
+            generation_tokens=maximum_generation_tokens,
         )
-        ttnn.synchronize_device(self.model.device)
-        logits = ttnn.to_torch(
-            logits_device,
-            mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
-        ).reshape(-1, self.model.args.vocab_size)[0]
-        next_token = int(torch.argmax(logits.float()).item())
+        next_token, prefill_metrics = self._prefill_first_token(
+            token_ids, prefill_page_table
+        )
         generated = [next_token]
-        ttft_seconds = time.monotonic() - prefill_started
 
         position = prompt_token_count
+        trace_prepare_started = time.monotonic()
         eligibility = self._decode_adapter.ensure_trace(
             token=next_token,
             position=position,
         )
+        trace_prepare_seconds = time.monotonic() - trace_prepare_started
         use_trace = eligibility.eligible
         fallback_reason = None if use_trace else eligibility.reason
         decode_path = "traced" if use_trace else DECODE_MODE_EAGER
@@ -257,18 +271,22 @@ class QwenEngine:
 
         return generated, self._decode_metrics(
             decode_durations,
-            ttft_seconds,
+            prefill_metrics,
             decode_path=decode_path,
+            decode_page_table_blocks=self._decode_adapter.decode_page_table_blocks,
             fallback_reason=fallback_reason,
+            trace_prepare_seconds=trace_prepare_seconds,
         )
 
     @staticmethod
     def _decode_metrics(
         decode_durations: list[float],
-        ttft_seconds: float,
+        prefill_metrics: dict[str, Any],
         *,
         decode_path: str,
+        decode_page_table_blocks: int,
         fallback_reason: str | None,
+        trace_prepare_seconds: float,
     ) -> dict[str, Any]:
         steady_durations = (
             decode_durations[1:] if len(decode_durations) > 1 else decode_durations
@@ -281,12 +299,14 @@ class QwenEngine:
             decode_tokens_per_second = 0.0
             tail_token_latency_seconds = 0.0
         return {
+            **prefill_metrics,
+            "decode_page_table_blocks": decode_page_table_blocks,
             "decode_path": decode_path,
             "decode_tok_s": decode_tokens_per_second,
             "fallback_reason": fallback_reason,
             "tail_token_latency_s": tail_token_latency_seconds,
             "token_latency_s": steady_durations,
-            "ttft_s": ttft_seconds,
+            "trace_prepare_s": trace_prepare_seconds,
         }
 
     def generate(self, request: CompletionRequest) -> dict[str, Any]:
@@ -315,9 +335,12 @@ class QwenEngine:
                 request_id=request_id,
             )
         response: dict[str, Any] | None = None
+        request_reset_seconds = 0.0
         try:
             if persistent:
+                reset_started = time.monotonic()
                 self._decode_adapter.reset_for_request()
+                request_reset_seconds = time.monotonic() - reset_started
                 generated, perf = self._run_persistent_generation(
                     token_ids,
                     request.max_tokens,
@@ -328,6 +351,7 @@ class QwenEngine:
                     token_ids,
                     request.max_tokens,
                 )
+            perf["request_reset_s"] = request_reset_seconds
             generated_text = self.tokenizer.decode(generated, skip_special_tokens=True)
             response = build_completion_response(
                 request=request,
@@ -339,14 +363,19 @@ class QwenEngine:
             )
             response["x_onix_decode_evidence"] = {
                 "clean_reset": False,
+                "decode_page_table_blocks": perf["decode_page_table_blocks"],
                 "decode_path": perf["decode_path"],
                 "decode_tokens_per_second": perf["decode_tok_s"],
                 "fallback_reason": perf["fallback_reason"],
+                "first_token_readback_seconds": perf["first_token_readback_s"],
                 "generated_token_ids": generated,
                 "model_identity": self.model_identity,
                 "package_identity": self.package_identity,
                 "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
+                "prefill_device_seconds": perf["prefill_device_s"],
+                "prefill_page_table_blocks": perf["prefill_page_table_blocks"],
                 "profile_id": self.decode_profile.profile_id,
+                "request_reset_seconds": perf["request_reset_s"],
                 "runtime_identity": self.runtime_identity,
                 "simulated": False,
                 "tail_token_latency_seconds": perf["tail_token_latency_s"],
@@ -356,6 +385,7 @@ class QwenEngine:
                     if self._decode_adapter is not None
                     else None
                 ),
+                "trace_prepare_seconds": perf["trace_prepare_s"],
                 "ttft_seconds": perf["ttft_s"],
             }
             emit(

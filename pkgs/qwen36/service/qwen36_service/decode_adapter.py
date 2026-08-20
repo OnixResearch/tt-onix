@@ -3,6 +3,7 @@
 # r[impl tenstorrent.qwen38_p150x2.traced_decode]
 # r[impl tenstorrent.qwen38_p150x2.persistent_decode_buffers]
 # r[impl tenstorrent.qwen38_p150x2.shard_local_argmax]
+# r[impl tenstorrent.qwen38_p150x2.traced_decode_ttft]
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from .decode_core import (
     DecodeProfile,
     ShardWinner,
     TraceBinding,
+    required_page_table_blocks,
     select_global_winner,
     validate_trace_binding,
 )
@@ -78,6 +80,7 @@ class TracedDecodeAdapter:
         )
         self._mesh_reader = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
         self._trace_id: Any | None = None
+        self._trace_prefill_page_table_blocks: int | None = None
         self._trace_logits: Any | None = None
         self._trace_indices: Any | None = None
         self._trace_values: Any | None = None
@@ -96,6 +99,34 @@ class TracedDecodeAdapter:
         return torch.arange(aligned_block_count, dtype=torch.int32).reshape(
             1, aligned_block_count
         )
+
+    @property
+    def decode_page_table_blocks(self) -> int:
+        """Return the stable trace-bound decode table capacity."""
+        return int(self.page_table.shape[1])
+
+    def prefill_page_table(
+        self, *, prompt_tokens: int, generation_tokens: int
+    ) -> torch.Tensor:
+        """Return the request-bounded prefix without changing trace-bound inputs."""
+        block_count = required_page_table_blocks(
+            prompt_tokens=prompt_tokens,
+            generation_tokens=generation_tokens,
+            kv_block_size=self.profile.kv_block_size,
+            capacity_blocks=self.decode_page_table_blocks,
+        )
+        if (
+            self._trace_id is not None
+            and self._trace_prefill_page_table_blocks != block_count
+        ):
+            raise DecodeAdapterError(
+                "prefill page-table width changed after decode trace capture"
+            )
+        bounded = self.page_table[:, :block_count].contiguous()
+        if tuple(bounded.shape) != (1, block_count):
+            raise DecodeAdapterError("bounded prefill page table has the wrong shape")
+        self._trace_prefill_page_table_blocks = block_count
+        return bounded
 
     def _allocate_persistent_model_state(self) -> None:
         cache_shape = [
@@ -411,6 +442,7 @@ class TracedDecodeAdapter:
         if self._trace_id is not None:
             ttnn.release_trace(self.mesh, self._trace_id)
             self._trace_id = None
+        self._trace_prefill_page_table_blocks = None
         for tensor_name in ("_trace_indices", "_trace_values", "_trace_logits"):
             tensor = getattr(self, tensor_name)
             if tensor is not None:

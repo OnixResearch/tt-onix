@@ -29,7 +29,8 @@ const MEASURED_MARKER: &str = "-measured-";
 const JSON_EXTENSION: &str = "json";
 const PERCENTILE_NUMERATOR: usize = 99;
 const PERCENTILE_DENOMINATOR: usize = 100;
-const MINIMUM_ROOT_COUNT: usize = 1;
+const MINIMUM_RESPONSE_ROOT_COUNT: usize = 2;
+const EXPECTED_CHOICE_COUNT: usize = 1;
 const EXPECTED_DEVICE_COUNT: usize = 2;
 const EXPECTED_DEVICE_IDS: [i64; EXPECTED_DEVICE_COUNT] = [0, 1];
 const FLAG_VALUE_ARGUMENT_WIDTH: usize = 2;
@@ -38,6 +39,12 @@ const MEDIAN_DIVISOR_FLOAT: f64 = 2.0;
 const SELF_TEST_CANDIDATE_RATE: f64 = 2.0;
 const SELF_TEST_ADMISSION_BOUND: f64 = 1.1;
 const SELF_TEST_LATENCY_SECONDS: f64 = 0.1;
+const SELF_TEST_TTFT_SECONDS: f64 = 1.0;
+const SELF_TEST_PREFILL_DEVICE_SECONDS: f64 = 0.75;
+const SELF_TEST_READBACK_SECONDS: f64 = 0.25;
+const SELF_TEST_PREFILL_BLOCKS: usize = 2;
+const SELF_TEST_DECODE_BLOCKS: usize = 32;
+const PHASE_SUM_TOLERANCE_SECONDS: f64 = 1.0e-6;
 const SELF_TEST_MATCHING_TOKEN: i64 = 7;
 const SELF_TEST_MISMATCH_TOKEN: i64 = 8;
 const SUCCESS_EXIT_CODE: u8 = 0;
@@ -109,19 +116,25 @@ struct Usage {
 struct DecodeEvidence {
     clean_reset: bool,
     cleanup_seconds: f64,
+    decode_page_table_blocks: usize,
     decode_path: String,
     decode_tokens_per_second: f64,
     fallback_reason: Option<String>,
+    first_token_readback_seconds: f64,
     generated_token_ids: Vec<i64>,
     model_identity: String,
     package_identity: String,
     physical_pcie_device_ids: Vec<i64>,
+    prefill_device_seconds: f64,
+    prefill_page_table_blocks: usize,
     profile_id: String,
+    request_reset_seconds: f64,
     runtime_identity: String,
     simulated: bool,
     tail_token_latency_seconds: f64,
     token_latency_seconds: Vec<f64>,
     trace_capture_seconds: Option<f64>,
+    trace_prepare_seconds: f64,
     ttft_seconds: f64,
 }
 
@@ -138,6 +151,12 @@ struct Metrics {
     ttft_seconds: Vec<f64>,
     token_latency_seconds: Vec<f64>,
     cleanup_seconds: Vec<f64>,
+    request_reset_seconds: Vec<f64>,
+    prefill_device_seconds: Vec<f64>,
+    first_token_readback_seconds: Vec<f64>,
+    trace_prepare_seconds: Vec<f64>,
+    prefill_page_table_blocks: Vec<usize>,
+    decode_page_table_blocks: Vec<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -210,8 +229,12 @@ fn parse_config(arguments: Vec<String>) -> Result<Config, String> {
         }
         index += FLAG_VALUE_ARGUMENT_WIDTH;
     }
-    if eager_roots.len() < MINIMUM_ROOT_COUNT || eager_roots.len() != candidate_roots.len() {
-        return Err("eager and candidate response roots must have the same non-zero count".to_owned());
+    if eager_roots.len() < MINIMUM_RESPONSE_ROOT_COUNT
+        || eager_roots.len() != candidate_roots.len()
+    {
+        return Err(format!(
+            "eager and candidate response roots must have the same count of at least {MINIMUM_RESPONSE_ROOT_COUNT}"
+        ));
     }
     let execution_order = execution_order.ok_or_else(|| format!("missing {EXECUTION_ORDER_FLAG}"))?;
     let expected_order_items = eager_roots.len() + candidate_roots.len();
@@ -221,11 +244,9 @@ fn parse_config(arguments: Vec<String>) -> Result<Config, String> {
             execution_order.len()
         ));
     }
-    if execution_order
-        .iter()
-        .any(|item| item != "eager" && item != "candidate")
-    {
-        return Err("execution order contains an unknown path".to_owned());
+    let expected_execution_order = ["eager", "candidate", "candidate", "eager"];
+    if execution_order != expected_execution_order {
+        return Err("execution order must be eager,candidate,candidate,eager".to_owned());
     }
     Ok(Config {
         profile: profile.ok_or_else(|| format!("missing {PROFILE_FLAG}"))?,
@@ -247,6 +268,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     let mut clean_reset = true;
     let mut identities_match = true;
     let mut physical = true;
+    let mut prefill_widths_match = true;
     let mut eager_hashes = Vec::new();
     let mut candidate_hashes = Vec::new();
     let mut canonical_identity: Option<Identity> = None;
@@ -286,6 +308,14 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             text_parity &= eager.response.choices[0].text == candidate.response.choices[0].text;
             clean_reset &= eager.response.x_onix_decode_evidence.clean_reset
                 && candidate.response.x_onix_decode_evidence.clean_reset;
+            prefill_widths_match &= eager
+                .response
+                .x_onix_decode_evidence
+                .prefill_page_table_blocks
+                == candidate
+                    .response
+                    .x_onix_decode_evidence
+                    .prefill_page_table_blocks;
             physical &= !eager.response.x_onix_decode_evidence.simulated
                 && !candidate.response.x_onix_decode_evidence.simulated
                 && eager.response.x_onix_decode_evidence.physical_pcie_device_ids
@@ -339,6 +369,9 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     if profile.admission.require_clean_reset && !clean_reset {
         reasons.push("cleanup-failed");
     }
+    if !prefill_widths_match {
+        reasons.push("prefill-page-table-width-mismatch");
+    }
     if speedup_ratio < profile.admission.minimum_median_decode_speedup_ratio {
         reasons.push("decode-speedup-below-bound");
     }
@@ -384,6 +417,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "exact_generated_token_ids": token_parity,
             "exact_generated_text": text_parity,
             "clean_reset": clean_reset,
+            "prefill_page_table_widths_match": prefill_widths_match,
         },
         "metrics": {
             "eager": {
@@ -391,12 +425,24 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
                 "median_ttft_seconds": eager_ttft_median,
                 "p99_token_latency_seconds": eager_tail_p99,
                 "median_cleanup_seconds": median(&eager_metrics.cleanup_seconds)?,
+                "median_request_reset_seconds": median(&eager_metrics.request_reset_seconds)?,
+                "median_prefill_device_seconds": median(&eager_metrics.prefill_device_seconds)?,
+                "median_first_token_readback_seconds": median(&eager_metrics.first_token_readback_seconds)?,
+                "median_trace_prepare_seconds": median(&eager_metrics.trace_prepare_seconds)?,
+                "prefill_page_table_blocks": unique_usizes(&eager_metrics.prefill_page_table_blocks),
+                "decode_page_table_blocks": unique_usizes(&eager_metrics.decode_page_table_blocks),
             },
             "candidate": {
                 "median_decode_tokens_per_second": candidate_decode_median,
                 "median_ttft_seconds": candidate_ttft_median,
                 "p99_token_latency_seconds": candidate_tail_p99,
                 "median_cleanup_seconds": median(&candidate_metrics.cleanup_seconds)?,
+                "median_request_reset_seconds": median(&candidate_metrics.request_reset_seconds)?,
+                "median_prefill_device_seconds": median(&candidate_metrics.prefill_device_seconds)?,
+                "median_first_token_readback_seconds": median(&candidate_metrics.first_token_readback_seconds)?,
+                "median_trace_prepare_seconds": median(&candidate_metrics.trace_prepare_seconds)?,
+                "prefill_page_table_blocks": unique_usizes(&candidate_metrics.prefill_page_table_blocks),
+                "decode_page_table_blocks": unique_usizes(&candidate_metrics.decode_page_table_blocks),
             },
             "decode_speedup_ratio": speedup_ratio,
             "ttft_regression_ratio": ttft_ratio,
@@ -476,7 +522,7 @@ fn read_measured_samples(root: &Path) -> Result<Vec<Sample>, String> {
 
 fn validate_response(sample: &Sample, profile: &Profile, expected_path: &str) -> Result<(), String> {
     let response = &sample.response;
-    if response.id.is_empty() || response.choices.len() != MINIMUM_ROOT_COUNT {
+    if response.id.is_empty() || response.choices.len() != EXPECTED_CHOICE_COUNT {
         return Err(format!("{} has an invalid response identity or choice count", sample.name));
     }
     if response.usage.completion_tokens != profile.workload.generated_tokens {
@@ -498,6 +544,17 @@ fn validate_response(sample: &Sample, profile: &Profile, expected_path: &str) ->
     if expected_path == "traced" && evidence.trace_capture_seconds.is_none() {
         return Err(format!("{} lacks trace capture timing", sample.name));
     }
+    if evidence.prefill_page_table_blocks == 0
+        || evidence.decode_page_table_blocks == 0
+        || evidence.prefill_page_table_blocks > evidence.decode_page_table_blocks
+    {
+        return Err(format!("{} has invalid page-table widths", sample.name));
+    }
+    if expected_path == "eager"
+        && evidence.prefill_page_table_blocks != evidence.decode_page_table_blocks
+    {
+        return Err(format!("{} eager page-table widths differ", sample.name));
+    }
     Ok(())
 }
 
@@ -517,8 +574,24 @@ fn push_metrics(metrics: &mut Metrics, evidence: &DecodeEvidence) -> Result<(), 
         evidence.tail_token_latency_seconds,
         evidence.cleanup_seconds,
     ];
+    let phase_metrics = [
+        evidence.request_reset_seconds,
+        evidence.prefill_device_seconds,
+        evidence.first_token_readback_seconds,
+        evidence.trace_prepare_seconds,
+    ];
     if scalar_metrics.iter().any(|value| !value.is_finite() || *value <= 0.0) {
         return Err("response contains a non-positive or non-finite metric".to_owned());
+    }
+    if phase_metrics
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err("response contains an invalid phase metric".to_owned());
+    }
+    let phase_ttft = evidence.prefill_device_seconds + evidence.first_token_readback_seconds;
+    if (phase_ttft - evidence.ttft_seconds).abs() > PHASE_SUM_TOLERANCE_SECONDS {
+        return Err("response TTFT does not equal its measured phases".to_owned());
     }
     if evidence
         .token_latency_seconds
@@ -533,6 +606,18 @@ fn push_metrics(metrics: &mut Metrics, evidence: &DecodeEvidence) -> Result<(), 
         .token_latency_seconds
         .extend(&evidence.token_latency_seconds);
     metrics.cleanup_seconds.push(evidence.cleanup_seconds);
+    metrics.request_reset_seconds.push(evidence.request_reset_seconds);
+    metrics.prefill_device_seconds.push(evidence.prefill_device_seconds);
+    metrics
+        .first_token_readback_seconds
+        .push(evidence.first_token_readback_seconds);
+    metrics.trace_prepare_seconds.push(evidence.trace_prepare_seconds);
+    metrics
+        .prefill_page_table_blocks
+        .push(evidence.prefill_page_table_blocks);
+    metrics
+        .decode_page_table_blocks
+        .push(evidence.decode_page_table_blocks);
     Ok(())
 }
 
@@ -548,6 +633,10 @@ fn median(values: &[f64]) -> Result<f64, String> {
     } else {
         Ok(ordered[midpoint])
     }
+}
+
+fn unique_usizes(values: &[usize]) -> Vec<usize> {
+    values.iter().copied().collect::<BTreeSet<_>>().into_iter().collect()
 }
 
 fn percentile_99(values: &[f64]) -> Result<f64, String> {
@@ -610,9 +699,14 @@ fn self_test() -> Result<(), String> {
     )?;
     let config = Config {
         profile: profile_path,
-        eager_roots: vec![eager.clone()],
-        candidate_roots: vec![candidate.clone()],
-        execution_order: vec!["eager".to_owned(), "candidate".to_owned()],
+        eager_roots: vec![eager.clone(), eager.clone()],
+        candidate_roots: vec![candidate.clone(), candidate.clone()],
+        execution_order: vec![
+            "eager".to_owned(),
+            "candidate".to_owned(),
+            "candidate".to_owned(),
+            "eager".to_owned(),
+        ],
         output: root.join("receipt.json"),
     };
     let positive = build_receipt(&config)?;
@@ -633,12 +727,43 @@ fn self_test() -> Result<(), String> {
     {
         return Err("negative token-parity fixture was not rejected".to_owned());
     }
+    write_fixture(
+        &candidate.join("p-measured-1.json"),
+        "traced",
+        SELF_TEST_CANDIDATE_RATE,
+        SELF_TEST_MATCHING_TOKEN,
+    )?;
+    let invalid_phase_path = candidate.join("p-measured-1.json");
+    let mut invalid_phase: Value = read_json(&invalid_phase_path)?;
+    invalid_phase["x_onix_decode_evidence"]["prefill_device_seconds"] =
+        json!(-SELF_TEST_LATENCY_SECONDS);
+    fs::write(
+        &invalid_phase_path,
+        serde_json::to_vec(&invalid_phase)
+            .map_err(|error| format!("serialize invalid phase fixture: {error}"))?,
+    )
+    .map_err(|error| format!("write invalid phase fixture: {error}"))?;
+    let phase_error = build_receipt(&config)
+        .expect_err("negative phase fixture unexpectedly produced a receipt");
+    if !phase_error.contains("phase") {
+        return Err(format!("negative phase fixture had the wrong error: {phase_error}"));
+    }
     fs::remove_dir_all(&root).map_err(|error| format!("remove self-test fixture: {error}"))?;
     Ok(())
 }
 
 fn write_fixture(path: &Path, decode_path: &str, rate: f64, token: i64) -> Result<(), String> {
-    let trace_capture = if decode_path == "traced" { Some(1.0) } else { None };
+    let traced = decode_path == "traced";
+    let trace_capture = if traced {
+        Some(SELF_TEST_TTFT_SECONDS)
+    } else {
+        None
+    };
+    let decode_blocks = if traced {
+        SELF_TEST_DECODE_BLOCKS
+    } else {
+        SELF_TEST_PREFILL_BLOCKS
+    };
     let response = json!({
         "id": "fixture-id",
         "choices": [{"text": "x"}],
@@ -646,20 +771,26 @@ fn write_fixture(path: &Path, decode_path: &str, rate: f64, token: i64) -> Resul
         "x_onix_decode_evidence": {
             "clean_reset": true,
             "cleanup_seconds": SELF_TEST_LATENCY_SECONDS,
+            "decode_page_table_blocks": decode_blocks,
             "decode_path": decode_path,
             "decode_tokens_per_second": rate,
-            "fallback_reason": if decode_path == "traced" { Value::Null } else { json!("eager-selected") },
+            "fallback_reason": if traced { Value::Null } else { json!("eager-selected") },
+            "first_token_readback_seconds": SELF_TEST_READBACK_SECONDS,
             "generated_token_ids": [token],
             "model_identity": "model",
             "package_identity": "package",
             "physical_pcie_device_ids": EXPECTED_DEVICE_IDS,
+            "prefill_device_seconds": SELF_TEST_PREFILL_DEVICE_SECONDS,
+            "prefill_page_table_blocks": SELF_TEST_PREFILL_BLOCKS,
             "profile_id": "fixture",
+            "request_reset_seconds": if traced { SELF_TEST_LATENCY_SECONDS } else { 0.0 },
             "runtime_identity": "runtime",
             "simulated": false,
             "tail_token_latency_seconds": SELF_TEST_LATENCY_SECONDS,
             "token_latency_seconds": [SELF_TEST_LATENCY_SECONDS],
             "trace_capture_seconds": trace_capture,
-            "ttft_seconds": 1.0
+            "trace_prepare_seconds": if traced { SELF_TEST_LATENCY_SECONDS } else { 0.0 },
+            "ttft_seconds": SELF_TEST_TTFT_SECONDS
         }
     });
     fs::write(

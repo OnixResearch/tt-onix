@@ -3,6 +3,7 @@
 # r[impl tenstorrent.qwen38_p150x2.persistent_decode_buffers]
 # r[impl tenstorrent.qwen38_p150x2.shard_local_argmax]
 # r[impl tenstorrent.qwen38_p150x2.decode_performance_admission]
+# r[impl tenstorrent.qwen38_p150x2.traced_decode_ttft]
 
 from __future__ import annotations
 
@@ -22,6 +23,32 @@ UNMEASURED_CANDIDATE_RECEIPT = "not-measured"
 
 class DecodePolicyError(ValueError):
     """The traced-decode input does not satisfy the profile contract."""
+
+
+def required_page_table_blocks(
+    *,
+    prompt_tokens: int,
+    generation_tokens: int,
+    kv_block_size: int,
+    capacity_blocks: int,
+) -> int:
+    """Return the bounded block count required by one generation request."""
+    values = (
+        ("prompt token count", prompt_tokens),
+        ("generation token count", generation_tokens),
+        ("KV block size", kv_block_size),
+        ("page-table capacity", capacity_blocks),
+    )
+    for name, value in values:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise DecodePolicyError(f"{name} must be a positive integer")
+    total_tokens = prompt_tokens + generation_tokens
+    required_blocks = (total_tokens + kv_block_size - 1) // kv_block_size
+    if required_blocks > capacity_blocks:
+        raise DecodePolicyError(
+            f"request requires {required_blocks} KV blocks; capacity is {capacity_blocks}"
+        )
+    return required_blocks
 
 
 class SlotState(Enum):

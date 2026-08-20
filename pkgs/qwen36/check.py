@@ -324,6 +324,8 @@ def probe_p150x2_gate():
 # r[verify tenstorrent.qwen38_p150x2.persistent_decode_buffers]
 # r[verify tenstorrent.qwen38_p150x2.shard_local_argmax]
 # r[verify tenstorrent.qwen38_p150x2.decode_performance_admission]
+# r[verify tenstorrent.qwen38_p150x2.traced_decode_ttft]
+# r[verify tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
 def probe_traced_decode_contract():
     """Positive and negative tests for traced-decode policy and admission."""
     from qwen36_service.decode_core import (
@@ -338,6 +340,7 @@ def probe_traced_decode_contract():
         TraceBinding,
         admit_decode_candidate,
         request_deadline_expired,
+        required_page_table_blocks,
         select_global_winner,
         transition_slot,
         validate_trace_binding,
@@ -516,6 +519,132 @@ def probe_traced_decode_contract():
     require(
         rejected.reasons == ("physical-evidence-missing", "cleanup-failed"),
         f"wrong decode rejection reasons: {rejected.reasons}",
+    )
+
+    test_kv_block_size = 64
+    test_capacity_blocks = 32
+    exact_prompt_tokens = 32
+    exact_generation_tokens = 32
+    rounded_prompt_tokens = 5
+    rounded_generation_tokens = 64
+    rounded_required_blocks = 2
+    maximum_prompt_tokens = 1984
+    maximum_generation_tokens = 64
+    require(
+        required_page_table_blocks(
+            prompt_tokens=exact_prompt_tokens,
+            generation_tokens=exact_generation_tokens,
+            kv_block_size=test_kv_block_size,
+            capacity_blocks=test_capacity_blocks,
+        )
+        == 1,
+        "exact page-table request did not use one block",
+    )
+    require(
+        required_page_table_blocks(
+            prompt_tokens=rounded_prompt_tokens,
+            generation_tokens=rounded_generation_tokens,
+            kv_block_size=test_kv_block_size,
+            capacity_blocks=test_capacity_blocks,
+        )
+        == rounded_required_blocks,
+        "rounded page-table request did not use two blocks",
+    )
+    require(
+        required_page_table_blocks(
+            prompt_tokens=maximum_prompt_tokens,
+            generation_tokens=maximum_generation_tokens,
+            kv_block_size=test_kv_block_size,
+            capacity_blocks=test_capacity_blocks,
+        )
+        == test_capacity_blocks,
+        "maximum page-table request did not use full capacity",
+    )
+
+    invalid_block_inputs = (
+        ({"prompt_tokens": 0}, "prompt token count"),
+        ({"generation_tokens": 0}, "generation token count"),
+        ({"kv_block_size": 0}, "KV block size"),
+        ({"capacity_blocks": 0}, "page-table capacity"),
+        ({"prompt_tokens": True}, "prompt token count"),
+    )
+    base_block_inputs = {
+        "prompt_tokens": rounded_prompt_tokens,
+        "generation_tokens": rounded_generation_tokens,
+        "kv_block_size": test_kv_block_size,
+        "capacity_blocks": test_capacity_blocks,
+    }
+    for override, diagnostic in invalid_block_inputs:
+        try:
+            required_page_table_blocks(**{**base_block_inputs, **override})
+        except DecodePolicyError as error:
+            require(diagnostic in str(error), f"wrong block-count diagnostic: {error}")
+        else:
+            require(False, f"invalid block-count input was accepted: {override!r}")
+
+    overflow_prompt_tokens = test_kv_block_size * test_capacity_blocks
+    try:
+        required_page_table_blocks(
+            prompt_tokens=overflow_prompt_tokens,
+            generation_tokens=1,
+            kv_block_size=test_kv_block_size,
+            capacity_blocks=test_capacity_blocks,
+        )
+    except DecodePolicyError as error:
+        require("capacity" in str(error), "wrong page-table capacity diagnostic")
+    else:
+        require(False, "capacity-exceeding page-table request was accepted")
+
+    import torch
+    from qwen36_service.decode_adapter import DecodeAdapterError, TracedDecodeAdapter
+
+    adapter = object.__new__(TracedDecodeAdapter)
+    adapter.profile = SimpleNamespace(kv_block_size=test_kv_block_size)
+    adapter.page_table = torch.arange(test_capacity_blocks, dtype=torch.int32).reshape(
+        1, test_capacity_blocks
+    )
+    adapter._trace_id = None
+    adapter._trace_prefill_page_table_blocks = None
+    stable_table_identity = id(adapter.page_table)
+    bounded_table = adapter.prefill_page_table(
+        prompt_tokens=rounded_prompt_tokens,
+        generation_tokens=rounded_generation_tokens,
+    )
+    require(
+        tuple(bounded_table.shape) == (1, rounded_required_blocks),
+        "adapter prefill table has the wrong bounded shape",
+    )
+    require(
+        torch.equal(
+            bounded_table, adapter.page_table[:, :rounded_required_blocks]
+        ),
+        "adapter prefill table is not the stable table prefix",
+    )
+    require(
+        id(adapter.page_table) == stable_table_identity,
+        "adapter replaced the stable decode page table",
+    )
+    require(
+        adapter.decode_page_table_blocks == test_capacity_blocks,
+        "adapter decode table capacity changed after prefill slicing",
+    )
+    adapter._trace_id = "test-trace"
+    different_prompt_tokens = rounded_prompt_tokens + test_kv_block_size
+    try:
+        adapter.prefill_page_table(
+            prompt_tokens=different_prompt_tokens,
+            generation_tokens=rounded_generation_tokens,
+        )
+    except DecodeAdapterError as error:
+        require(
+            "width changed" in str(error),
+            "wrong post-capture prefill-width diagnostic",
+        )
+    else:
+        require(False, "post-capture prefill-width change was accepted")
+    require(
+        id(adapter.page_table) == stable_table_identity,
+        "width rejection replaced the stable decode page table",
     )
 
 
