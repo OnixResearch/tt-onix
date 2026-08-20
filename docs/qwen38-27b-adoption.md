@@ -255,12 +255,20 @@ The production `qwen36-p150x2-serve` wrapper remains eager.
 Invalid trace bindings also select the named eager fallback before a decode replay.
 Cleanup errors quarantine the only slot and block reuse.
 
-The 2026-08-20 physical attempt did not run.
-The root-owned `qwen38-p150x2.service` process held both P150A devices.
-The current user had no non-interactive authority to stop that service.
-The exact blocker is in `cairn/changes/accelerate-qwen38-p150x2-decode/evidence/physical-access-blocker.md`.
+The first 2026-08-20 attempt was blocked by the root-owned service.
+The owner later authorized a bounded outage, and the physical candidate ran on device IDs `0` and `1`.
 
-This candidate makes no speedup, physical parity, tail-latency, or production-admission claim.
+The repaired traced path preserved exact token IDs, exact text, matched identities, and clean resets across the profile corpus.
+Its median decode rate was `15.336118315891143` tokens per second.
+Its TTFT ratio against the matched eager run was `1.2164174383938555`, above the profile maximum of `1.05`.
+
+The candidate is therefore rejected and remains physically unadmitted.
+The production wrapper remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`
+- `cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md`
 
 ## Serialized P150x2 service
 

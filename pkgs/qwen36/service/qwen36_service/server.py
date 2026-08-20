@@ -109,6 +109,9 @@ class QwenEngine:
         self.max_sequence_length = max_sequence_length
         self.decode_mode = decode_mode
         self.decode_profile = decode_profile
+        self.runtime_identity = runtime_identity
+        self.package_identity = package_identity
+        self.model_identity = model_identity
         self._slot = DecodeSlot(
             slot_id=DECODE_SLOT_ID,
             ownership_generation=0,
@@ -282,6 +285,7 @@ class QwenEngine:
             "decode_tok_s": decode_tokens_per_second,
             "fallback_reason": fallback_reason,
             "tail_token_latency_s": tail_token_latency_seconds,
+            "token_latency_s": steady_durations,
             "ttft_s": ttft_seconds,
         }
 
@@ -310,6 +314,7 @@ class QwenEngine:
                 SlotEvent.ACTIVATE,
                 request_id=request_id,
             )
+        response: dict[str, Any] | None = None
         try:
             if persistent:
                 self._decode_adapter.reset_for_request()
@@ -332,6 +337,27 @@ class QwenEngine:
                 prompt_token_count=prompt_token_count,
                 generated_token_count=len(generated),
             )
+            response["x_onix_decode_evidence"] = {
+                "clean_reset": False,
+                "decode_path": perf["decode_path"],
+                "decode_tokens_per_second": perf["decode_tok_s"],
+                "fallback_reason": perf["fallback_reason"],
+                "generated_token_ids": generated,
+                "model_identity": self.model_identity,
+                "package_identity": self.package_identity,
+                "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
+                "profile_id": self.decode_profile.profile_id,
+                "runtime_identity": self.runtime_identity,
+                "simulated": False,
+                "tail_token_latency_seconds": perf["tail_token_latency_s"],
+                "token_latency_seconds": perf["token_latency_s"],
+                "trace_capture_seconds": (
+                    self._decode_adapter.trace_capture_seconds
+                    if self._decode_adapter is not None
+                    else None
+                ),
+                "ttft_seconds": perf["ttft_s"],
+            }
             emit(
                 "request-passed",
                 decode_path=perf["decode_path"],
@@ -346,6 +372,7 @@ class QwenEngine:
             )
             return response
         finally:
+            cleanup_started = time.monotonic()
             if persistent:
                 self._slot = transition_slot(
                     self._slot,
@@ -374,6 +401,11 @@ class QwenEngine:
             else:
                 self.model.free_kv_caches()
                 gc.collect()
+            if response is not None:
+                response["x_onix_decode_evidence"]["clean_reset"] = True
+                response["x_onix_decode_evidence"]["cleanup_seconds"] = (
+                    time.monotonic() - cleanup_started
+                )
 
     def close(self) -> None:
         if self._decode_adapter is not None:

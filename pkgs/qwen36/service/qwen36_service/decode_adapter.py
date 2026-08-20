@@ -82,6 +82,7 @@ class TracedDecodeAdapter:
         self._trace_indices: Any | None = None
         self._trace_values: Any | None = None
         self._expected_binding: TraceBinding | None = None
+        self.trace_capture_seconds: float | None = None
         self._closed = False
 
     def _make_page_table(self) -> torch.Tensor:
@@ -141,7 +142,7 @@ class TracedDecodeAdapter:
 
     def _capture_trace(self, *, token: int, position: int) -> None:
         self._update_inputs(token=token, position=position)
-        saved_state = self.model._save_deltanet_states()
+        saved_state = self._snapshot_tp_gdn_state()
         capture_started = time.monotonic()
         candidate_trace_id: Any | None = None
         try:
@@ -171,6 +172,7 @@ class TracedDecodeAdapter:
             self._trace_indices = trace_indices
             self._trace_values = trace_values
             self._expected_binding = self._observe_binding()
+            self.trace_capture_seconds = capture_elapsed
         except (
             AssertionError,
             DecodeAdapterError,
@@ -185,8 +187,79 @@ class TracedDecodeAdapter:
                     pass
             raise DecodeAdapterError("decode trace capture failed") from error
         finally:
-            self.model._restore_deltanet_states(saved_state, self.mesh)
+            self._restore_tp_gdn_state(saved_state)
             ttnn.synchronize_device(self.mesh)
+
+    def _tp_gdn_layers(self) -> tuple[Any, ...]:
+        layers = tuple(
+            layer.attention for layer in self.model.layers if not layer.is_full_attention
+        )
+        if not layers:
+            raise DecodeAdapterError("the model has no TP GDN layers")
+        for layer in layers:
+            if not hasattr(layer, "rec_state") or not hasattr(layer, "conv_states"):
+                raise DecodeAdapterError("the model GDN state is not TP-compatible")
+        return layers
+
+    def _snapshot_tp_gdn_state(
+        self,
+    ) -> tuple[tuple[torch.Tensor, tuple[torch.Tensor, ...]], ...]:
+        composer = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
+        snapshots = []
+        for layer in self._tp_gdn_layers():
+            if layer.rec_state is None or layer.conv_states is None:
+                raise DecodeAdapterError("TP GDN state is not allocated")
+            snapshots.append(
+                (
+                    ttnn.to_torch(layer.rec_state, mesh_composer=composer),
+                    tuple(
+                        ttnn.to_torch(state, mesh_composer=composer)
+                        for state in layer.conv_states
+                    ),
+                )
+            )
+        return tuple(snapshots)
+
+    def _restore_tp_gdn_state(
+        self,
+        snapshots: tuple[tuple[torch.Tensor, tuple[torch.Tensor, ...]], ...],
+    ) -> None:
+        layers = self._tp_gdn_layers()
+        if len(layers) != len(snapshots):
+            raise DecodeAdapterError("TP GDN snapshot layer count changed")
+        mapper = ttnn.ShardTensorToMesh(self.mesh, dim=0)
+        for layer, (recurrent, conv_states) in zip(layers, snapshots, strict=True):
+            if layer.rec_state is None or layer.conv_states is None:
+                raise DecodeAdapterError("TP GDN restore target is not allocated")
+            if len(layer.conv_states) != len(conv_states):
+                raise DecodeAdapterError("TP GDN convolution state count changed")
+            restored_recurrent = ttnn.from_torch(
+                recurrent,
+                dtype=layer.rec_state.dtype,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.mesh,
+                mesh_mapper=mapper,
+            )
+            ttnn.copy(restored_recurrent, layer.rec_state)
+            ttnn.deallocate(restored_recurrent)
+            for target, saved in zip(layer.conv_states, conv_states, strict=True):
+                restored_conv = ttnn.from_torch(
+                    saved,
+                    dtype=target.dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=self.mesh,
+                    mesh_mapper=mapper,
+                )
+                ttnn.copy(restored_conv, target)
+                ttnn.deallocate(restored_conv)
+
+    def _tp_gdn_identity(self) -> str:
+        states = []
+        for layer in self._tp_gdn_layers():
+            if layer.rec_state is None or layer.conv_states is None:
+                raise DecodeAdapterError("TP GDN binding state is not allocated")
+            states.append((layer.rec_state, tuple(layer.conv_states)))
+        return _nested_identity(states)
 
     def decode_traced(self, *, token: int, position: int) -> int:
         """Refresh stable inputs, replay once, and read only bounded shard winners."""
@@ -325,7 +398,7 @@ class TracedDecodeAdapter:
             rope_buffer_identity=_identity(self.decode_inputs[2]),
             page_table_buffer_identity=_identity(self.decode_inputs[3]),
             kv_buffer_identity=_nested_identity(self.model._paged_kv_caches),
-            gdn_buffer_identity=_nested_identity(self.model._deltanet_external_states),
+            gdn_buffer_identity=self._tp_gdn_identity(),
             output_buffer_identity=_identity(self._trace_logits),
             output_shape=tuple(int(dimension) for dimension in self._trace_logits.shape),
             output_dtype=str(self._trace_logits.dtype),

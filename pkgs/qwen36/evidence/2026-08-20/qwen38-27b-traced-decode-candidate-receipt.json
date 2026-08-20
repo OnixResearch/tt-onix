@@ -1,0 +1,177 @@
+{
+  "admission": {
+    "admitted": false,
+    "bounds": {
+      "maximum_tail_latency_regression_ratio": 1.1,
+      "maximum_ttft_regression_ratio": 1.05,
+      "minimum_median_decode_speedup_ratio": 1.1
+    },
+    "reasons": [
+      "ttft-regression-above-bound"
+    ]
+  },
+  "classification": "rejected",
+  "date": "2026-08-20",
+  "execution": {
+    "execution_order": [
+      "eager",
+      "candidate"
+    ],
+    "generated_tokens": 64,
+    "measured_runs_per_prompt": 3,
+    "prompt_count": 4,
+    "response_root_pairs": 1,
+    "simulated": false,
+    "warmup_runs_per_prompt": 1
+  },
+  "identity": {
+    "identities_match": true,
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "package_identity": "/nix/store/j2c94lvqq0l0rwfdfifgpfp1rzbgfpqj-qwen36-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "runtime_identity": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0"
+  },
+  "metrics": {
+    "candidate": {
+      "median_cleanup_seconds": 0.011382804997992935,
+      "median_decode_tokens_per_second": 15.336118315891143,
+      "median_ttft_seconds": 2.311131047001254,
+      "p99_token_latency_seconds": 0.08870580499933567
+    },
+    "decode_speedup_ratio": 16.20547496321535,
+    "eager": {
+      "median_cleanup_seconds": 0.36499940500289085,
+      "median_decode_tokens_per_second": 0.946354139616546,
+      "median_ttft_seconds": 1.8999489599991648,
+      "p99_token_latency_seconds": 4.450717410996731
+    },
+    "tail_latency_regression_ratio": 0.01993067562100514,
+    "ttft_regression_ratio": 1.2164174383938555
+  },
+  "non_claims": [
+    "No concurrent-request throughput claim",
+    "No prefill speedup claim",
+    "No mesh other than physical P150x2",
+    "No generated length other than the profile workload",
+    "A rejected candidate does not change the admitted eager service"
+  ],
+  "parity": {
+    "clean_reset": true,
+    "exact_generated_text": true,
+    "exact_generated_token_ids": true
+  },
+  "profile": {
+    "authority_blake3": "256ce1b98d864469413fe11eb6c2409d560bfcfb851d9ddf891e72b6d42324c7",
+    "baseline_receipt_blake3": "060eb57990b663b4548423057eac68ab8d4108aac86b6a548b0a8e2ffb7a3fe5",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "profile_id": "qwen38-p150x2-traced-decode-v1",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "response_hashes": {
+    "candidate": [
+      {
+        "blake3": "45b28f93a7e3bfa5e398748b77af258864e7e5420673c4cdfffcf582cad07c78",
+        "name": "boundary-measured-1.json"
+      },
+      {
+        "blake3": "68f66937855791663a1871db68a99e967c6281b7fe90eda8a0f91ba39b59273f",
+        "name": "boundary-measured-2.json"
+      },
+      {
+        "blake3": "4c231d9ce5bd40669098ebeb98620c65b8fae0dce8f520bdafcd9b79ee30ac25",
+        "name": "boundary-measured-3.json"
+      },
+      {
+        "blake3": "e6847dedcd1091d9bcd7b27ded791c7e947720b9ac82aacfd900f3dbe23ae4a8",
+        "name": "cleanup-measured-1.json"
+      },
+      {
+        "blake3": "4d51308a2702171e36757bbc63fd65df7c064732101091dc137186d3f3e3238c",
+        "name": "cleanup-measured-2.json"
+      },
+      {
+        "blake3": "687eeddba79d8d96e8aafe1aa7575b9179ffb8e167d54314f2bfcc9b9dc7cd2c",
+        "name": "cleanup-measured-3.json"
+      },
+      {
+        "blake3": "e36acabb5ec0961a837ef9070dae93e7f50d8bd3561c7ec7d98a6b516bcc0c49",
+        "name": "empty_fixture-measured-1.json"
+      },
+      {
+        "blake3": "558dc4697d101f327133d755add3562ffbfaed901e825711129cf58e49d9f4ad",
+        "name": "empty_fixture-measured-2.json"
+      },
+      {
+        "blake3": "8aad2bebf2c8184a88d621860f200218614eedda8a0bbac828b6951d8efbb91d",
+        "name": "empty_fixture-measured-3.json"
+      },
+      {
+        "blake3": "03190763002ea0a6f348f7cb6cfa8886381f89877ff98545a7e442796f274e62",
+        "name": "france-measured-1.json"
+      },
+      {
+        "blake3": "af28ac842750686a6204fbe29d076034f305ed7c185e7c1fa8a12decc53745ad",
+        "name": "france-measured-2.json"
+      },
+      {
+        "blake3": "94578414c3c3505bbdc6f3ae0e812469d4a56adce0a9ab2041bc333572b00f8d",
+        "name": "france-measured-3.json"
+      }
+    ],
+    "eager": [
+      {
+        "blake3": "1aa8e58a2eb412848dd23afb0a29d9c88749979249be865400f3d4e97b72898d",
+        "name": "boundary-measured-1.json"
+      },
+      {
+        "blake3": "44b9765ac57b9c859d2c2bcaf0c68fdda2cb255391d3340e6a5c25bdf2a514c9",
+        "name": "boundary-measured-2.json"
+      },
+      {
+        "blake3": "5002a48456a8a00dec566ac0a03f34d74a1848284621b45bbe9bb288527a1f87",
+        "name": "boundary-measured-3.json"
+      },
+      {
+        "blake3": "751ac769fa972f08a2688b21bbde9cfdaee4d37fc219d15084e8f019a6ba4321",
+        "name": "cleanup-measured-1.json"
+      },
+      {
+        "blake3": "40e87ee1c85c657696707e16f834bfff75d511203abdd035cf14f5ea200ce8a3",
+        "name": "cleanup-measured-2.json"
+      },
+      {
+        "blake3": "65fd218f7da61fe6becf0a4c9bf9c3adf668f376f92ade36836eabed9d2d2d2c",
+        "name": "cleanup-measured-3.json"
+      },
+      {
+        "blake3": "82b8a483eb1e57d7f34ea71c348785a4d40a6354840738262b85c1ac1c5078b7",
+        "name": "empty_fixture-measured-1.json"
+      },
+      {
+        "blake3": "65396fec683b304cf7d33cf6e6529f890bde3d789bf0c377e7616e369eb195e7",
+        "name": "empty_fixture-measured-2.json"
+      },
+      {
+        "blake3": "f1552fa97e25906e8bd7bab43fd14e10e8f7bfd73b9f7b9187d7e7f5f2b9e537",
+        "name": "empty_fixture-measured-3.json"
+      },
+      {
+        "blake3": "6180a9c38bbc3a0c96e77a2a6cc860fee19754e763cc95c2b08888f9bdb21a93",
+        "name": "france-measured-1.json"
+      },
+      {
+        "blake3": "a4f97ae586fd499517e0be77cf3ca73167ba744126db193fb3dd1f75e3c2fd92",
+        "name": "france-measured-2.json"
+      },
+      {
+        "blake3": "b6d6d03d5366ed32ad7945492cf89e8c06acc01318db07ced0910ec28373e60b",
+        "name": "france-measured-3.json"
+      }
+    ]
+  },
+  "schema_version": 1
+}

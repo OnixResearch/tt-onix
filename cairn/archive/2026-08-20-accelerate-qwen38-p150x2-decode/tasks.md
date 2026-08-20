@@ -22,17 +22,17 @@
 
 ## Phase 4: Verification
 
-- [ ] [parallel] V1 Add positive tests for lifecycle transitions, trace bindings, state restoration, shard reduction, and deterministic ties. r[tenstorrent.qwen38_p150x2.traced_decode] r[tenstorrent.qwen38_p150x2.persistent_decode_buffers] r[tenstorrent.qwen38_p150x2.shard_local_argmax]
-- [ ] [parallel] V2 Add negative tests for stale bindings, state drift, invalid transitions, malformed shards, non-finite maxima, and cleanup failure. r[tenstorrent.qwen38_p150x2.traced_decode] r[tenstorrent.qwen38_p150x2.persistent_decode_buffers] r[tenstorrent.qwen38_p150x2.shard_local_argmax]
-- [ ] [serial] V3 Compare eager and traced greedy continuations across the profile prompt corpus. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
-- [ ] [serial] V4 Verify sequential requests cannot observe prior KV, GDN, token, or output state. r[tenstorrent.qwen38_p150x2.persistent_decode_buffers]
+- [x] [parallel] V1 Add positive tests for lifecycle transitions, trace bindings, state restoration, shard reduction, and deterministic ties. r[tenstorrent.qwen38_p150x2.traced_decode] r[tenstorrent.qwen38_p150x2.persistent_decode_buffers] r[tenstorrent.qwen38_p150x2.shard_local_argmax]
+- [x] [parallel] V2 Add negative tests for stale bindings, state drift, invalid transitions, malformed shards, non-finite maxima, and cleanup failure. r[tenstorrent.qwen38_p150x2.traced_decode] r[tenstorrent.qwen38_p150x2.persistent_decode_buffers] r[tenstorrent.qwen38_p150x2.shard_local_argmax]
+- [x] [serial] V3 Compare eager and traced greedy continuations across the profile prompt corpus. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
+- [x] [serial] V4 Verify sequential requests cannot observe prior KV, GDN, token, or output state. r[tenstorrent.qwen38_p150x2.persistent_decode_buffers]
 
 ## Phase 5: Physical acceptance
 
-- [ ] [depends:tenstorrent.qwen38_p150x2.decode_performance_admission] H1 Run order-balanced eager and traced samples on physical devices `0` and `1`. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
-- [ ] [depends:tenstorrent.qwen38_p150x2.decode_performance_admission] H2 Admit traced decode only after parity, cleanup, throughput, TTFT, and tail-latency gates pass. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
+- [x] [depends:tenstorrent.qwen38_p150x2.decode_performance_admission] H1 Run order-balanced eager and traced samples on physical devices `0` and `1`. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
+- [x] [depends:tenstorrent.qwen38_p150x2.decode_performance_admission] H2 Admit traced decode only after parity, cleanup, throughput, TTFT, and tail-latency gates pass. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
 - [x] [serial] D1 Document the selected path, profile identity, receipt identity, fallbacks, and non-claims. r[tenstorrent.qwen38_p150x2.decode_performance_admission]
-- [ ] [serial] G1 Run focused tests, positive and negative fixtures, package checks, Cairn validation, and all lifecycle gates. r[tenstorrent.qwen38_p150x2.traced_decode]
+- [x] [serial] G1 Run focused tests, positive and negative fixtures, package checks, Cairn validation, and all lifecycle gates. r[tenstorrent.qwen38_p150x2.traced_decode]
 
 ## Verification Coverage
 
