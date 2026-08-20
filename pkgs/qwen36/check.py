@@ -6,8 +6,11 @@
 # opt-in BF4 env gates keep their documented defaults, and verifies the vLLM
 # adapter imports when vLLM is absent (the PR's text-only 0.10 guard). It makes
 # no silicon, placement, profiler, or performance claim.
+import json
+import math
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 FAILURES = []
@@ -317,6 +320,205 @@ def probe_p150x2_gate():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.traced_decode]
+# r[verify tenstorrent.qwen38_p150x2.persistent_decode_buffers]
+# r[verify tenstorrent.qwen38_p150x2.shard_local_argmax]
+# r[verify tenstorrent.qwen38_p150x2.decode_performance_admission]
+def probe_traced_decode_contract():
+    """Positive and negative tests for traced-decode policy and admission."""
+    from qwen36_service.decode_core import (
+        DecodeEvidence,
+        DecodeMetrics,
+        DecodePolicyError,
+        DecodeProfile,
+        DecodeSlot,
+        ShardWinner,
+        SlotEvent,
+        SlotState,
+        TraceBinding,
+        admit_decode_candidate,
+        request_deadline_expired,
+        select_global_winner,
+        transition_slot,
+        validate_trace_binding,
+    )
+
+    profile_path = Path(__file__).with_name("decode-profile.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile = DecodeProfile.from_mapping(json.load(profile_file))
+    require(profile.trace_enabled, "decode profile disabled trace capture")
+    require(
+        not profile.physically_admitted,
+        "unmeasured decode candidate is marked physically admitted",
+    )
+
+    initial_generation = 0
+    initial_buffer_generation = 1
+    test_token_index = 2
+    alternate_token_index = 6
+    test_vocabulary_size = 8
+    test_shard_boundary = test_vocabulary_size // 2
+    test_tie_logit = 7.0
+    baseline_decode_rate = 4.0
+    candidate_decode_rate = 5.0
+    baseline_ttft_seconds = 0.5
+    candidate_ttft_seconds = 0.5
+    baseline_tail_seconds = 0.3
+    candidate_tail_seconds = 0.3
+    slot = DecodeSlot(
+        slot_id="slot-test",
+        ownership_generation=initial_generation,
+        buffer_generation=initial_buffer_generation,
+        state=SlotState.EMPTY,
+    )
+    request_id = "request-test"
+    slot = transition_slot(slot, SlotEvent.ADMIT, request_id=request_id)
+    slot = transition_slot(slot, SlotEvent.ACTIVATE, request_id=request_id)
+    slot = transition_slot(slot, SlotEvent.BEGIN_RESET, request_id=request_id)
+    slot = transition_slot(slot, SlotEvent.COMPLETE_RESET)
+    require(slot.state is SlotState.EMPTY, "slot did not return to empty")
+    require(
+        slot.buffer_generation == initial_buffer_generation,
+        "clean reset changed the stable buffer generation",
+    )
+
+    failed_slot = transition_slot(slot, SlotEvent.ADMIT, request_id=request_id)
+    failed_slot = transition_slot(
+        failed_slot,
+        SlotEvent.BEGIN_RESET,
+        request_id=request_id,
+    )
+    failed_slot = transition_slot(
+        failed_slot,
+        SlotEvent.RESET_FAILED,
+        quarantine_reason="negative-fixture",
+    )
+    require(
+        failed_slot.state is SlotState.QUARANTINED,
+        "failed reset did not quarantine the slot",
+    )
+
+    try:
+        transition_slot(slot, SlotEvent.ACTIVATE, request_id=request_id)
+    except DecodePolicyError as error:
+        require("admitted owner" in str(error), "wrong invalid-transition diagnostic")
+    else:
+        require(False, "invalid slot transition was accepted")
+
+    binding = TraceBinding(
+        runtime_identity="runtime",
+        package_identity="package",
+        model_identity="model",
+        profile_id=profile.profile_id,
+        slot_id="slot-test",
+        buffer_generation=initial_buffer_generation,
+        token_buffer_identity="token",
+        position_buffer_identity="position",
+        rope_buffer_identity="rope",
+        page_table_buffer_identity="page-table",
+        kv_buffer_identity="kv",
+        gdn_buffer_identity="gdn",
+        output_buffer_identity="output",
+        output_shape=(1, 1),
+        output_dtype="bfloat16",
+    )
+    require(not validate_trace_binding(binding, binding), "equal trace bindings differ")
+    stale_binding = TraceBinding(
+        **{
+            **binding.__dict__,
+            "buffer_generation": binding.buffer_generation + 1,
+        }
+    )
+    require(
+        validate_trace_binding(binding, stale_binding) == ("buffer_generation",),
+        "stale trace binding did not name the generation mismatch",
+    )
+
+    selected = select_global_winner(
+        (
+            ShardWinner(0, test_shard_boundary, test_token_index, test_tie_logit),
+            ShardWinner(
+                test_shard_boundary,
+                test_vocabulary_size,
+                alternate_token_index,
+                test_tie_logit,
+            ),
+        ),
+        test_vocabulary_size,
+    )
+    require(
+        selected == test_token_index,
+        "equal shard maxima did not select the lowest token",
+    )
+    try:
+        select_global_winner(
+            (
+                ShardWinner(0, test_shard_boundary, test_token_index, math.nan),
+                ShardWinner(
+                    test_shard_boundary,
+                    test_vocabulary_size,
+                    alternate_token_index,
+                    test_tie_logit,
+                ),
+            ),
+            test_vocabulary_size,
+        )
+    except DecodePolicyError as error:
+        require("finite" in str(error), "wrong non-finite shard diagnostic")
+    else:
+        require(False, "non-finite shard maximum was accepted")
+
+    request_start = 10.0
+    request_deadline = 11.0
+    require(
+        not request_deadline_expired(request_start, request_deadline),
+        "request timed out before its deadline",
+    )
+    require(
+        request_deadline_expired(request_deadline, request_deadline),
+        "request did not time out at its deadline",
+    )
+
+    baseline = DecodeMetrics(
+        median_decode_tokens_per_second=baseline_decode_rate,
+        median_ttft_seconds=baseline_ttft_seconds,
+        p99_token_latency_seconds=baseline_tail_seconds,
+    )
+    candidate = DecodeMetrics(
+        median_decode_tokens_per_second=candidate_decode_rate,
+        median_ttft_seconds=candidate_ttft_seconds,
+        p99_token_latency_seconds=candidate_tail_seconds,
+    )
+    admitted = admit_decode_candidate(
+        profile,
+        DecodeEvidence(
+            physical=True,
+            identities_match=True,
+            exact_tokens_match=True,
+            clean_reset=True,
+            baseline=baseline,
+            candidate=candidate,
+        ),
+    )
+    require(admitted.admitted, f"passing decode evidence was rejected: {admitted.reasons}")
+    rejected = admit_decode_candidate(
+        profile,
+        DecodeEvidence(
+            physical=False,
+            identities_match=True,
+            exact_tokens_match=True,
+            clean_reset=False,
+            baseline=baseline,
+            candidate=candidate,
+        ),
+    )
+    require(not rejected.admitted, "device-free dirty evidence was admitted")
+    require(
+        rejected.reasons == ("physical-evidence-missing", "cleanup-failed"),
+        f"wrong decode rejection reasons: {rejected.reasons}",
+    )
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -448,6 +650,7 @@ def main():
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
+    probe("traced decode pure core", probe_traced_decode_contract)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:

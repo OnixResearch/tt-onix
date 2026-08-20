@@ -243,6 +243,25 @@ request had five prompt tokens and 64 generated tokens. Median TTFT was
 `4.2306764265491275` tokens/second. These results do not extend to other
 prompt lengths, batches, request concurrency, or meshes.
 
+## Traced-decode candidate
+
+The package includes `qwen36-p150x2-trace-candidate` for bounded physical evaluation.
+The candidate uses stable decode buffers, GDN state restoration, and shard-local greedy reduction.
+
+`pkgs/qwen36/decode-profile.ncl` owns the trace, buffer, workload, and admission bounds.
+Its deterministic JSON export has `physically_admitted = false` until matched physical evidence passes.
+
+The production `qwen36-p150x2-serve` wrapper remains eager.
+Invalid trace bindings also select the named eager fallback before a decode replay.
+Cleanup errors quarantine the only slot and block reuse.
+
+The 2026-08-20 physical attempt did not run.
+The root-owned `qwen38-p150x2.service` process held both P150A devices.
+The current user had no non-interactive authority to stop that service.
+The exact blocker is in `cairn/changes/accelerate-qwen38-p150x2-decode/evidence/physical-access-blocker.md`.
+
+This candidate makes no speedup, physical parity, tail-latency, or production-admission claim.
+
 ## Serialized P150x2 service
 
 The package provides `qwen36-p150x2-serve`. The NixOS module owns a matching

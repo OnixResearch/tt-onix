@@ -104,6 +104,13 @@ stdenvNoCC.mkDerivation {
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
+    cp ${./decode-profile.ncl} "$out/share/qwen36/decode-profile.ncl"
+    cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
+    mkdir -p decode-profile-export
+    cp ${./decode-profile.ncl} decode-profile-export/decode-profile.ncl
+    cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
+    nickel export --format json decode-profile-export/decode-profile.ncl \
+      > "$out/share/qwen36/decode-profile.json"
 
     mkdir -p "$out/bin"
 
@@ -161,7 +168,38 @@ stdenvNoCC.mkDerivation {
       --unset TT_MESH_GRAPH_DESC_PATH \
       --unset TT_METAL_SIMULATOR \
       --add-flags "-m" \
-      --add-flags "qwen36_service.server"
+      --add-flags "qwen36_service.server" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--decode-mode" \
+      --add-flags "eager" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
+    # r[impl tenstorrent.qwen38_p150x2.traced_decode]
+    # The candidate wrapper is explicit. The production wrapper remains eager
+    # until matched physical admission changes the typed profile.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-trace-candidate" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.server" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--decode-mode" \
+      --add-flags "candidate" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
 
     # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
     # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
@@ -192,8 +230,12 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
+    test -f "$out/share/qwen36/decode-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
+    test -x "$out/bin/qwen36-p150x2-trace-candidate"
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \
@@ -223,6 +265,30 @@ stdenvNoCC.mkDerivation {
     nickel export --format json authority-check/authority.ncl > authority-second.json
     cmp authority-first.json authority-second.json
     cmp authority-first.json ${./generated/authority.json}
+
+    # r[verify tenstorrent.qwen38_p150x2.traced_decode]
+    # Positive: the candidate profile exports deterministically.
+    mkdir -p decode-profile-check
+    cp ${./decode-profile.ncl} decode-profile-check/decode-profile.ncl
+    cp ${./decode-contracts.ncl} decode-profile-check/decode-contracts.ncl
+    nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-first.json
+    nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-second.json
+    cmp decode-profile-first.json decode-profile-second.json
+    cmp decode-profile-first.json "$out/share/qwen36/decode-profile.json"
+    grep -F '"physically_admitted": false' decode-profile-first.json
+
+    # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
+    # Negative: an invalid slot count must fail its typed contract.
+    mkdir -p decode-profile-negative
+    cp ${./decode-profile.ncl} decode-profile-negative/decode-profile.ncl
+    cp ${./decode-contracts.ncl} decode-profile-negative/decode-contracts.ncl
+    cp ${./fixtures/invalid-decode-profile.ncl} decode-profile-negative/invalid-decode-profile.ncl
+    if nickel export --format json decode-profile-negative/invalid-decode-profile.ncl \
+        > invalid-decode-profile.json 2> invalid-decode-profile.log; then
+      echo "invalid decode profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-decode-profile.log
 
     # Negative: a drifted authority (wrong upstream commit) must be rejected by
     # the Nickel contract shape (commit no longer a 40-hex revision).

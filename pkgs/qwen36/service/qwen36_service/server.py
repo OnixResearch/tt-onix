@@ -28,6 +28,16 @@ from .core import (
     parse_completion_request,
     parse_endpoint,
 )
+from .decode_adapter import DecodeAdapterError, TracedDecodeAdapter
+from .decode_core import (
+    DecodePolicyError,
+    DecodeProfile,
+    DecodeSlot,
+    SlotEvent,
+    SlotState,
+    request_deadline_expired,
+    transition_slot,
+)
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 MESH_ROWS = 1
@@ -48,6 +58,12 @@ MAXIMUM_LISTEN_PORT = 65_535
 MAX_REQUEST_BODY_BYTES = 1_048_576
 P300_CACHE_RELATIVE_PATH = Path("P300/tensor_cache_bfp8_mesh1x2")
 MODEL_OBJECT_CREATION_TIME = 0
+INITIAL_BUFFER_GENERATION = 1
+DECODE_SLOT_ID = "decode-slot-0"
+DECODE_MODE_EAGER = "eager"
+DECODE_MODE_CANDIDATE = "candidate"
+DECODE_MODE_ADMITTED = "admitted"
+DECODE_MODES = (DECODE_MODE_EAGER, DECODE_MODE_CANDIDATE, DECODE_MODE_ADMITTED)
 
 
 class ServiceStop(Exception):
@@ -72,7 +88,7 @@ def render_prompt(request: CompletionRequest, tokenizer: Any) -> str:
 
 
 class QwenEngine:
-    """Imperative adapter from admitted requests to the TTNN paged path."""
+    """Imperative shell for eager and bounded traced P150x2 decode."""
 
     def __init__(
         self,
@@ -80,15 +96,52 @@ class QwenEngine:
         tokenizer: Any,
         model_alias: str,
         max_sequence_length: int,
-    ):
+        *,
+        decode_mode: str,
+        decode_profile: DecodeProfile,
+        runtime_identity: str,
+        package_identity: str,
+        model_identity: str,
+    ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.model_alias = model_alias
         self.max_sequence_length = max_sequence_length
+        self.decode_mode = decode_mode
+        self.decode_profile = decode_profile
+        self._slot = DecodeSlot(
+            slot_id=DECODE_SLOT_ID,
+            ownership_generation=0,
+            buffer_generation=INITIAL_BUFFER_GENERATION,
+            state=SlotState.EMPTY,
+        )
+        candidate_requested = decode_mode == DECODE_MODE_CANDIDATE
+        admitted_requested = (
+            decode_mode == DECODE_MODE_ADMITTED
+            and decode_profile.physically_admitted
+        )
+        if candidate_requested or admitted_requested:
+            self._decode_adapter: TracedDecodeAdapter | None = TracedDecodeAdapter(
+                model=model,
+                profile=decode_profile,
+                runtime_identity=runtime_identity,
+                package_identity=package_identity,
+                model_identity=model_identity,
+                slot_id=self._slot.slot_id,
+                buffer_generation=self._slot.buffer_generation,
+            )
+            self._startup_fallback_reason = None
+        else:
+            self._decode_adapter = None
+            self._startup_fallback_reason = (
+                "profile-not-physically-admitted"
+                if decode_mode == DECODE_MODE_ADMITTED
+                else "eager-selected"
+            )
 
     def _run_paged_generation(
         self, token_ids: torch.Tensor, maximum_generation_tokens: int
-    ) -> tuple[list[int], dict[str, float]]:
+    ) -> tuple[list[int], dict[str, Any]]:
         prompt_token_count = token_ids.shape[1]
         num_blocks = _blocks_for(prompt_token_count, maximum_generation_tokens)
         page_table = torch.arange(num_blocks, dtype=torch.int32).reshape(1, num_blocks)
@@ -142,18 +195,93 @@ class QwenEngine:
             position += 1
             decode_durations.append(time.monotonic() - decode_started)
 
-        steady_decode_durations = (
+        return generated, self._decode_metrics(
+            decode_durations,
+            ttft_seconds,
+            decode_path=DECODE_MODE_EAGER,
+            fallback_reason=self._startup_fallback_reason,
+        )
+
+    def _run_persistent_generation(
+        self,
+        token_ids: torch.Tensor,
+        maximum_generation_tokens: int,
+        request_deadline: float,
+    ) -> tuple[list[int], dict[str, Any]]:
+        assert self._decode_adapter is not None
+        prompt_token_count = token_ids.shape[1]
+        prefill_started = time.monotonic()
+        logits_device = self.model.prefill_traced_chunked(
+            token_ids,
+            self._decode_adapter.page_table,
+            actual_len=prompt_token_count,
+        )
+        ttnn.synchronize_device(self.model.device)
+        logits = ttnn.to_torch(
+            logits_device,
+            mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
+        ).reshape(-1, self.model.args.vocab_size)[0]
+        next_token = int(torch.argmax(logits.float()).item())
+        generated = [next_token]
+        ttft_seconds = time.monotonic() - prefill_started
+
+        position = prompt_token_count
+        eligibility = self._decode_adapter.ensure_trace(
+            token=next_token,
+            position=position,
+        )
+        use_trace = eligibility.eligible
+        fallback_reason = None if use_trace else eligibility.reason
+        decode_path = "traced" if use_trace else DECODE_MODE_EAGER
+        decode_durations = []
+        while len(generated) < maximum_generation_tokens:
+            if request_deadline_expired(time.monotonic(), request_deadline):
+                raise DecodeAdapterError("request timeout exceeded")
+            decode_started = time.monotonic()
+            if use_trace:
+                next_token = self._decode_adapter.decode_traced(
+                    token=next_token,
+                    position=position,
+                )
+            else:
+                next_token = self._decode_adapter.decode_eager(
+                    token=next_token,
+                    position=position,
+                )
+            generated.append(next_token)
+            position += 1
+            decode_durations.append(time.monotonic() - decode_started)
+
+        return generated, self._decode_metrics(
+            decode_durations,
+            ttft_seconds,
+            decode_path=decode_path,
+            fallback_reason=fallback_reason,
+        )
+
+    @staticmethod
+    def _decode_metrics(
+        decode_durations: list[float],
+        ttft_seconds: float,
+        *,
+        decode_path: str,
+        fallback_reason: str | None,
+    ) -> dict[str, Any]:
+        steady_durations = (
             decode_durations[1:] if len(decode_durations) > 1 else decode_durations
         )
-        if steady_decode_durations:
-            average_decode_seconds = sum(steady_decode_durations) / len(
-                steady_decode_durations
-            )
+        if steady_durations:
+            average_decode_seconds = sum(steady_durations) / len(steady_durations)
             decode_tokens_per_second = 1.0 / average_decode_seconds
+            tail_token_latency_seconds = max(steady_durations)
         else:
             decode_tokens_per_second = 0.0
-        return generated, {
+            tail_token_latency_seconds = 0.0
+        return {
+            "decode_path": decode_path,
             "decode_tok_s": decode_tokens_per_second,
+            "fallback_reason": fallback_reason,
+            "tail_token_latency_s": tail_token_latency_seconds,
             "ttft_s": ttft_seconds,
         }
 
@@ -169,8 +297,32 @@ class QwenEngine:
 
         request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
+        request_deadline = started + self.decode_profile.request_timeout_seconds
+        persistent = self._decode_adapter is not None
+        if persistent:
+            self._slot = transition_slot(
+                self._slot,
+                SlotEvent.ADMIT,
+                request_id=request_id,
+            )
+            self._slot = transition_slot(
+                self._slot,
+                SlotEvent.ACTIVATE,
+                request_id=request_id,
+            )
         try:
-            generated, perf = self._run_paged_generation(token_ids, request.max_tokens)
+            if persistent:
+                self._decode_adapter.reset_for_request()
+                generated, perf = self._run_persistent_generation(
+                    token_ids,
+                    request.max_tokens,
+                    request_deadline,
+                )
+            else:
+                generated, perf = self._run_paged_generation(
+                    token_ids,
+                    request.max_tokens,
+                )
             generated_text = self.tokenizer.decode(generated, skip_special_tokens=True)
             response = build_completion_response(
                 request=request,
@@ -182,17 +334,50 @@ class QwenEngine:
             )
             emit(
                 "request-passed",
+                decode_path=perf["decode_path"],
                 decode_tokens_per_second=perf["decode_tok_s"],
                 elapsed_seconds=time.monotonic() - started,
+                fallback_reason=perf["fallback_reason"],
                 generated_token_count=len(generated),
                 prompt_token_count=prompt_token_count,
                 request_id=request_id,
+                tail_token_latency_seconds=perf["tail_token_latency_s"],
                 ttft_seconds=perf["ttft_s"],
             )
             return response
         finally:
-            self.model.free_kv_caches()
-            gc.collect()
+            if persistent:
+                self._slot = transition_slot(
+                    self._slot,
+                    SlotEvent.BEGIN_RESET,
+                    request_id=request_id,
+                )
+                try:
+                    self._decode_adapter.reset_for_request()
+                except (
+                    AssertionError,
+                    DecodeAdapterError,
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                ) as error:
+                    self._slot = transition_slot(
+                        self._slot,
+                        SlotEvent.RESET_FAILED,
+                        quarantine_reason=type(error).__name__,
+                    )
+                    raise DecodeAdapterError("decode slot reset failed") from error
+                self._slot = transition_slot(
+                    self._slot,
+                    SlotEvent.COMPLETE_RESET,
+                )
+            else:
+                self.model.free_kv_caches()
+                gc.collect()
+
+    def close(self) -> None:
+        if self._decode_adapter is not None:
+            self._decode_adapter.close()
 
 
 def make_handler(
@@ -292,6 +477,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=DEFAULT_LISTEN_PORT)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--model-alias", default="Qwen3.8-27B")
+    parser.add_argument("--decode-profile", required=True)
+    parser.add_argument("--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER)
+    parser.add_argument("--runtime-identity", required=True)
+    parser.add_argument("--package-identity", required=True)
     parser.add_argument(
         "--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH
     )
@@ -308,6 +497,14 @@ def stop_service(_signal_number: int, _frame: Any) -> None:
 def main() -> None:
     args = parse_args()
     model_path = Path(args.model_path).expanduser()
+    decode_profile_path = Path(args.decode_profile).expanduser()
+    if not decode_profile_path.is_absolute() or not decode_profile_path.is_file():
+        raise SystemExit("--decode-profile must be an existing absolute file")
+    try:
+        with decode_profile_path.open(encoding="utf-8") as profile_file:
+            decode_profile = DecodeProfile.from_mapping(json.load(profile_file))
+    except (DecodePolicyError, OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"decode profile is invalid: {error}") from error
     if not model_path.is_absolute() or not model_path.is_dir():
         raise SystemExit("--model-path must be an existing absolute directory")
     if not (model_path / "config.json").is_file():
@@ -322,6 +519,12 @@ def main() -> None:
         raise SystemExit(
             f"--max-sequence-length exceeds the admitted limit {ADMITTED_MAX_SEQUENCE_LENGTH}"
         )
+    if args.max_sequence_length > decode_profile.maximum_sequence_length:
+        raise SystemExit("--max-sequence-length exceeds the decode profile limit")
+    if decode_profile.trace_region_size_bytes != TRACE_REGION_SIZE_BYTES:
+        raise SystemExit("decode profile trace-region size does not match the service")
+    if model_path.name != decode_profile.checkpoint_revision:
+        raise SystemExit("model path does not match the decode profile checkpoint")
     if args.max_generation_tokens <= 0:
         raise SystemExit("--max-generation-tokens must be positive")
     if args.max_generation_tokens > args.max_sequence_length:
@@ -351,6 +554,7 @@ def main() -> None:
 
     mesh_device = None
     model = None
+    engine = None
     server = None
     try:
         mesh_device = ttnn.open_mesh_device(
@@ -373,13 +577,23 @@ def main() -> None:
             )
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         engine = QwenEngine(
-            model, tokenizer, args.model_alias, args.max_sequence_length
+            model,
+            tokenizer,
+            args.model_alias,
+            args.max_sequence_length,
+            decode_mode=args.decode_mode,
+            decode_profile=decode_profile,
+            runtime_identity=args.runtime_identity,
+            package_identity=args.package_identity,
+            model_identity=f"{args.model_alias}:{decode_profile.checkpoint_revision}",
         )
         server = HTTPServer(
             (args.host, args.port), make_handler(engine, args.max_generation_tokens)
         )
         emit(
             "ready",
+            decode_mode=args.decode_mode,
+            decode_profile=decode_profile.profile_id,
             host=args.host,
             layer_count=len(model.layers),
             model=args.model_alias,
@@ -393,6 +607,8 @@ def main() -> None:
     finally:
         if server is not None:
             server.server_close()
+        if engine is not None:
+            engine.close()
         if model is not None:
             model.free_kv_caches()
             del model
