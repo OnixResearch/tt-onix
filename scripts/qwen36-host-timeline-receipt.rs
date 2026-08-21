@@ -27,7 +27,10 @@ const EXECUTION_ORDER_FLAG: &str = "--execution-order";
 const OUTPUT_FLAG: &str = "--output";
 const SELF_TEST_FLAG: &str = "--self-test";
 const IDENTITY_FILE: &str = "identity.json";
+const MESSAGES_FILE: &str = "messages.csv";
 const ZONES_FILE: &str = "zones.csv";
+const PREFILL_START_MESSAGE: &str = "TT_SIGNPOST: QWEN_PREFILL_START";
+const PREFILL_END_MESSAGE: &str = "TT_SIGNPOST: QWEN_PREFILL_END";
 const IDENTITY_SCHEMA: &str = "qwen36.host-timeline-root.v1";
 const RECEIPT_SCHEMA: &str = "qwen36.host-timeline-attribution.v1";
 const EXPECTED_ROOTS_PER_MODE: usize = 2;
@@ -106,6 +109,7 @@ impl Zone {
 struct RootSummary {
     root: String,
     identity_blake3: String,
+    messages_blake3: String,
     zones_blake3: String,
     prefill_wall_ns: i64,
     enqueue_count: usize,
@@ -315,30 +319,23 @@ fn validate_identity(
 
 fn summarize_root(root: &Path) -> Result<RootSummary, String> {
     let zones_path = root.join(ZONES_FILE);
+    let messages_path = root.join(MESSAGES_FILE);
     let identity_path = root.join(IDENTITY_FILE);
     let zones_bytes =
         fs::read(&zones_path).map_err(|error| format!("{}: {error}", zones_path.display()))?;
+    let messages_bytes = fs::read(&messages_path)
+        .map_err(|error| format!("{}: {error}", messages_path.display()))?;
     let identity_bytes = fs::read(&identity_path)
         .map_err(|error| format!("{}: {error}", identity_path.display()))?;
     let zones = parse_zones(&zones_bytes)?;
-    let prefill = zones
-        .iter()
-        .filter(|zone| zone.name.contains("_profiled_prefill_device"))
-        .max_by_key(|zone| zone.start_ns)
-        .or_else(|| {
-            zones
-                .iter()
-                .filter(|zone| zone.name.contains("_prefill_first_token"))
-                .max_by_key(|zone| zone.start_ns)
-        })
-        .ok_or("capture has no profiled prefill zone")?;
-    let prefill_end = prefill.end_ns()?;
+    let (prefill_start, prefill_end) = parse_prefill_messages(&messages_bytes)?;
+    let prefill_duration = prefill_end - prefill_start;
 
     let mut enqueues: Vec<&Zone> = zones
         .iter()
         .filter(|zone| {
             zone.name == "EnqueueProgram"
-                && zone.start_ns >= prefill.start_ns
+                && zone.start_ns >= prefill_start
                 && zone.end_ns().is_ok_and(|end| end <= prefill_end)
         })
         .collect();
@@ -375,7 +372,7 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
         .into_iter()
         .max()
         .ok_or("no enqueue")?;
-    let leading_gap_ns = first_start - prefill.start_ns;
+    let leading_gap_ns = first_start - prefill_start;
     let trailing_gap_ns = prefill_end - last_end;
     if leading_gap_ns < ZERO_NS || trailing_gap_ns < ZERO_NS {
         return Err("enqueue lies outside prefill zone".into());
@@ -383,21 +380,21 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
 
     let synchronization_total_ns = checked_sum(zones.iter().filter_map(|zone| {
         let in_prefill =
-            zone.start_ns >= prefill.start_ns && zone.end_ns().is_ok_and(|end| end <= prefill_end);
+            zone.start_ns >= prefill_start && zone.end_ns().is_ok_and(|end| end <= prefill_end);
         let lower = zone.name.to_ascii_lowercase();
         (in_prefill && (lower.contains("finish") || lower.contains("synchroniz")))
             .then_some(zone.duration_ns)
     }))?;
-    let non_enqueue_span_ns = prefill
-        .duration_ns
+    let non_enqueue_span_ns = prefill_duration
         .checked_sub(enqueue_exec_total_ns)
         .ok_or("enqueue durations exceed prefill wall span")?;
 
     Ok(RootSummary {
         root: root.display().to_string(),
         identity_blake3: blake3::hash(&identity_bytes).to_hex().to_string(),
+        messages_blake3: blake3::hash(&messages_bytes).to_hex().to_string(),
         zones_blake3: blake3::hash(&zones_bytes).to_hex().to_string(),
-        prefill_wall_ns: prefill.duration_ns,
+        prefill_wall_ns: prefill_duration,
         enqueue_count: enqueues.len(),
         enqueue_exec_total_ns,
         inter_enqueue_gap_total_ns: gap_total,
@@ -407,6 +404,32 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
         synchronization_total_ns,
         non_enqueue_span_ns,
     })
+}
+
+fn parse_prefill_messages(bytes: &[u8]) -> Result<(i64, i64), String> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut start = None;
+    let mut end = None;
+    for line in text.lines() {
+        let Some((message, timestamp)) = line.rsplit_once(',') else {
+            continue;
+        };
+        let Ok(timestamp) = timestamp.parse::<i64>() else {
+            continue;
+        };
+        if message.contains(PREFILL_START_MESSAGE) {
+            start = Some(timestamp);
+            end = None;
+        } else if message.contains(PREFILL_END_MESSAGE) && start.is_some() {
+            end = Some(timestamp);
+        }
+    }
+    let start = start.ok_or("capture has no prefill start signpost")?;
+    let end = end.ok_or("capture has no prefill end signpost")?;
+    if end <= start {
+        return Err("prefill signpost interval is not positive".into());
+    }
+    Ok((start, end))
 }
 
 fn parse_zones(bytes: &[u8]) -> Result<Vec<Zone>, String> {
@@ -637,5 +660,11 @@ fn write_fixture(root: &Path, mode: &str, root_index: usize, gap_ns: i64) -> Res
         "name,src_file,src_line,zone_name,zone_text,ns_since_start,exec_time_ns,thread,special_parent_text\n_prefill_first_token,server.py,1,,,{SELF_TEST_PREFILL_START_NS},{SELF_TEST_PREFILL_DURATION_NS},main,\nEnqueueProgram,fd.cpp,1,,,{SELF_TEST_FIRST_ENQUEUE_START_NS},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nEnqueueProgram,fd.cpp,1,,,{second_start},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nFDMeshCommandQueue::finish,fd.cpp,1,,,{SELF_TEST_SYNC_START_NS},{SELF_TEST_SYNC_DURATION_NS},main,\n"
     );
     fs::write(root.join(ZONES_FILE), csv).map_err(|error| error.to_string())?;
+    let messages = format!(
+        "MessageName,total_ns\n`{PREFILL_START_MESSAGE}`,{}\n`{PREFILL_END_MESSAGE}`,{}\n",
+        SELF_TEST_PREFILL_START_NS,
+        SELF_TEST_PREFILL_START_NS + SELF_TEST_PREFILL_DURATION_NS,
+    );
+    fs::write(root.join(MESSAGES_FILE), messages).map_err(|error| error.to_string())?;
     Ok(())
 }

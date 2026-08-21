@@ -1,0 +1,171 @@
+{
+  "candidate": {
+    "comparability": {
+      "enqueue_exec_ratio": 3.174942201847243,
+      "inter_enqueue_gap_ratio": 1.7997211829801623,
+      "prefill_wall_ratio": 2.0190806531120726,
+      "valid": false
+    },
+    "median": {
+      "enqueue_count": 12877.0,
+      "enqueue_exec_total_ns": 368621075.5,
+      "inter_enqueue_gap_total_ns": 1286242732.0,
+      "largest_inter_enqueue_gap_ns": 9562140.0,
+      "leading_gap_ns": 553970.0,
+      "non_enqueue_span_ns": 1288846678.0,
+      "prefill_wall_ns": 1657467753.5,
+      "synchronization_total_ns": 6058934.0,
+      "trailing_gap_ns": 2049976.0
+    },
+    "roots": [
+      {
+        "enqueue_count": 12877,
+        "enqueue_exec_total_ns": 176587391,
+        "identity_blake3": "1aac3aa5833a30787123b793720b97f99e0af462fdba585642217bfb4fb596f4",
+        "inter_enqueue_gap_total_ns": 918836304,
+        "largest_inter_enqueue_gap_ns": 9616079,
+        "leading_gap_ns": 446575,
+        "messages_blake3": "85a5494f09a91c26667dd39ef014777013b6ca12776f109fd3d5d1a930e9dc96",
+        "non_enqueue_span_ns": 921407624,
+        "prefill_wall_ns": 1097995015,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/candidate-1",
+        "synchronization_total_ns": 4697396,
+        "trailing_gap_ns": 2124745,
+        "zones_blake3": "628e69fe32d277ebdbed0a276e28c58e165f0831717f996b44ed4bc31bbbc07c"
+      },
+      {
+        "enqueue_count": 12877,
+        "enqueue_exec_total_ns": 560654760,
+        "identity_blake3": "4d8f8195e9ce5cfaf673fa5e7645f9f5ce7a5d79e090666a13571da2bfcdf385",
+        "inter_enqueue_gap_total_ns": 1653649160,
+        "largest_inter_enqueue_gap_ns": 9508201,
+        "leading_gap_ns": 661365,
+        "messages_blake3": "d7824f9f074196cd7f71002d93b1046bee99912df1ffd7b45c11d6ebbaf018ec",
+        "non_enqueue_span_ns": 1656285732,
+        "prefill_wall_ns": 2216940492,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/candidate-2",
+        "synchronization_total_ns": 7420472,
+        "trailing_gap_ns": 1975207,
+        "zones_blake3": "0f4c5f2d0bf75a62bd8457cb66d2fc36ea57477866e8ae9fc9e9432308b24bd3"
+      }
+    ]
+  },
+  "candidate_minus_eager": {
+    "enqueue_count": {
+      "delta": 48.0,
+      "ratio": 1.0037415231117
+    },
+    "enqueue_exec_total_ns": {
+      "delta": 207552142.0,
+      "ratio": 2.2885920176531123
+    },
+    "inter_enqueue_gap_total_ns": {
+      "delta": 403858140.0,
+      "ratio": 1.4576894742513817
+    },
+    "largest_inter_enqueue_gap_ns": {
+      "delta": 773235.0,
+      "ratio": 1.0879785365753754
+    },
+    "leading_gap_ns": {
+      "delta": 212655.5,
+      "ratio": 1.6230485373460548
+    },
+    "non_enqueue_span_ns": {
+      "delta": 404088497.0,
+      "ratio": 1.456721967287466
+    },
+    "prefill_wall_ns": {
+      "delta": 611640639.0,
+      "ratio": 1.5848391483829711
+    },
+    "synchronization_total_ns": {
+      "delta": 1648811.0,
+      "ratio": 1.3738696176954701
+    },
+    "trailing_gap_ns": {
+      "delta": 17701.5,
+      "ratio": 1.0087101914628167
+    }
+  },
+  "eager": {
+    "comparability": {
+      "enqueue_exec_ratio": 1.4077723936685347,
+      "inter_enqueue_gap_ratio": 1.2972753465032332,
+      "prefill_wall_ratio": 1.3129653451778505,
+      "valid": false
+    },
+    "median": {
+      "enqueue_count": 12829.0,
+      "enqueue_exec_total_ns": 161068933.5,
+      "inter_enqueue_gap_total_ns": 882384592.0,
+      "largest_inter_enqueue_gap_ns": 8788905.0,
+      "leading_gap_ns": 341314.5,
+      "non_enqueue_span_ns": 884758181.0,
+      "prefill_wall_ns": 1045827114.5,
+      "synchronization_total_ns": 4410123.0,
+      "trailing_gap_ns": 2032274.5
+    },
+    "roots": [
+      {
+        "enqueue_count": 12829,
+        "enqueue_exec_total_ns": 133790830,
+        "identity_blake3": "500c69e25a8b915fb93484c93cde7f3be4023ef2168023fb36bcf25ee49825cd",
+        "inter_enqueue_gap_total_ns": 768200985,
+        "largest_inter_enqueue_gap_ns": 13003815,
+        "leading_gap_ns": 331389,
+        "messages_blake3": "6e2f85dadaf246b51eda8d54f006a457ad46f0d330f091bf4748408464e64140",
+        "non_enqueue_span_ns": 770526320,
+        "prefill_wall_ns": 904317150,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/eager-1",
+        "synchronization_total_ns": 4093326,
+        "trailing_gap_ns": 1993946,
+        "zones_blake3": "2d84e5d2bd34c6b7cc42e83cfc4308ba66f69885bbedf902fd1d3027d4440e5e"
+      },
+      {
+        "enqueue_count": 12829,
+        "enqueue_exec_total_ns": 188347037,
+        "identity_blake3": "e02b5cafc69da46c2fb103818ec4292abb637511db6b38deaa90bb5c7ea585dc",
+        "inter_enqueue_gap_total_ns": 996568199,
+        "largest_inter_enqueue_gap_ns": 4573995,
+        "leading_gap_ns": 351240,
+        "messages_blake3": "6856ede8ad6dd3087d70bf983ffd029b2f418b25f97a656e45e514d25460aaf6",
+        "non_enqueue_span_ns": 998990042,
+        "prefill_wall_ns": 1187337079,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/eager-2",
+        "synchronization_total_ns": 4726920,
+        "trailing_gap_ns": 2070603,
+        "zones_blake3": "17679d34835d2a5692bb47f9ad95a6d2e07340eef54cfb67f358b601853eb893"
+      }
+    ]
+  },
+  "execution_order": [
+    "eager",
+    "candidate",
+    "candidate",
+    "eager"
+  ],
+  "identity": {
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "package_identity": "/nix/store/w0lvxn3qzxz6vs16s0wmria05x6ylby6-qwen36-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "runtime_identity": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0"
+  },
+  "maximum_duplicate_ratio": 1.25,
+  "non_claims": [
+    "host-timeline evidence is diagnostic and is ineligible for TTFT admission",
+    "the receipt does not admit traced decode or select an optimization",
+    "capture overhead is not production performance evidence",
+    "production remains eager"
+  ],
+  "rejection_reason": "duplicate-root-instability",
+  "schema": "qwen36.host-timeline-attribution.v1",
+  "verdict": "rejected"
+}

@@ -44,6 +44,8 @@ from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
+HOST_TIMELINE_PREFILL_START = "QWEN_PREFILL_START"
+HOST_TIMELINE_PREFILL_END = "QWEN_PREFILL_END"
 MESH_ROWS = 1
 MESH_COLUMNS = 2
 EXPECTED_LAYER_COUNT = 64
@@ -119,11 +121,11 @@ class QwenEngine:
         self.package_identity = package_identity
         self.model_identity = model_identity
         self._host_timeline_profile = enable_host_timeline_profile
-        self._host_timeline_profiler = None
+        self._host_timeline_signpost = None
         if enable_host_timeline_profile:
-            from tracy import Profiler
+            from tracy import signpost
 
-            self._host_timeline_profiler = Profiler()
+            self._host_timeline_signpost = signpost
         self._prefill_profiler = (
             RealtimePrefillProfiler(
                 ttnn.device,
@@ -186,8 +188,8 @@ class QwenEngine:
         profile_drain_seconds = 0.0
         if self._prefill_profiler is not None:
             self._prefill_profiler.begin()
-        if self._host_timeline_profiler is not None:
-            self._host_timeline_profiler.enable()
+        if self._host_timeline_signpost is not None:
+            self._host_timeline_signpost(HOST_TIMELINE_PREFILL_START)
         prefill_started = time.monotonic()
         try:
             logits_device = self._profiled_prefill_device(
@@ -196,6 +198,8 @@ class QwenEngine:
                 prompt_token_count=prompt_token_count,
             )
             prefill_device_finished = time.monotonic()
+            if self._host_timeline_signpost is not None:
+                self._host_timeline_signpost(HOST_TIMELINE_PREFILL_END)
             if self._prefill_profiler is not None:
                 profile_drain_started = time.monotonic()
                 program_profile = self._prefill_profiler.finish()
@@ -204,9 +208,6 @@ class QwenEngine:
             if self._prefill_profiler is not None:
                 self._prefill_profiler.cancel()
             raise
-        finally:
-            if self._host_timeline_profiler is not None:
-                self._host_timeline_profiler.disable()
         logits = ttnn.to_torch(
             logits_device,
             mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
