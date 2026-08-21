@@ -1,3 +1,5 @@
+## ADDED Requirements
+
 ### Requirement: Host timeline diagnostics use package-matched tooling and stay diagnostic
 
 r[tenstorrent.qwen38_p150x2.host_timeline_profile] The repository MAY provide host-side Tracy CLI tooling built from the package-matched TT-Metal vendored fork so the packaged Python `tracy` module can capture host zones. Host timeline capture MUST be an operator-enabled diagnostic that runs only under authorized device isolation. Host timeline observations MUST NOT satisfy any admission gate. A host attribution claim MUST come from a deterministic comparator over validated captures from matched balanced physical roots.

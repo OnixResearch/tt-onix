@@ -17,4 +17,4 @@
 ## Phase 4: Verification and lifecycle
 
 - [x] [serial] V1 Run Nix formatting, Ruff, focused Qwen checks, both receipt self-tests, and repository quality gates. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile] V2 Run Cairn validation, proposal/design/tasks gates, sync, archive dry run, archive execution, and post-archive validation. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile] V2 Run Cairn validation, proposal/design/tasks gates, sync, archive dry run, archive execution, and post-archive validation. r[tenstorrent.qwen38_p150x2.host_timeline_profile]

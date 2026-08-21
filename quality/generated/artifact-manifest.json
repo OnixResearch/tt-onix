@@ -572,6 +572,18 @@
       "blake3": "ecc58803354862db37911b43270c0d1c4de013d26fe028c5516837ce48433e84"
     },
     {
+      "path": "cairn/archive/2026-08-13-diagnose-rwkv7-fp32-recurrent-parity/evidence/acceptance.md",
+      "class": "portable_evidence",
+      "byte_count": 1451,
+      "blake3": "f0f50a23c3e0444fa1c16b54fae3bb152c70451fff0ce10d85382e1ce7f22668"
+    },
+    {
+      "path": "cairn/archive/2026-08-13-diagnose-rwkv7-fp32-recurrent-parity/evidence/bounded-diagnosis.json",
+      "class": "portable_evidence",
+      "byte_count": 5151,
+      "blake3": "299be416b2e22ce012c48baa9d7195972211b94443b615ece2ced6a35d9fd7a9"
+    },
+    {
       "path": "cairn/archive/2026-08-13-diagnose-rwkv7-window16-v3/evidence/acceptance.md",
       "class": "portable_evidence",
       "byte_count": 1118,
@@ -614,6 +626,84 @@
       "blake3": "3b4969d8cd636fbcc7437938b90b2d756cda97af00cd01474b92043abb27e8dc"
     },
     {
+      "path": "cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-access-blocker.md",
+      "class": "portable_evidence",
+      "byte_count": 1151,
+      "blake3": "3bc158a1ef45bf64456c78c5c417f9a83dc25e587dccfe1fc7d5ea0752ed6cd7"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 2801,
+      "blake3": "acdddc1c73ae55a6e08fbad36a0748aa844997f935064e4585a6f9c37e09b939"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-add-qwen38-continuous-batching/evidence/prerequisite-disposition.md",
+      "class": "portable_evidence",
+      "byte_count": 1510,
+      "blake3": "8fdf1434f271160eaf2e41176259481f4666b556e2bdb12907a8456d924f94a9"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-evaluate-qwen38-low-precision/evidence/precision-disposition.md",
+      "class": "portable_evidence",
+      "byte_count": 1580,
+      "blake3": "6c0def54a0ba071f137d8ad143e0f36e8df31a6a1bfc617c778b486e4b950cc3"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-evaluate-qwen38-p150x4-capacity/evidence/hardware-availability.md",
+      "class": "portable_evidence",
+      "byte_count": 782,
+      "blake3": "2f0d17ea73388caa2cf8021556413375ae5b59ce07c12ee774a95af9d56a3bf7"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-evaluate-qwen38-runtime-uplift/evidence/runtime-disposition.md",
+      "class": "portable_evidence",
+      "byte_count": 1606,
+      "blake3": "e5d07ae061f894057bf2ff9999ff7ea5919e88c3b88d6bf7306889a37237c535"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-reduce-qwen38-traced-decode-ttft/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 2398,
+      "blake3": "a58d3feeb1136ba5449819852c5e5e8ae29b6927695aae500c55a6c5ba62c4cf"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-reduce-qwen38-traced-decode-ttft/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 3805,
+      "blake3": "5e81c4e06074f11dd03875244025029795a5b31b724248f1b7f1c7b02c80f520"
+    },
+    {
+      "path": "cairn/archive/2026-08-20-tune-qwen38-tp2-kernels/evidence/tuning-disposition.md",
+      "class": "portable_evidence",
+      "byte_count": 1732,
+      "blake3": "43a7f12c86e897405b7c18377b92f5331d087f4f887ac81b33758c5fb825de6e"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-host-prefill-scheduling/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 2449,
+      "blake3": "5db0a0ac186b7a4f618ba0e9c1ecc7e253b7d702b095e429a1c38a9494e92468"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-host-prefill-scheduling/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 3718,
+      "blake3": "43ab765bb53aa3f6cf8bff747fcf904c78f04eb51d466c70df6939d412e35882"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-p150x2-prefill/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 4449,
+      "blake3": "17746c3d5db20b0417dfd015e8151c25a193905e83bcf6606710823c3384942c"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-p150x2-prefill/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 4366,
+      "blake3": "1583e931749318ab7c8d6cdfa62ffb86921cc4af2fa2892479c25bd890645c2b"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
@@ -642,6 +732,90 @@
       "class": "generated_source",
       "byte_count": 14393,
       "blake3": "88ad86c4d1ca4b879686a78638ddb7ebdbc771717274072b4f9862fc59216aa6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-19/hw-9b-paged-generate.log",
+      "class": "portable_evidence",
+      "byte_count": 52660,
+      "blake3": "ac72ce8fb33bd2e876a1410b66bbbdcf50d76fc4857f7f38e8ea400afc532bb8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-19/hw-silicon-matmul.log",
+      "class": "portable_evidence",
+      "byte_count": 834,
+      "blake3": "ff06b353630e4c6c6f5eb618b5ce1a00b451c06b0bbcf1eecf18496176d34355"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3172,
+      "blake3": "8b2dfbdb3d89c865d80e8d5101e4d37ee0714eb15f9fded53cb4e87c9f61618f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-paged-service-summary.log",
+      "class": "portable_evidence",
+      "byte_count": 1250,
+      "blake3": "0a5194168fe0d19d61867fe7ffb15b2baf8bb51405778fa8a09b449d9d79af63"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-pcc-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1693,
+      "blake3": "cd9f70961fa83c8c54b5129119302df07cb565bed2ab07e9a3ad5fb081e3e1dc"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-pcc-summary.log",
+      "class": "portable_evidence",
+      "byte_count": 805,
+      "blake3": "1605ee52252f14f1bc17ed88e5267b3d089abab31235c287a150a7a51bc47e59"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1455,
+      "blake3": "39058fb7206e526792c39ef5d2801748bd24c2f86de5bb6eea79c0b46ad317d3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-service-perf-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 3024,
+      "blake3": "060eb57990b663b4548423057eac68ab8d4108aac86b6a548b0a8e2ffb7a3fe5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-service-perf-summary.log",
+      "class": "portable_evidence",
+      "byte_count": 922,
+      "blake3": "468aa25c9c39cec391e17fba900d728a372622f602f7ff5197a1b09f9b427cc8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-tp2-summary.log",
+      "class": "portable_evidence",
+      "byte_count": 1162,
+      "blake3": "73669f8966a4a44b063d9c0206fd302cab0c05f40bdf2f7ecf9ac20bd6a69364"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6078,
+      "blake3": "33c3654bf417f5bf671cb127977d12465abbab2d6d524117d8d32f8b4cd11a37"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-ttft-candidate-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 10352,
+      "blake3": "8e5d99ce972f739548b04cb57bf19c2199e26fefbf3fce36fa9f50406a457a59"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-timeline-attribution-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5759,
+      "blake3": "e9fc1b4aeec6deb9caa2a9390b28c3f00f9e4e3d1fb9870ca1199001f43e734c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-prefill-profile-attribution-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 17723,
+      "blake3": "bc0d8ca7cc65fe050a5aeac9e7ec62e45421ff5e2279ef9a00689ff1938be20c"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
