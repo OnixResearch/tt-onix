@@ -1,0 +1,175 @@
+{
+  "candidate": {
+    "comparability": {
+      "enqueue_exec_ratio": 1.0199312943580248,
+      "inter_enqueue_gap_ratio": 1.1955534484861683,
+      "prefill_wall_ratio": 1.1673619615353883,
+      "valid": true
+    },
+    "median": {
+      "enqueue_count": 12877.0,
+      "enqueue_exec_total_ns": 291635017.0,
+      "inter_enqueue_gap_total_ns": 1578919463.5,
+      "largest_inter_enqueue_gap_ns": 11080266.0,
+      "leading_gap_ns": 1078658.0,
+      "non_enqueue_span_ns": 1582667648.5,
+      "prefill_wall_ns": 1874302665.5,
+      "synchronization_total_ns": 6074714.0,
+      "trailing_gap_ns": 2178454.0
+    },
+    "roots": [
+      {
+        "enqueue_count": 12877,
+        "enqueue_exec_total_ns": 294512671,
+        "identity_blake3": "1aac3aa5833a30787123b793720b97f99e0af462fdba585642217bfb4fb596f4",
+        "inter_enqueue_gap_total_ns": 1719550586,
+        "largest_inter_enqueue_gap_ns": 11591148,
+        "leading_gap_ns": 1382889,
+        "messages_blake3": "11fbf947be8b8c638e0ed6f6d0240d76144cc5b3a9aaf27ff5b61594d9b9434c",
+        "non_enqueue_span_ns": 1724522151,
+        "prefill_wall_ns": 2019034822,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-stability-20260821/candidate-1d",
+        "sample_count": 5,
+        "synchronization_total_ns": 8535617,
+        "trailing_gap_ns": 3077639,
+        "zones_blake3": "e8e46206053158950d4d4705900987bcb39f3abc7266f90f016ccbf0b5249522"
+      },
+      {
+        "enqueue_count": 12877,
+        "enqueue_exec_total_ns": 288757363,
+        "identity_blake3": "4d8f8195e9ce5cfaf673fa5e7645f9f5ce7a5d79e090666a13571da2bfcdf385",
+        "inter_enqueue_gap_total_ns": 1438288341,
+        "largest_inter_enqueue_gap_ns": 10569384,
+        "leading_gap_ns": 774427,
+        "messages_blake3": "031f2af9cfa1d44c0888492e818b51b304e759f171c9ec919df578b1ef162984",
+        "non_enqueue_span_ns": 1440813146,
+        "prefill_wall_ns": 1729570509,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-stability-20260821/candidate-2d",
+        "sample_count": 5,
+        "synchronization_total_ns": 3613811,
+        "trailing_gap_ns": 1279269,
+        "zones_blake3": "2fc31cf3db0b296693d8d2c266dfb4c99bedd61887bdc7162c349255702659be"
+      }
+    ]
+  },
+  "candidate_minus_eager": {
+    "enqueue_count": {
+      "delta": 48.0,
+      "ratio": 1.0037415231117
+    },
+    "enqueue_exec_total_ns": {
+      "delta": 110604501.5,
+      "ratio": 1.6109715878260316
+    },
+    "inter_enqueue_gap_total_ns": {
+      "delta": 618080259.0,
+      "ratio": 1.643271273804482
+    },
+    "largest_inter_enqueue_gap_ns": {
+      "delta": -4406296.5,
+      "ratio": 0.7154761426236455
+    },
+    "leading_gap_ns": {
+      "delta": 707798.0,
+      "ratio": 2.908531521328803
+    },
+    "non_enqueue_span_ns": {
+      "delta": 620060313.5,
+      "ratio": 1.644146674303079
+    },
+    "prefill_wall_ns": {
+      "delta": 730664815.0,
+      "ratio": 1.638895271506231
+    },
+    "synchronization_total_ns": {
+      "delta": 1556245.0,
+      "ratio": 1.3444186515388288
+    },
+    "trailing_gap_ns": {
+      "delta": 205340.0,
+      "ratio": 1.1040689995611
+    }
+  },
+  "eager": {
+    "comparability": {
+      "enqueue_exec_ratio": 1.2300527123313059,
+      "inter_enqueue_gap_ratio": 1.4276727516605083,
+      "prefill_wall_ratio": 1.3928346091490837,
+      "valid": false
+    },
+    "median": {
+      "enqueue_count": 12829.0,
+      "enqueue_exec_total_ns": 181030515.5,
+      "inter_enqueue_gap_total_ns": 960839204.5,
+      "largest_inter_enqueue_gap_ns": 15486562.5,
+      "leading_gap_ns": 370860.0,
+      "non_enqueue_span_ns": 962607335.0,
+      "prefill_wall_ns": 1143637850.5,
+      "synchronization_total_ns": 4518469.0,
+      "trailing_gap_ns": 1973114.0
+    },
+    "roots": [
+      {
+        "enqueue_count": 12829,
+        "enqueue_exec_total_ns": 199705662,
+        "identity_blake3": "500c69e25a8b915fb93484c93cde7f3be4023ef2168023fb36bcf25ee49825cd",
+        "inter_enqueue_gap_total_ns": 1130106148,
+        "largest_inter_enqueue_gap_ns": 20591754,
+        "leading_gap_ns": 364568,
+        "messages_blake3": "a48d9e178444cf2945c74fe09de6a5c7b7cc83914609e50e97f79bb6fe334ad7",
+        "non_enqueue_span_ns": 1131684625,
+        "prefill_wall_ns": 1331390287,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-stability-20260821/eager-1c",
+        "sample_count": 5,
+        "synchronization_total_ns": 4542300,
+        "trailing_gap_ns": 2107039,
+        "zones_blake3": "8534739f390ea29d0b0bf7b59a87bcd3111e976dfb486eac3922a2f292c7e87a"
+      },
+      {
+        "enqueue_count": 12829,
+        "enqueue_exec_total_ns": 162355369,
+        "identity_blake3": "e02b5cafc69da46c2fb103818ec4292abb637511db6b38deaa90bb5c7ea585dc",
+        "inter_enqueue_gap_total_ns": 791572261,
+        "largest_inter_enqueue_gap_ns": 10381371,
+        "leading_gap_ns": 377152,
+        "messages_blake3": "c1ca12bbad6b05ef0258f0882cefeab8908ec845c3bd921ce27f477201e97810",
+        "non_enqueue_span_ns": 793530045,
+        "prefill_wall_ns": 955885414,
+        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-stability-20260821/eager-2d",
+        "sample_count": 5,
+        "synchronization_total_ns": 4494638,
+        "trailing_gap_ns": 1839189,
+        "zones_blake3": "bbd57d5ba21d4e921feafffc3b8a27c9cc524e98c430e0c0eb002b75644908ef"
+      }
+    ]
+  },
+  "execution_order": [
+    "eager",
+    "candidate",
+    "candidate",
+    "eager"
+  ],
+  "identity": {
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "package_identity": "/nix/store/w0lvxn3qzxz6vs16s0wmria05x6ylby6-qwen36-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "runtime_identity": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0"
+  },
+  "maximum_duplicate_ratio": 1.25,
+  "non_claims": [
+    "host-timeline evidence is diagnostic and is ineligible for TTFT admission",
+    "the receipt does not admit traced decode or select an optimization",
+    "capture overhead is not production performance evidence",
+    "production remains eager"
+  ],
+  "rejection_reason": "duplicate-root-instability",
+  "schema": "qwen36.host-timeline-attribution.v1",
+  "verdict": "rejected"
+}

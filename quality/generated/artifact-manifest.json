@@ -716,6 +716,18 @@
       "blake3": "1583e931749318ab7c8d6cdfa62ffb86921cc4af2fa2892479c25bd890645c2b"
     },
     {
+      "path": "cairn/archive/2026-08-21-stabilize-qwen38-host-attribution/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 1254,
+      "blake3": "0b5955e3676b80e3c430b6fed8bff3d9559604fdd90447833e0cee36b795a47e"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-stabilize-qwen38-host-attribution/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 612,
+      "blake3": "41d30db8f1f881c9472426121beebe2881efd6d02c72d5c06928bc16fdddc3aa"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
@@ -822,6 +834,12 @@
       "class": "portable_evidence",
       "byte_count": 6126,
       "blake3": "3ab6c5ceeab4160699bf68b55ff7407d625b9b9ffd56aa39b076be80b50a48ac"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-stability-attribution-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 6246,
+      "blake3": "41fa1da2caf6aef20a0d1dfd8e9d5e65480a91d39c7b8e984c31e14199527497"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-timeline-attribution-receipt.json",

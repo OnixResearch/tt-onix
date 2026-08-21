@@ -66,6 +66,8 @@ const ZONE_DURATION_COLUMN: usize = 6;
 const ZONE_THREAD_COLUMN: usize = 7;
 const ZONE_REQUIRED_COLUMN_COUNT: usize = ZONE_THREAD_COLUMN + 1;
 const MAX_DUPLICATE_RATIO: f64 = 1.25;
+const MINIMUM_MEASURED_SAMPLES: usize = 5;
+const SELF_TEST_SAMPLE_STRIDE_NS: i64 = 1_000;
 
 #[derive(Debug)]
 struct Config {
@@ -111,6 +113,20 @@ struct RootSummary {
     identity_blake3: String,
     messages_blake3: String,
     zones_blake3: String,
+    sample_count: usize,
+    prefill_wall_ns: i64,
+    enqueue_count: usize,
+    enqueue_exec_total_ns: i64,
+    inter_enqueue_gap_total_ns: i64,
+    largest_inter_enqueue_gap_ns: i64,
+    leading_gap_ns: i64,
+    trailing_gap_ns: i64,
+    synchronization_total_ns: i64,
+    non_enqueue_span_ns: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct IntervalSummary {
     prefill_wall_ns: i64,
     enqueue_count: usize,
     enqueue_exec_total_ns: i64,
@@ -327,10 +343,68 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
         .map_err(|error| format!("{}: {error}", messages_path.display()))?;
     let identity_bytes = fs::read(&identity_path)
         .map_err(|error| format!("{}: {error}", identity_path.display()))?;
-    let zones = parse_zones(&zones_bytes)?;
-    let (prefill_start, prefill_end) = parse_prefill_messages(&messages_bytes)?;
-    let prefill_duration = prefill_end - prefill_start;
+    let first_sample_path = root.join("sample-1");
+    let samples = if first_sample_path.is_dir() {
+        let mut summaries = Vec::with_capacity(MINIMUM_MEASURED_SAMPLES);
+        for sample_index in 1..=MINIMUM_MEASURED_SAMPLES {
+            let sample_root = root.join(format!("sample-{sample_index}"));
+            if !sample_root.is_dir() {
+                return Err(format!("missing measured sample {sample_index}"));
+            }
+            let sample_zones = fs::read(sample_root.join(ZONES_FILE))
+                .map_err(|error| format!("{}: {error}", sample_root.display()))?;
+            let sample_messages = fs::read(sample_root.join(MESSAGES_FILE))
+                .map_err(|error| format!("{}: {error}", sample_root.display()))?;
+            let parsed_zones = parse_zones(&sample_zones)?;
+            let interval = parse_prefill_messages(&sample_messages)?
+                .into_iter()
+                .last()
+                .ok_or("sample has no prefill interval")?;
+            summaries.push(summarize_interval(&parsed_zones, interval.0, interval.1)?);
+        }
+        summaries
+    } else {
+        let zones = parse_zones(&zones_bytes)?;
+        let intervals = parse_prefill_messages(&messages_bytes)?;
+        if intervals.len() < MINIMUM_MEASURED_SAMPLES {
+            return Err(format!(
+                "capture has fewer than {MINIMUM_MEASURED_SAMPLES} prefill samples"
+            ));
+        }
+        intervals
+            .into_iter()
+            .map(|(start, end)| summarize_interval(&zones, start, end))
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
+    Ok(RootSummary {
+        root: root.display().to_string(),
+        identity_blake3: blake3::hash(&identity_bytes).to_hex().to_string(),
+        messages_blake3: blake3::hash(&messages_bytes).to_hex().to_string(),
+        zones_blake3: blake3::hash(&zones_bytes).to_hex().to_string(),
+        sample_count: samples.len(),
+        prefill_wall_ns: sample_median(&samples, |sample| sample.prefill_wall_ns),
+        enqueue_count: sample_median_usize(&samples, |sample| sample.enqueue_count),
+        enqueue_exec_total_ns: sample_median(&samples, |sample| sample.enqueue_exec_total_ns),
+        inter_enqueue_gap_total_ns: sample_median(&samples, |sample| {
+            sample.inter_enqueue_gap_total_ns
+        }),
+        largest_inter_enqueue_gap_ns: sample_median(&samples, |sample| {
+            sample.largest_inter_enqueue_gap_ns
+        }),
+        leading_gap_ns: sample_median(&samples, |sample| sample.leading_gap_ns),
+        trailing_gap_ns: sample_median(&samples, |sample| sample.trailing_gap_ns),
+        synchronization_total_ns: sample_median(&samples, |sample| sample.synchronization_total_ns),
+        non_enqueue_span_ns: sample_median(&samples, |sample| sample.non_enqueue_span_ns),
+    })
+}
+
+fn summarize_interval(
+    zones: &[Zone],
+    prefill_start: i64,
+    prefill_end: i64,
+) -> Result<IntervalSummary, String> {
+    let prefill_duration = prefill_end - prefill_start;
     let mut enqueues: Vec<&Zone> = zones
         .iter()
         .filter(|zone| {
@@ -343,7 +417,6 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
         return Err("prefill has no EnqueueProgram zones".into());
     }
     enqueues.sort_by_key(|zone| (zone.thread.as_str(), zone.start_ns));
-
     let enqueue_exec_total_ns = checked_sum(enqueues.iter().map(|zone| zone.duration_ns))?;
     let mut gap_total = ZERO_NS;
     let mut largest_gap = ZERO_NS;
@@ -359,7 +432,6 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
         gap_total = gap_total.checked_add(gap).ok_or("gap total overflow")?;
         largest_gap = largest_gap.max(gap);
     }
-
     let first_start = enqueues
         .iter()
         .map(|zone| zone.start_ns)
@@ -377,7 +449,6 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
     if leading_gap_ns < ZERO_NS || trailing_gap_ns < ZERO_NS {
         return Err("enqueue lies outside prefill zone".into());
     }
-
     let synchronization_total_ns = checked_sum(zones.iter().filter_map(|zone| {
         let in_prefill =
             zone.start_ns >= prefill_start && zone.end_ns().is_ok_and(|end| end <= prefill_end);
@@ -388,12 +459,7 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
     let non_enqueue_span_ns = prefill_duration
         .checked_sub(enqueue_exec_total_ns)
         .ok_or("enqueue durations exceed prefill wall span")?;
-
-    Ok(RootSummary {
-        root: root.display().to_string(),
-        identity_blake3: blake3::hash(&identity_bytes).to_hex().to_string(),
-        messages_blake3: blake3::hash(&messages_bytes).to_hex().to_string(),
-        zones_blake3: blake3::hash(&zones_bytes).to_hex().to_string(),
+    Ok(IntervalSummary {
         prefill_wall_ns: prefill_duration,
         enqueue_count: enqueues.len(),
         enqueue_exec_total_ns,
@@ -406,10 +472,25 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
     })
 }
 
-fn parse_prefill_messages(bytes: &[u8]) -> Result<(i64, i64), String> {
+fn sample_median(samples: &[IntervalSummary], field: impl Fn(&IntervalSummary) -> i64) -> i64 {
+    let mut values: Vec<i64> = samples.iter().map(field).collect();
+    values.sort_unstable();
+    values[values.len() / MEDIAN_DIVISOR_USIZE]
+}
+
+fn sample_median_usize(
+    samples: &[IntervalSummary],
+    field: impl Fn(&IntervalSummary) -> usize,
+) -> usize {
+    let mut values: Vec<usize> = samples.iter().map(field).collect();
+    values.sort_unstable();
+    values[values.len() / MEDIAN_DIVISOR_USIZE]
+}
+
+fn parse_prefill_messages(bytes: &[u8]) -> Result<Vec<(i64, i64)>, String> {
     let text = String::from_utf8_lossy(bytes);
     let mut start = None;
-    let mut end = None;
+    let mut intervals = Vec::new();
     for line in text.lines() {
         let Some((message, timestamp)) = line.rsplit_once(',') else {
             continue;
@@ -418,18 +499,21 @@ fn parse_prefill_messages(bytes: &[u8]) -> Result<(i64, i64), String> {
             continue;
         };
         if message.contains(PREFILL_START_MESSAGE) {
-            start = Some(timestamp);
-            end = None;
-        } else if message.contains(PREFILL_END_MESSAGE) && start.is_some() {
-            end = Some(timestamp);
+            if start.replace(timestamp).is_some() {
+                return Err("nested prefill start signpost".into());
+            }
+        } else if message.contains(PREFILL_END_MESSAGE) {
+            let interval_start = start.take().ok_or("prefill end signpost has no start")?;
+            if timestamp <= interval_start {
+                return Err("prefill signpost interval is not positive".into());
+            }
+            intervals.push((interval_start, timestamp));
         }
     }
-    let start = start.ok_or("capture has no prefill start signpost")?;
-    let end = end.ok_or("capture has no prefill end signpost")?;
-    if end <= start {
-        return Err("prefill signpost interval is not positive".into());
+    if start.is_some() {
+        return Err("prefill start signpost has no end".into());
     }
-    Ok((start, end))
+    Ok(intervals)
 }
 
 fn parse_zones(bytes: &[u8]) -> Result<Vec<Zone>, String> {
@@ -611,6 +695,16 @@ fn self_test() -> Result<(), String> {
     }
     write_fixture(&candidate_one, "candidate", 0, SELF_TEST_CANDIDATE_GAP_NS)?;
 
+    fs::write(
+        candidate_one.join(MESSAGES_FILE),
+        format!("MessageName,total_ns\n`{PREFILL_START_MESSAGE}`,1\n"),
+    )
+    .map_err(|error| error.to_string())?;
+    if build_receipt(&config).is_ok() {
+        return Err("negative self-test accepted an unmatched signpost".into());
+    }
+    write_fixture(&candidate_one, "candidate", 0, SELF_TEST_CANDIDATE_GAP_NS)?;
+
     let mut bad_identity: RootIdentity = serde_json::from_slice(
         &fs::read(candidate_one.join(IDENTITY_FILE)).map_err(|error| error.to_string())?,
     )
@@ -655,16 +749,27 @@ fn write_fixture(root: &Path, mode: &str, root_index: usize, gap_ns: i64) -> Res
         serde_json::to_vec_pretty(&identity).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    let second_start = SELF_TEST_SECOND_ENQUEUE_BASE_NS + gap_ns;
-    let csv = format!(
-        "name,src_file,src_line,zone_name,zone_text,ns_since_start,exec_time_ns,thread,special_parent_text\n_prefill_first_token,server.py,1,,,{SELF_TEST_PREFILL_START_NS},{SELF_TEST_PREFILL_DURATION_NS},main,\nEnqueueProgram,fd.cpp,1,,,{SELF_TEST_FIRST_ENQUEUE_START_NS},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nEnqueueProgram,fd.cpp,1,,,{second_start},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nFDMeshCommandQueue::finish,fd.cpp,1,,,{SELF_TEST_SYNC_START_NS},{SELF_TEST_SYNC_DURATION_NS},main,\n"
+    let mut csv = String::from(
+        "name,src_file,src_line,zone_name,zone_text,ns_since_start,exec_time_ns,thread,special_parent_text\n",
     );
+    let mut messages = String::from("MessageName,total_ns\n");
+    for sample_index in 0..MINIMUM_MEASURED_SAMPLES {
+        let offset = i64::try_from(sample_index).map_err(|error| error.to_string())?
+            * SELF_TEST_SAMPLE_STRIDE_NS;
+        let prefill_start = SELF_TEST_PREFILL_START_NS + offset;
+        let first_enqueue_start = SELF_TEST_FIRST_ENQUEUE_START_NS + offset;
+        let second_start = SELF_TEST_SECOND_ENQUEUE_BASE_NS + gap_ns + offset;
+        let sync_start = SELF_TEST_SYNC_START_NS + offset;
+        csv.push_str(&format!(
+            "EnqueueProgram,fd.cpp,1,,,{first_enqueue_start},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nEnqueueProgram,fd.cpp,1,,,{second_start},{SELF_TEST_ENQUEUE_DURATION_NS},main,\nFDMeshCommandQueue::finish,fd.cpp,1,,,{sync_start},{SELF_TEST_SYNC_DURATION_NS},main,\n"
+        ));
+        messages.push_str(&format!(
+            "`{PREFILL_START_MESSAGE}`,{}\n`{PREFILL_END_MESSAGE}`,{}\n",
+            prefill_start,
+            prefill_start + SELF_TEST_PREFILL_DURATION_NS,
+        ));
+    }
     fs::write(root.join(ZONES_FILE), csv).map_err(|error| error.to_string())?;
-    let messages = format!(
-        "MessageName,total_ns\n`{PREFILL_START_MESSAGE}`,{}\n`{PREFILL_END_MESSAGE}`,{}\n",
-        SELF_TEST_PREFILL_START_NS,
-        SELF_TEST_PREFILL_START_NS + SELF_TEST_PREFILL_DURATION_NS,
-    );
     fs::write(root.join(MESSAGES_FILE), messages).map_err(|error| error.to_string())?;
     Ok(())
 }

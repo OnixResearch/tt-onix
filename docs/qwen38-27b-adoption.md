@@ -304,10 +304,13 @@ Candidate duplicate ratios were at most `1.0760504091447658` across the checked 
 Eager duplicate ratios reached `2.900386615837245` for wall prefill and `9.206084094193452` for enqueue execution.
 The comparator rejected the result as `duplicate-root-instability` against its `1.25` comparability bound.
 No host attribution or optimization is selected from the rejected receipt.
-A follow-up used Tracy signpost messages without Python call profiling. It still failed duplicate stability: eager enqueue ratio `3.174942201847243` and candidate enqueue ratio `1.4077723936685347`. The result was rejected, so no host attribution or optimization was selected. The remaining blocker is host-run variability outside Python profiling.
+A follow-up used Tracy signpost messages without Python call profiling. It still failed duplicate stability: eager enqueue ratio `3.174942201847243` and candidate enqueue ratio `1.4077723936685347`.
+
+A second follow-up used five independent fixed-affinity samples per root. Eager duplicates passed, but candidate wall and gap ratios remained `1.3928346091490837` and `1.4276727516605083`. This isolates the blocker to persistent candidate cross-process drift. Both results were rejected, so no host attribution or optimization was selected.
 
 Evidence:
 
+- `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-stability-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-signpost-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-timeline-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-prefill-profile-attribution-receipt.json`
