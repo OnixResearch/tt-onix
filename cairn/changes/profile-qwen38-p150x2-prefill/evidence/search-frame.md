@@ -50,15 +50,25 @@ Allowed terminal states are `validated`, `blocked`, `exhausted`, and `user-decis
 
 | Family | Mechanism | Claim | Evidence | State | Next check |
 |---|---|---|---|---|---|
-| realtime-programs | TTNN real-time callback records device timestamps and kernel sources | Exact program signatures can explain the prefill difference | Package-matched docs and bindings expose callback, active check, timestamps, frequency, chip, and kernel sources | active | Verify the packaged Nix binding and physical P150x2 activation |
-| tracy-ops-csv | Run the service under Tracy and parse signposted operation CSV | Full TTNN operation rows can attribute the gap | Package-matched docs support `python -m tracy` and signposts | blocked | Use only if real-time signatures cannot discriminate; capture tooling adds a larger lifecycle boundary |
+| realtime-programs | TTNN real-time callback records device timestamps and kernel sources | Exact program signatures can explain the prefill difference | Physical receipt found `100` complete common signature-and-chip rows, but their sum explained only `0.22521929455787217%` of the profiled wall gap | validated-limited | Do not tune a device program from this result |
+| tracy-ops-csv | Run the service under Tracy and parse signposted operation CSV | Full TTNN operation rows can attribute the gap | Package-matched docs support `python -m tracy` and signposts | blocked | A later change must first prove that it exposes host enqueue or idle spans missing from the callback |
 | host-method-timers | Time model methods on the Python host | Host durations identify slow operations | TT-Metal docs state that asynchronous calls mix queueing and wait time | falsified | None |
 | per-op-sync | Synchronize after each candidate operation | Each synchronized interval yields device time | The method would serialize asynchronous work and alter the measured schedule | falsified | None |
 | layer-bisection | Synchronize selected model layer boundaries | Layer groups can localize the gap | It needs invasive upstream model edits and still changes scheduling | blocked | Reconsider only if program signatures stay ambiguous |
 
-## Current strongest route
+## Result
 
-Use the package-matched real-time callback as a diagnostic adapter. Drain its receiver only after the unchanged device-prefill end timestamp. Mark the response ineligible for admission because the drain delays readback. Aggregate exact signatures by chip in a pure core, and compare only roots collected with the same profiling mode.
+The callback route completed on the matched P150x2 corpus.
+The candidate program-duration sum was `1.0064446256760908` times eager.
+The `2.306050567859769` millisecond program delta was too small to explain the `1.023913413984701` second profiled wall delta.
+
+The strongest checked program was the MLP prefill reduce-scatter on chip `0`.
+Its candidate increase was `1.0996968146463241` milliseconds.
+The matching all-gather increase was `1.0286994217734913` milliseconds.
+Neither result supports a CCL optimization selection.
+
+No immutable optimization candidate was selected.
+The exact blocker is missing host enqueue, command-queue idle, and non-program barrier attribution.
 
 ## Adversarial audit
 

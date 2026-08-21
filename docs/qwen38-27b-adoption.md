@@ -286,8 +286,18 @@ They include a receiver drain, so their TTFT values cannot enter admission.
 The service fails startup when the real-time profiler is inactive.
 The normal production wrapper does not register a callback or wait for receiver drain.
 
+The 2026-08-21 physical diagnostic found `100` complete common signature-and-chip rows.
+The candidate program-duration sum was only `1.0064446256760908` times the eager sum.
+Its `2.306050567859769` millisecond delta explained `0.22521929455787217%` of the profiled wall-prefill delta.
+The largest single difference was a `1.0996968146463241` millisecond MLP reduce-scatter increase on chip `0`.
+
+No program difference was large enough to select an optimization.
+The next diagnostic must measure host enqueue gaps, command-queue idle time, and non-program barriers.
+The CCL settings must not change from this result alone.
+
 Evidence:
 
+- `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-prefill-profile-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`
 - `cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-ttft-candidate-receipt.json`

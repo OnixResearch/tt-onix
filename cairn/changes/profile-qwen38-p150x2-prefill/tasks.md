@@ -13,14 +13,14 @@
 
 ## Phase 3: Physical attribution
 
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P1 Build one immutable candidate and verify the profiler is active on physical P150x2. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P2 Run `eager,candidate,candidate,eager` profiled roots with the bound corpus. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P3 Generate the deterministic attribution receipt and identify the strongest checked program difference. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P4 Select one immutable optimization candidate, or return an exact bounded blocker. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P1 Build one immutable candidate and verify the profiler is active on physical P150x2. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P2 Run `eager,candidate,candidate,eager` profiled roots with the bound corpus. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P3 Generate the deterministic attribution receipt and identify the strongest checked program difference. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.prefill_profile_evidence] P4 Select one immutable optimization candidate, or return an exact bounded blocker. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
 
 ## Phase 4: Verification and lifecycle
 
-- [ ] [serial] V1 Run Ruff, Python compilation, focused Qwen Nix checks, receipt self-tests, and formatting checks. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
+- [x] [serial] V1 Run Ruff, Python compilation, focused Qwen Nix checks, receipt self-tests, and formatting checks. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
 - [ ] [serial] V2 Restore eager production and verify the service health endpoint. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
 - [ ] [serial] V3 Run Cairn validation and lifecycle gates. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
 - [ ] [serial] V4 Sync the accepted specification, archive the change, and verify zero active changes. r[tenstorrent.qwen38_p150x2.prefill_program_profile]

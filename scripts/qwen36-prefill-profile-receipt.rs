@@ -32,13 +32,17 @@ const PROFILE_SCHEMA_VERSION: usize = 1;
 const EXPECTED_ROOT_COUNT: usize = 2;
 const EXPECTED_DEVICE_COUNT: usize = 2;
 const EXPECTED_DEVICE_IDS: [i64; EXPECTED_DEVICE_COUNT] = [0, 1];
+const REPORTED_DIFFERENCE_COUNT: usize = 10;
 const FLAG_VALUE_ARGUMENT_WIDTH: usize = 2;
 const MEDIAN_DIVISOR: usize = 2;
 const MEDIAN_DIVISOR_FLOAT: f64 = 2.0;
 const SUCCESS_EXIT_CODE: u8 = 0;
 const FAILURE_EXIT_CODE: u8 = 1;
+const NANOSECONDS_PER_SECOND: f64 = 1_000_000_000.0;
 const SELF_TEST_EAGER_DURATION_NS: f64 = 100.0;
 const SELF_TEST_CANDIDATE_DURATION_NS: f64 = 120.0;
+const SELF_TEST_EAGER_PREFILL_SECONDS: f64 = 1.0;
+const SELF_TEST_CANDIDATE_PREFILL_SECONDS: f64 = 1.1;
 const SELF_TEST_EXPECTED_DELTA_NS: f64 =
     SELF_TEST_CANDIDATE_DURATION_NS - SELF_TEST_EAGER_DURATION_NS;
 
@@ -63,6 +67,7 @@ struct DecodeEvidence {
     model_identity: String,
     package_identity: String,
     physical_pcie_device_ids: Vec<i64>,
+    prefill_device_seconds: f64,
     prefill_page_table_blocks: usize,
     prefill_program_profile: ProgramProfile,
     profile_id: String,
@@ -218,6 +223,10 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     validate_duplicate_coverage(&eager_roots, "eager")?;
     validate_duplicate_coverage(&candidate_roots, "candidate")?;
 
+    let eager_prefill_median_seconds = median(&prefill_seconds(&eager_roots))?;
+    let candidate_prefill_median_seconds = median(&prefill_seconds(&candidate_roots))?;
+    let prefill_wall_delta_seconds =
+        candidate_prefill_median_seconds - eager_prefill_median_seconds;
     let eager_values = aggregate_signature_values(&eager_roots)?;
     let candidate_values = aggregate_signature_values(&candidate_roots)?;
     let expected_value_count = sample_names.len() * EXPECTED_ROOT_COUNT;
@@ -258,6 +267,31 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     let strongest = differences
         .first()
         .ok_or_else(|| "no program difference survived validation".to_owned())?;
+    let eager_program_median_sum_ns = differences.iter().map(|difference| difference.1).sum::<f64>();
+    let candidate_program_median_sum_ns =
+        differences.iter().map(|difference| difference.2).sum::<f64>();
+    let program_median_sum_delta_ns =
+        candidate_program_median_sum_ns - eager_program_median_sum_ns;
+    let prefill_wall_delta_ns = prefill_wall_delta_seconds * NANOSECONDS_PER_SECOND;
+    let wall_delta_fraction = if prefill_wall_delta_ns.abs() > f64::EPSILON {
+        Some(program_median_sum_delta_ns / prefill_wall_delta_ns)
+    } else {
+        None
+    };
+    let ranked_checked_differences = differences
+        .iter()
+        .take(REPORTED_DIFFERENCE_COUNT)
+        .map(|difference| {
+            json!({
+                "candidate_median_total_duration_ns": difference.2,
+                "candidate_to_eager_ratio": difference.4,
+                "chip_id": difference.0.chip_id,
+                "delta_duration_ns": difference.3,
+                "eager_median_total_duration_ns": difference.1,
+                "kernel_sources": difference.0.kernel_sources,
+            })
+        })
+        .collect::<Vec<_>>();
     let identity = canonical_identity.ok_or_else(|| "profile roots are empty".to_owned())?;
 
     Ok(json!({
@@ -283,6 +317,19 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "eager_complete_signature_chip_count": complete_eager.len(),
             "eager_only_signature_chip_count": complete_eager.difference(&complete_candidate).count(),
         },
+        "checked_wall_prefill": {
+            "candidate_median_seconds": candidate_prefill_median_seconds,
+            "candidate_to_eager_ratio": candidate_prefill_median_seconds / eager_prefill_median_seconds,
+            "delta_seconds": prefill_wall_delta_seconds,
+            "eager_median_seconds": eager_prefill_median_seconds,
+        },
+        "checked_program_median_sums": {
+            "candidate_median_sum_ns": candidate_program_median_sum_ns,
+            "candidate_to_eager_ratio": candidate_program_median_sum_ns / eager_program_median_sum_ns,
+            "delta_ns": program_median_sum_delta_ns,
+            "eager_median_sum_ns": eager_program_median_sum_ns,
+            "wall_delta_fraction": wall_delta_fraction,
+        },
         "strongest_checked_difference": {
             "candidate_median_total_duration_ns": strongest.2,
             "candidate_to_eager_ratio": strongest.4,
@@ -291,6 +338,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "eager_median_total_duration_ns": strongest.1,
             "kernel_sources": strongest.0.kernel_sources,
         },
+        "ranked_checked_differences": ranked_checked_differences,
         "input_hashes": input_hashes,
         "non_claims": [
             "profiled responses are not TTFT admission evidence",
@@ -396,6 +444,7 @@ fn validate_sample(sample: &Sample) -> Result<(), String> {
         || evidence.package_identity.is_empty()
         || evidence.profile_id.is_empty()
         || evidence.runtime_identity.is_empty()
+        || !finite_positive(evidence.prefill_device_seconds)
         || evidence.prefill_page_table_blocks == 0
     {
         return Err(format!("{} has incomplete identity or shape evidence", sample.name));
@@ -545,6 +594,14 @@ fn signature_keys(evidence: &DecodeEvidence) -> BTreeSet<SignatureKey> {
                 chip_id: row.chip_id,
             })
         })
+        .collect()
+}
+
+fn prefill_seconds(roots: &[Vec<Sample>]) -> Vec<f64> {
+    roots
+        .iter()
+        .flatten()
+        .map(|sample| sample.response.x_onix_decode_evidence.prefill_device_seconds)
         .collect()
 }
 
@@ -723,6 +780,11 @@ fn write_fixture(
             "model_identity": "model",
             "package_identity": "package",
             "physical_pcie_device_ids": EXPECTED_DEVICE_IDS,
+            "prefill_device_seconds": if duration_ns == SELF_TEST_EAGER_DURATION_NS {
+                SELF_TEST_EAGER_PREFILL_SECONDS
+            } else {
+                SELF_TEST_CANDIDATE_PREFILL_SECONDS
+            },
             "prefill_page_table_blocks": 1,
             "prefill_program_profile": {
                 "schema_version": PROFILE_SCHEMA_VERSION,

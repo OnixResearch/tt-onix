@@ -716,11 +716,13 @@ def main() -> None:
     finally:
         if server is not None:
             server.server_close()
+            server = None
         if engine is not None:
             engine.close()
+            engine = None
         if model is not None:
             model.free_kv_caches()
-            del model
+            model = None
             gc.collect()
         try:
             if mesh_device is not None:
