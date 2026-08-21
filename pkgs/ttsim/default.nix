@@ -13,7 +13,7 @@
 }:
 let
   # r[impl tenstorrent.ttsim.runtime_bundle]
-  version = "1.10.1";
+  version = "1.10.2";
   releaseBaseUrl = "https://github.com/tenstorrent/ttsim/releases/download/v${version}";
   assetAuthority = import ./assets.nix { inherit lib; };
   hostSystem = stdenv.hostPlatform.system;
