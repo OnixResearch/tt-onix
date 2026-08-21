@@ -692,6 +692,18 @@
       "blake3": "43ab765bb53aa3f6cf8bff747fcf904c78f04eb51d466c70df6939d412e35882"
     },
     {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-host-prefill-signposts/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 1125,
+      "blake3": "71abb7839b4ebd6dcfdb2c200b23b16b3e2fde1ef92c697a07ed66308809ab20"
+    },
+    {
+      "path": "cairn/archive/2026-08-21-profile-qwen38-host-prefill-signposts/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 781,
+      "blake3": "e21427167066d1ac8dc1bd9f39a1edc567d9fd3531d4c661bc2e040bbf431806"
+    },
+    {
       "path": "cairn/archive/2026-08-21-profile-qwen38-p150x2-prefill/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 4449,
@@ -702,18 +714,6 @@
       "class": "portable_evidence",
       "byte_count": 4366,
       "blake3": "1583e931749318ab7c8d6cdfa62ffb86921cc4af2fa2892479c25bd890645c2b"
-    },
-    {
-      "path": "cairn/changes/profile-qwen38-host-prefill-signposts/evidence/physical-result.md",
-      "class": "portable_evidence",
-      "byte_count": 1125,
-      "blake3": "71abb7839b4ebd6dcfdb2c200b23b16b3e2fde1ef92c697a07ed66308809ab20"
-    },
-    {
-      "path": "cairn/changes/profile-qwen38-host-prefill-signposts/evidence/search-frame.md",
-      "class": "portable_evidence",
-      "byte_count": 781,
-      "blake3": "e21427167066d1ac8dc1bd9f39a1edc567d9fd3531d4c661bc2e040bbf431806"
     },
     {
       "path": "model-targets/generated/consumer-identities.h",
