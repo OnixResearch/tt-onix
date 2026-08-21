@@ -21,6 +21,6 @@
 ## Phase 4: Verification and lifecycle
 
 - [x] [serial] V1 Run Ruff, Python compilation, focused Qwen Nix checks, receipt self-tests, and formatting checks. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
-- [ ] [serial] V2 Restore eager production and verify the service health endpoint. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
-- [ ] [serial] V3 Run Cairn validation and lifecycle gates. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
+- [x] [serial] V2 Restore eager production and verify the service health endpoint. r[tenstorrent.qwen38_p150x2.prefill_profile_evidence]
+- [x] [serial] V3 Run Cairn validation and lifecycle gates. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
 - [ ] [serial] V4 Sync the accepted specification, archive the change, and verify zero active changes. r[tenstorrent.qwen38_p150x2.prefill_program_profile]
