@@ -59,7 +59,9 @@ class TracedDecodeAdapter:
         if model.num_devices <= 1:
             raise DecodeAdapterError("traced TP2 decode requires more than one device")
         if model.args.vocab_size % model.num_devices != 0:
-            raise DecodeAdapterError("vocabulary size is not divisible by the device count")
+            raise DecodeAdapterError(
+                "vocabulary size is not divisible by the device count"
+            )
         self.model = model
         self.profile = profile
         self.runtime_identity = runtime_identity
@@ -164,7 +166,9 @@ class TracedDecodeAdapter:
                 self._expected_binding, self._observe_binding()
             )
             if mismatches:
-                return TraceEligibility(False, "binding-mismatch:" + ",".join(mismatches))
+                return TraceEligibility(
+                    False, "binding-mismatch:" + ",".join(mismatches)
+                )
             return TraceEligibility(True, "trace-ready")
         self._capture_trace(token=token, position=position)
         return TraceEligibility(True, "trace-captured")
@@ -195,7 +199,9 @@ class TracedDecodeAdapter:
             ttnn.synchronize_device(self.mesh)
             capture_elapsed = time.monotonic() - capture_started
             if capture_elapsed > self.profile.trace_capture_timeout_seconds:
-                raise DecodeAdapterError("decode trace capture exceeded the profile timeout")
+                raise DecodeAdapterError(
+                    "decode trace capture exceeded the profile timeout"
+                )
             self._trace_id = candidate_trace_id
             self._trace_logits = trace_logits
             self._trace_indices = trace_indices
@@ -221,7 +227,9 @@ class TracedDecodeAdapter:
 
     def _tp_gdn_layers(self) -> tuple[Any, ...]:
         layers = tuple(
-            layer.attention for layer in self.model.layers if not layer.is_full_attention
+            layer.attention
+            for layer in self.model.layers
+            if not layer.is_full_attention
         )
         if not layers:
             raise DecodeAdapterError("the model has no TP GDN layers")
@@ -238,15 +246,13 @@ class TracedDecodeAdapter:
         for layer in self._tp_gdn_layers():
             if layer.rec_state is None or layer.conv_states is None:
                 raise DecodeAdapterError("TP GDN state is not allocated")
-            snapshots.append(
-                (
-                    ttnn.to_torch(layer.rec_state, mesh_composer=composer),
-                    tuple(
-                        ttnn.to_torch(state, mesh_composer=composer)
-                        for state in layer.conv_states
-                    ),
-                )
-            )
+            snapshots.append((
+                ttnn.to_torch(layer.rec_state, mesh_composer=composer),
+                tuple(
+                    ttnn.to_torch(state, mesh_composer=composer)
+                    for state in layer.conv_states
+                ),
+            ))
         return tuple(snapshots)
 
     def _restore_tp_gdn_state(
@@ -377,9 +383,7 @@ class TracedDecodeAdapter:
             ],
             value=PADDED_LOGIT_SENTINEL,
         )
-        grid = ttnn.reshape(
-            padded, (1, 1, padded_rows, MAX_REDUCTION_COLUMNS)
-        )
+        grid = ttnn.reshape(padded, (1, 1, padded_rows, MAX_REDUCTION_COLUMNS))
         partial = ttnn.max(grid, dim=-1)
         partial_row = ttnn.reshape(partial, (1, 1, 1, padded_rows))
         values = ttnn.max(partial_row, dim=-1)
@@ -390,13 +394,14 @@ class TracedDecodeAdapter:
         return indices, values
 
     def _read_global_winner(self, indices: Any, values: Any) -> int:
-        host_indices = ttnn.to_torch(
-            indices, mesh_composer=self._mesh_reader
-        ).reshape(-1)
-        host_values = ttnn.to_torch(
-            values, mesh_composer=self._mesh_reader
-        ).reshape(-1)
-        if len(host_indices) != self.device_count or len(host_values) != self.device_count:
+        host_indices = ttnn.to_torch(indices, mesh_composer=self._mesh_reader).reshape(
+            -1
+        )
+        host_values = ttnn.to_torch(values, mesh_composer=self._mesh_reader).reshape(-1)
+        if (
+            len(host_indices) != self.device_count
+            or len(host_values) != self.device_count
+        ):
             raise DecodeAdapterError("shard winner readback has the wrong device count")
         winners = []
         for device_index in range(self.device_count):
@@ -429,7 +434,9 @@ class TracedDecodeAdapter:
             kv_buffer_identity=_nested_identity(self.model._paged_kv_caches),
             gdn_buffer_identity=self._tp_gdn_identity(),
             output_buffer_identity=_identity(self._trace_logits),
-            output_shape=tuple(int(dimension) for dimension in self._trace_logits.shape),
+            output_shape=tuple(
+                int(dimension) for dimension in self._trace_logits.shape
+            ),
             output_dtype=str(self._trace_logits.dtype),
         )
 

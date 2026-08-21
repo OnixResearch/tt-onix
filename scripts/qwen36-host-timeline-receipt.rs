@@ -6,7 +6,6 @@ edition = "2024"
 
 [dependencies]
 blake3 = "1"
-csv = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ---
@@ -48,6 +47,7 @@ const SUCCESS: u8 = 0;
 const FAILURE: u8 = 1;
 const SELF_TEST_EAGER_GAP_NS: i64 = 10;
 const SELF_TEST_CANDIDATE_GAP_NS: i64 = 30;
+const SELF_TEST_UNSTABLE_GAP_NS: i64 = 100;
 const SELF_TEST_EXPECTED_DELTA_NS: f64 =
     (SELF_TEST_CANDIDATE_GAP_NS - SELF_TEST_EAGER_GAP_NS) as f64;
 const SELF_TEST_PREFILL_START_NS: i64 = 100;
@@ -57,6 +57,12 @@ const SELF_TEST_ENQUEUE_DURATION_NS: i64 = 10;
 const SELF_TEST_SECOND_ENQUEUE_BASE_NS: i64 = 120;
 const SELF_TEST_SYNC_START_NS: i64 = 180;
 const SELF_TEST_SYNC_DURATION_NS: i64 = 20;
+const ZONE_NAME_COLUMN: usize = 0;
+const ZONE_START_COLUMN: usize = 5;
+const ZONE_DURATION_COLUMN: usize = 6;
+const ZONE_THREAD_COLUMN: usize = 7;
+const ZONE_REQUIRED_COLUMN_COUNT: usize = ZONE_THREAD_COLUMN + 1;
+const MAX_DUPLICATE_RATIO: f64 = 1.25;
 
 #[derive(Debug)]
 struct Config {
@@ -110,6 +116,14 @@ struct RootSummary {
     trailing_gap_ns: i64,
     synchronization_total_ns: i64,
     non_enqueue_span_ns: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ModeComparability {
+    prefill_wall_ratio: f64,
+    enqueue_exec_ratio: f64,
+    inter_enqueue_gap_ratio: f64,
+    valid: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -214,6 +228,9 @@ fn build_receipt(config: &Config) -> Result<serde_json::Value, String> {
 
     let eager_median = mode_median(&eager);
     let candidate_median = mode_median(&candidate);
+    let eager_comparability = mode_comparability(&eager);
+    let candidate_comparability = mode_comparability(&candidate);
+    let comparable = eager_comparability.valid && candidate_comparability.valid;
     let differences = json!({
         "prefill_wall_ns": difference(eager_median.prefill_wall_ns, candidate_median.prefill_wall_ns),
         "enqueue_exec_total_ns": difference(eager_median.enqueue_exec_total_ns, candidate_median.enqueue_exec_total_ns),
@@ -229,7 +246,9 @@ fn build_receipt(config: &Config) -> Result<serde_json::Value, String> {
     let identity = identity_reference.ok_or("no identity")?;
     Ok(json!({
         "schema": RECEIPT_SCHEMA,
-        "verdict": "diagnostic-only",
+        "verdict": if comparable { "diagnostic-only" } else { "rejected" },
+        "rejection_reason": if comparable { serde_json::Value::Null } else { json!("duplicate-root-instability") },
+        "maximum_duplicate_ratio": MAX_DUPLICATE_RATIO,
         "execution_order": config.execution_order,
         "identity": {
             "runtime_identity": identity.runtime_identity,
@@ -238,8 +257,8 @@ fn build_receipt(config: &Config) -> Result<serde_json::Value, String> {
             "physical_pcie_device_ids": identity.physical_pcie_device_ids,
             "mesh_shape": identity.mesh_shape,
         },
-        "eager": { "roots": eager, "median": eager_median },
-        "candidate": { "roots": candidate, "median": candidate_median },
+        "eager": { "roots": eager, "median": eager_median, "comparability": eager_comparability },
+        "candidate": { "roots": candidate, "median": candidate_median, "comparability": candidate_comparability },
         "candidate_minus_eager": differences,
         "non_claims": [
             "host-timeline evidence is diagnostic and is ineligible for TTFT admission",
@@ -304,11 +323,14 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
     let zones = parse_zones(&zones_bytes)?;
     let prefill = zones
         .iter()
-        .filter(|zone| {
-            zone.name.contains("_profiled_prefill_device")
-                || zone.name.contains("_prefill_first_token")
-        })
+        .filter(|zone| zone.name.contains("_profiled_prefill_device"))
         .max_by_key(|zone| zone.start_ns)
+        .or_else(|| {
+            zones
+                .iter()
+                .filter(|zone| zone.name.contains("_prefill_first_token"))
+                .max_by_key(|zone| zone.start_ns)
+        })
         .ok_or("capture has no profiled prefill zone")?;
     let prefill_end = prefill.end_ns()?;
 
@@ -388,43 +410,37 @@ fn summarize_root(root: &Path) -> Result<RootSummary, String> {
 }
 
 fn parse_zones(bytes: &[u8]) -> Result<Vec<Zone>, String> {
-    let mut reader = csv::ReaderBuilder::new().from_reader(bytes);
-    let headers = reader.headers().map_err(|error| error.to_string())?.clone();
-    for required in ["name", "ns_since_start", "exec_time_ns", "thread"] {
-        if !headers.iter().any(|header| header == required) {
-            return Err(format!("zones CSV is missing {required}"));
-        }
-    }
-    let index = |name: &str| {
-        headers
-            .iter()
-            .position(|header| header == name)
-            .ok_or_else(|| format!("missing {name}"))
-    };
-    let name_index = index("name")?;
-    let start_index = index("ns_since_start")?;
-    let duration_index = index("exec_time_ns")?;
-    let thread_index = index("thread")?;
+    let text = String::from_utf8_lossy(bytes);
     let mut zones = Vec::new();
-    for record in reader.records() {
-        let record = record.map_err(|error| error.to_string())?;
-        let name = record
-            .get(name_index)
-            .ok_or("missing zone name")?
-            .to_string();
-        let start_ns = parse_non_negative(record.get(start_index), "ns_since_start")?;
-        let duration_ns = parse_non_negative(record.get(duration_index), "exec_time_ns")?;
-        if name.is_empty() || duration_ns == ZERO_NS {
-            return Err("zone names and durations must be positive".into());
+    for line in text.lines() {
+        // tracy-csvexport does not escape every diagnostic newline in zone
+        // text. Parse the fixed leading columns directly. Rows needed for
+        // attribution have empty zone-name/text fields and a stable shape.
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() < ZONE_REQUIRED_COLUMN_COUNT
+            || fields[ZONE_NAME_COLUMN] == "name"
+            || fields[ZONE_NAME_COLUMN].is_empty()
+        {
+            continue;
+        }
+        let Ok(start_ns) =
+            parse_non_negative(fields.get(ZONE_START_COLUMN).copied(), "ns_since_start")
+        else {
+            continue;
+        };
+        let Ok(duration_ns) =
+            parse_non_negative(fields.get(ZONE_DURATION_COLUMN).copied(), "exec_time_ns")
+        else {
+            continue;
+        };
+        if duration_ns == ZERO_NS {
+            continue;
         }
         zones.push(Zone {
-            name,
+            name: fields[ZONE_NAME_COLUMN].to_string(),
             start_ns,
             duration_ns,
-            thread: record
-                .get(thread_index)
-                .ok_or("missing thread")?
-                .to_string(),
+            thread: fields[ZONE_THREAD_COLUMN].to_string(),
         });
     }
     if zones.is_empty() {
@@ -450,6 +466,36 @@ fn checked_sum(mut values: impl Iterator<Item = i64>) -> Result<i64, String> {
             .checked_add(value)
             .ok_or_else(|| "duration total overflow".into())
     })
+}
+
+fn mode_comparability(roots: &[RootSummary]) -> ModeComparability {
+    let prefill_wall_ratio = duplicate_ratio(roots.iter().map(|root| root.prefill_wall_ns));
+    let enqueue_exec_ratio = duplicate_ratio(roots.iter().map(|root| root.enqueue_exec_total_ns));
+    let inter_enqueue_gap_ratio =
+        duplicate_ratio(roots.iter().map(|root| root.inter_enqueue_gap_total_ns));
+    ModeComparability {
+        prefill_wall_ratio,
+        enqueue_exec_ratio,
+        inter_enqueue_gap_ratio,
+        valid: [
+            prefill_wall_ratio,
+            enqueue_exec_ratio,
+            inter_enqueue_gap_ratio,
+        ]
+        .into_iter()
+        .all(|ratio| ratio <= MAX_DUPLICATE_RATIO),
+    }
+}
+
+fn duplicate_ratio(values: impl Iterator<Item = i64>) -> f64 {
+    let values: Vec<i64> = values.collect();
+    let minimum = *values.iter().min().expect("duplicate roots exist");
+    let maximum = *values.iter().max().expect("duplicate roots exist");
+    if minimum == ZERO_NS {
+        f64::INFINITY
+    } else {
+        maximum as f64 / minimum as f64
+    }
 }
 
 fn mode_median(roots: &[RootSummary]) -> ModeMedian {
@@ -529,6 +575,18 @@ fn self_test() -> Result<(), String> {
             "positive self-test expected gap delta {SELF_TEST_EXPECTED_DELTA_NS}, got {delta}"
         ));
     }
+    if receipt["verdict"] != "diagnostic-only" {
+        return Err("positive self-test rejected stable duplicate roots".into());
+    }
+
+    write_fixture(&candidate_one, "candidate", 0, SELF_TEST_UNSTABLE_GAP_NS)?;
+    let unstable_receipt = build_receipt(&config)?;
+    if unstable_receipt["verdict"] != "rejected"
+        || unstable_receipt["rejection_reason"] != "duplicate-root-instability"
+    {
+        return Err("negative self-test accepted unstable duplicate roots".into());
+    }
+    write_fixture(&candidate_one, "candidate", 0, SELF_TEST_CANDIDATE_GAP_NS)?;
 
     let mut bad_identity: RootIdentity = serde_json::from_slice(
         &fs::read(candidate_one.join(IDENTITY_FILE)).map_err(|error| error.to_string())?,

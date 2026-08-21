@@ -140,8 +140,7 @@ class QwenEngine:
         )
         candidate_requested = decode_mode == DECODE_MODE_CANDIDATE
         admitted_requested = (
-            decode_mode == DECODE_MODE_ADMITTED
-            and decode_profile.physically_admitted
+            decode_mode == DECODE_MODE_ADMITTED and decode_profile.physically_admitted
         )
         if candidate_requested or admitted_requested:
             self._decode_adapter: TracedDecodeAdapter | None = TracedDecodeAdapter(
@@ -607,7 +606,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--model-alias", default="Qwen3.8-27B")
     parser.add_argument("--decode-profile", required=True)
-    parser.add_argument("--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER)
+    parser.add_argument(
+        "--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER
+    )
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--prefill-profile", action="store_true")

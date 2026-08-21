@@ -2,6 +2,7 @@ final: prev: {
   enchantum = final.callPackage ./pkgs/enchantum { };
   llama-cpp-metalium = final.callPackage ./pkgs/llama-cpp-metalium { };
   luwen = final.callPackage ./pkgs/luwen { };
+  tt-metal-tracy-tools = final.callPackage ./pkgs/tt-metal-tracy-tools { };
   qwen36 = final.callPackage ./pkgs/qwen36 { };
   xtensor-blas = prev.xtensor-blas.overrideAttrs (prevAttrs: {
     postFixup = (prevAttrs.postFixup or "") + ''

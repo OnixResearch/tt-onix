@@ -50,7 +50,7 @@ Select no optimization unless matched evidence attributes a material cause.
 
 | Family | Mechanism | Evidence | State | Exact blocker / next check |
 |---|---|---|---|---|
-| Tracy host zones | Build capture/export tools from the exact vendored fork; enable partial Python profiling only around `_profiled_prefill_device`; use existing C++ `EnqueueProgram` and finish zones | Packaged runtime contains Tracy client `0.13.3`; tools build and report `0.13.3 / package-matched`; device-free discovery passes | active | Run the balanced physical pilot and compare gap totals |
+| Tracy host zones | Build capture/export tools from the exact vendored fork; enable partial Python profiling only around `_profiled_prefill_device`; use existing C++ `EnqueueProgram` and finish zones | Tools and all four roots completed; candidate duplicates were stable, but eager wall/enqueue duplicate ratios were `2.90×`/`9.21×` | blocked | Replace Python call profiling with a C++ signpost boundary, then require duplicate stability before attribution |
 | TTNN operation hooks | Register pre/post TTNN Python operation hooks and timestamp each call | Package-matched tests skip hooks on Blackhole | falsified | Blackhole support would need upstream runtime work |
 | Service-only timers | Add timers around the model call and final synchronize | Existing `prefill_device_seconds` already measures that wall span | blocked | It cannot split enqueue gaps from queue waits |
 | External probes | Attach eBPF/perf uprobes to command-queue functions | Could observe native functions without rebuilding | blocked | More authority and symbol plumbing than package-matched Tracy; use only if Tracy lacks required zones |

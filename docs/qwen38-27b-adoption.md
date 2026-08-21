@@ -292,11 +292,23 @@ Its `2.306050567859769` millisecond delta explained `0.22521929455787217%` of th
 The largest single difference was a `1.0996968146463241` millisecond MLP reduce-scatter increase on chip `0`.
 
 No program difference was large enough to select an optimization.
-The next diagnostic must measure host enqueue gaps, command-queue idle time, and non-program barriers.
 The CCL settings must not change from this result alone.
+
+A package-matched Tracy diagnostic then measured host enqueue and finish zones.
+The qwen36 overlay carries `tracy-capture` and `tracy-csvexport` version `0.13.3`
+from the same vendored fork as the packaged runtime.
+Host-profiled responses use `measurement_mode = diagnostic-host-timeline` and remain ineligible for admission.
+
+The bounded physical order was `eager,candidate,candidate,eager`.
+Candidate duplicate ratios were at most `1.0760504091447658` across the checked wall, enqueue, and gap totals.
+Eager duplicate ratios reached `2.900386615837245` for wall prefill and `9.206084094193452` for enqueue execution.
+The comparator rejected the result as `duplicate-root-instability` against its `1.25` comparability bound.
+No host attribution or optimization is selected from the rejected receipt.
+The smallest next check is a C++ signpost boundary that keeps the existing enqueue zones without enabling Python call profiling.
 
 Evidence:
 
+- `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-timeline-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-prefill-profile-attribution-receipt.json`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`
 - `cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md`

@@ -99,16 +99,14 @@ def summarize_prefill_programs(
             }
             for chip_id in sorted(by_chip)
         ]
-        signatures.append(
-            {
-                "kernel_sources": list(signature),
-                "maximum_chip_total_duration_ns": max(
-                    row["total_duration_ns"] for row in chip_rows
-                ),
-                "record_count": sum(row["record_count"] for row in chip_rows),
-                "by_chip": chip_rows,
-            }
-        )
+        signatures.append({
+            "kernel_sources": list(signature),
+            "maximum_chip_total_duration_ns": max(
+                row["total_duration_ns"] for row in chip_rows
+            ),
+            "record_count": sum(row["record_count"] for row in chip_rows),
+            "by_chip": chip_rows,
+        })
     signatures.sort(
         key=lambda row: (
             -float(row["maximum_chip_total_duration_ns"]),
@@ -138,7 +136,10 @@ def _validate_expected_chip_ids(expected_chip_ids: Sequence[int]) -> tuple[int, 
     if not expected_chip_ids:
         raise PrefillProfileError("expected chip IDs must not be empty")
     admitted_chips = tuple(expected_chip_ids)
-    if any(isinstance(chip_id, bool) or not isinstance(chip_id, int) or chip_id < 0 for chip_id in admitted_chips):
+    if any(
+        isinstance(chip_id, bool) or not isinstance(chip_id, int) or chip_id < 0
+        for chip_id in admitted_chips
+    ):
         raise PrefillProfileError("expected chip IDs must be non-negative integers")
     if len(set(admitted_chips)) != len(admitted_chips):
         raise PrefillProfileError("expected chip IDs must be unique")
@@ -175,12 +176,15 @@ def _validate_observation(
         raise PrefillProfileError("program frequency must be finite and positive")
     if not observation.kernel_sources:
         raise PrefillProfileError("program kernel sources must not be empty")
-    if any(not isinstance(source, str) or not source for source in observation.kernel_sources):
+    if any(
+        not isinstance(source, str) or not source
+        for source in observation.kernel_sources
+    ):
         raise PrefillProfileError("program kernel sources must be non-empty strings")
     signature = tuple(sorted(set(observation.kernel_sources)))
-    duration_ns = (
-        observation.end_timestamp - observation.start_timestamp
-    ) / float(frequency)
+    duration_ns = (observation.end_timestamp - observation.start_timestamp) / float(
+        frequency
+    )
     if not math.isfinite(duration_ns) or duration_ns <= 0.0:
         raise PrefillProfileError("program duration must be finite and positive")
     return duration_ns, signature

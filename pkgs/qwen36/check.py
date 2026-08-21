@@ -426,12 +426,10 @@ def probe_traced_decode_contract():
         output_dtype="bfloat16",
     )
     require(not validate_trace_binding(binding, binding), "equal trace bindings differ")
-    stale_binding = TraceBinding(
-        **{
-            **binding.__dict__,
-            "buffer_generation": binding.buffer_generation + 1,
-        }
-    )
+    stale_binding = TraceBinding(**{
+        **binding.__dict__,
+        "buffer_generation": binding.buffer_generation + 1,
+    })
     require(
         validate_trace_binding(binding, stale_binding) == ("buffer_generation",),
         "stale trace binding did not name the generation mismatch",
@@ -503,7 +501,9 @@ def probe_traced_decode_contract():
             candidate=candidate,
         ),
     )
-    require(admitted.admitted, f"passing decode evidence was rejected: {admitted.reasons}")
+    require(
+        admitted.admitted, f"passing decode evidence was rejected: {admitted.reasons}"
+    )
     rejected = admit_decode_candidate(
         profile,
         DecodeEvidence(
@@ -615,9 +615,7 @@ def probe_traced_decode_contract():
         "adapter prefill table has the wrong bounded shape",
     )
     require(
-        torch.equal(
-            bounded_table, adapter.page_table[:, :rounded_required_blocks]
-        ),
+        torch.equal(bounded_table, adapter.page_table[:, :rounded_required_blocks]),
         "adapter prefill table is not the stable table prefix",
     )
     require(
@@ -757,18 +755,15 @@ def probe_prefill_program_profile():
         "profile runtime IDs are not deterministic",
     )
     require(
-        summary["by_chip"][0]["total_duration_ns"]
-        == first_chip_expected_total_ns,
+        summary["by_chip"][0]["total_duration_ns"] == first_chip_expected_total_ns,
         "profile computed the wrong first-chip total",
     )
     require(
-        summary["by_chip"][1]["total_duration_ns"]
-        == second_chip_expected_total_ns,
+        summary["by_chip"][1]["total_duration_ns"] == second_chip_expected_total_ns,
         "profile computed the wrong second-chip total",
     )
     require(
-        summary["signatures"][0]["kernel_sources"]
-        == ["kernel-a.cpp", "kernel-b.cpp"],
+        summary["signatures"][0]["kernel_sources"] == ["kernel-a.cpp", "kernel-b.cpp"],
         "profile did not normalize or rank the leading signature",
     )
 

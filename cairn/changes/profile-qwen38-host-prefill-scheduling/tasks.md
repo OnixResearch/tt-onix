@@ -11,10 +11,10 @@
 ## Phase 3: Physical pilot
 
 - [x] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile] P1 Build one immutable package and verify `python -m tracy` discovers the capture tool inside the qwen36 overlay without a device. r[tenstorrent.qwen38_p150x2.host_timeline_profile.disabled]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile.disabled] P2 Run one bounded `eager,candidate,candidate,eager` host-profiled pilot under `ttwkv7-owner-control isolate`, then restore production and verify health. r[tenstorrent.qwen38_p150x2.host_timeline_profile.valid]
-- [ ] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile.valid] P3 Generate the deterministic host-timeline receipt, name the strongest checked host-side difference or the exact remaining blocker, and record simulator-free non-claims. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile.disabled] P2 Run one bounded `eager,candidate,candidate,eager` host-profiled pilot under `ttwkv7-owner-control isolate`, then restore production and verify health. r[tenstorrent.qwen38_p150x2.host_timeline_profile.valid]
+- [x] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile.valid] P3 Generate the deterministic host-timeline receipt, name the strongest checked host-side difference or the exact remaining blocker, and record simulator-free non-claims. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
 
 ## Phase 4: Verification and lifecycle
 
-- [ ] [serial] V1 Run Nix formatting, Ruff, focused Qwen checks, both receipt self-tests, and repository quality gates. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
+- [x] [serial] V1 Run Nix formatting, Ruff, focused Qwen checks, both receipt self-tests, and repository quality gates. r[tenstorrent.qwen38_p150x2.host_timeline_profile]
 - [ ] [serial] [depends:tenstorrent.qwen38_p150x2.host_timeline_profile] V2 Run Cairn validation, proposal/design/tasks gates, sync, archive dry run, archive execution, and post-archive validation. r[tenstorrent.qwen38_p150x2.host_timeline_profile]

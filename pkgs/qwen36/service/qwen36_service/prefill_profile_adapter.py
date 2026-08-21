@@ -91,7 +91,9 @@ class RealtimePrefillProfiler:
         self._sleep(self._receiver_drain_seconds)
         with self._lock:
             if self._closed:
-                raise PrefillProfilerAdapterError("prefill profiler closed during drain")
+                raise PrefillProfilerAdapterError(
+                    "prefill profiler closed during drain"
+                )
             self._observations.clear()
             self._callback_error = None
 
@@ -101,7 +103,9 @@ class RealtimePrefillProfiler:
             if self._closed:
                 raise PrefillProfilerAdapterError("prefill profiler is closed")
             if not self._collecting:
-                raise PrefillProfilerAdapterError("prefill profiler region is not active")
+                raise PrefillProfilerAdapterError(
+                    "prefill profiler region is not active"
+                )
         self._sleep(self._receiver_drain_seconds)
         with self._lock:
             self._collecting = False

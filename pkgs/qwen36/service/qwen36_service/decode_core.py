@@ -145,8 +145,13 @@ def transition_slot(
     if event is SlotEvent.REINITIALIZE:
         if slot.state is not SlotState.QUARANTINED:
             raise DecodePolicyError("only a quarantined slot can be reinitialized")
-        if new_buffer_generation is None or new_buffer_generation <= slot.buffer_generation:
-            raise DecodePolicyError("reinitialization requires a newer buffer generation")
+        if (
+            new_buffer_generation is None
+            or new_buffer_generation <= slot.buffer_generation
+        ):
+            raise DecodePolicyError(
+                "reinitialization requires a newer buffer generation"
+            )
         return DecodeSlot(
             slot_id=slot.slot_id,
             ownership_generation=slot.ownership_generation,
@@ -257,10 +262,15 @@ class DecodeProfile:
         prompts_source = workload["prompts"]
         if not isinstance(prompts_source, list) or not prompts_source:
             raise DecodePolicyError("workload prompts must be a non-empty array")
-        prompts = tuple(_require_non_empty_string(item, "workload prompt") for item in prompts_source)
+        prompts = tuple(
+            _require_non_empty_string(item, "workload prompt")
+            for item in prompts_source
+        )
         result = cls(
             profile_id=_require_non_empty_string(source["profile_id"], "profile_id"),
-            physically_admitted=_require_bool(source["physically_admitted"], "physically_admitted"),
+            physically_admitted=_require_bool(
+                source["physically_admitted"], "physically_admitted"
+            ),
             runtime_source_revision=_require_hex(
                 identities["model_source_revision"],
                 "model_source_revision",
@@ -303,14 +313,22 @@ class DecodeProfile:
             maximum_sequence_length=_require_positive_int(
                 buffers["maximum_sequence_length"], "buffers.maximum_sequence_length"
             ),
-            kv_block_size=_require_positive_int(buffers["kv_block_size"], "buffers.kv_block_size"),
+            kv_block_size=_require_positive_int(
+                buffers["kv_block_size"], "buffers.kv_block_size"
+            ),
             trace_region_size_bytes=_require_positive_int(
                 buffers["trace_region_size_bytes"], "buffers.trace_region_size_bytes"
             ),
             prompts=prompts,
-            warmup_runs=_require_positive_int(workload["warmup_runs"], "workload.warmup_runs"),
-            measured_runs=_require_positive_int(workload["measured_runs"], "workload.measured_runs"),
-            generated_tokens=_require_positive_int(workload["generated_tokens"], "workload.generated_tokens"),
+            warmup_runs=_require_positive_int(
+                workload["warmup_runs"], "workload.warmup_runs"
+            ),
+            measured_runs=_require_positive_int(
+                workload["measured_runs"], "workload.measured_runs"
+            ),
+            generated_tokens=_require_positive_int(
+                workload["generated_tokens"], "workload.generated_tokens"
+            ),
             minimum_median_decode_speedup_ratio=_require_positive_float(
                 admission["minimum_median_decode_speedup_ratio"],
                 "admission.minimum_median_decode_speedup_ratio",
@@ -323,16 +341,22 @@ class DecodeProfile:
                 admission["maximum_tail_latency_regression_ratio"],
                 "admission.maximum_tail_latency_regression_ratio",
             ),
-            require_clean_reset=_require_bool(admission["require_clean_reset"], "admission.require_clean_reset"),
+            require_clean_reset=_require_bool(
+                admission["require_clean_reset"], "admission.require_clean_reset"
+            ),
             require_exact_token_parity=_require_bool(
-                admission["require_exact_token_parity"], "admission.require_exact_token_parity"
+                admission["require_exact_token_parity"],
+                "admission.require_exact_token_parity",
             ),
             require_physical_evidence=_require_bool(
-                admission["require_physical_evidence"], "admission.require_physical_evidence"
+                admission["require_physical_evidence"],
+                "admission.require_physical_evidence",
             ),
         )
         if result.slot_count != SINGLE_DECODE_SLOT_COUNT:
-            raise DecodePolicyError("the P150x2 service requires exactly one decode slot")
+            raise DecodePolicyError(
+                "the P150x2 service requires exactly one decode slot"
+            )
         if result.trace_command_queue_id != TRACE_COMMAND_QUEUE_ID:
             raise DecodePolicyError("the decode trace must use command queue zero")
         if result.generated_tokens > result.maximum_sequence_length:
@@ -364,7 +388,9 @@ class TraceBinding:
     output_dtype: str
 
 
-def validate_trace_binding(expected: TraceBinding, observed: TraceBinding) -> tuple[str, ...]:
+def validate_trace_binding(
+    expected: TraceBinding, observed: TraceBinding
+) -> tuple[str, ...]:
     """Return every mismatched binding field in deterministic field order."""
     mismatches = []
     for field in fields(TraceBinding):
@@ -394,7 +420,9 @@ def select_global_winner(winners: Sequence[ShardWinner], vocabulary_size: int) -
         raise DecodePolicyError("vocabulary size must be positive")
     if not winners:
         raise DecodePolicyError("at least one shard winner is required")
-    ordered = sorted(winners, key=lambda winner: (winner.shard_start, winner.shard_stop))
+    ordered = sorted(
+        winners, key=lambda winner: (winner.shard_start, winner.shard_stop)
+    )
     expected_start = 0
     seen_ranges: set[tuple[int, int]] = set()
     for winner in ordered:
@@ -402,8 +430,13 @@ def select_global_winner(winners: Sequence[ShardWinner], vocabulary_size: int) -
         if shard_range in seen_ranges:
             raise DecodePolicyError("duplicate shard range")
         seen_ranges.add(shard_range)
-        if winner.shard_start != expected_start or winner.shard_stop <= winner.shard_start:
-            raise DecodePolicyError("shard ranges must be complete, ordered, and non-overlapping")
+        if (
+            winner.shard_start != expected_start
+            or winner.shard_stop <= winner.shard_start
+        ):
+            raise DecodePolicyError(
+                "shard ranges must be complete, ordered, and non-overlapping"
+            )
         if not winner.shard_start <= winner.token_index < winner.shard_stop:
             raise DecodePolicyError("shard winner token is outside its range")
         if not math.isfinite(winner.maximum_logit):
@@ -411,7 +444,9 @@ def select_global_winner(winners: Sequence[ShardWinner], vocabulary_size: int) -
         expected_start = winner.shard_stop
     if expected_start != vocabulary_size:
         raise DecodePolicyError("shard ranges do not cover the vocabulary")
-    return min(ordered, key=lambda winner: (-winner.maximum_logit, winner.token_index)).token_index
+    return min(
+        ordered, key=lambda winner: (-winner.maximum_logit, winner.token_index)
+    ).token_index
 
 
 @dataclass(frozen=True)
@@ -437,7 +472,9 @@ class DecodeAdmission:
     reasons: tuple[str, ...]
 
 
-def admit_decode_candidate(profile: DecodeProfile, evidence: DecodeEvidence) -> DecodeAdmission:
+def admit_decode_candidate(
+    profile: DecodeProfile, evidence: DecodeEvidence
+) -> DecodeAdmission:
     """Evaluate complete matched evidence without performing external effects."""
     reasons: list[str] = []
     metrics = (
@@ -463,7 +500,10 @@ def admit_decode_candidate(profile: DecodeProfile, evidence: DecodeEvidence) -> 
             evidence.candidate.median_decode_tokens_per_second
             / evidence.baseline.median_decode_tokens_per_second
         )
-        ttft_ratio = evidence.candidate.median_ttft_seconds / evidence.baseline.median_ttft_seconds
+        ttft_ratio = (
+            evidence.candidate.median_ttft_seconds
+            / evidence.baseline.median_ttft_seconds
+        )
         tail_ratio = (
             evidence.candidate.p99_token_latency_seconds
             / evidence.baseline.p99_token_latency_seconds
@@ -483,10 +523,14 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
-def _require_exact_keys(value: Mapping[str, Any], expected: set[str], name: str) -> None:
+def _require_exact_keys(
+    value: Mapping[str, Any], expected: set[str], name: str
+) -> None:
     actual = set(value)
     if actual != expected:
-        raise DecodePolicyError(f"{name} fields differ: expected {sorted(expected)}, got {sorted(actual)}")
+        raise DecodePolicyError(
+            f"{name} fields differ: expected {sorted(expected)}, got {sorted(actual)}"
+        )
 
 
 def _require_bool(value: Any, name: str) -> bool:
