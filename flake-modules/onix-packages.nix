@@ -664,9 +664,16 @@
           { };
       ttVibeThinkerBench = pkgs.callPackage ../pkgs/tt-vibethinker-bench { };
       ttsim = pkgs.ttsim;
+      # Host-side Tracy CLI tools matching the packaged tt-metal runtime; the
+      # qwen36 overlay ships them where the packaged `python -m tracy` expects.
+      ttMetalTracyTools = pkgs.callPackage ../pkgs/tt-metal-tracy-tools {
+        inherit (pkgs) tt-metal;
+      };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       # r[impl tenstorrent.qwen36.deployable]
-      qwen36 = pkgs.callPackage ../pkgs/qwen36 { };
+      qwen36 = pkgs.callPackage ../pkgs/qwen36 {
+        "tt-metal-tracy-tools" = ttMetalTracyTools;
+      };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
       # Evaluation-time negative gate: a drifted adoption authority (wrong
       # upstream commit) must be rejected by the validator; if it is admitted,
@@ -952,6 +959,7 @@
         rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
+        tt-metal-tracy-tools = ttMetalTracyTools;
         repository-quality = repositoryQuality.repositoryQualityPackage;
         qwen36 = qwen36;
       };
@@ -1009,6 +1017,7 @@
         tt-vibethinker-bench-package = ttVibeThinkerBench;
         ttsim-package = ttsim;
         ttwkv7-owner-control-package = ttwkv7OwnerControl;
+        tt-metal-tracy-tools-package = ttMetalTracyTools;
         repository-quality = repositoryQualityAggregate;
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;

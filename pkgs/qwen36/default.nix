@@ -8,6 +8,7 @@
   makeWrapper,
   nickel,
   tt-metal,
+  tt-metal-tracy-tools,
 }:
 let
   source = callPackage ./source.nix { inherit fetchFromGitHub; };
@@ -145,6 +146,14 @@ stdenvNoCC.mkDerivation {
     rm -rf "$ttcp_dst"
     cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
+    # Host-side Tracy CLI tools matching the packaged runtime. The packaged
+    # `python -m tracy` module resolves them under
+    # $TT_METAL_HOME/build/tools/profiler/bin (see tracy/common.py).
+    mkdir -p "$out/libexec/tt-metalium/build/tools/profiler/bin"
+    ln -s ${tt-metal-tracy-tools}/bin/tracy-capture \
+      "$out/libexec/tt-metalium/build/tools/profiler/bin/tracy-capture"
+    ln -s ${tt-metal-tracy-tools}/bin/tracy-csvexport \
+      "$out/libexec/tt-metalium/build/tools/profiler/bin/tracy-csvexport"
     overlayRoot="$out/libexec/tt-metalium"
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36" \
       --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
