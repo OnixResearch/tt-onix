@@ -596,7 +596,7 @@ def probe_traced_decode_contract():
         require(False, "capacity-exceeding page-table request was accepted")
 
     import torch
-    from qwen36_service.decode_adapter import DecodeAdapterError, TracedDecodeAdapter
+    from qwen36_service.decode_adapter import TracedDecodeAdapter
 
     adapter = object.__new__(TracedDecodeAdapter)
     adapter.profile = SimpleNamespace(kv_block_size=test_kv_block_size)
@@ -629,22 +629,30 @@ def probe_traced_decode_contract():
         "adapter decode table capacity changed after prefill slicing",
     )
     adapter._trace_id = "test-trace"
+    trace_release_count = []
+
+    def release_test_trace():
+        trace_release_count.append(1)
+        adapter._trace_id = None
+        adapter._trace_prefill_page_table_blocks = None
+
+    adapter._release_trace = release_test_trace
     different_prompt_tokens = rounded_prompt_tokens + test_kv_block_size
-    try:
-        adapter.prefill_page_table(
-            prompt_tokens=different_prompt_tokens,
-            generation_tokens=rounded_generation_tokens,
-        )
-    except DecodeAdapterError as error:
-        require(
-            "width changed" in str(error),
-            "wrong post-capture prefill-width diagnostic",
-        )
-    else:
-        require(False, "post-capture prefill-width change was accepted")
+    resized_table = adapter.prefill_page_table(
+        prompt_tokens=different_prompt_tokens,
+        generation_tokens=rounded_generation_tokens,
+    )
+    require(
+        trace_release_count == [1],
+        "post-capture prefill-width change did not release the parked trace",
+    )
+    require(
+        tuple(resized_table.shape) == (1, rounded_required_blocks + 1),
+        "post-capture prefill-width change selected the wrong prefix",
+    )
     require(
         id(adapter.page_table) == stable_table_identity,
-        "width rejection replaced the stable decode page table",
+        "width transition replaced the stable decode page table",
     )
 
 

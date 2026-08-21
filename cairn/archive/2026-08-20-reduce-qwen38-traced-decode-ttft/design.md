@@ -43,6 +43,7 @@ It performs no I/O and reads no ambient state.
 
 The server measures phase boundaries and asks the adapter for a bounded prefill table.
 The adapter slices its host table without replacing or mutating the trace-bound device table.
+If a later request needs another width, it releases the parked trace before prefill and captures a new trace after TTFT.
 
 The shell records observed timings and widths in response evidence.
 The receipt collector verifies and aggregates those observations.
@@ -89,6 +90,7 @@ A physical run uses the existing four-prompt corpus, one warm-up, three measured
 
 - **Wrong cache mapping:** Use a prefix of the same monotonic logical table.
 - **Trace binding drift:** Keep the full decode device table unchanged and validate its address.
+- **Post-park compile:** Release the old trace before a new prefill width can compile.
 - **Hidden latency:** Keep total TTFT boundaries unchanged.
 - **Measurement noise:** Use phase timing and balanced execution order.
 - **False admission:** Keep production eager until every receipt gate passes.

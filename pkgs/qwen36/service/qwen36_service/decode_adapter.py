@@ -119,9 +119,7 @@ class TracedDecodeAdapter:
             self._trace_id is not None
             and self._trace_prefill_page_table_blocks != block_count
         ):
-            raise DecodeAdapterError(
-                "prefill page-table width changed after decode trace capture"
-            )
+            self._release_trace()
         bounded = self.page_table[:, :block_count].contiguous()
         if tuple(bounded.shape) != (1, block_count):
             raise DecodeAdapterError("bounded prefill page table has the wrong shape")
@@ -435,19 +433,27 @@ class TracedDecodeAdapter:
             output_dtype=str(self._trace_logits.dtype),
         )
 
-    def close(self) -> None:
-        if self._closed:
+    def _release_trace(self) -> None:
+        if self._trace_id is None:
             return
-        self._closed = True
-        if self._trace_id is not None:
-            ttnn.release_trace(self.mesh, self._trace_id)
-            self._trace_id = None
+        ttnn.release_trace(self.mesh, self._trace_id)
+        self._trace_id = None
         self._trace_prefill_page_table_blocks = None
+        self._expected_binding = None
+        self.trace_capture_seconds = None
         for tensor_name in ("_trace_indices", "_trace_values", "_trace_logits"):
             tensor = getattr(self, tensor_name)
             if tensor is not None:
                 ttnn.deallocate(tensor)
                 setattr(self, tensor_name, None)
+        self.model._ondev_argmax = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._release_trace()
+        self._trace_prefill_page_table_blocks = None
         self.model._ondev_argmax = False
 
     def _require_open(self) -> None:

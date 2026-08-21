@@ -51,15 +51,16 @@ Allowed terminal states are `validated`, `blocked`, `exhausted`, and `user-decis
 |---|---|---|---|---|---|
 | timing-boundary | Trace capture directly increases TTFT | Capture causes the observed ratio | Source places `ensure_trace` after TTFT stops | falsified | Keep capture outside causal attribution |
 | reset-boundary | Request reset directly increases TTFT | Reset causes the observed ratio | Source runs reset before TTFT starts | falsified for direct inclusion | Record reset separately for indirect device history |
-| prefill-capacity | Maximum-width page table and cache placement slow short prefill | A request prefix reduces prefill time without binding drift | Candidate table has `32` blocks; profile requests need `2` blocks | active diagnostic | Measure prefill-device phase with a `2`-block prefix |
-| program-shape safety | A new prefill width compiles after trace capture | Width changes can clobber a parked trace | Package-matched model comments forbid post-capture compile | audit | Reject width changes before prefill and require a production-safe transition before admission |
-| first-token-readback | Synchronize, full-logit readback, or argmax differs | Readback causes the ratio | Eager and candidate source currently match | audit | Record device and readback phases separately |
-| run-order | Service and device history caused a false aggregate ratio | Balanced roots remove the apparent regression | Prior TTFT values have high within-path variance | active | Run matched `eager, candidate, candidate, eager` roots |
+| prefill-capacity | Maximum-width page table and cache placement slow short prefill | A request prefix is sufficient to meet TTFT admission | Physical candidate used `2` prefill blocks and `32` decode blocks but measured TTFT ratio `1.1069467490614955` | falsified as sufficient | Retain the rejected result; do not infer the remaining operation |
+| program-shape safety | A new prefill width compiles after trace capture | Width changes can clobber a parked trace | Package-matched model comments forbid post-capture compile | mitigated | Release the parked trace before a new width and capture again after TTFT |
+| first-token-readback | Synchronize, full-logit readback, or argmax differs | Readback causes the ratio | Candidate and eager medians differed by less than `0.002` seconds | falsified as primary cause | Retain phase evidence |
+| run-order | Service and device history caused a false aggregate ratio | Balanced roots remove the apparent regression | Balanced physical order still measured TTFT ratio `1.1069467490614955` | falsified as sufficient | Retain the balanced receipt |
 
 ## Current strongest route
 
-The request-bounded prefill page table is the smallest source-backed diagnostic mechanism.
-It preserves the stable decode table and rejects a width change after trace capture.
+The request-bounded prefill page table was the smallest source-backed diagnostic mechanism.
+It preserved the stable decode table but did not meet the TTFT bound.
 
-It is not yet a production admission mechanism because a later request can need another prefill width.
-The run-order route remains live until balanced physical evidence separates it from the capacity change.
+The surviving observation is narrower: candidate device prefill remained slower than eager device prefill.
+The aggregate phase result does not identify the responsible prefill operation.
+A later change must use operation-attributed physical profiling before it selects another optimization.

@@ -21,10 +21,10 @@
 
 ## Phase 4: Physical decision
 
-- [ ] [depends:tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence] H1 Run matched `eager, candidate, candidate, eager` samples on physical devices `0` and `1`. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
-- [ ] [depends:tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence] H2 Admit or reject the candidate from exact parity, clean reset, decode, TTFT, tail, phase, and identity gates. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
-- [ ] [serial] D1 Record the surviving mechanism, rejected hypotheses, receipt identity, and non-claims. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
-- [ ] [serial] G1 Run Cairn validation, lifecycle gates, sync, archive, and drain evidence checks. r[tenstorrent.qwen38_p150x2.traced_decode_ttft]
+- [x] [depends:tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence] H1 Run matched `eager, candidate, candidate, eager` samples on physical devices `0` and `1`. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
+- [x] [depends:tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence] H2 Admit or reject the candidate from exact parity, clean reset, decode, TTFT, tail, phase, and identity gates. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
+- [x] [serial] D1 Record the surviving mechanism, rejected hypotheses, receipt identity, and non-claims. r[tenstorrent.qwen38_p150x2.traced_decode_ttft_evidence]
+- [x] [serial] G1 Run Cairn validation, lifecycle gates, sync, archive, and drain evidence checks. r[tenstorrent.qwen38_p150x2.traced_decode_ttft]
 
 ## Verification Coverage
 

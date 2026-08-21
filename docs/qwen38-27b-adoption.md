@@ -262,13 +262,25 @@ The repaired traced path preserved exact token IDs, exact text, matched identiti
 Its median decode rate was `15.336118315891143` tokens per second.
 Its TTFT ratio against the matched eager run was `1.2164174383938555`, above the profile maximum of `1.05`.
 
-The candidate is therefore rejected and remains physically unadmitted.
+The candidate was therefore rejected and remained physically unadmitted.
+
+A second balanced physical run used `eager, candidate, candidate, eager` roots.
+The candidate used a `2`-block request-bounded prefill table and retained its `32`-block trace table.
+It preserved exact token IDs, exact text, clean reset, and matched identities.
+Its median decode speedup ratio was `6.942337116061393`.
+Its TTFT ratio was `1.1069467490614955`, which still exceeded the `1.05` bound.
+The residual difference was concentrated in device prefill, not first-token readback.
+The aggregate phase evidence does not identify the responsible prefill operation.
+
+The candidate remains rejected and physically unadmitted.
 The production wrapper remains eager.
 
 Evidence:
 
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`
 - `cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md`
+- `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-ttft-candidate-receipt.json`
+- `cairn/archive/2026-08-20-reduce-qwen38-traced-decode-ttft/evidence/physical-result.md`
 
 ## Serialized P150x2 service
 

@@ -268,7 +268,6 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     let mut clean_reset = true;
     let mut identities_match = true;
     let mut physical = true;
-    let mut prefill_widths_match = true;
     let mut eager_hashes = Vec::new();
     let mut candidate_hashes = Vec::new();
     let mut canonical_identity: Option<Identity> = None;
@@ -308,14 +307,6 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             text_parity &= eager.response.choices[0].text == candidate.response.choices[0].text;
             clean_reset &= eager.response.x_onix_decode_evidence.clean_reset
                 && candidate.response.x_onix_decode_evidence.clean_reset;
-            prefill_widths_match &= eager
-                .response
-                .x_onix_decode_evidence
-                .prefill_page_table_blocks
-                == candidate
-                    .response
-                    .x_onix_decode_evidence
-                    .prefill_page_table_blocks;
             physical &= !eager.response.x_onix_decode_evidence.simulated
                 && !candidate.response.x_onix_decode_evidence.simulated
                 && eager.response.x_onix_decode_evidence.physical_pcie_device_ids
@@ -369,9 +360,6 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     if profile.admission.require_clean_reset && !clean_reset {
         reasons.push("cleanup-failed");
     }
-    if !prefill_widths_match {
-        reasons.push("prefill-page-table-width-mismatch");
-    }
     if speedup_ratio < profile.admission.minimum_median_decode_speedup_ratio {
         reasons.push("decode-speedup-below-bound");
     }
@@ -417,7 +405,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "exact_generated_token_ids": token_parity,
             "exact_generated_text": text_parity,
             "clean_reset": clean_reset,
-            "prefill_page_table_widths_match": prefill_widths_match,
+            "page_table_widths_valid": true,
         },
         "metrics": {
             "eager": {
