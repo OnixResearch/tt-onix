@@ -27,6 +27,7 @@ const OUTPUT_FLAG: &str = "--output";
 const SELF_TEST_FLAG: &str = "--self-test";
 const MEASURED_MARKER: &str = "-measured-";
 const JSON_EXTENSION: &str = "json";
+const MEASUREMENT_MODE_ADMISSION: &str = "admission";
 const PERCENTILE_NUMERATOR: usize = 99;
 const PERCENTILE_DENOMINATOR: usize = 100;
 const MINIMUM_RESPONSE_ROOT_COUNT: usize = 2;
@@ -114,6 +115,8 @@ struct Usage {
 
 #[derive(Clone, Debug, Deserialize)]
 struct DecodeEvidence {
+    #[serde(default = "default_admission_eligible")]
+    admission_eligible: bool,
     clean_reset: bool,
     cleanup_seconds: f64,
     decode_page_table_blocks: usize,
@@ -122,6 +125,8 @@ struct DecodeEvidence {
     fallback_reason: Option<String>,
     first_token_readback_seconds: f64,
     generated_token_ids: Vec<i64>,
+    #[serde(default = "default_measurement_mode")]
+    measurement_mode: String,
     model_identity: String,
     package_identity: String,
     physical_pcie_device_ids: Vec<i64>,
@@ -165,6 +170,14 @@ struct Identity {
     package: String,
     runtime: String,
     physical_pcie_device_ids: Vec<i64>,
+}
+
+fn default_admission_eligible() -> bool {
+    true
+}
+
+fn default_measurement_mode() -> String {
+    MEASUREMENT_MODE_ADMISSION.to_owned()
 }
 
 fn main() -> ExitCode {
@@ -517,6 +530,12 @@ fn validate_response(sample: &Sample, profile: &Profile, expected_path: &str) ->
         return Err(format!("{} has the wrong completion token count", sample.name));
     }
     let evidence = &response.x_onix_decode_evidence;
+    if !evidence.admission_eligible || evidence.measurement_mode != MEASUREMENT_MODE_ADMISSION {
+        return Err(format!(
+            "{} is diagnostic profile evidence and cannot enter TTFT admission",
+            sample.name
+        ));
+    }
     if evidence.generated_token_ids.len() != profile.workload.generated_tokens {
         return Err(format!("{} has the wrong generated token ID count", sample.name));
     }
@@ -701,6 +720,47 @@ fn self_test() -> Result<(), String> {
     if positive["admission"]["admitted"] != true {
         return Err("positive fixture was not admitted".to_owned());
     }
+    let legacy_path = candidate.join("p-measured-1.json");
+    let mut legacy: Value = read_json(&legacy_path)?;
+    let legacy_evidence = legacy["x_onix_decode_evidence"]
+        .as_object_mut()
+        .ok_or_else(|| "legacy fixture evidence is not an object".to_owned())?;
+    legacy_evidence.remove("admission_eligible");
+    legacy_evidence.remove("measurement_mode");
+    fs::write(
+        &legacy_path,
+        serde_json::to_vec(&legacy)
+            .map_err(|error| format!("serialize legacy fixture: {error}"))?,
+    )
+    .map_err(|error| format!("write legacy fixture: {error}"))?;
+    let legacy_receipt = build_receipt(&config)?;
+    if legacy_receipt["admission"]["admitted"] != true {
+        return Err("legacy admission fixture was not admitted".to_owned());
+    }
+    write_fixture(
+        &candidate.join("p-measured-1.json"),
+        "traced",
+        SELF_TEST_CANDIDATE_RATE,
+        SELF_TEST_MATCHING_TOKEN,
+    )?;
+    let diagnostic_path = candidate.join("p-measured-1.json");
+    let mut diagnostic: Value = read_json(&diagnostic_path)?;
+    diagnostic["x_onix_decode_evidence"]["admission_eligible"] = json!(false);
+    diagnostic["x_onix_decode_evidence"]["measurement_mode"] =
+        json!("diagnostic-prefill-profile");
+    fs::write(
+        &diagnostic_path,
+        serde_json::to_vec(&diagnostic)
+            .map_err(|error| format!("serialize diagnostic fixture: {error}"))?,
+    )
+    .map_err(|error| format!("write diagnostic fixture: {error}"))?;
+    let diagnostic_error = build_receipt(&config)
+        .expect_err("diagnostic profile fixture unexpectedly entered admission");
+    if !diagnostic_error.contains("diagnostic profile") {
+        return Err(format!(
+            "diagnostic profile fixture had the wrong error: {diagnostic_error}"
+        ));
+    }
     write_fixture(
         &candidate.join("p-measured-1.json"),
         "traced",
@@ -757,6 +817,7 @@ fn write_fixture(path: &Path, decode_path: &str, rate: f64, token: i64) -> Resul
         "choices": [{"text": "x"}],
         "usage": {"completion_tokens": 1},
         "x_onix_decode_evidence": {
+            "admission_eligible": true,
             "clean_reset": true,
             "cleanup_seconds": SELF_TEST_LATENCY_SECONDS,
             "decode_page_table_blocks": decode_blocks,
@@ -765,6 +826,7 @@ fn write_fixture(path: &Path, decode_path: &str, rate: f64, token: i64) -> Resul
             "fallback_reason": if traced { Value::Null } else { json!("eager-selected") },
             "first_token_readback_seconds": SELF_TEST_READBACK_SECONDS,
             "generated_token_ids": [token],
+            "measurement_mode": MEASUREMENT_MODE_ADMISSION,
             "model_identity": "model",
             "package_identity": "package",
             "physical_pcie_device_ids": EXPECTED_DEVICE_IDS,

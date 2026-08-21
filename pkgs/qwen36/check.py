@@ -656,6 +656,216 @@ def probe_traced_decode_contract():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.prefill_program_profile]
+def probe_prefill_program_profile():
+    """Positive and negative tests for prefill profiling core and adapter."""
+    from qwen36_service.prefill_profile_adapter import (
+        PrefillProfilerAdapterError,
+        RealtimePrefillProfiler,
+    )
+    from qwen36_service.prefill_profile_core import (
+        PrefillProfileError,
+        RealtimeProgramObservation,
+        summarize_prefill_programs,
+    )
+
+    expected_chip_ids = (0, 1)
+    first_runtime_id = 10
+    second_runtime_id = 11
+    first_start_timestamp = 100
+    first_end_timestamp = 300
+    second_start_timestamp = 200
+    second_end_timestamp = 500
+    third_start_timestamp = 0
+    third_end_timestamp = 100
+    frequency_cycles_per_ns = 2.0
+    first_chip_expected_total_ns = 200.0
+    second_chip_expected_total_ns = 150.0
+    receiver_drain_seconds = 0.25
+    observations = (
+        RealtimeProgramObservation(
+            runtime_id=first_runtime_id,
+            chip_id=expected_chip_ids[0],
+            start_timestamp=first_start_timestamp,
+            end_timestamp=first_end_timestamp,
+            frequency_cycles_per_ns=frequency_cycles_per_ns,
+            kernel_sources=("kernel-b.cpp", "kernel-a.cpp", "kernel-a.cpp"),
+        ),
+        RealtimeProgramObservation(
+            runtime_id=first_runtime_id,
+            chip_id=expected_chip_ids[1],
+            start_timestamp=second_start_timestamp,
+            end_timestamp=second_end_timestamp,
+            frequency_cycles_per_ns=frequency_cycles_per_ns,
+            kernel_sources=("kernel-a.cpp", "kernel-b.cpp"),
+        ),
+        RealtimeProgramObservation(
+            runtime_id=second_runtime_id,
+            chip_id=expected_chip_ids[0],
+            start_timestamp=third_start_timestamp,
+            end_timestamp=third_end_timestamp,
+            frequency_cycles_per_ns=1.0,
+            kernel_sources=("kernel-c.cpp",),
+        ),
+    )
+    summary = summarize_prefill_programs(
+        observations,
+        expected_chip_ids=expected_chip_ids,
+    )
+    require(summary["record_count"] == len(observations), "profile lost records")
+    require(
+        summary["runtime_ids"] == [first_runtime_id, second_runtime_id],
+        "profile runtime IDs are not deterministic",
+    )
+    require(
+        summary["by_chip"][0]["total_duration_ns"]
+        == first_chip_expected_total_ns,
+        "profile computed the wrong first-chip total",
+    )
+    require(
+        summary["by_chip"][1]["total_duration_ns"]
+        == second_chip_expected_total_ns,
+        "profile computed the wrong second-chip total",
+    )
+    require(
+        summary["signatures"][0]["kernel_sources"]
+        == ["kernel-a.cpp", "kernel-b.cpp"],
+        "profile did not normalize or rank the leading signature",
+    )
+
+    invalid_observations = (
+        (),
+        (
+            RealtimeProgramObservation(
+                runtime_id=first_runtime_id,
+                chip_id=2,
+                start_timestamp=first_start_timestamp,
+                end_timestamp=first_end_timestamp,
+                frequency_cycles_per_ns=frequency_cycles_per_ns,
+                kernel_sources=("kernel.cpp",),
+            ),
+        ),
+        (
+            RealtimeProgramObservation(
+                runtime_id=0,
+                chip_id=expected_chip_ids[0],
+                start_timestamp=first_start_timestamp,
+                end_timestamp=first_end_timestamp,
+                frequency_cycles_per_ns=frequency_cycles_per_ns,
+                kernel_sources=("kernel.cpp",),
+            ),
+        ),
+        (
+            RealtimeProgramObservation(
+                runtime_id=first_runtime_id,
+                chip_id=expected_chip_ids[0],
+                start_timestamp=first_start_timestamp,
+                end_timestamp=first_start_timestamp,
+                frequency_cycles_per_ns=frequency_cycles_per_ns,
+                kernel_sources=("kernel.cpp",),
+            ),
+        ),
+        (
+            RealtimeProgramObservation(
+                runtime_id=first_runtime_id,
+                chip_id=expected_chip_ids[0],
+                start_timestamp=first_start_timestamp,
+                end_timestamp=first_end_timestamp,
+                frequency_cycles_per_ns=math.inf,
+                kernel_sources=("kernel.cpp",),
+            ),
+        ),
+        (
+            RealtimeProgramObservation(
+                runtime_id=first_runtime_id,
+                chip_id=expected_chip_ids[0],
+                start_timestamp=first_start_timestamp,
+                end_timestamp=first_end_timestamp,
+                frequency_cycles_per_ns=frequency_cycles_per_ns,
+                kernel_sources=(),
+            ),
+        ),
+    )
+    for invalid in invalid_observations:
+        try:
+            summarize_prefill_programs(
+                invalid,
+                expected_chip_ids=expected_chip_ids,
+            )
+        except PrefillProfileError:
+            pass
+        else:
+            require(False, f"invalid profile observations were accepted: {invalid!r}")
+
+    class FakeDeviceApi:
+        def __init__(self, *, active):
+            self.active = active
+            self.callback = None
+            self.unregistered_handle = None
+
+        def IsProgramRealtimeProfilerActive(self):
+            return self.active
+
+        def RegisterProgramRealtimeProfilerCallback(self, callback):
+            self.callback = callback
+            return first_runtime_id
+
+        def UnregisterProgramRealtimeProfilerCallback(self, handle):
+            self.unregistered_handle = handle
+
+    fake_api = FakeDeviceApi(active=True)
+    sleep_calls = []
+    profiler = RealtimePrefillProfiler(
+        fake_api,
+        expected_chip_ids=expected_chip_ids,
+        receiver_drain_seconds=receiver_drain_seconds,
+        sleep=sleep_calls.append,
+    )
+    profiler.begin()
+    require(fake_api.callback is not None, "profile adapter did not register callback")
+    fake_api.callback(
+        SimpleNamespace(
+            runtime_id=first_runtime_id,
+            chip_id=expected_chip_ids[0],
+            start_timestamp=first_start_timestamp,
+            end_timestamp=first_end_timestamp,
+            frequency=frequency_cycles_per_ns,
+            kernel_sources=("kernel.cpp",),
+        )
+    )
+    adapter_summary = profiler.finish()
+    require(adapter_summary["record_count"] == 1, "profile adapter lost callback data")
+    require(
+        sleep_calls == [receiver_drain_seconds, receiver_drain_seconds],
+        "profile adapter did not bound both receiver drains",
+    )
+    profiler.begin()
+    try:
+        profiler.begin()
+    except PrefillProfilerAdapterError:
+        pass
+    else:
+        require(False, "profile adapter accepted a nested region")
+    profiler.cancel()
+    profiler.close()
+    require(
+        fake_api.unregistered_handle == first_runtime_id,
+        "profile adapter did not unregister its callback",
+    )
+
+    try:
+        RealtimePrefillProfiler(
+            FakeDeviceApi(active=False),
+            expected_chip_ids=expected_chip_ids,
+            receiver_drain_seconds=receiver_drain_seconds,
+            sleep=sleep_calls.append,
+        )
+    except PrefillProfilerAdapterError as error:
+        require("inactive" in str(error), "inactive profiler had the wrong error")
+    else:
+        require(False, "inactive real-time profiler was accepted")
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -788,6 +998,7 @@ def main():
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
+    probe("prefill program profile", probe_prefill_program_profile)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:

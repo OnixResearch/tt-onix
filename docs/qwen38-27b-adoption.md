@@ -275,6 +275,17 @@ The aggregate phase evidence does not identify the responsible prefill operation
 The candidate remains rejected and physically unadmitted.
 The production wrapper remains eager.
 
+### Prefill program diagnostic
+
+Append `--prefill-profile` to either P150x2 service wrapper only during a bounded diagnostic run.
+The service then collects package-matched TT-Metal real-time program records during prefill.
+It validates and groups exact kernel-source signatures by physical chip.
+
+Profiled responses use `measurement_mode = diagnostic-prefill-profile` and `admission_eligible = false`.
+They include a receiver drain, so their TTFT values cannot enter admission.
+The service fails startup when the real-time profiler is inactive.
+The normal production wrapper does not register a callback or wait for receiver drain.
+
 Evidence:
 
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`

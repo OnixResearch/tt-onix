@@ -40,6 +40,11 @@ from .decode_core import (
     request_deadline_expired,
     transition_slot,
 )
+from .prefill_profile_adapter import RealtimePrefillProfiler
+from .prefill_profile_core import (
+    MEASUREMENT_MODE_ADMISSION,
+    MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE,
+)
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 MESH_ROWS = 1
@@ -104,6 +109,7 @@ class QwenEngine:
         runtime_identity: str,
         package_identity: str,
         model_identity: str,
+        enable_prefill_profile: bool,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -114,6 +120,14 @@ class QwenEngine:
         self.runtime_identity = runtime_identity
         self.package_identity = package_identity
         self.model_identity = model_identity
+        self._prefill_profiler = (
+            RealtimePrefillProfiler(
+                ttnn.device,
+                expected_chip_ids=EXPECTED_PCIE_DEVICE_IDS,
+            )
+            if enable_prefill_profile
+            else None
+        )
         self._slot = DecodeSlot(
             slot_id=DECODE_SLOT_ID,
             ownership_generation=0,
@@ -147,26 +161,48 @@ class QwenEngine:
     def _prefill_first_token(
         self, token_ids: torch.Tensor, page_table: torch.Tensor
     ) -> tuple[int, dict[str, Any]]:
-        """Run the unchanged TTFT interval and return phase observations."""
+        """Run prefill and return admission or diagnostic phase observations."""
         prompt_token_count = token_ids.shape[1]
+        program_profile = None
+        profile_drain_seconds = 0.0
+        if self._prefill_profiler is not None:
+            self._prefill_profiler.begin()
         prefill_started = time.monotonic()
-        logits_device = self.model.prefill_traced_chunked(
-            token_ids,
-            page_table,
-            actual_len=prompt_token_count,
-        )
-        ttnn.synchronize_device(self.model.device)
-        prefill_device_finished = time.monotonic()
+        try:
+            logits_device = self.model.prefill_traced_chunked(
+                token_ids,
+                page_table,
+                actual_len=prompt_token_count,
+            )
+            ttnn.synchronize_device(self.model.device)
+            prefill_device_finished = time.monotonic()
+            if self._prefill_profiler is not None:
+                profile_drain_started = time.monotonic()
+                program_profile = self._prefill_profiler.finish()
+                profile_drain_seconds = time.monotonic() - profile_drain_started
+        except (AssertionError, OSError, RuntimeError, ValueError):
+            if self._prefill_profiler is not None:
+                self._prefill_profiler.cancel()
+            raise
         logits = ttnn.to_torch(
             logits_device,
             mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
         ).reshape(-1, self.model.args.vocab_size)[0]
         next_token = int(torch.argmax(logits.float()).item())
         first_token_finished = time.monotonic()
+        profiled = program_profile is not None
         return next_token, {
+            "admission_eligible": not profiled,
             "first_token_readback_s": first_token_finished - prefill_device_finished,
+            "measurement_mode": (
+                MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE
+                if profiled
+                else MEASUREMENT_MODE_ADMISSION
+            ),
             "prefill_device_s": prefill_device_finished - prefill_started,
             "prefill_page_table_blocks": int(page_table.shape[1]),
+            "prefill_profile_receiver_drain_s": profile_drain_seconds,
+            "prefill_program_profile": program_profile,
             "ttft_s": first_token_finished - prefill_started,
         }
 
@@ -362,6 +398,7 @@ class QwenEngine:
                 generated_token_count=len(generated),
             )
             response["x_onix_decode_evidence"] = {
+                "admission_eligible": perf["admission_eligible"],
                 "clean_reset": False,
                 "decode_page_table_blocks": perf["decode_page_table_blocks"],
                 "decode_path": perf["decode_path"],
@@ -369,11 +406,16 @@ class QwenEngine:
                 "fallback_reason": perf["fallback_reason"],
                 "first_token_readback_seconds": perf["first_token_readback_s"],
                 "generated_token_ids": generated,
+                "measurement_mode": perf["measurement_mode"],
                 "model_identity": self.model_identity,
                 "package_identity": self.package_identity,
                 "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
                 "prefill_device_seconds": perf["prefill_device_s"],
                 "prefill_page_table_blocks": perf["prefill_page_table_blocks"],
+                "prefill_profile_receiver_drain_seconds": perf[
+                    "prefill_profile_receiver_drain_s"
+                ],
+                "prefill_program_profile": perf["prefill_program_profile"],
                 "profile_id": self.decode_profile.profile_id,
                 "request_reset_seconds": perf["request_reset_s"],
                 "runtime_identity": self.runtime_identity,
@@ -438,6 +480,8 @@ class QwenEngine:
                 )
 
     def close(self) -> None:
+        if self._prefill_profiler is not None:
+            self._prefill_profiler.close()
         if self._decode_adapter is not None:
             self._decode_adapter.close()
 
@@ -543,6 +587,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER)
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
+    parser.add_argument("--prefill-profile", action="store_true")
     parser.add_argument(
         "--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH
     )
@@ -648,6 +693,7 @@ def main() -> None:
             runtime_identity=args.runtime_identity,
             package_identity=args.package_identity,
             model_identity=f"{args.model_alias}:{decode_profile.checkpoint_revision}",
+            enable_prefill_profile=args.prefill_profile,
         )
         server = HTTPServer(
             (args.host, args.port), make_handler(engine, args.max_generation_tokens)
@@ -660,6 +706,7 @@ def main() -> None:
             layer_count=len(model.layers),
             model=args.model_alias,
             port=args.port,
+            prefill_profile=args.prefill_profile,
             simulated=False,
         )
         try:
