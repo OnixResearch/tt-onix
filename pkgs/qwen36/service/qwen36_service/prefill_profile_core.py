@@ -1,6 +1,7 @@
 """Pure validation and aggregation for Qwen prefill program profiles."""
 
 # r[impl tenstorrent.qwen38_p150x2.prefill_program_profile]
+# r[impl tenstorrent.qwen38_p150x2.host_timeline_profile]
 
 from __future__ import annotations
 
@@ -10,11 +11,25 @@ from dataclasses import dataclass
 
 PREFILL_PROGRAM_PROFILE_SCHEMA_VERSION = 1
 MEASUREMENT_MODE_ADMISSION = "admission"
+MEASUREMENT_MODE_DIAGNOSTIC_HOST_TIMELINE = "diagnostic-host-timeline"
 MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE = "diagnostic-prefill-profile"
 
 
 class PrefillProfileError(ValueError):
     """A prefill program profile violates its deterministic contract."""
+
+
+def select_measurement_mode(
+    *, prefill_program_profiled: bool, host_timeline_profiled: bool
+) -> tuple[str, bool]:
+    """Return the response mode and admission eligibility for one request."""
+    if prefill_program_profiled and host_timeline_profiled:
+        raise PrefillProfileError("prefill program and host timeline profiles conflict")
+    if prefill_program_profiled:
+        return MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE, False
+    if host_timeline_profiled:
+        return MEASUREMENT_MODE_DIAGNOSTIC_HOST_TIMELINE, False
+    return MEASUREMENT_MODE_ADMISSION, True
 
 
 @dataclass(frozen=True)

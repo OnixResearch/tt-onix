@@ -41,10 +41,7 @@ from .decode_core import (
     transition_slot,
 )
 from .prefill_profile_adapter import RealtimePrefillProfiler
-from .prefill_profile_core import (
-    MEASUREMENT_MODE_ADMISSION,
-    MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE,
-)
+from .prefill_profile_core import select_measurement_mode
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 MESH_ROWS = 1
@@ -110,6 +107,7 @@ class QwenEngine:
         package_identity: str,
         model_identity: str,
         enable_prefill_profile: bool,
+        enable_host_timeline_profile: bool,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -120,6 +118,12 @@ class QwenEngine:
         self.runtime_identity = runtime_identity
         self.package_identity = package_identity
         self.model_identity = model_identity
+        self._host_timeline_profile = enable_host_timeline_profile
+        self._host_timeline_profiler = None
+        if enable_host_timeline_profile:
+            from tracy import Profiler
+
+            self._host_timeline_profiler = Profiler()
         self._prefill_profiler = (
             RealtimePrefillProfiler(
                 ttnn.device,
@@ -158,6 +162,22 @@ class QwenEngine:
                 else "eager-selected"
             )
 
+    def _profiled_prefill_device(
+        self,
+        token_ids: torch.Tensor,
+        page_table: torch.Tensor,
+        *,
+        prompt_token_count: int,
+    ) -> Any:
+        """Run the device prefill region exposed to partial Tracy profiling."""
+        logits_device = self.model.prefill_traced_chunked(
+            token_ids,
+            page_table,
+            actual_len=prompt_token_count,
+        )
+        ttnn.synchronize_device(self.model.device)
+        return logits_device
+
     def _prefill_first_token(
         self, token_ids: torch.Tensor, page_table: torch.Tensor
     ) -> tuple[int, dict[str, Any]]:
@@ -167,14 +187,15 @@ class QwenEngine:
         profile_drain_seconds = 0.0
         if self._prefill_profiler is not None:
             self._prefill_profiler.begin()
+        if self._host_timeline_profiler is not None:
+            self._host_timeline_profiler.enable()
         prefill_started = time.monotonic()
         try:
-            logits_device = self.model.prefill_traced_chunked(
+            logits_device = self._profiled_prefill_device(
                 token_ids,
                 page_table,
-                actual_len=prompt_token_count,
+                prompt_token_count=prompt_token_count,
             )
-            ttnn.synchronize_device(self.model.device)
             prefill_device_finished = time.monotonic()
             if self._prefill_profiler is not None:
                 profile_drain_started = time.monotonic()
@@ -184,21 +205,23 @@ class QwenEngine:
             if self._prefill_profiler is not None:
                 self._prefill_profiler.cancel()
             raise
+        finally:
+            if self._host_timeline_profiler is not None:
+                self._host_timeline_profiler.disable()
         logits = ttnn.to_torch(
             logits_device,
             mesh_composer=ttnn.ConcatMeshToTensor(self.model.mesh_device, dim=0),
         ).reshape(-1, self.model.args.vocab_size)[0]
         next_token = int(torch.argmax(logits.float()).item())
         first_token_finished = time.monotonic()
-        profiled = program_profile is not None
+        measurement_mode, admission_eligible = select_measurement_mode(
+            prefill_program_profiled=program_profile is not None,
+            host_timeline_profiled=self._host_timeline_profile,
+        )
         return next_token, {
-            "admission_eligible": not profiled,
+            "admission_eligible": admission_eligible,
             "first_token_readback_s": first_token_finished - prefill_device_finished,
-            "measurement_mode": (
-                MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE
-                if profiled
-                else MEASUREMENT_MODE_ADMISSION
-            ),
+            "measurement_mode": measurement_mode,
             "prefill_device_s": prefill_device_finished - prefill_started,
             "prefill_page_table_blocks": int(page_table.shape[1]),
             "prefill_profile_receiver_drain_s": profile_drain_seconds,
@@ -588,6 +611,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--prefill-profile", action="store_true")
+    parser.add_argument("--host-timeline-profile", action="store_true")
     parser.add_argument(
         "--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH
     )
@@ -620,6 +644,8 @@ def main() -> None:
         raise SystemExit("--model-path does not contain the P300 tensor cache")
     if not MINIMUM_LISTEN_PORT <= args.port <= MAXIMUM_LISTEN_PORT:
         raise SystemExit("--port is outside the TCP port range")
+    if args.prefill_profile and args.host_timeline_profile:
+        raise SystemExit("--prefill-profile conflicts with --host-timeline-profile")
     if args.max_sequence_length <= 0:
         raise SystemExit("--max-sequence-length must be positive")
     if args.max_sequence_length > ADMITTED_MAX_SEQUENCE_LENGTH:
@@ -694,6 +720,7 @@ def main() -> None:
             package_identity=args.package_identity,
             model_identity=f"{args.model_alias}:{decode_profile.checkpoint_revision}",
             enable_prefill_profile=args.prefill_profile,
+            enable_host_timeline_profile=args.host_timeline_profile,
         )
         server = HTTPServer(
             (args.host, args.port), make_handler(engine, args.max_generation_tokens)
@@ -706,6 +733,7 @@ def main() -> None:
             layer_count=len(model.layers),
             model=args.model_alias,
             port=args.port,
+            host_timeline_profile=args.host_timeline_profile,
             prefill_profile=args.prefill_profile,
             simulated=False,
         )

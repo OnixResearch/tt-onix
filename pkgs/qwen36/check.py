@@ -657,6 +657,7 @@ def probe_traced_decode_contract():
 
 
 # r[verify tenstorrent.qwen38_p150x2.prefill_program_profile]
+# r[verify tenstorrent.qwen38_p150x2.host_timeline_profile]
 def probe_prefill_program_profile():
     """Positive and negative tests for prefill profiling core and adapter."""
     from qwen36_service.prefill_profile_adapter import (
@@ -664,10 +665,48 @@ def probe_prefill_program_profile():
         RealtimePrefillProfiler,
     )
     from qwen36_service.prefill_profile_core import (
+        MEASUREMENT_MODE_ADMISSION,
+        MEASUREMENT_MODE_DIAGNOSTIC_HOST_TIMELINE,
+        MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE,
         PrefillProfileError,
         RealtimeProgramObservation,
+        select_measurement_mode,
         summarize_prefill_programs,
     )
+
+    admission_mode = select_measurement_mode(
+        prefill_program_profiled=False,
+        host_timeline_profiled=False,
+    )
+    require(
+        admission_mode == (MEASUREMENT_MODE_ADMISSION, True),
+        "unprofiled requests lost admission eligibility",
+    )
+    host_mode = select_measurement_mode(
+        prefill_program_profiled=False,
+        host_timeline_profiled=True,
+    )
+    require(
+        host_mode == (MEASUREMENT_MODE_DIAGNOSTIC_HOST_TIMELINE, False),
+        "host timeline requests were not marked diagnostic",
+    )
+    program_mode = select_measurement_mode(
+        prefill_program_profiled=True,
+        host_timeline_profiled=False,
+    )
+    require(
+        program_mode == (MEASUREMENT_MODE_DIAGNOSTIC_PREFILL_PROFILE, False),
+        "prefill program requests lost their diagnostic mode",
+    )
+    try:
+        select_measurement_mode(
+            prefill_program_profiled=True,
+            host_timeline_profiled=True,
+        )
+    except PrefillProfileError:
+        pass
+    else:
+        require(False, "conflicting prefill diagnostics were accepted")
 
     expected_chip_ids = (0, 1)
     first_runtime_id = 10
