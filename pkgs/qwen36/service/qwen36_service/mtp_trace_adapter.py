@@ -80,6 +80,7 @@ class TracedMtpDraftAdapter:
         initial_feedback: Any,
         start_position: int,
         step_count: int = EXPECTED_DECODE_STEP_COUNT,
+        rollback_context: Any | None = None,
     ) -> MtpTraceReplayResult:
         """Capture once, replay each draft step, and return bounded winners."""
         self._require_open()
@@ -138,6 +139,8 @@ class TracedMtpDraftAdapter:
                 tokens.append(current_token)
                 assert self._trace_feedback is not None
                 current_feedback = self._trace_feedback
+                if rollback_context is not None:
+                    rollback_context.record_prefix_feedback(step + 1, current_feedback)
             draft_decode_seconds = time.monotonic() - replay_started
             if (
                 not math.isfinite(draft_decode_seconds)

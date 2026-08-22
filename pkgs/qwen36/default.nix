@@ -121,6 +121,8 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-selection-contracts.ncl} "$out/share/qwen36/mtp-selection-contracts.ncl"
     cp ${./mtp-trace-profile.ncl} "$out/share/qwen36/mtp-trace-profile.ncl"
     cp ${./mtp-trace-contracts.ncl} "$out/share/qwen36/mtp-trace-contracts.ncl"
+    cp ${./mtp-rollback-profile.ncl} "$out/share/qwen36/mtp-rollback-profile.ncl"
+    cp ${./mtp-rollback-contracts.ncl} "$out/share/qwen36/mtp-rollback-contracts.ncl"
     cp ${./decode-component-profile.ncl} "$out/share/qwen36/decode-component-profile.ncl"
     cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
@@ -150,6 +152,11 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-export/mtp-trace-contracts.ncl
     nickel export --format json mtp-trace-profile-export/mtp-trace-profile.ncl \
       > "$out/share/qwen36/mtp-trace-profile.json"
+    mkdir -p mtp-rollback-profile-export
+    cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-export/mtp-rollback-profile.ncl
+    cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-export/mtp-rollback-contracts.ncl
+    nickel export --format json mtp-rollback-profile-export/mtp-rollback-profile.ncl \
+      > "$out/share/qwen36/mtp-rollback-profile.json"
     mkdir -p decode-component-profile-export
     cp ${./decode-component-profile.ncl} decode-component-profile-export/decode-component-profile.ncl
     cp ${./decode-component-contracts.ncl} decode-component-profile-export/decode-component-contracts.ncl
@@ -354,6 +361,34 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+    # This paired control compares bounded row restore with MTP re-prefill.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-mtp-rollback-probe" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.mtp_drafter" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--mtp-drafter-profile" \
+      --add-flags "$out/share/qwen36/mtp-drafter-profile.json" \
+      --add-flags "--mtp-trace-profile" \
+      --add-flags "$out/share/qwen36/mtp-trace-profile.json" \
+      --add-flags "--mtp-rollback-profile" \
+      --add-flags "$out/share/qwen36/mtp-rollback-profile.json" \
+      --add-flags "--mode" \
+      --add-flags "rollback" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # r[impl tenstorrent.qwen38_p150x2.decode_component_attribution]
     # This explicit command measures diagnostic component traces only.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-decode-component-probe" \
@@ -441,6 +476,8 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_selection_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
@@ -453,6 +490,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/mtp-selection-profile.json"
     test -f "$out/share/qwen36/mtp-trace-profile.json"
+    test -f "$out/share/qwen36/mtp-rollback-profile.json"
     test -f "$out/share/qwen36/decode-component-profile.json"
     test -f "$out/share/qwen36/ttft-control-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
@@ -461,12 +499,14 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-trace-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-rollback-probe"
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     test -x "$out/bin/qwen36-p150x2-ttft-control"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-trace-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-rollback-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
 
@@ -622,6 +662,31 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-mtp-trace-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+    # Positive: the matched rollback profile exports deterministically.
+    mkdir -p mtp-rollback-profile-check
+    cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-check/mtp-rollback-profile.ncl
+    cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-check/mtp-rollback-contracts.ncl
+    nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-first.json
+    nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-second.json
+    cmp mtp-rollback-profile-first.json mtp-rollback-profile-second.json
+    cmp mtp-rollback-profile-first.json "$out/share/qwen36/mtp-rollback-profile.json"
+    grep -F '"snapshot_row_count": 2' mtp-rollback-profile-first.json
+    grep -F '"maximum_snapshot_recovery_ratio": 0.8' mtp-rollback-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-rollback-profile-first.json
+
+    # Negative: a full-cache row count must fail the typed rollback contract.
+    mkdir -p mtp-rollback-profile-negative/fixtures
+    cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-negative/mtp-rollback-profile.ncl
+    cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-negative/mtp-rollback-contracts.ncl
+    cp ${./fixtures/invalid-mtp-rollback-profile.ncl} mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl
+    if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl \
+        > invalid-mtp-rollback-profile.json 2> invalid-mtp-rollback-profile.log; then
+      echo "invalid MTP rollback profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-rollback-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
     # Positive: component policy exports deterministically and binds authority.

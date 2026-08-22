@@ -1920,6 +1920,186 @@ def probe_mtp_draft_trace():
         )
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+def probe_mtp_kv_rollback():
+    """Positive and negative tests for matched MTP K/V rollback."""
+    from dataclasses import replace
+
+    from qwen36_service.mtp_drafter_core import MtpDrafterIdentity
+    from qwen36_service.mtp_rollback_core import (
+        REPREFILL_RECOVERY,
+        SNAPSHOT_RECOVERY,
+        MtpRollbackPolicyError,
+        MtpRollbackProfile,
+        MtpRollbackSample,
+        evaluate_mtp_rollback,
+    )
+
+    profile_source = json.loads(
+        Path(__file__).with_name("mtp-rollback-profile.json").read_text()
+    )
+    profile = MtpRollbackProfile.from_mapping(profile_source)
+    identity = MtpDrafterIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity="model-test",
+    )
+    zero_accept_prompt_index = 2
+    first_draft_token_id = 11
+    second_draft_token_id = 12
+    third_draft_token_id = 13
+    mismatched_target_token_id = 21
+    committed_bonus_token_id = 31
+    next_draft_token_id = 41
+    reprefill_recovery_seconds = 0.04
+    snapshot_recovery_seconds = 0.01
+    draft_tokens = (
+        first_draft_token_id,
+        second_draft_token_id,
+        third_draft_token_id,
+    )
+    samples = []
+    for prompt_index in range(1, profile.minimum_prompt_count + 1):
+        zero_accept = prompt_index == zero_accept_prompt_index
+        target_tokens = (
+            (mismatched_target_token_id, second_draft_token_id, third_draft_token_id)
+            if zero_accept
+            else draft_tokens
+        )
+        accepted = 0 if zero_accept else profile.draft_token_count
+        committed_token = (
+            mismatched_target_token_id if zero_accept else committed_bonus_token_id
+        )
+        for root_index, route in enumerate(profile.route_schedule, start=1):
+            samples.append(
+                MtpRollbackSample(
+                    prompt_index=prompt_index,
+                    root_index=root_index,
+                    route=route,
+                    identity=identity,
+                    physical_pcie_device_ids=profile.expected_pcie_device_ids,
+                    draft_token_ids=draft_tokens,
+                    target_token_ids=target_tokens,
+                    accepted_prefix_length=accepted,
+                    committed_token_id=committed_token,
+                    next_draft_token_id=next_draft_token_id,
+                    recovery_seconds=(
+                        snapshot_recovery_seconds
+                        if route == SNAPSHOT_RECOVERY
+                        else reprefill_recovery_seconds
+                    ),
+                    snapshot_row_count=(
+                        profile.snapshot_row_count if route == SNAPSHOT_RECOVERY else 0
+                    ),
+                    committed_advance_count=profile.committed_advance_count,
+                    next_draft_valid=True,
+                    feedback_state_valid=True,
+                    kv_prefix_valid=True,
+                    target_output_valid=True,
+                    target_rollback_valid=True,
+                )
+            )
+
+    decision = evaluate_mtp_rollback(profile, identity, samples)
+    require(decision.rollback_valid, f"valid MTP rollback rejected: {decision.reasons}")
+    require(
+        decision.snapshot_rollback_selected,
+        "valid MTP snapshot rollback was not selected",
+    )
+    require(not decision.admission_eligible, "MTP rollback admitted production")
+    require(
+        decision.observed_acceptance_lengths == profile.required_acceptance_lengths,
+        "MTP rollback lost natural acceptance coverage",
+    )
+    require(
+        decision.snapshot_recovery_ratio < profile.maximum_snapshot_recovery_ratio,
+        "MTP rollback did not satisfy its gain gate",
+    )
+
+    incomplete = samples[:-1]
+    require(
+        "sample-count" in evaluate_mtp_rollback(profile, identity, incomplete).reasons,
+        "incomplete MTP rollback evidence was accepted",
+    )
+
+    state_failure = list(samples)
+    state_failure[1] = replace(state_failure[1], feedback_state_valid=False)
+    require(
+        any(
+            "feedback-state" in reason
+            for reason in evaluate_mtp_rollback(
+                profile, identity, state_failure
+            ).reasons
+        ),
+        "MTP rollback feedback mismatch was accepted",
+    )
+
+    instability_multiplier = 2.0
+    unstable = list(samples)
+    unstable[1] = replace(
+        unstable[1],
+        recovery_seconds=unstable[1].recovery_seconds * instability_multiplier,
+    )
+    require(
+        any(
+            "instability" in reason
+            for reason in evaluate_mtp_rollback(profile, identity, unstable).reasons
+        ),
+        "unstable MTP rollback roots were accepted",
+    )
+
+    slow = [
+        replace(sample, recovery_seconds=reprefill_recovery_seconds)
+        if sample.route == SNAPSHOT_RECOVERY
+        else sample
+        for sample in samples
+    ]
+    require(
+        "snapshot-recovery-gain"
+        in evaluate_mtp_rollback(profile, identity, slow).reasons,
+        "slow MTP snapshot rollback was accepted",
+    )
+
+    invalid_profile = {**profile_source, "snapshot_row_count": 1}
+    try:
+        MtpRollbackProfile.from_mapping(invalid_profile)
+    except MtpRollbackPolicyError as error:
+        require("snapshot row count" in str(error), "wrong rollback row diagnostic")
+    else:
+        require(False, "weakened MTP rollback row count was accepted")
+
+    unknown_profile = {**profile_source, "unknown": True}
+    try:
+        MtpRollbackProfile.from_mapping(unknown_profile)
+    except MtpRollbackPolicyError as error:
+        require("keys differ" in str(error), "wrong closed rollback diagnostic")
+    else:
+        require(False, "unknown MTP rollback profile key was accepted")
+
+    require(
+        REPREFILL_RECOVERY in profile.route_schedule,
+        "MTP rollback profile lost the re-prefill reference route",
+    )
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.mtp_rollback_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    for required_symbol in (
+        "_snapshot_update_input",
+        "paged_update_cache",
+        "record_prefix_feedback",
+        "recover_from_snapshot",
+        "recover_from_reprefill",
+        "recovery_state_components_equal",
+    ):
+        require(
+            required_symbol in adapter_source,
+            f"MTP rollback adapter lost {required_symbol}",
+        )
+
+
 # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
 def probe_decode_component_attribution():
     """Positive and negative tests for pure component attribution."""
@@ -2580,6 +2760,7 @@ def main():
     probe("MTP drafter pure core", probe_mtp_drafter)
     probe("MTP draft selection", probe_mtp_draft_selection)
     probe("MTP draft trace", probe_mtp_draft_trace)
+    probe("MTP K/V rollback", probe_mtp_kv_rollback)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)

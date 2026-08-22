@@ -32,6 +32,18 @@ from .mtp_probe_adapter import (
     compare_tp_gdn_states,
     snapshot_tp_paged_kv,
 )
+from .mtp_rollback_adapter import (
+    MtpRecoveryResult,
+    MtpRecoveryState,
+    MtpRollbackContext,
+    recover_from_reprefill,
+    recover_from_snapshot,
+)
+from .mtp_rollback_core import (
+    REPREFILL_RECOVERY,
+    SNAPSHOT_RECOVERY,
+    MtpRollbackProfile,
+)
 from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
 from .mtp_trace_adapter import TracedMtpDraftAdapter
 from .mtp_trace_core import EAGER_DRAFT, TRACED_DRAFT, MtpTraceProfile
@@ -80,6 +92,7 @@ class MtpDraftRunResult:
     trace_binding_valid: bool
     capture_idempotence_valid: bool
     mtp_kv_prefix_valid: bool
+    rollback_context: MtpRollbackContext | None
 
 
 @dataclass(frozen=True)
@@ -114,6 +127,11 @@ class MtpDrafterPilotResult:
     rollback_convolution_state_nmse: float
     rollback_paged_kv_state_pcc: float
     rollback_paged_kv_state_nmse: float
+    mtp_cache_recovery_mode: str | None
+    mtp_cache_recovery_seconds: float
+    mtp_cache_recovery_state: MtpRecoveryState | None
+    mtp_cache_snapshot_row_count: int
+    mtp_cache_committed_advance_count: int
     weight_shapes: dict[str, tuple[int, ...]]
 
 
@@ -128,6 +146,7 @@ class MtpDrafterAdapter:
         model_path: Path,
         profile: MtpDrafterProfile,
         trace_profile: MtpTraceProfile | None = None,
+        rollback_profile: MtpRollbackProfile | None = None,
     ) -> None:
         if model.num_devices != len(profile.expected_pcie_device_ids):
             raise MtpDrafterAdapterError("MTP drafter device count differs from policy")
@@ -136,7 +155,9 @@ class MtpDrafterAdapter:
         self.model_path = model_path
         self.profile = profile
         self.trace_profile = trace_profile
+        self.rollback_profile = rollback_profile
         self.mesh = model.mesh_device
+        self._rollback_selector_mode = SHARD_LOCAL_TOP1
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
         self._native_verifier = NativeMtpVerifierAdapter(
@@ -223,6 +244,7 @@ class MtpDrafterAdapter:
         *,
         selector_mode: str = FULL_LOGIT_READBACK,
         draft_execution_mode: str = EAGER_DRAFT,
+        mtp_recovery_mode: str | None = None,
     ) -> MtpDrafterPilotResult:
         """Measure one complete draft and native target-verification round."""
         if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
@@ -231,6 +253,21 @@ class MtpDrafterAdapter:
             raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
         if draft_execution_mode == TRACED_DRAFT and self.trace_profile is None:
             raise MtpDrafterAdapterError("MTP trace profile is required")
+        if mtp_recovery_mode not in (
+            None,
+            REPREFILL_RECOVERY,
+            SNAPSHOT_RECOVERY,
+        ):
+            raise MtpDrafterAdapterError("MTP recovery mode is unsupported")
+        if mtp_recovery_mode is not None:
+            if self.rollback_profile is None:
+                raise MtpDrafterAdapterError("MTP rollback profile is required")
+            if draft_execution_mode != TRACED_DRAFT:
+                raise MtpDrafterAdapterError("MTP rollback requires traced drafting")
+            if selector_mode != self._rollback_selector_mode:
+                raise MtpDrafterAdapterError(
+                    "MTP rollback requires shard-local selection"
+                )
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -259,15 +296,19 @@ class MtpDrafterAdapter:
                 prompt_length,
                 selector_mode=selector_mode,
                 draft_execution_mode=draft_execution_mode,
+                preserve_rollback_context=(mtp_recovery_mode == SNAPSHOT_RECOVERY),
             )
         finally:
             ttnn.deallocate(target_hidden)
+        rollback_context = draft_result.rollback_context
 
         eligibility = self.decode_adapter.ensure_trace(
             token=anchor,
             position=prompt_length,
         )
         if not eligibility.eligible:
+            if rollback_context is not None:
+                rollback_context.close()
             raise MtpDrafterAdapterError(
                 "target sequential trace is unavailable: " + eligibility.reason
             )
@@ -284,6 +325,10 @@ class MtpDrafterAdapter:
                 )
                 sequential_outputs.append(current)
             target_sequential_seconds = time.monotonic() - target_started
+        except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+            if rollback_context is not None:
+                rollback_context.close()
+            raise
         finally:
             # The native verifier allocates width-specific inputs and snapshots.
             # Release the parked sequential trace before those allocations.
@@ -292,13 +337,31 @@ class MtpDrafterAdapter:
             not math.isfinite(target_sequential_seconds)
             or target_sequential_seconds <= 0
         ):
+            if rollback_context is not None:
+                rollback_context.close()
             raise MtpDrafterAdapterError("target sequential duration is invalid")
 
         target_outputs = tuple(sequential_outputs)
         target_tokens = target_outputs[: self.profile.draft_token_count]
         accepted = accepted_prefix_length(draft_result.token_ids, target_tokens)
         committed_width = accepted + PROBE_BATCH_SIZE
+        committed_token = target_outputs[accepted]
         rollback_applied = accepted < self.profile.draft_token_count
+        recovery_result: MtpRecoveryResult | None = None
+        if mtp_recovery_mode == SNAPSHOT_RECOVERY:
+            if rollback_context is None:
+                raise MtpDrafterAdapterError("MTP rollback context is missing")
+            recovery_result = recover_from_snapshot(
+                owner=self,
+                context=rollback_context,
+                draft_token_ids=draft_result.token_ids,
+                accepted_prefix_length=accepted,
+                committed_token_id=committed_token,
+            )
+            rollback_context = None
+        elif rollback_context is not None:
+            rollback_context.close()
+            raise MtpDrafterAdapterError("unexpected MTP rollback context")
         expected_state = None
         expected_kv = None
         if rollback_applied:
@@ -320,6 +383,17 @@ class MtpDrafterAdapter:
             if verification_anchor != anchor:
                 raise MtpDrafterAdapterError(
                     "matched target prefill changed the anchor"
+                )
+            if mtp_recovery_mode == REPREFILL_RECOVERY:
+                recovery_result = recover_from_reprefill(
+                    owner=self,
+                    prompt_tokens=prompt_tokens,
+                    target_hidden=verification_hidden,
+                    anchor_token_id=anchor,
+                    prompt_length=prompt_length,
+                    draft_token_ids=draft_result.token_ids,
+                    accepted_prefix_length=accepted,
+                    committed_token_id=committed_token,
                 )
             verification = self._native_verifier.run(
                 tuple(sequential_inputs),
@@ -354,18 +428,24 @@ class MtpDrafterAdapter:
                     target_output_valid
                     and continuation == target_outputs[accepted + PROBE_BATCH_SIZE]
                 )
-                (
-                    mtp_cache_reprefill_seconds,
-                    mtp_cache_valid,
-                ) = self._rebuild_mtp_cache(
-                    prompt_tokens=prompt_tokens,
-                    target_hidden=verification_hidden,
-                    anchor=anchor,
-                    prompt_length=prompt_length,
-                    accepted_prefix_length=accepted,
-                    expected_draft_tokens=draft_result.token_ids,
-                    selector_mode=selector_mode,
-                )
+                if mtp_recovery_mode is None:
+                    (
+                        mtp_cache_reprefill_seconds,
+                        mtp_cache_valid,
+                    ) = self._rebuild_mtp_cache(
+                        prompt_tokens=prompt_tokens,
+                        target_hidden=verification_hidden,
+                        anchor=anchor,
+                        prompt_length=prompt_length,
+                        accepted_prefix_length=accepted,
+                        expected_draft_tokens=draft_result.token_ids,
+                        selector_mode=selector_mode,
+                    )
+                else:
+                    if recovery_result is None:
+                        raise MtpDrafterAdapterError("MTP recovery produced no result")
+                    mtp_cache_reprefill_seconds = recovery_result.recovery_seconds
+                    mtp_cache_valid = True
                 rollback_valid = (
                     recurrent.pcc == EXACT_STATE_PCC
                     and recurrent.nmse == EXACT_STATE_NMSE
@@ -379,8 +459,14 @@ class MtpDrafterAdapter:
             else:
                 recurrent = convolution = paged_kv = _exact_state_comparison()
                 rollback_valid = target_output_valid
+                if mtp_recovery_mode is not None:
+                    if recovery_result is None:
+                        raise MtpDrafterAdapterError("MTP recovery produced no result")
+                    mtp_cache_reprefill_seconds = recovery_result.recovery_seconds
         finally:
             ttnn.deallocate(verification_hidden)
+            if rollback_context is not None:
+                rollback_context.close()
 
         return MtpDrafterPilotResult(
             anchor_token_id=anchor,
@@ -415,6 +501,23 @@ class MtpDrafterAdapter:
             rollback_convolution_state_nmse=convolution.nmse,
             rollback_paged_kv_state_pcc=paged_kv.pcc,
             rollback_paged_kv_state_nmse=paged_kv.nmse,
+            mtp_cache_recovery_mode=mtp_recovery_mode,
+            mtp_cache_recovery_seconds=(
+                recovery_result.recovery_seconds
+                if recovery_result is not None
+                else ZERO_DURATION_SECONDS
+            ),
+            mtp_cache_recovery_state=(
+                recovery_result.state if recovery_result is not None else None
+            ),
+            mtp_cache_snapshot_row_count=(
+                recovery_result.snapshot_row_count if recovery_result is not None else 0
+            ),
+            mtp_cache_committed_advance_count=(
+                recovery_result.committed_advance_count
+                if recovery_result is not None
+                else 0
+            ),
             weight_shapes=dict(self._weight_shapes),
         )
 
@@ -580,6 +683,7 @@ class MtpDrafterAdapter:
         *,
         selector_mode: str,
         draft_execution_mode: str,
+        preserve_rollback_context: bool = False,
     ) -> MtpDraftRunResult:
         if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
             raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
@@ -606,53 +710,75 @@ class MtpDrafterAdapter:
         trace_binding_valid = True
         capture_idempotence_valid = True
         mtp_kv_prefix_valid = True
-
-        if draft_execution_mode == TRACED_DRAFT:
-            assert self.trace_profile is not None
-            trace_adapter = TracedMtpDraftAdapter(
+        rollback_context = (
+            MtpRollbackContext.capture(
                 owner=self,
-                maximum_trace_capture_seconds=(
-                    self.trace_profile.maximum_trace_capture_seconds
-                ),
+                start_position=prompt_length,
+                initial_feedback=feedback,
             )
-            try:
-                replay = trace_adapter.run(
-                    initial_token=first_draft,
-                    initial_feedback=feedback,
-                    start_position=prompt_length,
-                    step_count=self.profile.draft_token_count - PROBE_BATCH_SIZE,
+            if preserve_rollback_context
+            else None
+        )
+
+        try:
+            if draft_execution_mode == TRACED_DRAFT:
+                assert self.trace_profile is not None
+                trace_adapter = TracedMtpDraftAdapter(
+                    owner=self,
+                    maximum_trace_capture_seconds=(
+                        self.trace_profile.maximum_trace_capture_seconds
+                    ),
                 )
-            finally:
-                ttnn.deallocate(feedback)
-            drafts.extend(replay.token_ids)
-            draft_decode_seconds = replay.draft_decode_seconds
-            draft_selection_seconds = (
-                first_selection_seconds + replay.draft_selection_seconds
-            )
-            trace_capture_seconds = replay.trace_capture_seconds
-            trace_binding = replay.binding.to_mapping()
-            trace_binding_valid = replay.trace_binding_valid
-            capture_idempotence_valid = replay.capture_idempotence_valid
-            mtp_kv_prefix_valid = replay.mtp_kv_prefix_valid
-        else:
-            draft_started = time.monotonic()
-            current = first_draft
-            draft_selection_seconds = first_selection_seconds
-            try:
-                for step in range(self.profile.draft_token_count - PROBE_BATCH_SIZE):
-                    current, next_feedback, selection_seconds = self._draft_step(
-                        current,
-                        feedback,
-                        prompt_length + step,
-                        selector_mode=selector_mode,
+                try:
+                    replay = trace_adapter.run(
+                        initial_token=first_draft,
+                        initial_feedback=feedback,
+                        start_position=prompt_length,
+                        step_count=(self.profile.draft_token_count - PROBE_BATCH_SIZE),
+                        rollback_context=rollback_context,
                     )
-                    draft_selection_seconds += selection_seconds
+                finally:
                     ttnn.deallocate(feedback)
-                    feedback = next_feedback
-                    drafts.append(current)
-            finally:
-                ttnn.deallocate(feedback)
-            draft_decode_seconds = time.monotonic() - draft_started
+                drafts.extend(replay.token_ids)
+                draft_decode_seconds = replay.draft_decode_seconds
+                draft_selection_seconds = (
+                    first_selection_seconds + replay.draft_selection_seconds
+                )
+                trace_capture_seconds = replay.trace_capture_seconds
+                trace_binding = replay.binding.to_mapping()
+                trace_binding_valid = replay.trace_binding_valid
+                capture_idempotence_valid = replay.capture_idempotence_valid
+                mtp_kv_prefix_valid = replay.mtp_kv_prefix_valid
+            else:
+                draft_started = time.monotonic()
+                current = first_draft
+                draft_selection_seconds = first_selection_seconds
+                try:
+                    for step in range(
+                        self.profile.draft_token_count - PROBE_BATCH_SIZE
+                    ):
+                        current, next_feedback, selection_seconds = self._draft_step(
+                            current,
+                            feedback,
+                            prompt_length + step,
+                            selector_mode=selector_mode,
+                        )
+                        if rollback_context is not None:
+                            rollback_context.record_prefix_feedback(
+                                step + PROBE_BATCH_SIZE,
+                                next_feedback,
+                            )
+                        draft_selection_seconds += selection_seconds
+                        ttnn.deallocate(feedback)
+                        feedback = next_feedback
+                        drafts.append(current)
+                finally:
+                    ttnn.deallocate(feedback)
+                draft_decode_seconds = time.monotonic() - draft_started
+        except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+            if rollback_context is not None:
+                rollback_context.close()
+            raise
 
         total_draft_seconds = mtp_prefill_seconds + draft_decode_seconds
         if any(
@@ -663,10 +789,16 @@ class MtpDrafterAdapter:
                 draft_selection_seconds,
             )
         ):
+            if rollback_context is not None:
+                rollback_context.close()
             raise MtpDrafterAdapterError("MTP drafter duration is invalid")
         if draft_selection_seconds > total_draft_seconds:
+            if rollback_context is not None:
+                rollback_context.close()
             raise MtpDrafterAdapterError("MTP selection exceeds total draft duration")
         if len(drafts) != self.profile.draft_token_count:
+            if rollback_context is not None:
+                rollback_context.close()
             raise MtpDrafterAdapterError("MTP drafter returned the wrong token count")
         return MtpDraftRunResult(
             token_ids=tuple(drafts),
@@ -679,6 +811,7 @@ class MtpDrafterAdapter:
             trace_binding_valid=trace_binding_valid,
             capture_idempotence_valid=capture_idempotence_valid,
             mtp_kv_prefix_valid=mtp_kv_prefix_valid,
+            rollback_context=rollback_context,
         )
 
     def _rebuild_mtp_cache(

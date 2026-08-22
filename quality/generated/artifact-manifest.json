@@ -824,6 +824,12 @@
       "blake3": "30c7be6e07bfec1222b8996bc248176afa91e6922d76d03614cd178d85b9b735"
     },
     {
+      "path": "cairn/changes/reduce-qwen38-mtp-rollback-cost/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 1909,
+      "blake3": "941abaa2501451ec699774366605a3af3ba68f14eb3de57d7d7fd5d9f366fbbd"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,

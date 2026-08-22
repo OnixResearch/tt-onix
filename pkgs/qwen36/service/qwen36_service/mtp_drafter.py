@@ -25,6 +25,15 @@ from .mtp_drafter_core import (
     MtpDrafterSample,
     evaluate_mtp_drafter,
 )
+from .mtp_rollback_adapter import recovery_state_components_equal
+from .mtp_rollback_core import (
+    REPREFILL_RECOVERY,
+    SNAPSHOT_RECOVERY,
+    MtpRollbackPolicyError,
+    MtpRollbackProfile,
+    MtpRollbackSample,
+    evaluate_mtp_rollback,
+)
 from .mtp_selection_core import (
     FULL_LOGIT_READBACK,
     SHARD_LOCAL_TOP1,
@@ -58,10 +67,12 @@ SMOKE_MEASUREMENT_MODE = "diagnostic-mtp-drafter-smoke"
 PILOT_MEASUREMENT_MODE = "diagnostic-mtp-drafter-pilot"
 SELECTION_MEASUREMENT_MODE = "diagnostic-mtp-draft-selection"
 TRACE_MEASUREMENT_MODE = "diagnostic-mtp-draft-trace"
+ROLLBACK_MEASUREMENT_MODE = "diagnostic-mtp-kv-rollback"
 SMOKE_MODE = "smoke"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
 TRACE_MODE = "trace"
+ROLLBACK_MODE = "rollback"
 VLLM_REFERENCE_REVISION = "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
 SGLANG_REFERENCE_REVISION = "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3"
 
@@ -77,12 +88,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mtp-drafter-profile", required=True)
     parser.add_argument("--mtp-selection-profile")
     parser.add_argument("--mtp-trace-profile")
+    parser.add_argument("--mtp-rollback-profile")
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--mode",
-        choices=(SMOKE_MODE, PILOT_MODE, SELECTION_MODE, TRACE_MODE),
+        choices=(
+            SMOKE_MODE,
+            PILOT_MODE,
+            SELECTION_MODE,
+            TRACE_MODE,
+            ROLLBACK_MODE,
+        ),
         default=SMOKE_MODE,
     )
     parser.add_argument(
@@ -115,6 +133,7 @@ def main() -> None:
     drafter_profile = _load_drafter_profile(drafter_profile_path)
     selection_profile = None
     trace_profile = None
+    rollback_profile = None
     if args.mode == SELECTION_MODE:
         if args.mtp_selection_profile is None:
             raise SystemExit("--mtp-selection-profile is required in selection mode")
@@ -127,9 +146,11 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
-    if args.mode == TRACE_MODE:
+    if args.mode in (TRACE_MODE, ROLLBACK_MODE):
         if args.mtp_trace_profile is None:
-            raise SystemExit("--mtp-trace-profile is required in trace mode")
+            raise SystemExit(
+                "--mtp-trace-profile is required in trace or rollback mode"
+            )
         trace_profile = _load_trace_profile(
             _existing_absolute_file(
                 args.mtp_trace_profile,
@@ -138,7 +159,19 @@ def main() -> None:
         )
         _require_trace_profile_match(drafter_profile, trace_profile)
     elif args.mtp_trace_profile is not None:
-        raise SystemExit("--mtp-trace-profile requires trace mode")
+        raise SystemExit("--mtp-trace-profile requires trace or rollback mode")
+    if args.mode == ROLLBACK_MODE:
+        if args.mtp_rollback_profile is None:
+            raise SystemExit("--mtp-rollback-profile is required in rollback mode")
+        rollback_profile = _load_rollback_profile(
+            _existing_absolute_file(
+                args.mtp_rollback_profile,
+                "--mtp-rollback-profile",
+            )
+        )
+        _require_rollback_profile_match(drafter_profile, rollback_profile)
+    elif args.mtp_rollback_profile is not None:
+        raise SystemExit("--mtp-rollback-profile requires rollback mode")
     if model_path.name != drafter_profile.checkpoint_revision:
         raise SystemExit("model path does not match the MTP drafter checkpoint")
     if decode_profile.authority_blake3 != drafter_profile.authority_blake3:
@@ -173,6 +206,7 @@ def main() -> None:
     pilot_results = None
     selection_results = None
     trace_results = None
+    rollback_results = None
     cleanup_complete = False
     identity = MtpDrafterIdentity(
         runtime_identity=args.runtime_identity,
@@ -219,6 +253,7 @@ def main() -> None:
             model_path=model_path,
             profile=drafter_profile,
             trace_profile=trace_profile,
+            rollback_profile=rollback_profile,
         )
         if args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
@@ -267,7 +302,7 @@ def main() -> None:
                         adapter.run_pilot(tokens, selector_mode=route),
                     ))
             selection_results = tuple(measured)
-        else:
+        elif args.mode == TRACE_MODE:
             assert trace_profile is not None
             prompt_token_rows = tuple(
                 tokenizer(
@@ -305,6 +340,48 @@ def main() -> None:
                         ),
                     ))
             trace_results = tuple(measured)
+        else:
+            assert trace_profile is not None
+            assert rollback_profile is not None
+            prompt_token_rows = tuple(
+                tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    add_special_tokens=True,
+                ).input_ids.to(torch.int32)
+                for prompt in rollback_profile.prompts
+            )
+            for tokens in prompt_token_rows:
+                adapter.run_pilot(
+                    tokens,
+                    selector_mode=SHARD_LOCAL_TOP1,
+                    draft_execution_mode=TRACED_DRAFT,
+                    mtp_recovery_mode=REPREFILL_RECOVERY,
+                )
+                adapter.run_pilot(
+                    tokens,
+                    selector_mode=SHARD_LOCAL_TOP1,
+                    draft_execution_mode=TRACED_DRAFT,
+                    mtp_recovery_mode=SNAPSHOT_RECOVERY,
+                )
+            measured = []
+            for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
+                for root_index, route in enumerate(
+                    rollback_profile.route_schedule,
+                    start=1,
+                ):
+                    measured.append((
+                        prompt_index,
+                        root_index,
+                        route,
+                        adapter.run_pilot(
+                            tokens,
+                            selector_mode=SHARD_LOCAL_TOP1,
+                            draft_execution_mode=TRACED_DRAFT,
+                            mtp_recovery_mode=route,
+                        ),
+                    ))
+            rollback_results = tuple(measured)
     finally:
         if decode_adapter is not None:
             decode_adapter.close()
@@ -346,12 +423,16 @@ def main() -> None:
         "mesh_shape": [MESH_ROWS, MESH_COLUMNS],
         "host_cpu_affinity": sorted(os.sched_getaffinity(0)),
         "profile_id": (
-            trace_profile.profile_id
-            if trace_profile is not None
+            rollback_profile.profile_id
+            if rollback_profile is not None
             else (
-                selection_profile.profile_id
-                if selection_profile is not None
-                else drafter_profile.profile_id
+                trace_profile.profile_id
+                if trace_profile is not None
+                else (
+                    selection_profile.profile_id
+                    if selection_profile is not None
+                    else drafter_profile.profile_id
+                )
             )
         ),
     }
@@ -511,7 +592,7 @@ def main() -> None:
                 "The control does not apply to batching, TP4, or long context.",
             ],
         }
-    else:
+    elif args.mode == TRACE_MODE:
         assert trace_profile is not None
         expected_result_count = len(trace_profile.prompts) * len(
             trace_profile.route_schedule
@@ -580,6 +661,112 @@ def main() -> None:
                 "Trace evidence does not admit MTP or traced target decode.",
                 "Capture time is recorded and excluded from replay economics.",
                 "The control does not establish rejected-row overwrite or multi-round economics.",
+            ],
+        }
+    else:
+        assert rollback_profile is not None
+        expected_result_count = len(rollback_profile.prompts) * len(
+            rollback_profile.route_schedule
+        )
+        if rollback_results is None or len(rollback_results) != expected_result_count:
+            raise MtpDrafterCommandError(
+                "MTP rollback control produced incomplete results"
+            )
+        reference_states = {}
+        for prompt_index, _root_index, route, result in rollback_results:
+            if route != REPREFILL_RECOVERY or prompt_index in reference_states:
+                continue
+            if result.mtp_cache_recovery_state is None:
+                raise MtpDrafterCommandError("MTP rollback reference state is missing")
+            reference_states[prompt_index] = result.mtp_cache_recovery_state
+        if len(reference_states) != len(rollback_profile.prompts):
+            raise MtpDrafterCommandError("MTP rollback references are incomplete")
+
+        rollback_samples = []
+        sample_mappings = []
+        for prompt_index, root_index, route, result in rollback_results:
+            state = result.mtp_cache_recovery_state
+            if state is None:
+                raise MtpDrafterCommandError("MTP rollback state is missing")
+            token_valid, feedback_valid, kv_valid = recovery_state_components_equal(
+                reference_states[prompt_index],
+                state,
+            )
+            committed_token_id = result.target_verification_token_ids[
+                result.accepted_prefix_length
+            ]
+            rollback_samples.append(
+                MtpRollbackSample(
+                    prompt_index=prompt_index,
+                    root_index=root_index,
+                    route=route,
+                    identity=identity,
+                    physical_pcie_device_ids=(
+                        rollback_profile.expected_pcie_device_ids
+                    ),
+                    draft_token_ids=result.draft_token_ids,
+                    target_token_ids=result.target_token_ids,
+                    accepted_prefix_length=result.accepted_prefix_length,
+                    committed_token_id=committed_token_id,
+                    next_draft_token_id=state.next_draft_token_id,
+                    recovery_seconds=result.mtp_cache_recovery_seconds,
+                    snapshot_row_count=result.mtp_cache_snapshot_row_count,
+                    committed_advance_count=(result.mtp_cache_committed_advance_count),
+                    next_draft_valid=token_valid,
+                    feedback_state_valid=feedback_valid,
+                    kv_prefix_valid=kv_valid,
+                    target_output_valid=result.target_output_valid,
+                    target_rollback_valid=result.rollback_valid,
+                )
+            )
+            sample_mappings.append({
+                **_pilot_result_mapping(
+                    prompt_index,
+                    result,
+                    root_index=root_index,
+                    route=route,
+                ),
+                "committed_token_id": committed_token_id,
+                "next_draft_token_id": state.next_draft_token_id,
+                "mtp_cache_recovery_seconds": (result.mtp_cache_recovery_seconds),
+                "mtp_cache_snapshot_row_count": (result.mtp_cache_snapshot_row_count),
+                "mtp_cache_committed_advance_count": (
+                    result.mtp_cache_committed_advance_count
+                ),
+                "next_draft_valid": token_valid,
+                "feedback_state_valid": feedback_valid,
+                "kv_prefix_valid": kv_valid,
+            })
+        rollback_decision = evaluate_mtp_rollback(
+            rollback_profile,
+            identity,
+            tuple(rollback_samples),
+        )
+        first_result = rollback_results[0][3]
+        receipt = {
+            **common_receipt,
+            "measurement_mode": ROLLBACK_MEASUREMENT_MODE,
+            "smoke_only": False,
+            "warmup_discarded": True,
+            "selector_mode": SHARD_LOCAL_TOP1,
+            "draft_execution_mode": TRACED_DRAFT,
+            "route_schedule": list(rollback_profile.route_schedule),
+            "minimum_samples_per_route": (rollback_profile.minimum_samples_per_route),
+            "samples": sample_mappings,
+            "weight_shapes": {
+                name: list(shape)
+                for name, shape in sorted(first_result.weight_shapes.items())
+            },
+            "decision": rollback_decision.to_mapping(),
+            "snapshot_rollback_selected": (
+                rollback_decision.snapshot_rollback_selected
+            ),
+            "mtp_selected": False,
+            "blockers": list(rollback_decision.blockers),
+            "non_claims": [
+                "Rollback evidence does not admit MTP or traced target decode.",
+                "The control covers natural acceptance lengths zero and three only.",
+                "The control does not establish sustained multi-round economics.",
             ],
         }
     _write_receipt(output_path, receipt)
@@ -673,6 +860,14 @@ def _load_trace_profile(path: Path) -> MtpTraceProfile:
         raise SystemExit(f"MTP trace profile is invalid: {error}") from error
 
 
+def _load_rollback_profile(path: Path) -> MtpRollbackProfile:
+    try:
+        with path.open(encoding="utf-8") as profile_file:
+            return MtpRollbackProfile.from_mapping(json.load(profile_file))
+    except (MtpRollbackPolicyError, OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"MTP rollback profile is invalid: {error}") from error
+
+
 def _require_selection_profile_match(
     drafter: MtpDrafterProfile,
     selection: MtpSelectionProfile,
@@ -715,6 +910,28 @@ def _require_trace_profile_match(
     for drafter_value, trace_value, label in comparisons:
         if drafter_value != trace_value:
             raise SystemExit(f"MTP drafter and trace {label} differ")
+
+
+def _require_rollback_profile_match(
+    drafter: MtpDrafterProfile,
+    rollback: MtpRollbackProfile,
+) -> None:
+    comparisons = (
+        (drafter.authority_blake3, rollback.authority_blake3, "authority"),
+        (drafter.checkpoint_revision, rollback.checkpoint_revision, "checkpoint"),
+        (drafter.model_source_revision, rollback.model_source_revision, "source"),
+        (drafter.tokenizer_revision, rollback.tokenizer_revision, "tokenizer"),
+        (
+            drafter.expected_pcie_device_ids,
+            rollback.expected_pcie_device_ids,
+            "physical devices",
+        ),
+        (drafter.draft_token_count, rollback.draft_token_count, "draft count"),
+        (drafter.prompts, rollback.prompts, "prompts"),
+    )
+    for drafter_value, rollback_value, label in comparisons:
+        if drafter_value != rollback_value:
+            raise SystemExit(f"MTP drafter and rollback {label} differ")
 
 
 def _existing_absolute_directory(value: str, name: str) -> Path:

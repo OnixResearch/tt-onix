@@ -81,6 +81,7 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
 - `qwen36-p150x2-mtp-drafter-probe` — diagnostic checkpoint drafter and rollback probe.
 - `qwen36-p150x2-mtp-selection-probe` — paired full-logit and bounded draft-selector control.
 - `qwen36-p150x2-mtp-trace-probe` — paired eager and persistent-trace MTP draft control.
+- `qwen36-p150x2-mtp-rollback-probe` — paired MTP cache re-prefill and bounded row-restore control.
 - `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
   it cannot select production behavior.
 - `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
@@ -431,6 +432,16 @@ Evidence:
 
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-trace-receipt.json`
 - `cairn/archive/2026-08-22-stabilize-qwen38-mtp-drafting/evidence/physical-result.md`
+
+### MTP K/V rollback diagnostic
+
+The package provides `qwen36-p150x2-mtp-rollback-probe`. It compares full MTP cache re-prefill with device-resident restoration of the two rows that three-draft decode can overwrite.
+
+The snapshot route allocates its K/V row and prefix-feedback buffers before trace capture. After target verification, it restores rejected rows, retains accepted rows, processes any accepted draft not represented in feedback, and advances one committed target token.
+
+The evaluator compares the next draft token, feedback tensor, and committed MTP K/V prefix exactly. It requires six roots per route and prompt in three `reprefill,snapshot,snapshot,reprefill` blocks. It rejects recovery spread above `1.25` or snapshot/re-prefill ratio above `0.8`.
+
+Device-free package and policy checks pass. No physical result exists yet. The control cannot admit MTP, traced target decode, or production behavior.
 
 ### Decode component replay diagnostic
 
