@@ -150,6 +150,84 @@ def probe_source_env_gates():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.layer_type_authority]
+def probe_layer_type_authority():
+    """Positive and negative tests for checkpoint-owned hybrid dispatch."""
+    from models.demos.blackhole.qwen36.tt import model_config as qwen_config
+    from models.demos.blackhole.qwen36.tt import weight_mapping
+
+    authority = json.loads(Path(__file__).with_name("authority.json").read_text())
+    release = authority["release"]
+    declared_layer_count = release["layer_count"]
+    declared_full_attention_count = release["full_attention_layer_count"]
+    declared_linear_attention_count = release["linear_attention_layer_count"]
+    declared_full_attention_indices = tuple(release["full_attention_layer_indices"])
+    full_attention_indices = frozenset(declared_full_attention_indices)
+    checkpoint_layer_types = tuple(
+        qwen_config.FULL_ATTENTION_TYPE
+        if layer_index in full_attention_indices
+        else qwen_config.LINEAR_ATTENTION_TYPE
+        for layer_index in range(declared_layer_count)
+    )
+
+    resolved = qwen_config.resolve_attention_type_list(
+        checkpoint_layer_types,
+        declared_layer_count,
+    )
+    require(resolved == checkpoint_layer_types, "valid checkpoint layer types changed")
+    require(
+        resolved.count(qwen_config.FULL_ATTENTION_TYPE)
+        == declared_full_attention_count,
+        "full-attention layer count differs from authority",
+    )
+    require(
+        resolved.count(qwen_config.LINEAR_ATTENTION_TYPE)
+        == declared_linear_attention_count,
+        "linear-attention layer count differs from authority",
+    )
+    require(
+        tuple(
+            layer_index
+            for layer_index, layer_type in enumerate(resolved)
+            if layer_type == qwen_config.FULL_ATTENTION_TYPE
+        )
+        == declared_full_attention_indices,
+        "full-attention layer indices differ from authority",
+    )
+
+    legacy_layer_count = len(qwen_config.LEGACY_QWEN35_9B_LAYER_TYPES)
+    require(
+        qwen_config.resolve_attention_type_list(None, legacy_layer_count)
+        == qwen_config.LEGACY_QWEN35_9B_LAYER_TYPES,
+        "the exact legacy layer fallback changed",
+    )
+
+    unknown_layer_types = list(checkpoint_layer_types)
+    unknown_layer_types[0] = "unknown_attention"
+    rejected_cases = (
+        (None, declared_layer_count, "required"),
+        (checkpoint_layer_types[:-1], declared_layer_count, "entries"),
+        (unknown_layer_types, declared_layer_count, "unknown type"),
+        (qwen_config.LINEAR_ATTENTION_TYPE, declared_layer_count, "list or tuple"),
+        (checkpoint_layer_types, 0, "positive integer"),
+    )
+    for layer_types, layer_count, diagnostic in rejected_cases:
+        try:
+            qwen_config.resolve_attention_type_list(layer_types, layer_count)
+        except qwen_config.LayerTypeAuthorityError as error:
+            require(
+                diagnostic in str(error), f"wrong layer-authority diagnostic: {error}"
+            )
+        else:
+            require(False, f"invalid layer authority was accepted: {layer_types!r}")
+
+    weight_mapping_source = Path(weight_mapping.__file__).read_text()
+    require(
+        "FULL_ATTENTION_LAYERS" not in weight_mapping_source,
+        "weight_mapping.py still declares the obsolete eight-entry mapper set",
+    )
+
+
 def probe_p150x2_gate():
     """TP=2 (P150x2 / P300) invariants carried by p150x2-tp.patch.
 
@@ -1529,6 +1607,7 @@ def main():
     probe("MLP down-proj BF4 gate defaults", probe_mlp_down_gate)
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
+    probe("checkpoint layer-type authority", probe_layer_type_authority)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("prefill program profile", probe_prefill_program_profile)

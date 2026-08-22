@@ -730,14 +730,26 @@
     {
       "path": "cairn/archive/2026-08-21-stabilize-qwen38-host-attribution/evidence/physical-result.md",
       "class": "portable_evidence",
-      "byte_count": 1254,
-      "blake3": "0b5955e3676b80e3c430b6fed8bff3d9559604fdd90447833e0cee36b795a47e"
+      "byte_count": 1242,
+      "blake3": "c66da862e1c566cc854f39f4c645b1685aaa10ae0185f8b5c70baa8ff422a9fe"
     },
     {
       "path": "cairn/archive/2026-08-21-stabilize-qwen38-host-attribution/evidence/search-frame.md",
       "class": "portable_evidence",
       "byte_count": 612,
       "blake3": "41d30db8f1f881c9472426121beebe2881efd6d02c72d5c06928bc16fdddc3aa"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-bind-qwen38-layer-type-authority/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 3736,
+      "blake3": "b737765e4e385d067b29b07157addd93bb819e25ef3c2d2b8ab44d3185b77114"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-bind-qwen38-layer-type-authority/evidence/validated-result.md",
+      "class": "portable_evidence",
+      "byte_count": 3138,
+      "blake3": "e9e8ad10c2d84f72afae40cc5c9f272ce14ba44776b864443c1c15417da23891"
     },
     {
       "path": "cairn/archive/2026-08-22-evaluate-qwen38-mtp-drafter/evidence/physical-result.md",

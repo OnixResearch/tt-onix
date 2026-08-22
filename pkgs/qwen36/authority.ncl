@@ -26,6 +26,7 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
       "generate-tp-reset",
       "gdn-seq-fallback",
       "tp2-runtime-compat",
+      "layer-type-authority",
     ],
   },
   pr = {
@@ -66,6 +67,11 @@ let release_url = "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/" ++ release_
     hidden_size = 5120,
     layer_count = 64,
     full_attention_layer_count = 16,
+    full_attention_interval = 4,
+    full_attention_layer_indices = [
+      3, 7, 11, 15, 19, 23, 27, 31,
+      35, 39, 43, 47, 51, 55, 59, 63,
+    ],
     linear_attention_layer_count = 48,
     linear_conv_kernel_dim = 4,
     linear_key_head_dim = 128,

@@ -161,7 +161,26 @@
       "model-00017-of-00018.safetensors",
       "model-00018-of-00018.safetensors"
     ],
+    "full_attention_interval": 4,
     "full_attention_layer_count": 16,
+    "full_attention_layer_indices": [
+      3,
+      7,
+      11,
+      15,
+      19,
+      23,
+      27,
+      31,
+      35,
+      39,
+      43,
+      47,
+      51,
+      55,
+      59,
+      63
+    ],
     "hidden_size": 5120,
     "layer_count": 64,
     "license": "Apache-2.0",
@@ -187,7 +206,8 @@
       "p150x2-tp",
       "generate-tp-reset",
       "gdn-seq-fallback",
-      "tp2-runtime-compat"
+      "tp2-runtime-compat",
+      "layer-type-authority"
     ],
     "merged_upstream": false,
     "patch_source": "https://github.com/tenstorrent/tt-metal/pull/53543",

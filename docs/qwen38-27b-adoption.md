@@ -67,6 +67,8 @@ authority only when it matches:
 Drift in any recorded fact fails the package evaluation. A separate
 `qwen36-authority-negative` check proves a drifted commit is rejected.
 
+The adopted `weight_mapping.py` declared eight full-attention indices for the older 32-layer model, but no code read that set. The remapper only changes tensor keys and layouts. Runtime layer construction reads the checkpoint `text_config.layer_types` list through `Qwen36ModelArgs.attention_type_list`. The accepted authority records interval `4` and all 16 full-attention indices. The local `layer-type-authority.patch` removes the unused set and validates the complete checkpoint list before layer construction. It permits the 32-layer fallback only for its exact layer count.
+
 ## Deployable surface
 
 - `nix build .#qwen36` — the deployable; `qwen36`, `qwen36-check`,
@@ -139,7 +141,7 @@ P150x2 validation status:
 2. simulator — pending for the experimental `libttsim_bh_x2.so` path;
 3. hardware oracle — passed on a physical 1x2 mesh with eight greedy tokens;
 4. component PCC and GDN state carry — passed against PyTorch references;
-5. eight-layer paged-contract logits — passed against the bespoke path;
+5. paged-contract logits for eight selected layers — passed against the bespoke path;
 6. full 64-layer serialized paged service — passed for two sequential requests;
 7. bounded warm-service TTFT and decode throughput — passed for three runs;
 8. long context, streaming, parallel requests, and batch serving — pending.

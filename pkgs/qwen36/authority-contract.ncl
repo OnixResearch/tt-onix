@@ -94,6 +94,8 @@ let AuthorityContract = {
     hidden_size | Positive,
     layer_count | Positive,
     full_attention_layer_count | Positive,
+    full_attention_interval | Positive,
+    full_attention_layer_indices | Array NonNegative | NonEmptyPredicate,
     linear_attention_layer_count | Positive,
     linear_conv_kernel_dim | Positive,
     linear_key_head_dim | Positive,

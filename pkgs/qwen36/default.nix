@@ -82,6 +82,10 @@ stdenvNoCC.mkDerivation {
     # matmul-reduce-scatter, and the MLP AGMM binding rejects fuse_swiglu.
     # Keep the optimized paths on capable runtimes and admitted larger meshes.
     ./tp2-runtime-compat.patch
+    # r[impl tenstorrent.qwen38_p150x2.layer_type_authority]
+    # The checkpoint layer_types list owns hybrid dispatch. The pure resolver
+    # rejects incomplete metadata and removes the unused 32-layer mapper set.
+    ./layer-type-authority.patch
   ];
   nativeBuildInputs = [
     b3sum

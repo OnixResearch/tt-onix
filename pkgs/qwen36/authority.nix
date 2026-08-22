@@ -7,6 +7,10 @@
 let
   require = condition: diagnostic: if condition then true else throw diagnostic;
   shardCount = canonicalAuthority.release.checkpoint_shard_count;
+  expectedFullAttentionInterval = 4;
+  expectedFullAttentionIndices = lib.genList (
+    groupIndex: ((groupIndex + 1) * expectedFullAttentionInterval) - 1
+  ) canonicalAuthority.release.full_attention_layer_count;
   artifactRoles =
     authority:
     builtins.sort builtins.lessThan (map (artifact: artifact.role) authority.release.artifacts);
@@ -55,6 +59,7 @@ let
     (require (builtins.elem "generate-tp-reset" authority.upstream.local_patches) "qwen36 adoption lost the carried generate-tp-reset patch (hardware-found reset_tp bug)")
     (require (builtins.elem "gdn-seq-fallback" authority.upstream.local_patches) "qwen36 adoption lost the carried gdn-seq-fallback patch (0.74 lacks chunk_gated_delta_rule)")
     (require (builtins.elem "tp2-runtime-compat" authority.upstream.local_patches) "qwen36 adoption lost the carried tp2-runtime-compat patch (0.74 TP=2 fusion gaps)")
+    (require (builtins.elem "layer-type-authority" authority.upstream.local_patches) "qwen36 adoption lost the carried layer-type-authority patch (checkpoint layer_types own dispatch)")
     (require (
       authority.pr.state == "closed" && authority.pr.merged == false
     ) "qwen36 PR state does not match closed-unmerged")
@@ -79,6 +84,16 @@ let
     (require (
       artifactIdentities authority == artifactIdentities canonicalAuthority
     ) "qwen36 metadata artifact identity mismatch")
+    (require (
+      authority.release.full_attention_interval == expectedFullAttentionInterval
+    ) "qwen36 full-attention interval mismatch")
+    (require (
+      authority.release.full_attention_layer_indices == expectedFullAttentionIndices
+    ) "qwen36 full-attention layer indices mismatch")
+    (require (
+      authority.release.full_attention_layer_count + authority.release.linear_attention_layer_count
+      == authority.release.layer_count
+    ) "qwen36 hybrid layer counts do not match the declared layer count")
     (require (
       authority.release.weights_excluded == true
     ) "qwen36 authority must not include weight shard bytes")
