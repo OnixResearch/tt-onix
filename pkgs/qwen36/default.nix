@@ -119,6 +119,8 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-contracts.ncl} "$out/share/qwen36/mtp-drafter-contracts.ncl"
     cp ${./decode-component-profile.ncl} "$out/share/qwen36/decode-component-profile.ncl"
     cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
+    cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
+    cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
     cp ${./decode-profile.ncl} decode-profile-export/decode-profile.ncl
     cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
@@ -139,6 +141,11 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-component-contracts.ncl} decode-component-profile-export/decode-component-contracts.ncl
     nickel export --format json decode-component-profile-export/decode-component-profile.ncl \
       > "$out/share/qwen36/decode-component-profile.json"
+    mkdir -p ttft-control-profile-export
+    cp ${./ttft-control-profile.ncl} ttft-control-profile-export/ttft-control-profile.ncl
+    cp ${./ttft-control-contracts.ncl} ttft-control-profile-export/ttft-control-contracts.ncl
+    nickel export --format json ttft-control-profile-export/ttft-control-profile.ncl \
+      > "$out/share/qwen36/ttft-control-profile.json"
 
     mkdir -p "$out/bin"
 
@@ -303,6 +310,28 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.traced_ttft_control]
+    # This command compares stable prefill controls without changing production.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-ttft-control" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set QWEN35_SCALE_INPUT "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.ttft_control_probe" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--control-profile" \
+      --add-flags "$out/share/qwen36/ttft-control-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
     # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-serve" \
@@ -346,19 +375,25 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_probe.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/decode-component-profile.json"
+    test -f "$out/share/qwen36/ttft-control-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
+    test -x "$out/bin/qwen36-p150x2-ttft-control"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \
@@ -486,6 +521,31 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-decode-component-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
+    # Positive: the TTFT control profile exports deterministically and binds authority.
+    mkdir -p ttft-control-profile-check
+    cp ${./ttft-control-profile.ncl} ttft-control-profile-check/ttft-control-profile.ncl
+    cp ${./ttft-control-contracts.ncl} ttft-control-profile-check/ttft-control-contracts.ncl
+    nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-first.json
+    nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-second.json
+    cmp ttft-control-profile-first.json ttft-control-profile-second.json
+    cmp ttft-control-profile-first.json "$out/share/qwen36/ttft-control-profile.json"
+    grep -F '"diagnostic_only": true' ttft-control-profile-first.json
+    grep -F '"material_regression_ratio": 1.05' ttft-control-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" ttft-control-profile-first.json
+
+    # Negative: a production-eligible TTFT control must fail its typed contract.
+    mkdir -p ttft-control-profile-negative
+    cp ${./ttft-control-profile.ncl} ttft-control-profile-negative/ttft-control-profile.ncl
+    cp ${./ttft-control-contracts.ncl} ttft-control-profile-negative/ttft-control-contracts.ncl
+    cp ${./fixtures/invalid-ttft-control-profile.ncl} ttft-control-profile-negative/invalid-ttft-control-profile.ncl
+    if nickel export --format json ttft-control-profile-negative/invalid-ttft-control-profile.ncl \
+        > invalid-ttft-control-profile.json 2> invalid-ttft-control-profile.log; then
+      echo "invalid TTFT control profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-ttft-control-profile.log
 
     # Negative: a drifted authority (wrong upstream commit) must be rejected by
     # the Nickel contract shape (commit no longer a 40-hex revision).

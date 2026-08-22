@@ -776,6 +776,18 @@
       "blake3": "fef5b224a441538169c0915d3f2b50dcd9ebbaeb164ef5a4b6622357e57a1802"
     },
     {
+      "path": "cairn/archive/2026-08-22-isolate-qwen38-traced-ttft/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 4654,
+      "blake3": "06c7aed1b3a6fd429eaf1c10c4d0a712ca578a507642115f35281f5bcc6d5dbf"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-isolate-qwen38-traced-ttft/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 4976,
+      "blake3": "4f7ded48cd17217d2eb931803921df24fc38099ac51b54a3448bbe9f2ebc68a8"
+    },
+    {
       "path": "cairn/archive/2026-08-22-profile-qwen38-decode-components/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 4145,
@@ -948,6 +960,12 @@
       "class": "portable_evidence",
       "byte_count": 15546,
       "blake3": "f87a06702f49047c921f78873d2eeceff1dadd8a478d7fab7f00328ec15ff473"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-traced-ttft-control-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 17360,
+      "blake3": "fd127f0cf88d8393487dc95949b072f334037ab2cf3459db914db7e93660f759"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",

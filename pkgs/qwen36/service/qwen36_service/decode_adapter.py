@@ -465,6 +465,16 @@ class TracedDecodeAdapter:
             output_dtype=str(self._trace_logits.dtype),
         )
 
+    @property
+    def trace_parked(self) -> bool:
+        """Report whether this adapter owns a parked decode trace."""
+        return self._trace_id is not None
+
+    def release_trace(self) -> None:
+        """Release the parked trace while keeping persistent model state."""
+        self._require_open()
+        self._release_trace()
+
     def _release_trace(self) -> None:
         if self._trace_id is None:
             return

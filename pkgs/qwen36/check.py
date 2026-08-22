@@ -1709,6 +1709,296 @@ def probe_decode_component_attribution():
         require(False, "non-diagnostic component profile was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
+def probe_ttft_control():
+    """Positive and negative tests for the same-process TTFT control."""
+    from dataclasses import replace
+
+    from qwen36_service.decode_core import DecodeProfile
+    from qwen36_service.ttft_control_core import (
+        CACHE_CAPACITY_MECHANISM,
+        CAPACITY_CACHE_TRACED,
+        NO_MATERIAL_REGRESSION,
+        PARKED_TRACE_MECHANISM,
+        REQUEST_CACHE_UNTRACED,
+        TtftControlEvidence,
+        TtftControlIdentity,
+        TtftControlPolicyError,
+        TtftControlProfile,
+        TtftControlSample,
+        evaluate_ttft_control,
+    )
+    from qwen36_service.ttft_control_probe import _validate_profile_binding
+
+    profile_source = json.loads(
+        Path(__file__).with_name("ttft-control-profile.json").read_text()
+    )
+    profile = TtftControlProfile.from_mapping(profile_source)
+    decode_profile = DecodeProfile.from_mapping(
+        json.loads(Path(__file__).with_name("decode-profile.json").read_text())
+    )
+    model_path = Path("/model") / profile.checkpoint_revision
+    _validate_profile_binding(model_path, decode_profile, profile)
+    mismatched_source_profile = replace(
+        profile,
+        model_source_revision="0" * len(profile.model_source_revision),
+    )
+    try:
+        _validate_profile_binding(
+            model_path,
+            decode_profile,
+            mismatched_source_profile,
+        )
+    except SystemExit as error:
+        require("source identities differ" in str(error), "wrong source diagnostic")
+    else:
+        require(False, "mismatched TTFT source identity was accepted")
+
+    identity = TtftControlIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity=f"Qwen3.8-27B:{profile.checkpoint_revision}",
+        authority_blake3=profile.authority_blake3,
+        checkpoint_revision=profile.checkpoint_revision,
+        model_source_revision=profile.model_source_revision,
+        tokenizer_revision=profile.tokenizer_revision,
+    )
+    test_first_token_id = 13
+    request_prefill_seconds = 1.0
+    capacity_prefill_seconds = 1.08
+    traced_prefill_seconds = 1.20
+    readback_seconds = 0.10
+    sample_variation = 0.005
+    invalid_duration = -0.01
+    instability_multiplier = 2.0
+
+    samples = []
+    for root_index, route in enumerate(profile.route_schedule, start=1):
+        if route == REQUEST_CACHE_UNTRACED:
+            base_prefill = request_prefill_seconds
+            cache_blocks = profile.request_cache_blocks
+        elif route == CAPACITY_CACHE_TRACED:
+            base_prefill = traced_prefill_seconds
+            cache_blocks = profile.trace_capacity_blocks
+        else:
+            base_prefill = capacity_prefill_seconds
+            cache_blocks = profile.trace_capacity_blocks
+        for sample_index in range(1, profile.retained_samples + 1):
+            prefill_seconds = base_prefill * (1.0 + sample_variation * sample_index)
+            samples.append(
+                TtftControlSample(
+                    root_index=root_index,
+                    sample_index=sample_index,
+                    route=route,
+                    cache_blocks=cache_blocks,
+                    page_table_blocks=profile.page_table_blocks,
+                    trace_parked=route == CAPACITY_CACHE_TRACED,
+                    first_token_id=test_first_token_id,
+                    prefill_device_seconds=prefill_seconds,
+                    first_token_readback_seconds=readback_seconds,
+                    ttft_seconds=prefill_seconds + readback_seconds,
+                )
+            )
+    evidence = TtftControlEvidence(
+        identity=identity,
+        physical_pcie_device_ids=profile.expected_pcie_device_ids,
+        mesh_shape=profile.mesh_shape,
+        host_cpu_affinity=profile.expected_cpu_affinity,
+        samples=tuple(samples),
+        cleanup_complete=True,
+    )
+    decision = evaluate_ttft_control(profile, evidence)
+    require(decision.control_valid, f"valid TTFT control failed: {decision.reasons}")
+    require(
+        decision.selected_mechanisms
+        == (CACHE_CAPACITY_MECHANISM, PARKED_TRACE_MECHANISM),
+        "valid material TTFT mechanisms were not selected",
+    )
+    require(not decision.admission_eligible, "TTFT control admitted production")
+
+    equal_samples = tuple(
+        replace(
+            sample,
+            prefill_device_seconds=request_prefill_seconds,
+            first_token_readback_seconds=readback_seconds,
+            ttft_seconds=request_prefill_seconds + readback_seconds,
+        )
+        for sample in samples
+    )
+    equal_decision = evaluate_ttft_control(
+        profile,
+        replace(evidence, samples=equal_samples),
+    )
+    require(equal_decision.control_valid, "equal TTFT control evidence failed")
+    require(
+        equal_decision.disposition == NO_MATERIAL_REGRESSION,
+        "equal TTFT routes reported a material regression",
+    )
+    require(
+        not equal_decision.selected_mechanisms,
+        "equal TTFT routes selected a mechanism",
+    )
+
+    wrong_route = list(samples)
+    wrong_route[0] = replace(wrong_route[0], route=CAPACITY_CACHE_TRACED)
+    require(
+        "root-1-route"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(wrong_route)),
+        ).reasons,
+        "wrong TTFT route was accepted",
+    )
+
+    token_mismatch = list(samples)
+    token_mismatch[0] = replace(
+        token_mismatch[0], first_token_id=test_first_token_id + 1
+    )
+    require(
+        "first-token-parity"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(token_mismatch)),
+        ).reasons,
+        "TTFT first-token mismatch was accepted",
+    )
+
+    width_mismatch = list(samples)
+    width_mismatch[0] = replace(
+        width_mismatch[0], cache_blocks=profile.trace_capacity_blocks
+    )
+    require(
+        "root-1-cache-width"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(width_mismatch)),
+        ).reasons,
+        "TTFT cache-width mismatch was accepted",
+    )
+
+    bad_duration = list(samples)
+    bad_duration[0] = replace(bad_duration[0], prefill_device_seconds=invalid_duration)
+    require(
+        "prefill-device-duration"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(bad_duration)),
+        ).reasons,
+        "negative TTFT phase duration was accepted",
+    )
+
+    unstable = list(equal_samples)
+    unstable[0] = replace(
+        unstable[0],
+        prefill_device_seconds=(
+            unstable[0].prefill_device_seconds * instability_multiplier
+        ),
+        ttft_seconds=(
+            unstable[0].prefill_device_seconds * instability_multiplier
+            + unstable[0].first_token_readback_seconds
+        ),
+    )
+    require(
+        "root-1-prefill-device-instability"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(unstable)),
+        ).reasons,
+        "unstable TTFT root was accepted",
+    )
+
+    duplicate_unstable = tuple(
+        replace(
+            sample,
+            prefill_device_seconds=(
+                sample.prefill_device_seconds * instability_multiplier
+            ),
+            first_token_readback_seconds=(
+                sample.first_token_readback_seconds * instability_multiplier
+            ),
+            ttft_seconds=sample.ttft_seconds * instability_multiplier,
+        )
+        if sample.root_index == len(profile.route_schedule)
+        else sample
+        for sample in equal_samples
+    )
+    require(
+        f"{REQUEST_CACHE_UNTRACED}-ttft-duplicate-instability"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=duplicate_unstable),
+        ).reasons,
+        "unstable duplicate TTFT roots were accepted",
+    )
+
+    require(
+        f"root-{len(profile.route_schedule)}-sample-count"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, samples=tuple(samples[:-1])),
+        ).reasons,
+        "incomplete TTFT root was accepted",
+    )
+    require(
+        "cleanup-incomplete"
+        in evaluate_ttft_control(
+            profile,
+            replace(evidence, cleanup_complete=False),
+        ).reasons,
+        "incomplete TTFT cleanup was accepted",
+    )
+    mismatched_identity = replace(
+        evidence,
+        identity=replace(
+            identity,
+            authority_blake3="0" * len(identity.authority_blake3),
+        ),
+    )
+    require(
+        "authority-identity"
+        in evaluate_ttft_control(profile, mismatched_identity).reasons,
+        "mismatched TTFT authority was accepted",
+    )
+
+    invalid_profile = {**profile_source, "diagnostic_only": False}
+    try:
+        TtftControlProfile.from_mapping(invalid_profile)
+    except TtftControlPolicyError as error:
+        require("diagnostic-only" in str(error), "wrong TTFT profile diagnostic")
+    else:
+        require(False, "non-diagnostic TTFT control profile was accepted")
+
+    wrong_route_schedule = list(profile.route_schedule)
+    wrong_route_schedule[0] = CAPACITY_CACHE_TRACED
+    wrong_schedule = {
+        **profile_source,
+        "roots": {
+            **profile_source["roots"],
+            "route_schedule": wrong_route_schedule,
+        },
+    }
+    try:
+        TtftControlProfile.from_mapping(wrong_schedule)
+    except TtftControlPolicyError as error:
+        require("route schedule" in str(error), "wrong TTFT schedule diagnostic")
+    else:
+        require(False, "wrong TTFT route schedule was accepted")
+
+    too_few_samples = {
+        **profile_source,
+        "roots": {
+            **profile_source["roots"],
+            "retained_samples": profile.retained_samples - 1,
+        },
+    }
+    try:
+        TtftControlProfile.from_mapping(too_few_samples)
+    except TtftControlPolicyError as error:
+        require("at least" in str(error), "wrong sample-count diagnostic")
+    else:
+        require(False, "too few TTFT control samples were accepted")
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -1846,6 +2136,7 @@ def main():
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)
     probe("decode component attribution", probe_decode_component_attribution)
+    probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:

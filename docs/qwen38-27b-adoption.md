@@ -80,6 +80,8 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
   admit MTP or change production behavior.
 - `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
   it cannot select production behavior.
+- `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
+  request-cache capacity and parked-trace effects; it cannot admit traced decode.
 - `nix build .#checks.x86_64-linux.qwen36` and
   `.#checks.x86_64-linux.qwen36-authority-negative` — CI-shaped gates.
 
@@ -407,6 +409,30 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-decode-component-attribution-pilot-receipt.json`
 - final receipt BLAKE3: `58241201ed7eff7b1156b435e2af152eb7e10e359382af72e3b1ba7435df8025`
 - `cairn/archive/2026-08-22-profile-qwen38-decode-components/evidence/physical-result.md`
+
+### Same-process TTFT control diagnostic
+
+The package provides `qwen36-p150x2-ttft-control`. It keeps one loaded model and compares stable request-sized and trace-capacity KV cache sets. It also compares full-capacity prefill before, during, and after a parked decode trace.
+
+The final physical run used six balanced roots with five retained samples per root. Every sample returned token `11751`. The observed TTFT ratios were:
+
+- trace-capacity cache over request cache: `1.0062416611969702`;
+- parked trace over untraced capacity cache: `0.9951621585112468`; and
+- parked capacity route over request route: `1.0013736235407196`.
+
+All TTFT ratios stayed below `1.05`. All TTFT root and duplicate spreads stayed within `1.25`. The strict control still failed because readback spread exceeded `1.25` in roots `3`, `4`, and `6`.
+
+TT-Metal also warned about buffer allocation while the decode trace was active. The control did not execute that trace. The result therefore makes no post-prefill trace-correctness claim.
+
+No mechanism or optimization was selected. The result does not admit traced decode, and production remains eager.
+
+A later device-free pass hardened invalid-profile and allocation-failure paths. The outage budget was exhausted, so that hardened package has no new physical claim.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-traced-ttft-control-receipt.json`
+- receipt BLAKE3: `fd127f0cf88d8393487dc95949b072f334037ab2cf3459db914db7e93660f759`
+- `cairn/archive/2026-08-22-isolate-qwen38-traced-ttft/evidence/physical-result.md`
 
 ## Serialized P150x2 service
 
