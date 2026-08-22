@@ -33,6 +33,14 @@ from .mtp_selection_core import (
     MtpSelectionSample,
     evaluate_mtp_selection,
 )
+from .mtp_trace_core import (
+    EAGER_DRAFT,
+    TRACED_DRAFT,
+    MtpTracePolicyError,
+    MtpTraceProfile,
+    MtpTraceSample,
+    evaluate_mtp_trace,
+)
 
 RECEIPT_SCHEMA_VERSION = 1
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
@@ -49,9 +57,11 @@ MODEL_ALIAS = "Qwen3.8-27B"
 SMOKE_MEASUREMENT_MODE = "diagnostic-mtp-drafter-smoke"
 PILOT_MEASUREMENT_MODE = "diagnostic-mtp-drafter-pilot"
 SELECTION_MEASUREMENT_MODE = "diagnostic-mtp-draft-selection"
+TRACE_MEASUREMENT_MODE = "diagnostic-mtp-draft-trace"
 SMOKE_MODE = "smoke"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
+TRACE_MODE = "trace"
 VLLM_REFERENCE_REVISION = "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
 SGLANG_REFERENCE_REVISION = "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3"
 
@@ -66,12 +76,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decode-profile", required=True)
     parser.add_argument("--mtp-drafter-profile", required=True)
     parser.add_argument("--mtp-selection-profile")
+    parser.add_argument("--mtp-trace-profile")
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--mode",
-        choices=(SMOKE_MODE, PILOT_MODE, SELECTION_MODE),
+        choices=(SMOKE_MODE, PILOT_MODE, SELECTION_MODE, TRACE_MODE),
         default=SMOKE_MODE,
     )
     parser.add_argument(
@@ -103,6 +114,7 @@ def main() -> None:
     decode_profile = _load_decode_profile(decode_profile_path)
     drafter_profile = _load_drafter_profile(drafter_profile_path)
     selection_profile = None
+    trace_profile = None
     if args.mode == SELECTION_MODE:
         if args.mtp_selection_profile is None:
             raise SystemExit("--mtp-selection-profile is required in selection mode")
@@ -115,6 +127,18 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
+    if args.mode == TRACE_MODE:
+        if args.mtp_trace_profile is None:
+            raise SystemExit("--mtp-trace-profile is required in trace mode")
+        trace_profile = _load_trace_profile(
+            _existing_absolute_file(
+                args.mtp_trace_profile,
+                "--mtp-trace-profile",
+            )
+        )
+        _require_trace_profile_match(drafter_profile, trace_profile)
+    elif args.mtp_trace_profile is not None:
+        raise SystemExit("--mtp-trace-profile requires trace mode")
     if model_path.name != drafter_profile.checkpoint_revision:
         raise SystemExit("model path does not match the MTP drafter checkpoint")
     if decode_profile.authority_blake3 != drafter_profile.authority_blake3:
@@ -148,6 +172,7 @@ def main() -> None:
     smoke_result = None
     pilot_results = None
     selection_results = None
+    trace_results = None
     cleanup_complete = False
     identity = MtpDrafterIdentity(
         runtime_identity=args.runtime_identity,
@@ -193,6 +218,7 @@ def main() -> None:
             decode_adapter=decode_adapter,
             model_path=model_path,
             profile=drafter_profile,
+            trace_profile=trace_profile,
         )
         if args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
@@ -215,7 +241,7 @@ def main() -> None:
                 adapter.run_pilot(tokens, selector_mode=args.selector_mode)
                 for tokens in prompt_token_rows
             )
-        else:
+        elif args.mode == SELECTION_MODE:
             assert selection_profile is not None
             prompt_token_rows = tuple(
                 tokenizer(
@@ -241,6 +267,44 @@ def main() -> None:
                         adapter.run_pilot(tokens, selector_mode=route),
                     ))
             selection_results = tuple(measured)
+        else:
+            assert trace_profile is not None
+            prompt_token_rows = tuple(
+                tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    add_special_tokens=True,
+                ).input_ids.to(torch.int32)
+                for prompt in trace_profile.prompts
+            )
+            for tokens in prompt_token_rows:
+                adapter.run_pilot(
+                    tokens,
+                    selector_mode=SHARD_LOCAL_TOP1,
+                    draft_execution_mode=EAGER_DRAFT,
+                )
+                adapter.run_pilot(
+                    tokens,
+                    selector_mode=SHARD_LOCAL_TOP1,
+                    draft_execution_mode=TRACED_DRAFT,
+                )
+            measured = []
+            for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
+                for root_index, route in enumerate(
+                    trace_profile.route_schedule,
+                    start=1,
+                ):
+                    measured.append((
+                        prompt_index,
+                        root_index,
+                        route,
+                        adapter.run_pilot(
+                            tokens,
+                            selector_mode=SHARD_LOCAL_TOP1,
+                            draft_execution_mode=route,
+                        ),
+                    ))
+            trace_results = tuple(measured)
     finally:
         if decode_adapter is not None:
             decode_adapter.close()
@@ -282,9 +346,13 @@ def main() -> None:
         "mesh_shape": [MESH_ROWS, MESH_COLUMNS],
         "host_cpu_affinity": sorted(os.sched_getaffinity(0)),
         "profile_id": (
-            selection_profile.profile_id
-            if selection_profile is not None
-            else drafter_profile.profile_id
+            trace_profile.profile_id
+            if trace_profile is not None
+            else (
+                selection_profile.profile_id
+                if selection_profile is not None
+                else drafter_profile.profile_id
+            )
         ),
     }
     if args.mode == SMOKE_MODE:
@@ -374,7 +442,7 @@ def main() -> None:
                 "Trace-capture setup is diagnostic and excluded from replay economics.",
             ],
         }
-    else:
+    elif args.mode == SELECTION_MODE:
         assert selection_profile is not None
         expected_result_count = len(selection_profile.prompts) * len(
             selection_profile.route_schedule
@@ -443,6 +511,77 @@ def main() -> None:
                 "The control does not apply to batching, TP4, or long context.",
             ],
         }
+    else:
+        assert trace_profile is not None
+        expected_result_count = len(trace_profile.prompts) * len(
+            trace_profile.route_schedule
+        )
+        if trace_results is None or len(trace_results) != expected_result_count:
+            raise MtpDrafterCommandError(
+                "MTP trace control produced incomplete results"
+            )
+        trace_samples = tuple(
+            MtpTraceSample(
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+                identity=identity,
+                physical_pcie_device_ids=trace_profile.expected_pcie_device_ids,
+                draft_token_ids=result.draft_token_ids,
+                target_token_ids=result.target_token_ids,
+                accepted_prefix_length=result.accepted_prefix_length,
+                mtp_prefill_seconds=result.mtp_prefill_seconds,
+                draft_decode_seconds=result.draft_decode_seconds,
+                draft_selection_seconds=result.draft_selection_seconds,
+                trace_capture_seconds=result.draft_trace_capture_seconds,
+                target_sequential_seconds=result.target_sequential_seconds,
+                target_verification_seconds=result.target_verification_seconds,
+                target_verification_readback_seconds=(
+                    result.target_verification_readback_seconds
+                ),
+                rollback_seconds=result.rollback_seconds,
+                mtp_cache_recovery_seconds=result.mtp_cache_reprefill_seconds,
+                trace_binding_valid=result.trace_binding_valid,
+                capture_idempotence_valid=result.capture_idempotence_valid,
+                mtp_kv_prefix_valid=result.mtp_kv_prefix_valid,
+                rollback_valid=result.rollback_valid,
+                target_output_valid=result.target_output_valid,
+            )
+            for prompt_index, root_index, route, result in trace_results
+        )
+        trace_decision = evaluate_mtp_trace(trace_profile, identity, trace_samples)
+        first_result = trace_results[0][3]
+        receipt = {
+            **common_receipt,
+            "measurement_mode": TRACE_MEASUREMENT_MODE,
+            "smoke_only": False,
+            "warmup_discarded": True,
+            "selector_mode": SHARD_LOCAL_TOP1,
+            "route_schedule": list(trace_profile.route_schedule),
+            "minimum_samples_per_route": (trace_profile.minimum_samples_per_route),
+            "samples": [
+                _pilot_result_mapping(
+                    prompt_index,
+                    result,
+                    root_index=root_index,
+                    route=route,
+                )
+                for prompt_index, root_index, route, result in trace_results
+            ],
+            "weight_shapes": {
+                name: list(shape)
+                for name, shape in sorted(first_result.weight_shapes.items())
+            },
+            "decision": trace_decision.to_mapping(),
+            "traced_drafting_selected": trace_decision.traced_drafting_selected,
+            "mtp_selected": False,
+            "blockers": list(trace_decision.blockers),
+            "non_claims": [
+                "Trace evidence does not admit MTP or traced target decode.",
+                "Capture time is recorded and excluded from replay economics.",
+                "The control does not establish rejected-row overwrite or multi-round economics.",
+            ],
+        }
     _write_receipt(output_path, receipt)
     print(json.dumps(receipt, sort_keys=True))
 
@@ -455,7 +594,7 @@ def _pilot_result_mapping(
     route: str | None = None,
 ) -> dict[str, object]:
     if (root_index is None) != (route is None):
-        raise MtpDrafterCommandError("selector root metadata is incomplete")
+        raise MtpDrafterCommandError("paired root metadata is incomplete")
     total_draft_seconds = result.mtp_prefill_seconds + result.draft_decode_seconds
     mapping: dict[str, object] = {
         "prompt_index": prompt_index,
@@ -470,6 +609,12 @@ def _pilot_result_mapping(
         "draft_selection_seconds": result.draft_selection_seconds,
         "draft_compute_seconds": total_draft_seconds - result.draft_selection_seconds,
         "total_draft_seconds": total_draft_seconds,
+        "draft_execution_mode": result.draft_execution_mode,
+        "draft_trace_capture_seconds": result.draft_trace_capture_seconds,
+        "draft_trace_binding": result.draft_trace_binding,
+        "trace_binding_valid": result.trace_binding_valid,
+        "capture_idempotence_valid": result.capture_idempotence_valid,
+        "mtp_kv_prefix_valid": result.mtp_kv_prefix_valid,
         "target_sequential_seconds": result.target_sequential_seconds,
         "target_verification_trace_capture_seconds": (
             result.target_verification_trace_capture_seconds
@@ -520,6 +665,14 @@ def _load_selection_profile(path: Path) -> MtpSelectionProfile:
         raise SystemExit(f"MTP selection profile is invalid: {error}") from error
 
 
+def _load_trace_profile(path: Path) -> MtpTraceProfile:
+    try:
+        with path.open(encoding="utf-8") as profile_file:
+            return MtpTraceProfile.from_mapping(json.load(profile_file))
+    except (MtpTracePolicyError, OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"MTP trace profile is invalid: {error}") from error
+
+
 def _require_selection_profile_match(
     drafter: MtpDrafterProfile,
     selection: MtpSelectionProfile,
@@ -540,6 +693,28 @@ def _require_selection_profile_match(
     for drafter_value, selection_value, label in comparisons:
         if drafter_value != selection_value:
             raise SystemExit(f"MTP drafter and selection {label} differ")
+
+
+def _require_trace_profile_match(
+    drafter: MtpDrafterProfile,
+    trace: MtpTraceProfile,
+) -> None:
+    comparisons = (
+        (drafter.authority_blake3, trace.authority_blake3, "authority"),
+        (drafter.checkpoint_revision, trace.checkpoint_revision, "checkpoint"),
+        (drafter.model_source_revision, trace.model_source_revision, "source"),
+        (drafter.tokenizer_revision, trace.tokenizer_revision, "tokenizer"),
+        (
+            drafter.expected_pcie_device_ids,
+            trace.expected_pcie_device_ids,
+            "physical devices",
+        ),
+        (drafter.draft_token_count, trace.draft_token_count, "draft count"),
+        (drafter.prompts, trace.prompts, "prompts"),
+    )
+    for drafter_value, trace_value, label in comparisons:
+        if drafter_value != trace_value:
+            raise SystemExit(f"MTP drafter and trace {label} differ")
 
 
 def _existing_absolute_directory(value: str, name: str) -> Path:

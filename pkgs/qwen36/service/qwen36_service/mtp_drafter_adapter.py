@@ -33,6 +33,8 @@ from .mtp_probe_adapter import (
     snapshot_tp_paged_kv,
 )
 from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
+from .mtp_trace_adapter import TracedMtpDraftAdapter
+from .mtp_trace_core import EAGER_DRAFT, TRACED_DRAFT, MtpTraceProfile
 from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
 
 PROBE_BATCH_SIZE = 1
@@ -67,6 +69,20 @@ class MtpDrafterSmokeResult:
 
 
 @dataclass(frozen=True)
+class MtpDraftRunResult:
+    token_ids: tuple[int, ...]
+    mtp_prefill_seconds: float
+    draft_decode_seconds: float
+    draft_selection_seconds: float
+    draft_execution_mode: str
+    draft_trace_capture_seconds: float
+    draft_trace_binding: dict[str, Any] | None
+    trace_binding_valid: bool
+    capture_idempotence_valid: bool
+    mtp_kv_prefix_valid: bool
+
+
+@dataclass(frozen=True)
 class MtpDrafterPilotResult:
     anchor_token_id: int
     draft_token_ids: tuple[int, ...]
@@ -77,6 +93,12 @@ class MtpDrafterPilotResult:
     mtp_prefill_seconds: float
     draft_decode_seconds: float
     draft_selection_seconds: float
+    draft_execution_mode: str
+    draft_trace_capture_seconds: float
+    draft_trace_binding: dict[str, Any] | None
+    trace_binding_valid: bool
+    capture_idempotence_valid: bool
+    mtp_kv_prefix_valid: bool
     target_sequential_seconds: float
     target_verification_trace_capture_seconds: float
     target_verification_seconds: float
@@ -105,6 +127,7 @@ class MtpDrafterAdapter:
         decode_adapter: TracedDecodeAdapter,
         model_path: Path,
         profile: MtpDrafterProfile,
+        trace_profile: MtpTraceProfile | None = None,
     ) -> None:
         if model.num_devices != len(profile.expected_pcie_device_ids):
             raise MtpDrafterAdapterError("MTP drafter device count differs from policy")
@@ -112,6 +135,7 @@ class MtpDrafterAdapter:
         self.decode_adapter = decode_adapter
         self.model_path = model_path
         self.profile = profile
+        self.trace_profile = trace_profile
         self.mesh = model.mesh_device
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
@@ -153,17 +177,13 @@ class MtpDrafterAdapter:
             prompt_length,
         )
         try:
-            (
-                draft_tokens,
-                mtp_prefill_seconds,
-                draft_decode_seconds,
-                draft_selection_seconds,
-            ) = self._draft(
+            draft_result = self._draft(
                 prompt_tokens,
                 target_hidden,
                 anchor,
                 prompt_length,
                 selector_mode=selector_mode,
+                draft_execution_mode=EAGER_DRAFT,
             )
         finally:
             ttnn.deallocate(target_hidden)
@@ -184,15 +204,15 @@ class MtpDrafterAdapter:
             or target_sequential_seconds <= 0
         ):
             raise MtpDrafterAdapterError("target sequential duration is invalid")
-        accepted = accepted_prefix_length(draft_tokens, target_tokens)
+        accepted = accepted_prefix_length(draft_result.token_ids, target_tokens)
         return MtpDrafterSmokeResult(
             anchor_token_id=anchor,
-            draft_token_ids=draft_tokens,
+            draft_token_ids=draft_result.token_ids,
             target_token_ids=tuple(target_tokens),
             accepted_prefix_length=accepted,
-            mtp_prefill_seconds=mtp_prefill_seconds,
-            draft_decode_seconds=draft_decode_seconds,
-            draft_selection_seconds=draft_selection_seconds,
+            mtp_prefill_seconds=draft_result.mtp_prefill_seconds,
+            draft_decode_seconds=draft_result.draft_decode_seconds,
+            draft_selection_seconds=draft_result.draft_selection_seconds,
             target_sequential_seconds=target_sequential_seconds,
             weight_shapes=dict(self._weight_shapes),
         )
@@ -202,10 +222,15 @@ class MtpDrafterAdapter:
         prompt_tokens: torch.Tensor,
         *,
         selector_mode: str = FULL_LOGIT_READBACK,
+        draft_execution_mode: str = EAGER_DRAFT,
     ) -> MtpDrafterPilotResult:
         """Measure one complete draft and native target-verification round."""
         if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
             raise MtpDrafterAdapterError("MTP selector mode is unsupported")
+        if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
+            raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
+        if draft_execution_mode == TRACED_DRAFT and self.trace_profile is None:
+            raise MtpDrafterAdapterError("MTP trace profile is required")
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -227,17 +252,13 @@ class MtpDrafterAdapter:
             prompt_length,
         )
         try:
-            (
-                draft_tokens,
-                mtp_prefill_seconds,
-                draft_decode_seconds,
-                draft_selection_seconds,
-            ) = self._draft(
+            draft_result = self._draft(
                 prompt_tokens,
                 target_hidden,
                 anchor,
                 prompt_length,
                 selector_mode=selector_mode,
+                draft_execution_mode=draft_execution_mode,
             )
         finally:
             ttnn.deallocate(target_hidden)
@@ -275,7 +296,7 @@ class MtpDrafterAdapter:
 
         target_outputs = tuple(sequential_outputs)
         target_tokens = target_outputs[: self.profile.draft_token_count]
-        accepted = accepted_prefix_length(draft_tokens, target_tokens)
+        accepted = accepted_prefix_length(draft_result.token_ids, target_tokens)
         committed_width = accepted + PROBE_BATCH_SIZE
         rollback_applied = accepted < self.profile.draft_token_count
         expected_state = None
@@ -342,7 +363,7 @@ class MtpDrafterAdapter:
                     anchor=anchor,
                     prompt_length=prompt_length,
                     accepted_prefix_length=accepted,
-                    expected_draft_tokens=draft_tokens,
+                    expected_draft_tokens=draft_result.token_ids,
                     selector_mode=selector_mode,
                 )
                 rollback_valid = (
@@ -363,14 +384,20 @@ class MtpDrafterAdapter:
 
         return MtpDrafterPilotResult(
             anchor_token_id=anchor,
-            draft_token_ids=draft_tokens,
+            draft_token_ids=draft_result.token_ids,
             target_token_ids=target_tokens,
             target_continuation_token_id=target_outputs[-1],
             target_verification_token_ids=verification.token_ids,
             accepted_prefix_length=accepted,
-            mtp_prefill_seconds=mtp_prefill_seconds,
-            draft_decode_seconds=draft_decode_seconds,
-            draft_selection_seconds=draft_selection_seconds,
+            mtp_prefill_seconds=draft_result.mtp_prefill_seconds,
+            draft_decode_seconds=draft_result.draft_decode_seconds,
+            draft_selection_seconds=draft_result.draft_selection_seconds,
+            draft_execution_mode=draft_result.draft_execution_mode,
+            draft_trace_capture_seconds=draft_result.draft_trace_capture_seconds,
+            draft_trace_binding=draft_result.draft_trace_binding,
+            trace_binding_valid=draft_result.trace_binding_valid,
+            capture_idempotence_valid=draft_result.capture_idempotence_valid,
+            mtp_kv_prefix_valid=draft_result.mtp_kv_prefix_valid,
             target_sequential_seconds=target_sequential_seconds,
             target_verification_trace_capture_seconds=(
                 verification.trace_capture_seconds
@@ -552,9 +579,20 @@ class MtpDrafterAdapter:
         prompt_length: int,
         *,
         selector_mode: str,
-    ) -> tuple[tuple[int, ...], float, float, float]:
+        draft_execution_mode: str,
+    ) -> MtpDraftRunResult:
+        if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
+            raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
+        if draft_execution_mode == TRACED_DRAFT:
+            if selector_mode != SHARD_LOCAL_TOP1:
+                raise MtpDrafterAdapterError(
+                    "traced MTP drafting requires shard-local selection"
+                )
+            if self.trace_profile is None:
+                raise MtpDrafterAdapterError("MTP trace profile is required")
+
         prefill_started = time.monotonic()
-        first_draft, feedback, draft_selection_seconds = self._mtp_prefill(
+        first_draft, feedback, first_selection_seconds = self._mtp_prefill(
             prompt_tokens,
             target_hidden,
             anchor,
@@ -562,26 +600,63 @@ class MtpDrafterAdapter:
             selector_mode=selector_mode,
         )
         mtp_prefill_seconds = time.monotonic() - prefill_started
-
         drafts = [first_draft]
-        draft_started = time.monotonic()
-        current = first_draft
-        for step in range(self.profile.draft_token_count - PROBE_BATCH_SIZE):
-            current, next_feedback, selection_seconds = self._draft_step(
-                current,
-                feedback,
-                prompt_length + step,
-                selector_mode=selector_mode,
+        trace_capture_seconds = ZERO_DURATION_SECONDS
+        trace_binding = None
+        trace_binding_valid = True
+        capture_idempotence_valid = True
+        mtp_kv_prefix_valid = True
+
+        if draft_execution_mode == TRACED_DRAFT:
+            assert self.trace_profile is not None
+            trace_adapter = TracedMtpDraftAdapter(
+                owner=self,
+                maximum_trace_capture_seconds=(
+                    self.trace_profile.maximum_trace_capture_seconds
+                ),
             )
-            draft_selection_seconds += selection_seconds
-            ttnn.deallocate(feedback)
-            feedback = next_feedback
-            drafts.append(current)
-        ttnn.deallocate(feedback)
-        draft_decode_seconds = time.monotonic() - draft_started
+            try:
+                replay = trace_adapter.run(
+                    initial_token=first_draft,
+                    initial_feedback=feedback,
+                    start_position=prompt_length,
+                    step_count=self.profile.draft_token_count - PROBE_BATCH_SIZE,
+                )
+            finally:
+                ttnn.deallocate(feedback)
+            drafts.extend(replay.token_ids)
+            draft_decode_seconds = replay.draft_decode_seconds
+            draft_selection_seconds = (
+                first_selection_seconds + replay.draft_selection_seconds
+            )
+            trace_capture_seconds = replay.trace_capture_seconds
+            trace_binding = replay.binding.to_mapping()
+            trace_binding_valid = replay.trace_binding_valid
+            capture_idempotence_valid = replay.capture_idempotence_valid
+            mtp_kv_prefix_valid = replay.mtp_kv_prefix_valid
+        else:
+            draft_started = time.monotonic()
+            current = first_draft
+            draft_selection_seconds = first_selection_seconds
+            try:
+                for step in range(self.profile.draft_token_count - PROBE_BATCH_SIZE):
+                    current, next_feedback, selection_seconds = self._draft_step(
+                        current,
+                        feedback,
+                        prompt_length + step,
+                        selector_mode=selector_mode,
+                    )
+                    draft_selection_seconds += selection_seconds
+                    ttnn.deallocate(feedback)
+                    feedback = next_feedback
+                    drafts.append(current)
+            finally:
+                ttnn.deallocate(feedback)
+            draft_decode_seconds = time.monotonic() - draft_started
+
         total_draft_seconds = mtp_prefill_seconds + draft_decode_seconds
         if any(
-            not math.isfinite(value) or value <= 0
+            not math.isfinite(value) or value <= ZERO_DURATION_SECONDS
             for value in (
                 mtp_prefill_seconds,
                 draft_decode_seconds,
@@ -591,11 +666,19 @@ class MtpDrafterAdapter:
             raise MtpDrafterAdapterError("MTP drafter duration is invalid")
         if draft_selection_seconds > total_draft_seconds:
             raise MtpDrafterAdapterError("MTP selection exceeds total draft duration")
-        return (
-            tuple(drafts),
-            mtp_prefill_seconds,
-            draft_decode_seconds,
-            draft_selection_seconds,
+        if len(drafts) != self.profile.draft_token_count:
+            raise MtpDrafterAdapterError("MTP drafter returned the wrong token count")
+        return MtpDraftRunResult(
+            token_ids=tuple(drafts),
+            mtp_prefill_seconds=mtp_prefill_seconds,
+            draft_decode_seconds=draft_decode_seconds,
+            draft_selection_seconds=draft_selection_seconds,
+            draft_execution_mode=draft_execution_mode,
+            draft_trace_capture_seconds=trace_capture_seconds,
+            draft_trace_binding=trace_binding,
+            trace_binding_valid=trace_binding_valid,
+            capture_idempotence_valid=capture_idempotence_valid,
+            mtp_kv_prefix_valid=mtp_kv_prefix_valid,
         )
 
     def _rebuild_mtp_cache(

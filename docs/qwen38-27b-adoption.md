@@ -80,6 +80,7 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
   admit MTP or change production behavior.
 - `qwen36-p150x2-mtp-drafter-probe` — diagnostic checkpoint drafter and rollback probe.
 - `qwen36-p150x2-mtp-selection-probe` — paired full-logit and bounded draft-selector control.
+- `qwen36-p150x2-mtp-trace-probe` — paired eager and persistent-trace MTP draft control.
 - `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
   it cannot select production behavior.
 - `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
@@ -400,7 +401,7 @@ The complete candidate remained invalid:
 - prompt 2 accepted zero drafts; and
 - most duplicate prompt-route groups exceeded the `1.25` stability bound.
 
-The implementation removes full-vocabulary draft readback. Unstable roots prevent a validated speedup claim. The next candidate must trace the fixed-shape MTP draft step and replace cache re-prefill with KV snapshot restore. Calibrated confidence can then choose zero, one, or three drafts.
+The implementation removes full-vocabulary draft readback. Unstable roots prevent a validated speedup claim. The next candidate traces the fixed-shape MTP draft step. Package source shows that later cache rows use explicit positions, but rejected-row overwrite still needs separate physical proof.
 
 MTP, traced decode, and production behavior remain unselected.
 
@@ -409,6 +410,16 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-selection-receipt.json`
 - receipt BLAKE3: `b0e0eb8df13fe8db1667cca7d82973cb069596675bdf50a5857b9f67e995d923`
 - `cairn/archive/2026-08-22-optimize-qwen38-mtp-draft-selection/evidence/physical-result.md`
+
+### MTP draft-trace diagnostic
+
+The package provides `qwen36-p150x2-mtp-trace-probe`. It compares eager draft decode with a persistent trace that includes embedding, input fusion, the MTP layer, final normalization, shard-local LM-head projection, and bounded top-one reduction.
+
+The trace owns stable token, position, RoPE, feedback, MTP KV-cache, and output bindings. Warmup and capture compare the same MTP KV row and feedback output exactly. Capture time is recorded and excluded from replay economics.
+
+The profile retains six roots per route and prompt in three `eager,traced,traced,eager` blocks. The evaluator rejects address drift, capture mutation, token drift, target drift, rollback failure, timing spread above `1.25`, traced/eager draft ratio above `0.95`, or aggregate speedup at or below `1.0`.
+
+Device-free package and policy checks pass. No physical receipt exists yet. The control cannot select traced drafting until an authorized P150x2 outage produces matched evidence. It does not prove rejected-row overwrite or multi-round MTP rollback.
 
 ### Decode component replay diagnostic
 

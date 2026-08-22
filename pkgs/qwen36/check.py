@@ -1648,6 +1648,278 @@ def probe_mtp_draft_selection():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_draft_trace]
+def probe_mtp_draft_trace():
+    """Positive and negative tests for matched MTP draft traces."""
+    from dataclasses import replace
+
+    from qwen36_service.mtp_drafter_core import MtpDrafterIdentity
+    from qwen36_service.mtp_trace_core import (
+        EAGER_DRAFT,
+        TRACED_DRAFT,
+        MtpTraceBinding,
+        MtpTracePolicyError,
+        MtpTraceProfile,
+        MtpTraceSample,
+        evaluate_mtp_trace,
+        validate_mtp_trace_binding,
+    )
+
+    profile_source = json.loads(
+        Path(__file__).with_name("mtp-trace-profile.json").read_text()
+    )
+    profile = MtpTraceProfile.from_mapping(profile_source)
+    binding = MtpTraceBinding(
+        token_buffer_identity="token",
+        position_buffer_identity="position",
+        rope_buffer_identity="rope",
+        feedback_buffer_identity="feedback",
+        kv_buffer_identity="kv",
+        feedback_output_identity="feedback-output",
+        index_output_identity="index-output",
+        value_output_identity="value-output",
+        feedback_output_shape=(1, 1, 1, 1),
+        feedback_output_dtype="bfloat16",
+        index_output_shape=(1,),
+        index_output_dtype="uint32",
+        value_output_shape=(1,),
+        value_output_dtype="bfloat16",
+    )
+    require(
+        not validate_mtp_trace_binding(binding, binding),
+        "stable MTP trace binding reported drift",
+    )
+    drifted_binding = replace(binding, token_buffer_identity="changed-token")
+    require(
+        validate_mtp_trace_binding(binding, drifted_binding)
+        == ("token_buffer_identity",),
+        "MTP trace binding drift used the wrong field",
+    )
+    identity = MtpDrafterIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity="model-test",
+    )
+    first_draft_token_id = 10
+    draft_tokens = tuple(
+        range(first_draft_token_id, first_draft_token_id + profile.draft_token_count)
+    )
+    root_variation = 0.005
+    prompt_variation = 0.002
+    eager_prefill_seconds = 0.02
+    eager_draft_seconds = 0.06
+    eager_selection_seconds = 0.012
+    traced_prefill_seconds = 0.02
+    traced_draft_seconds = 0.03
+    traced_selection_seconds = 0.008
+    trace_capture_seconds = 5.0
+    target_sequential_seconds = 0.40
+    target_verification_seconds = 0.07
+    target_readback_seconds = 0.003
+    samples = []
+    for prompt_index in range(1, profile.minimum_prompt_count + 1):
+        for root_index, route in enumerate(profile.route_schedule, start=1):
+            scale = (
+                1.0
+                + root_variation * (root_index - 1)
+                + prompt_variation * (prompt_index - 1)
+            )
+            if route == EAGER_DRAFT:
+                mtp_prefill_seconds = eager_prefill_seconds * scale
+                draft_decode_seconds = eager_draft_seconds * scale
+                draft_selection_seconds = eager_selection_seconds * scale
+                capture_seconds = 0.0
+            else:
+                mtp_prefill_seconds = traced_prefill_seconds * scale
+                draft_decode_seconds = traced_draft_seconds * scale
+                draft_selection_seconds = traced_selection_seconds * scale
+                capture_seconds = trace_capture_seconds * scale
+            samples.append(
+                MtpTraceSample(
+                    prompt_index=prompt_index,
+                    root_index=root_index,
+                    route=route,
+                    identity=identity,
+                    physical_pcie_device_ids=profile.expected_pcie_device_ids,
+                    draft_token_ids=draft_tokens,
+                    target_token_ids=draft_tokens,
+                    accepted_prefix_length=profile.draft_token_count,
+                    mtp_prefill_seconds=mtp_prefill_seconds,
+                    draft_decode_seconds=draft_decode_seconds,
+                    draft_selection_seconds=draft_selection_seconds,
+                    trace_capture_seconds=capture_seconds,
+                    target_sequential_seconds=target_sequential_seconds * scale,
+                    target_verification_seconds=target_verification_seconds * scale,
+                    target_verification_readback_seconds=(
+                        target_readback_seconds * scale
+                    ),
+                    rollback_seconds=0.0,
+                    mtp_cache_recovery_seconds=0.0,
+                    trace_binding_valid=True,
+                    capture_idempotence_valid=True,
+                    mtp_kv_prefix_valid=True,
+                    rollback_valid=True,
+                    target_output_valid=True,
+                )
+            )
+
+    decision = evaluate_mtp_trace(profile, identity, samples)
+    require(decision.trace_valid, f"valid MTP trace rejected: {decision.reasons}")
+    require(decision.traced_drafting_selected, "valid MTP trace was not selected")
+    require(not decision.admission_eligible, "MTP trace evidence admitted production")
+    require(
+        decision.traced_draft_ratio < profile.maximum_traced_draft_ratio,
+        "traced MTP draft did not satisfy its gain gate",
+    )
+    require(
+        decision.aggregate_emitted_token_speedup
+        > profile.minimum_emitted_token_speedup,
+        "traced MTP draft did not satisfy aggregate economics",
+    )
+
+    incomplete = samples[:-1]
+    require(
+        "sample-count" in evaluate_mtp_trace(profile, identity, incomplete).reasons,
+        "incomplete MTP trace evidence was accepted",
+    )
+
+    binding_failure = list(samples)
+    binding_failure[1] = replace(binding_failure[1], trace_binding_valid=False)
+    require(
+        any(
+            "trace-binding" in reason
+            for reason in evaluate_mtp_trace(profile, identity, binding_failure).reasons
+        ),
+        "drifted MTP trace binding was accepted",
+    )
+
+    idempotence_failure = list(samples)
+    idempotence_failure[1] = replace(
+        idempotence_failure[1], capture_idempotence_valid=False
+    )
+    require(
+        any(
+            "capture-idempotence" in reason
+            for reason in evaluate_mtp_trace(
+                profile, identity, idempotence_failure
+            ).reasons
+        ),
+        "non-idempotent MTP trace capture was accepted",
+    )
+
+    cache_failure = list(samples)
+    cache_failure[1] = replace(cache_failure[1], mtp_kv_prefix_valid=False)
+    require(
+        any(
+            "mtp-kv-prefix" in reason
+            for reason in evaluate_mtp_trace(profile, identity, cache_failure).reasons
+        ),
+        "MTP KV-prefix mismatch was accepted",
+    )
+
+    route_mismatch = list(samples)
+    route_mismatch[1] = replace(
+        route_mismatch[1],
+        draft_token_ids=(first_draft_token_id + 1, *draft_tokens[1:]),
+    )
+    require(
+        any(
+            "route-parity" in reason
+            for reason in evaluate_mtp_trace(profile, identity, route_mismatch).reasons
+        ),
+        "MTP trace token mismatch was accepted",
+    )
+
+    instability_multiplier = 2.0
+    unstable = list(samples)
+    unstable[1] = replace(
+        unstable[1],
+        draft_decode_seconds=unstable[1].draft_decode_seconds * instability_multiplier,
+    )
+    require(
+        any(
+            "instability" in reason
+            for reason in evaluate_mtp_trace(profile, identity, unstable).reasons
+        ),
+        "unstable MTP trace roots were accepted",
+    )
+
+    slow_traced_seconds = eager_draft_seconds
+    slow = [
+        replace(sample, draft_decode_seconds=slow_traced_seconds)
+        if sample.route == TRACED_DRAFT
+        else sample
+        for sample in samples
+    ]
+    require(
+        "traced-draft-gain" in evaluate_mtp_trace(profile, identity, slow).reasons,
+        "slow traced MTP draft was accepted",
+    )
+
+    uneconomic_target_seconds = 0.05
+    uneconomic = [
+        replace(sample, target_sequential_seconds=uneconomic_target_seconds)
+        for sample in samples
+    ]
+    require(
+        "emitted-token-economics"
+        in evaluate_mtp_trace(profile, identity, uneconomic).reasons,
+        "uneconomic traced MTP draft was accepted",
+    )
+
+    eager_capture = list(samples)
+    eager_index = next(
+        index
+        for index, sample in enumerate(eager_capture)
+        if sample.route == EAGER_DRAFT
+    )
+    eager_capture[eager_index] = replace(
+        eager_capture[eager_index], trace_capture_seconds=trace_capture_seconds
+    )
+    require(
+        any(
+            "eager-trace-capture" in reason
+            for reason in evaluate_mtp_trace(profile, identity, eager_capture).reasons
+        ),
+        "eager root with trace capture was accepted",
+    )
+
+    invalid_profile = {**profile_source, "minimum_samples_per_route": 5}
+    try:
+        MtpTraceProfile.from_mapping(invalid_profile)
+    except MtpTracePolicyError as error:
+        require("sample count" in str(error), "wrong trace sample-count diagnostic")
+    else:
+        require(False, "weakened MTP trace sample count was accepted")
+
+    unknown_profile = {**profile_source, "unknown": True}
+    try:
+        MtpTraceProfile.from_mapping(unknown_profile)
+    except MtpTracePolicyError as error:
+        require("keys differ" in str(error), "wrong closed-profile diagnostic")
+    else:
+        require(False, "unknown MTP trace profile key was accepted")
+
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.mtp_trace_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    for required_symbol in (
+        "begin_trace_capture",
+        "end_trace_capture",
+        "execute_trace",
+        "release_trace",
+        "buffer_address",
+        "_snapshot_cache_row",
+    ):
+        require(
+            required_symbol in adapter_source,
+            f"MTP trace adapter lost {required_symbol}",
+        )
+
+
 # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
 def probe_decode_component_attribution():
     """Positive and negative tests for pure component attribution."""
@@ -2307,6 +2579,7 @@ def main():
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)
     probe("MTP draft selection", probe_mtp_draft_selection)
+    probe("MTP draft trace", probe_mtp_draft_trace)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)

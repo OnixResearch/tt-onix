@@ -119,6 +119,8 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-contracts.ncl} "$out/share/qwen36/mtp-drafter-contracts.ncl"
     cp ${./mtp-selection-profile.ncl} "$out/share/qwen36/mtp-selection-profile.ncl"
     cp ${./mtp-selection-contracts.ncl} "$out/share/qwen36/mtp-selection-contracts.ncl"
+    cp ${./mtp-trace-profile.ncl} "$out/share/qwen36/mtp-trace-profile.ncl"
+    cp ${./mtp-trace-contracts.ncl} "$out/share/qwen36/mtp-trace-contracts.ncl"
     cp ${./decode-component-profile.ncl} "$out/share/qwen36/decode-component-profile.ncl"
     cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
@@ -143,6 +145,11 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-export/mtp-selection-contracts.ncl
     nickel export --format json mtp-selection-profile-export/mtp-selection-profile.ncl \
       > "$out/share/qwen36/mtp-selection-profile.json"
+    mkdir -p mtp-trace-profile-export
+    cp ${./mtp-trace-profile.ncl} mtp-trace-profile-export/mtp-trace-profile.ncl
+    cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-export/mtp-trace-contracts.ncl
+    nickel export --format json mtp-trace-profile-export/mtp-trace-profile.ncl \
+      > "$out/share/qwen36/mtp-trace-profile.json"
     mkdir -p decode-component-profile-export
     cp ${./decode-component-profile.ncl} decode-component-profile-export/decode-component-profile.ncl
     cp ${./decode-component-contracts.ncl} decode-component-profile-export/decode-component-contracts.ncl
@@ -321,6 +328,32 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.mtp_draft_trace]
+    # This paired control traces only the diagnostic fixed-shape draft step.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-mtp-trace-probe" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.mtp_drafter" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--mtp-drafter-profile" \
+      --add-flags "$out/share/qwen36/mtp-drafter-profile.json" \
+      --add-flags "--mtp-trace-profile" \
+      --add-flags "$out/share/qwen36/mtp-trace-profile.json" \
+      --add-flags "--mode" \
+      --add-flags "trace" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # r[impl tenstorrent.qwen38_p150x2.decode_component_attribution]
     # This explicit command measures diagnostic component traces only.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-decode-component-probe" \
@@ -406,6 +439,8 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_selection_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
@@ -417,6 +452,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/mtp-selection-profile.json"
+    test -f "$out/share/qwen36/mtp-trace-profile.json"
     test -f "$out/share/qwen36/decode-component-profile.json"
     test -f "$out/share/qwen36/ttft-control-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
@@ -424,11 +460,13 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-trace-probe"
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     test -x "$out/bin/qwen36-p150x2-ttft-control"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-trace-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
 
@@ -559,6 +597,31 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-mtp-selection-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.mtp_draft_trace]
+    # Positive: the matched trace profile exports deterministically.
+    mkdir -p mtp-trace-profile-check
+    cp ${./mtp-trace-profile.ncl} mtp-trace-profile-check/mtp-trace-profile.ncl
+    cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-check/mtp-trace-contracts.ncl
+    nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-first.json
+    nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-second.json
+    cmp mtp-trace-profile-first.json mtp-trace-profile-second.json
+    cmp mtp-trace-profile-first.json "$out/share/qwen36/mtp-trace-profile.json"
+    grep -F '"minimum_samples_per_route": 6' mtp-trace-profile-first.json
+    grep -F '"maximum_traced_draft_ratio": 0.95' mtp-trace-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-trace-profile-first.json
+
+    # Negative: fewer retained samples must fail the typed trace contract.
+    mkdir -p mtp-trace-profile-negative/fixtures
+    cp ${./mtp-trace-profile.ncl} mtp-trace-profile-negative/mtp-trace-profile.ncl
+    cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-negative/mtp-trace-contracts.ncl
+    cp ${./fixtures/invalid-mtp-trace-profile.ncl} mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl
+    if nickel export --format json mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl \
+        > invalid-mtp-trace-profile.json 2> invalid-mtp-trace-profile.log; then
+      echo "invalid MTP trace profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-trace-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
     # Positive: component policy exports deterministically and binds authority.
