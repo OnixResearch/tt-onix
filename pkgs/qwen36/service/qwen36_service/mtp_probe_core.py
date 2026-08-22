@@ -10,12 +10,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-PROFILE_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
 EXPECTED_PCIE_DEVICE_IDS = (0, 1)
 EXPECTED_VERIFICATION_WIDTHS = (1, 2, 4)
-EXPECTED_MASKED_BUCKET_WIDTH = 128
+EXPECTED_EXECUTION_PATH = "traced-hybrid-packed-decode"
+EXPECTED_NATIVE_WIDTH_LIMIT = 4
 EXPECTED_MINIMUM_SAMPLES_PER_WIDTH = 5
 MINIMUM_STABILITY_RATIO = 1.0
+MINIMUM_AMORTIZATION_RATIO = 1.0
 MAXIMUM_PCC = 1.0
 MINIMUM_TOKEN_ID = 0
 FIRST_SAMPLE_INDEX = 1
@@ -44,11 +46,15 @@ class MtpProbeProfile:
     tokenizer_revision: str
     expected_pcie_device_ids: tuple[int, ...]
     verification_widths: tuple[int, ...]
-    masked_bucket_width: int
+    execution_path: str
+    native_width_limit: int
     minimum_samples_per_width: int
     minimum_state_pcc: float
     maximum_state_nmse: float
+    minimum_logits_pcc: float
+    maximum_logits_nmse: float
     maximum_sample_spread_ratio: float
+    minimum_end_to_end_amortization_ratio: float
     prompt: str
 
     @classmethod
@@ -63,11 +69,15 @@ class MtpProbeProfile:
                 "identities",
                 "expected_pcie_device_ids",
                 "verification_widths",
-                "masked_bucket_width",
+                "execution_path",
+                "native_width_limit",
                 "minimum_samples_per_width",
                 "minimum_state_pcc",
                 "maximum_state_nmse",
+                "minimum_logits_pcc",
+                "maximum_logits_nmse",
                 "maximum_sample_spread_ratio",
+                "minimum_end_to_end_amortization_ratio",
                 "prompt",
             },
             "MTP probe profile",
@@ -112,8 +122,11 @@ class MtpProbeProfile:
             verification_widths=_require_int_tuple(
                 source["verification_widths"], "verification_widths", allow_zero=False
             ),
-            masked_bucket_width=_require_positive_int(
-                source["masked_bucket_width"], "masked_bucket_width"
+            execution_path=_require_non_empty_string(
+                source["execution_path"], "execution_path"
+            ),
+            native_width_limit=_require_positive_int(
+                source["native_width_limit"], "native_width_limit"
             ),
             minimum_samples_per_width=_require_positive_int(
                 source["minimum_samples_per_width"], "minimum_samples_per_width"
@@ -124,8 +137,18 @@ class MtpProbeProfile:
             maximum_state_nmse=_require_non_negative_float(
                 source["maximum_state_nmse"], "maximum_state_nmse"
             ),
+            minimum_logits_pcc=_require_unit_float(
+                source["minimum_logits_pcc"], "minimum_logits_pcc"
+            ),
+            maximum_logits_nmse=_require_non_negative_float(
+                source["maximum_logits_nmse"], "maximum_logits_nmse"
+            ),
             maximum_sample_spread_ratio=_require_positive_float(
                 source["maximum_sample_spread_ratio"], "maximum_sample_spread_ratio"
+            ),
+            minimum_end_to_end_amortization_ratio=_require_positive_float(
+                source["minimum_end_to_end_amortization_ratio"],
+                "minimum_end_to_end_amortization_ratio",
             ),
             prompt=_require_non_empty_string(source["prompt"], "prompt"),
         )
@@ -137,16 +160,24 @@ class MtpProbeProfile:
             )
         if profile.verification_widths != EXPECTED_VERIFICATION_WIDTHS:
             raise MtpProbePolicyError("MTP target probing requires widths 1, 2, and 4")
-        if profile.masked_bucket_width != EXPECTED_MASKED_BUCKET_WIDTH:
+        if profile.execution_path != EXPECTED_EXECUTION_PATH:
             raise MtpProbePolicyError(
-                "MTP target probing requires the pinned 128-token bucket"
+                "MTP target probing requires the traced hybrid packed-decode path"
             )
+        if profile.native_width_limit != EXPECTED_NATIVE_WIDTH_LIMIT:
+            raise MtpProbePolicyError("native verifier width limit must be four")
+        if max(profile.verification_widths) > profile.native_width_limit:
+            raise MtpProbePolicyError("verification width exceeds the native limit")
         if profile.minimum_samples_per_width != EXPECTED_MINIMUM_SAMPLES_PER_WIDTH:
             raise MtpProbePolicyError(
                 "MTP target probing requires five samples per width"
             )
         if profile.maximum_sample_spread_ratio < MINIMUM_STABILITY_RATIO:
             raise MtpProbePolicyError("sample spread ratio cannot be less than one")
+        if profile.minimum_end_to_end_amortization_ratio < MINIMUM_AMORTIZATION_RATIO:
+            raise MtpProbePolicyError(
+                "end-to-end amortization ratio cannot be less than one"
+            )
         return profile
 
 
@@ -159,12 +190,17 @@ class MtpProbeSample:
     sequential_token_ids: tuple[int, ...]
     verification_token_ids: tuple[int, ...]
     sequential_seconds: float
+    verification_trace_capture_seconds: float
     verification_device_seconds: float
     verification_readback_seconds: float
+    logits_pcc: float
+    logits_nmse: float
     recurrent_state_pcc: float
     recurrent_state_nmse: float
     convolution_state_pcc: float
     convolution_state_nmse: float
+    paged_kv_state_pcc: float
+    paged_kv_state_nmse: float
 
 
 @dataclass(frozen=True)
@@ -172,6 +208,7 @@ class MtpWidthSummary:
     width: int
     sample_count: int
     median_sequential_seconds: float
+    median_verification_trace_capture_seconds: float
     median_verification_device_seconds: float
     median_verification_readback_seconds: float
     median_verification_end_to_end_seconds: float
@@ -180,16 +217,21 @@ class MtpWidthSummary:
     sequential_spread_ratio: float
     verification_device_spread_ratio: float
     verification_end_to_end_spread_ratio: float
+    minimum_logits_pcc: float
+    maximum_logits_nmse: float
     minimum_recurrent_state_pcc: float
     maximum_recurrent_state_nmse: float
     minimum_convolution_state_pcc: float
     maximum_convolution_state_nmse: float
+    minimum_paged_kv_state_pcc: float
+    maximum_paged_kv_state_nmse: float
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "width": self.width,
             "sample_count": self.sample_count,
             "median_sequential_seconds": self.median_sequential_seconds,
+            "median_verification_trace_capture_seconds": self.median_verification_trace_capture_seconds,
             "median_verification_device_seconds": self.median_verification_device_seconds,
             "median_verification_readback_seconds": self.median_verification_readback_seconds,
             "median_verification_end_to_end_seconds": self.median_verification_end_to_end_seconds,
@@ -198,10 +240,14 @@ class MtpWidthSummary:
             "sequential_spread_ratio": self.sequential_spread_ratio,
             "verification_device_spread_ratio": self.verification_device_spread_ratio,
             "verification_end_to_end_spread_ratio": self.verification_end_to_end_spread_ratio,
+            "minimum_logits_pcc": self.minimum_logits_pcc,
+            "maximum_logits_nmse": self.maximum_logits_nmse,
             "minimum_recurrent_state_pcc": self.minimum_recurrent_state_pcc,
             "maximum_recurrent_state_nmse": self.maximum_recurrent_state_nmse,
             "minimum_convolution_state_pcc": self.minimum_convolution_state_pcc,
             "maximum_convolution_state_nmse": self.maximum_convolution_state_nmse,
+            "minimum_paged_kv_state_pcc": self.minimum_paged_kv_state_pcc,
+            "maximum_paged_kv_state_nmse": self.maximum_paged_kv_state_nmse,
         }
 
 
@@ -268,6 +314,7 @@ def evaluate_mtp_probe(
                 _append_once(reasons, f"{width_label}-token-parity")
             durations = (
                 sample.sequential_seconds,
+                sample.verification_trace_capture_seconds,
                 sample.verification_device_seconds,
                 sample.verification_readback_seconds,
             )
@@ -275,14 +322,26 @@ def evaluate_mtp_probe(
                 valid_durations = False
                 _append_once(reasons, f"{width_label}-invalid-duration")
             state_values = (
+                sample.logits_pcc,
+                sample.logits_nmse,
                 sample.recurrent_state_pcc,
                 sample.recurrent_state_nmse,
                 sample.convolution_state_pcc,
                 sample.convolution_state_nmse,
+                sample.paged_kv_state_pcc,
+                sample.paged_kv_state_nmse,
             )
             if any(not math.isfinite(value) for value in state_values):
                 _append_once(reasons, f"{width_label}-non-finite-state-metric")
                 continue
+            if not 0 <= sample.logits_pcc <= MAXIMUM_PCC:
+                _append_once(reasons, f"{width_label}-invalid-logits-pcc")
+            elif sample.logits_pcc < profile.minimum_logits_pcc:
+                _append_once(reasons, f"{width_label}-logits-pcc")
+            if sample.logits_nmse < 0:
+                _append_once(reasons, f"{width_label}-invalid-logits-nmse")
+            elif sample.logits_nmse > profile.maximum_logits_nmse:
+                _append_once(reasons, f"{width_label}-logits-nmse")
             if not 0 <= sample.recurrent_state_pcc <= MAXIMUM_PCC:
                 _append_once(reasons, f"{width_label}-invalid-recurrent-state-pcc")
             elif sample.recurrent_state_pcc < profile.minimum_state_pcc:
@@ -299,19 +358,35 @@ def evaluate_mtp_probe(
                 _append_once(reasons, f"{width_label}-invalid-convolution-state-nmse")
             elif sample.convolution_state_nmse > profile.maximum_state_nmse:
                 _append_once(reasons, f"{width_label}-convolution-state-nmse")
+            if not 0 <= sample.paged_kv_state_pcc <= MAXIMUM_PCC:
+                _append_once(reasons, f"{width_label}-invalid-paged-kv-state-pcc")
+            elif sample.paged_kv_state_pcc < profile.minimum_state_pcc:
+                _append_once(reasons, f"{width_label}-paged-kv-state-pcc")
+            if sample.paged_kv_state_nmse < 0:
+                _append_once(reasons, f"{width_label}-invalid-paged-kv-state-nmse")
+            elif sample.paged_kv_state_nmse > profile.maximum_state_nmse:
+                _append_once(reasons, f"{width_label}-paged-kv-state-nmse")
 
         if width_samples and valid_durations:
             summary = _summarize_width(width, width_samples)
             summaries.append(summary)
+            # Full-logit host readback is diagnostic. A future MTP loop keeps
+            # target logits on device for acceptance, so stability gates the
+            # traced replay and its matched sequential baseline.
             spread_values = (
                 summary.sequential_spread_ratio,
                 summary.verification_device_spread_ratio,
-                summary.verification_end_to_end_spread_ratio,
             )
             if any(
                 value > profile.maximum_sample_spread_ratio for value in spread_values
             ):
                 _append_once(reasons, f"{width_label}-sample-instability")
+            if (
+                width == profile.native_width_limit
+                and summary.end_to_end_amortization_ratio
+                <= profile.minimum_end_to_end_amortization_ratio
+            ):
+                _append_once(reasons, f"{width_label}-no-amortization")
 
     target_verification_valid = not reasons
     blockers = [
@@ -334,6 +409,7 @@ def evaluate_mtp_probe(
 
 def _summarize_width(width: int, samples: Sequence[MtpProbeSample]) -> MtpWidthSummary:
     sequential = [sample.sequential_seconds for sample in samples]
+    trace_capture = [sample.verification_trace_capture_seconds for sample in samples]
     device = [sample.verification_device_seconds for sample in samples]
     readback = [sample.verification_readback_seconds for sample in samples]
     end_to_end = [
@@ -348,6 +424,7 @@ def _summarize_width(width: int, samples: Sequence[MtpProbeSample]) -> MtpWidthS
         width=width,
         sample_count=len(samples),
         median_sequential_seconds=median_sequential,
+        median_verification_trace_capture_seconds=statistics.median(trace_capture),
         median_verification_device_seconds=median_device,
         median_verification_readback_seconds=median_readback,
         median_verification_end_to_end_seconds=median_end_to_end,
@@ -356,6 +433,8 @@ def _summarize_width(width: int, samples: Sequence[MtpProbeSample]) -> MtpWidthS
         sequential_spread_ratio=_spread_ratio(sequential),
         verification_device_spread_ratio=_spread_ratio(device),
         verification_end_to_end_spread_ratio=_spread_ratio(end_to_end),
+        minimum_logits_pcc=min(sample.logits_pcc for sample in samples),
+        maximum_logits_nmse=max(sample.logits_nmse for sample in samples),
         minimum_recurrent_state_pcc=min(
             sample.recurrent_state_pcc for sample in samples
         ),
@@ -367,6 +446,10 @@ def _summarize_width(width: int, samples: Sequence[MtpProbeSample]) -> MtpWidthS
         ),
         maximum_convolution_state_nmse=max(
             sample.convolution_state_nmse for sample in samples
+        ),
+        minimum_paged_kv_state_pcc=min(sample.paged_kv_state_pcc for sample in samples),
+        maximum_paged_kv_state_nmse=max(
+            sample.paged_kv_state_nmse for sample in samples
         ),
     )
 

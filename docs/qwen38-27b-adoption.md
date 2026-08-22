@@ -324,38 +324,36 @@ Evidence:
 
 ### MTP target-verification diagnostic
 
-The package provides `qwen36-p150x2-mtp-probe` for an explicit physical diagnostic.
-The command compares traced sequential decode with teacher-forced widths `1`, `2`, and `4`.
-It uses five samples per width and checks target tokens, recurrent state, and convolution state.
-Production remains eager, and the diagnostic cannot admit MTP.
+The package provides `qwen36-p150x2-mtp-probe` for an explicit physical diagnostic. The command compares traced sequential decode with teacher-forced widths `1`, `2`, and `4`. It uses five samples per width.
 
-The packaged runtime does not expose a native short-width GDN verification operation.
-The probe therefore tested the existing 128-token masked fallback.
-It released the decode trace before verifier allocations and recaptured it for each sequential sample.
+The first 128-token masked fallback failed token parity, GDN state equivalence, stability, and performance. The pinned runtime still lacks the fused `ttnn.transformer.chunk_gated_delta_rule` operation.
 
-The 2026-08-21 P150x2 result rejected that fallback:
+The package now uses a pinned-runtime hybrid packed-decode verifier instead. It batches projections, MLPs, and the LM head across candidate positions. It preserves ordered high-precision GDN recurrence. It also serializes paged-KV writes when candidate rows share a physical block. The full width-specific model forward runs through one captured trace replay.
 
-- width-one target token: sequential `89454`, fallback `623`;
-- width-four median sequential time: `0.2376689650118351` seconds;
-- width-four median fallback time: `1.2836667579831555` seconds;
-- width-four end-to-end amortization ratio: `0.18514849242123463`;
-- width-four recurrent-state PCC/NMSE: `0.9940086238177922`/`0.018922876020279887`;
-- width-four convolution-state PCC/NMSE: `0.7756611409995481`/`0.5698385668219748`.
+The final 2026-08-22 P150x2 result validated this target-only base:
 
-The fallback failed token parity and state equivalence at every width.
-Each width also failed at least one `1.25` timing-spread check.
-It was about `5.40` times slower than four traced sequential steps at width four.
-MTP remains unselected and unadmitted.
+- target tokens matched exactly at widths `1`, `2`, and `4`;
+- full logits, recurrent state, convolution state, and written paged KV had PCC `1.0` and NMSE `0.0` in every sample;
+- width-four sequential median: `0.23198413103818893` seconds;
+- width-four verifier replay median: `0.10929988999851048` seconds;
+- width-four diagnostic readback median: `0.009195436985464767` seconds;
+- width-four device amortization: `2.122455302025925`;
+- width-four end-to-end amortization: `1.9469233481156285`;
+- sequential and replay spread ratios stayed within `1.25` at every width.
 
-A future MTP change needs a native short-width hybrid verifier.
-That verifier must preserve GDN recurrent and convolution state.
-It must also continue paged attention from non-block-aligned positions without trace-time allocation.
-Only then can a local drafter-acceptance test measure MTP economics.
+Full-logit host readback remains separately visible and diagnostic. A speculative loop must keep target logits on device for acceptance. The untraced hybrid route was exact but slower than sequential execution, so tracing is load-bearing.
+
+The valid target path does not select MTP. The checkpoint drafter, local acceptance, rejection rollback, emitted-token latency, and production admission remain unmeasured. Production remains eager.
+
+At width four, drafter generation plus acceptance has an approximate `0.11282991201733239`-second end-to-end budget before the iteration becomes slower than four ordinary traced steps.
 
 Evidence:
 
-- `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-mtp-target-verification-receipt.json`
-- receipt BLAKE3: `1750300f560a9f11bd479a057cf85d1f40a3dc51a73769de6600176f041dfe3a`
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-receipt.json`
+- final receipt BLAKE3: `2a4f171b36dcf31f4637d48706dfa3e037af100a5ca21bae91f47070b023ac19`
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-untraced-receipt.json`
+- untraced receipt BLAKE3: `f87a06702f49047c921f78873d2eeceff1dadd8a478d7fab7f00328ec15ff473`
+- prior masked-fallback receipt: `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-mtp-target-verification-receipt.json`
 
 ## Serialized P150x2 service
 

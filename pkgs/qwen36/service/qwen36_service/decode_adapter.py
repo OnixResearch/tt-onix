@@ -393,6 +393,31 @@ class TracedDecodeAdapter:
         ttnn.deallocate(partial_row)
         return indices, values
 
+    def read_trace_logits(self) -> torch.Tensor:
+        """Read the current trace output as one full vocabulary row."""
+        self._require_open()
+        if self._trace_logits is None:
+            raise DecodeAdapterError("trace logits are not available")
+        local_rows = []
+        for device_logits in ttnn.get_device_tensors(self._trace_logits):
+            rows = (
+                ttnn
+                .to_torch(device_logits)
+                .float()
+                .reshape(-1, self.vocabulary_per_shard)
+            )
+            if rows.shape[0] != 1:
+                raise DecodeAdapterError("trace logit shard has the wrong row count")
+            local_rows.append(rows[0].clone())
+        if len(local_rows) != self.device_count:
+            raise DecodeAdapterError("trace logit shard count changed")
+        logits = torch.cat(local_rows)
+        if logits.shape != (self.vocabulary_size,):
+            raise DecodeAdapterError("trace logits have the wrong vocabulary width")
+        if not torch.isfinite(logits).all():
+            raise DecodeAdapterError("trace logits contain a non-finite value")
+        return logits
+
     def _read_global_winner(self, indices: Any, values: Any) -> int:
         host_indices = ttnn.to_torch(indices, mesh_composer=self._mesh_reader).reshape(
             -1

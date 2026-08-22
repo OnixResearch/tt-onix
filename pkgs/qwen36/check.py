@@ -901,13 +901,16 @@ def probe_prefill_program_profile():
 
 
 # r[verify tenstorrent.qwen38_p150x2.mtp_verification_probe]
+# r[verify tenstorrent.qwen38_p150x2.native_mtp_verifier]
 def probe_mtp_target_verification():
     """Positive and negative tests for target-only MTP evidence."""
     from dataclasses import replace
+    from types import SimpleNamespace
 
     import torch
     from qwen36_service.mtp_probe_adapter import (
         MtpProbeAdapterError,
+        compare_tensor_collections,
         compare_tp_gdn_states,
     )
     from qwen36_service.mtp_probe_core import (
@@ -917,14 +920,24 @@ def probe_mtp_target_verification():
         MtpProbeSample,
         evaluate_mtp_probe,
     )
+    from qwen36_service.native_mtp_verifier_adapter import (
+        NativeMtpVerifierError,
+        validate_native_verifier_model,
+    )
 
     profile_path = Path(__file__).with_name("mtp-probe-profile.json")
     with profile_path.open(encoding="utf-8") as profile_file:
         profile_source = json.load(profile_file)
     profile = MtpProbeProfile.from_mapping(profile_source)
     require(profile.diagnostic_only, "MTP target probe became admission eligible")
+    require(
+        profile.execution_path == "traced-hybrid-packed-decode",
+        "MTP target probe lost the native execution path",
+    )
 
-    state_source_values = (0.0, 1.0, 2.0, 3.0)
+    state_source_values = tuple(
+        float(value) for value in range(profile.native_width_limit)
+    )
     state_source = torch.tensor(state_source_values, dtype=torch.float32)
     exact_snapshot = ((state_source, (state_source,)),)
     recurrent_comparison, convolution_comparison = compare_tp_gdn_states(
@@ -934,6 +947,12 @@ def probe_mtp_target_verification():
     require(recurrent_comparison.pcc == 1.0, "exact recurrent state lost PCC")
     require(recurrent_comparison.nmse == 0.0, "exact recurrent state gained NMSE")
     require(convolution_comparison.pcc == 1.0, "exact convolution state lost PCC")
+    tensor_comparison = compare_tensor_collections(
+        (state_source,),
+        (state_source,),
+    )
+    require(tensor_comparison.pcc == 1.0, "exact tensor collection lost PCC")
+    require(tensor_comparison.nmse == 0.0, "exact tensor collection gained NMSE")
     try:
         compare_tp_gdn_states(
             exact_snapshot,
@@ -943,6 +962,58 @@ def probe_mtp_target_verification():
         require("shapes" in str(error), "wrong state-shape diagnostic")
     else:
         require(False, "mismatched state shapes were accepted")
+
+    fake_layer = SimpleNamespace(
+        args=object(),
+        attention=object(),
+        attention_norm=object(),
+        feed_forward=object(),
+        ffn_norm=object(),
+        is_full_attention=False,
+    )
+    fake_model = SimpleNamespace(
+        args=object(),
+        embd=object(),
+        layers=[fake_layer],
+        mesh_device=object(),
+        prepare_inputs_decode=object(),
+        _final_norm_decode=object(),
+        _lm_head=object(),
+    )
+    validate_native_verifier_model(fake_model)
+    invalid_model = SimpleNamespace(**{
+        key: value for key, value in vars(fake_model).items() if key != "_lm_head"
+    })
+    try:
+        validate_native_verifier_model(invalid_model)
+    except NativeMtpVerifierError as error:
+        require("_lm_head" in str(error), "wrong missing-seam diagnostic")
+    else:
+        require(False, "native verifier accepted a missing model seam")
+
+    native_source = Path(
+        __import__(
+            "qwen36_service.native_mtp_verifier_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "recurrent_gated_delta_rule_decode_ttnn" in native_source,
+        "native verifier lost ordered high-precision GDN recurrence",
+    )
+    require(
+        "for row in range(width)" in native_source
+        and "paged_update_cache" in native_source,
+        "native verifier lost serialized paged-KV writes",
+    )
+    require(
+        "layer.feed_forward.forward" in native_source,
+        "native verifier lost width-batched MLP execution",
+    )
+    require(
+        "begin_trace_capture" in native_source and "execute_trace" in native_source,
+        "native verifier lost traced replay",
+    )
 
     identity = MtpProbeIdentity(
         runtime_identity="runtime-test",
@@ -973,12 +1044,17 @@ def probe_mtp_target_verification():
                     sequential_token_ids=token_ids,
                     verification_token_ids=token_ids,
                     sequential_seconds=baseline_token_seconds * width,
+                    verification_trace_capture_seconds=baseline_token_seconds,
                     verification_device_seconds=verification_seconds[width],
                     verification_readback_seconds=readback_seconds,
+                    logits_pcc=1.0,
+                    logits_nmse=0.0,
                     recurrent_state_pcc=1.0,
                     recurrent_state_nmse=0.0,
                     convolution_state_pcc=1.0,
                     convolution_state_nmse=0.0,
+                    paged_kv_state_pcc=1.0,
+                    paged_kv_state_nmse=0.0,
                 )
             )
 
@@ -997,7 +1073,7 @@ def probe_mtp_target_verification():
         "width-four fixture did not report device amortization",
     )
 
-    alternate_token_id = 999
+    alternate_token_id = profile.native_width_limit + 1
     token_mismatch = list(samples)
     token_mismatch[0] = replace(
         token_mismatch[0], verification_token_ids=(alternate_token_id,)
@@ -1009,6 +1085,17 @@ def probe_mtp_target_verification():
     )
 
     pcc_failure_margin = 0.1
+    logit_mismatch = list(samples)
+    logit_mismatch[0] = replace(
+        logit_mismatch[0],
+        logits_pcc=profile.minimum_logits_pcc - pcc_failure_margin,
+    )
+    logit_decision = evaluate_mtp_probe(profile, identity, logit_mismatch)
+    require(
+        "width-1-logits-pcc" in logit_decision.reasons,
+        "full-logit mismatch was accepted",
+    )
+
     state_mismatch = list(samples)
     state_mismatch[0] = replace(
         state_mismatch[0],
@@ -1018,6 +1105,16 @@ def probe_mtp_target_verification():
     require(
         "width-1-recurrent-state-pcc" in state_decision.reasons,
         "recurrent-state mismatch was accepted",
+    )
+    kv_mismatch = list(samples)
+    kv_mismatch[0] = replace(
+        kv_mismatch[0],
+        paged_kv_state_pcc=profile.minimum_state_pcc - pcc_failure_margin,
+    )
+    kv_decision = evaluate_mtp_probe(profile, identity, kv_mismatch)
+    require(
+        "width-1-paged-kv-state-pcc" in kv_decision.reasons,
+        "paged-KV mismatch was accepted",
     )
 
     largest_width = profile.verification_widths[-1]
@@ -1047,6 +1144,39 @@ def probe_mtp_target_verification():
     require(
         f"width-{largest_width}-sample-instability" in unstable_decision.reasons,
         "unstable width evidence was accepted",
+    )
+    noisy_readback = list(samples)
+    noisy_readback[-1] = replace(
+        noisy_readback[-1],
+        verification_readback_seconds=(
+            noisy_readback[-1].verification_readback_seconds * unstable_multiplier
+        ),
+    )
+    noisy_readback_decision = evaluate_mtp_probe(
+        profile,
+        identity,
+        noisy_readback,
+    )
+    require(
+        f"width-{largest_width}-sample-instability"
+        not in noisy_readback_decision.reasons,
+        "diagnostic host readback jitter invalidated traced replay stability",
+    )
+
+    slow_verification_seconds = baseline_token_seconds * largest_width
+    slow = [
+        replace(
+            sample,
+            verification_device_seconds=slow_verification_seconds,
+        )
+        if sample.width == largest_width
+        else sample
+        for sample in samples
+    ]
+    slow_decision = evaluate_mtp_probe(profile, identity, slow)
+    require(
+        f"width-{largest_width}-no-amortization" in slow_decision.reasons,
+        "non-amortized native verification was accepted",
     )
 
     invalid_profile = {

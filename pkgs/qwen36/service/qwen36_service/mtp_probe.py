@@ -27,7 +27,7 @@ from .mtp_probe_core import (
     evaluate_mtp_probe,
 )
 
-RECEIPT_SCHEMA_VERSION = 1
+RECEIPT_SCHEMA_VERSION = 3
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 MESH_ROWS = 1
 MESH_COLUMNS = 2
@@ -196,11 +196,12 @@ def main() -> None:
         "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
         "mesh_shape": [MESH_ROWS, MESH_COLUMNS],
         "host_cpu_affinity": sorted(os.sched_getaffinity(0)),
-        "trace_lifetime": "released-before-teacher-forced-verification",
+        "trace_lifetime": "decode-released-native-captured-per-sample",
         "probe_profile_id": probe_profile.profile_id,
         "verification_widths": list(probe_profile.verification_widths),
-        "masked_bucket_width": probe_profile.masked_bucket_width,
-        "runtime_supports_native_short_gdn_verify": hasattr(
+        "execution_path": probe_profile.execution_path,
+        "native_width_limit": probe_profile.native_width_limit,
+        "runtime_supports_fused_chunk_gdn": hasattr(
             ttnn.transformer, "chunk_gated_delta_rule"
         ),
         "samples": [_sample_mapping(sample) for sample in samples],
@@ -209,7 +210,7 @@ def main() -> None:
             "No MTP drafter execution or acceptance result is established.",
             "No rejection rollback behavior is established.",
             "No speculative decoding speedup or production admission is established.",
-            "The masked fallback is not a native short-width GDN verification kernel.",
+            "The hybrid packed-decode path is target-only evidence.",
         ],
     }
     _write_receipt(output_path, receipt)
@@ -224,12 +225,17 @@ def _sample_mapping(sample: MtpProbeSample) -> dict[str, Any]:
         "sequential_token_ids": list(sample.sequential_token_ids),
         "verification_token_ids": list(sample.verification_token_ids),
         "sequential_seconds": sample.sequential_seconds,
+        "verification_trace_capture_seconds": sample.verification_trace_capture_seconds,
         "verification_device_seconds": sample.verification_device_seconds,
         "verification_readback_seconds": sample.verification_readback_seconds,
+        "logits_pcc": sample.logits_pcc,
+        "logits_nmse": sample.logits_nmse,
         "recurrent_state_pcc": sample.recurrent_state_pcc,
         "recurrent_state_nmse": sample.recurrent_state_nmse,
         "convolution_state_pcc": sample.convolution_state_pcc,
         "convolution_state_nmse": sample.convolution_state_nmse,
+        "paged_kv_state_pcc": sample.paged_kv_state_pcc,
+        "paged_kv_state_nmse": sample.paged_kv_state_nmse,
     }
 
 

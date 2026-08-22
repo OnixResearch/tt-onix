@@ -1,8 +1,9 @@
 # Typed, fail-closed policy for the diagnostic Qwen3.8 MTP target probe.
-let expected_schema_version = 1 in
+let expected_schema_version = 2 in
 let expected_pcie_device_ids = [0, 1] in
 let expected_verification_widths = [1, 2, 4] in
-let expected_masked_bucket_width = 128 in
+let expected_execution_path = "traced-hybrid-packed-decode" in
+let expected_native_width_limit = 4 in
 let expected_minimum_samples_per_width = 5 in
 let PositiveIntC = std.contract.from_predicate (fun value =>
   std.is_number value && value > 0 && std.number.is_integer value
@@ -62,11 +63,15 @@ let ProfileC = {
   identities | IdentityClosedC | IdentityC,
   expected_pcie_device_ids | NonNegativeIntArrayC,
   verification_widths | PositiveIntArrayC,
-  masked_bucket_width | PositiveIntC,
+  execution_path | ExactC expected_execution_path,
+  native_width_limit | ExactC expected_native_width_limit,
   minimum_samples_per_width | PositiveIntC,
   minimum_state_pcc | UnitIntervalC,
   maximum_state_nmse | NonNegativeNumberC,
+  minimum_logits_pcc | UnitIntervalC,
+  maximum_logits_nmse | NonNegativeNumberC,
   maximum_sample_spread_ratio | PositiveNumberC,
+  minimum_end_to_end_amortization_ratio | PositiveNumberC,
   prompt | NonEmptyStringC,
 } in
 let ProfileClosedC = ClosedRecordC [
@@ -76,20 +81,27 @@ let ProfileClosedC = ClosedRecordC [
   "identities",
   "expected_pcie_device_ids",
   "verification_widths",
-  "masked_bucket_width",
+  "execution_path",
+  "native_width_limit",
   "minimum_samples_per_width",
   "minimum_state_pcc",
   "maximum_state_nmse",
+  "minimum_logits_pcc",
+  "maximum_logits_nmse",
   "maximum_sample_spread_ratio",
+  "minimum_end_to_end_amortization_ratio",
   "prompt",
 ] in
 let ProfileSemanticC = std.contract.from_predicate (fun value =>
   value.expected_pcie_device_ids == expected_pcie_device_ids
   && value.verification_widths == expected_verification_widths
-  && value.masked_bucket_width == expected_masked_bucket_width
+  && value.execution_path == expected_execution_path
+  && value.native_width_limit == expected_native_width_limit
   && value.minimum_samples_per_width == expected_minimum_samples_per_width
   && value.minimum_state_pcc > 0
+  && value.minimum_logits_pcc > 0
   && value.maximum_sample_spread_ratio >= 1
+  && value.minimum_end_to_end_amortization_ratio >= 1
 ) in
 {
   Profile = ProfileC,

@@ -740,6 +740,18 @@
       "blake3": "41d30db8f1f881c9472426121beebe2881efd6d02c72d5c06928bc16fdddc3aa"
     },
     {
+      "path": "cairn/changes/evaluate-qwen38-native-mtp-verifier/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 3503,
+      "blake3": "032fa7a7d5ca97d530be67f6afeb8b8abba5a4b8d9377083c6453f93e4d63bc9"
+    },
+    {
+      "path": "cairn/changes/evaluate-qwen38-native-mtp-verifier/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 5396,
+      "blake3": "fef5b224a441538169c0915d3f2b50dcd9ebbaeb164ef5a4b6622357e57a1802"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
@@ -870,6 +882,18 @@
       "class": "portable_evidence",
       "byte_count": 17723,
       "blake3": "bc0d8ca7cc65fe050a5aeac9e7ec62e45421ff5e2279ef9a00689ff1938be20c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 16559,
+      "blake3": "2a4f171b36dcf31f4637d48706dfa3e037af100a5ca21bae91f47070b023ac19"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-untraced-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 15546,
+      "blake3": "f87a06702f49047c921f78873d2eeceff1dadd8a478d7fab7f00328ec15ff473"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",

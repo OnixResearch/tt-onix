@@ -11,7 +11,6 @@ from typing import Any
 
 import torch
 import ttnn
-from models.tt_transformers.tt.common import Mode
 
 from .decode_adapter import TracedDecodeAdapter
 from .mtp_probe_core import (
@@ -19,9 +18,11 @@ from .mtp_probe_core import (
     MtpProbeProfile,
     MtpProbeSample,
 )
+from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
 
 PROBE_BATCH_SIZE = 1
 TOKEN_DIMENSION = 1
+CACHE_BLOCK_DIMENSION = 2
 MINIMUM_TOKEN_ID = 0
 EXACT_STATE_PCC = 1.0
 EXACT_STATE_NMSE = 0.0
@@ -69,6 +70,13 @@ class MtpVerificationProbeAdapter:
         self.profile = profile
         self.identity = identity
         self._mesh_reader = ttnn.ConcatMeshToTensor(model.mesh_device, dim=0)
+        self._native_verifier = NativeMtpVerifierAdapter(
+            model=model,
+            maximum_width=profile.native_width_limit,
+            trace_capture_timeout_seconds=(
+                decode_adapter.profile.trace_capture_timeout_seconds
+            ),
+        )
         self._page_table: torch.Tensor | None = None
         self._prompt_tokens: torch.Tensor | None = None
         self._prompt_token_count = 0
@@ -79,15 +87,13 @@ class MtpVerificationProbeAdapter:
         teacher_inputs: dict[int, tuple[int, ...]] = {}
         for width in self.profile.verification_widths:
             first_token = self._prefill()
-            inputs, _outputs, _elapsed = self._run_sequential(
+            inputs, _outputs, _logits, _elapsed = self._run_sequential(
                 first_token, width, traced=False
             )
             teacher_inputs[width] = inputs
             self._prefill()
-            verification_logits, _device_seconds, _readback_seconds = (
-                self._run_teacher_forced(inputs)
-            )
-            if len(verification_logits) != width:
+            verification = self._run_teacher_forced(inputs)
+            if len(verification.token_ids) != width:
                 raise MtpProbeAdapterError(
                     "warm target verification returned the wrong width"
                 )
@@ -105,18 +111,28 @@ class MtpVerificationProbeAdapter:
                         "decode trace is unavailable for the probe: "
                         f"{eligibility.reason}"
                     )
-                sequential_inputs, sequential_outputs, sequential_seconds = (
-                    self._run_sequential(
-                        sequential_first_token,
-                        width,
-                        traced=True,
-                    )
+                (
+                    sequential_inputs,
+                    sequential_outputs,
+                    sequential_logits,
+                    sequential_seconds,
+                ) = self._run_sequential(
+                    sequential_first_token,
+                    width,
+                    traced=True,
                 )
-                sequential_state = self.decode_adapter._snapshot_tp_gdn_state()
-
-                # The masked verifier allocates temporary buffers. Release the parked
-                # trace first. Recapture it for the next sequential sample.
+                # State and KV readback can allocate conversion buffers. Release the
+                # parked decode trace first so those diagnostic reads cannot corrupt it.
                 self.decode_adapter._release_trace()
+                sequential_state = self.decode_adapter._snapshot_tp_gdn_state()
+                positions = tuple(
+                    self._prompt_token_count + offset for offset in range(width)
+                )
+                sequential_kv = snapshot_tp_paged_kv(
+                    self.model,
+                    self._page_table,
+                    positions,
+                )
                 verification_first_token = self._prefill()
                 if verification_first_token != sequential_first_token:
                     raise MtpProbeAdapterError(
@@ -126,15 +142,24 @@ class MtpVerificationProbeAdapter:
                     raise MtpProbeAdapterError(
                         "teacher input changed across deterministic replays"
                     )
-                (
-                    verification_outputs,
-                    verification_device_seconds,
-                    verification_readback_seconds,
-                ) = self._run_teacher_forced(sequential_inputs)
+                verification = self._run_teacher_forced(sequential_inputs)
                 verification_state = self.decode_adapter._snapshot_tp_gdn_state()
+                verification_kv = snapshot_tp_paged_kv(
+                    self.model,
+                    self._page_table,
+                    positions,
+                )
+                logits = compare_tensor_collections(
+                    (sequential_logits,),
+                    (verification.logits,),
+                )
                 recurrent, convolution = compare_tp_gdn_states(
                     sequential_state,
                     verification_state,
+                )
+                paged_kv = compare_tensor_collections(
+                    sequential_kv,
+                    verification_kv,
                 )
                 samples.append(
                     MtpProbeSample(
@@ -143,14 +168,21 @@ class MtpVerificationProbeAdapter:
                         identity=self.identity,
                         physical_pcie_device_ids=self.profile.expected_pcie_device_ids,
                         sequential_token_ids=sequential_outputs,
-                        verification_token_ids=verification_outputs,
+                        verification_token_ids=verification.token_ids,
                         sequential_seconds=sequential_seconds,
-                        verification_device_seconds=verification_device_seconds,
-                        verification_readback_seconds=verification_readback_seconds,
+                        verification_trace_capture_seconds=(
+                            verification.trace_capture_seconds
+                        ),
+                        verification_device_seconds=verification.device_seconds,
+                        verification_readback_seconds=verification.readback_seconds,
+                        logits_pcc=logits.pcc,
+                        logits_nmse=logits.nmse,
                         recurrent_state_pcc=recurrent.pcc,
                         recurrent_state_nmse=recurrent.nmse,
                         convolution_state_pcc=convolution.pcc,
                         convolution_state_nmse=convolution.nmse,
+                        paged_kv_state_pcc=paged_kv.pcc,
+                        paged_kv_state_nmse=paged_kv.nmse,
                     )
                 )
         return tuple(samples)
@@ -177,11 +209,11 @@ class MtpVerificationProbeAdapter:
             prompt_tokens=self._prompt_token_count,
             generation_tokens=maximum_width,
         )
-        if self._prompt_token_count + self.profile.masked_bucket_width > (
+        if self._prompt_token_count + self.profile.native_width_limit > (
             self.decode_adapter.profile.maximum_sequence_length
         ):
             raise MtpProbeAdapterError(
-                "prompt leaves no room for the pinned verification bucket"
+                "prompt leaves no room for the native verifier width"
             )
 
     def _prefill(self) -> int:
@@ -206,14 +238,16 @@ class MtpVerificationProbeAdapter:
 
     def _run_sequential(
         self, first_token: int, width: int, *, traced: bool
-    ) -> tuple[tuple[int, ...], tuple[int, ...], float]:
+    ) -> tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, float]:
         current_token = first_token
         inputs = []
         outputs = []
-        started = time.monotonic()
+        logits_rows = []
+        elapsed = 0.0
         for offset in range(width):
             inputs.append(current_token)
             position = self._prompt_token_count + offset
+            started = time.monotonic()
             current_token = (
                 self.decode_adapter.decode_traced(
                     token=current_token,
@@ -225,81 +259,94 @@ class MtpVerificationProbeAdapter:
                     position=position,
                 )
             )
+            elapsed += time.monotonic() - started
             outputs.append(current_token)
-        elapsed = time.monotonic() - started
+            if traced:
+                logits_rows.append(self.decode_adapter.read_trace_logits())
         if not math.isfinite(elapsed) or elapsed <= 0:
             raise MtpProbeAdapterError("sequential decode duration is invalid")
-        return tuple(inputs), tuple(outputs), elapsed
+        logits = (
+            torch.stack(logits_rows)
+            if logits_rows
+            else torch.empty((0, self.model.args.vocab_size), dtype=torch.float32)
+        )
+        return tuple(inputs), tuple(outputs), logits, elapsed
 
-    def _run_teacher_forced(
-        self, input_token_ids: tuple[int, ...]
-    ) -> tuple[tuple[int, ...], float, float]:
+    def _run_teacher_forced(self, input_token_ids: tuple[int, ...]):
         width = len(input_token_ids)
         if width not in self.profile.verification_widths:
             raise MtpProbeAdapterError("teacher-forced width is outside policy")
         if self._page_table is None:
             raise MtpProbeAdapterError("target probe page table is not bound")
-        bucket = self.profile.masked_bucket_width
-        real = torch.tensor([input_token_ids], dtype=torch.int32)
-        padding = torch.zeros(
-            (PROBE_BATCH_SIZE, bucket - width),
-            dtype=torch.int32,
+        return self._native_verifier.run(
+            input_token_ids,
+            start_position=self._prompt_token_count,
+            page_table=self._page_table,
         )
-        token_buffer = torch.cat([real, padding], dim=TOKEN_DIMENSION)
 
-        device_started = time.monotonic()
-        hidden = self.model._forward_prefill_chunk_masked(
-            token_buffer,
-            width,
-            self._prompt_token_count,
-            self._page_table,
-            bucket,
-            flex_sdpa=True,
-        )
-        selector = torch.zeros(
-            PROBE_BATCH_SIZE,
-            PROBE_BATCH_SIZE,
-            width,
-            bucket,
-            dtype=torch.float32,
-        )
-        for row in range(width):
-            selector[0, 0, row, row] = 1.0
-        selector_device = ttnn.from_torch(
-            selector,
-            dtype=hidden.dtype,
-            layout=ttnn.TILE_LAYOUT,
-            device=self.model.mesh_device,
-            mesh_mapper=ttnn.ReplicateTensorToMesh(self.model.mesh_device),
-        )
-        selected = ttnn.matmul(selector_device, hidden)
-        ttnn.deallocate(selector_device)
-        ttnn.deallocate(hidden)
-        selected = ttnn.to_memory_config(selected, ttnn.DRAM_MEMORY_CONFIG)
-        normalized = self.model.norm(selected, mode=Mode.PREFILL)
-        ttnn.deallocate(selected)
-        logits_device = self.model._lm_head(normalized)
-        ttnn.deallocate(normalized)
-        ttnn.synchronize_device(self.model.mesh_device)
-        device_seconds = time.monotonic() - device_started
 
-        readback_started = time.monotonic()
-        logits = ttnn.to_torch(ttnn.get_device_tensors(logits_device)[0]).reshape(
-            -1, self.model.args.vocab_size
-        )
-        outputs = tuple(
-            int(torch.argmax(logits[row].float()).item()) for row in range(width)
-        )
-        readback_seconds = time.monotonic() - readback_started
-        ttnn.deallocate(logits_device)
-        if any(
-            token < MINIMUM_TOKEN_ID or token >= self.model.args.vocab_size
-            for token in outputs
-        ):
-            raise MtpProbeAdapterError(
-                "teacher-forced verification produced an out-of-range token"
-            )
-        return outputs, device_seconds, readback_seconds
+def snapshot_tp_paged_kv(
+    model: Any,
+    page_table: torch.Tensor | None,
+    positions: tuple[int, ...],
+) -> tuple[torch.Tensor, ...]:
+    """Read only the full-attention K/V positions written by one verifier."""
+    if (
+        page_table is None
+        or page_table.ndim != 2
+        or page_table.shape[0] != PROBE_BATCH_SIZE
+    ):
+        raise MtpProbeAdapterError("paged-KV snapshot requires one page-table row")
+    if not positions or any(position < MINIMUM_TOKEN_ID for position in positions):
+        raise MtpProbeAdapterError("paged-KV snapshot positions are invalid")
+    snapshots = []
+    full_attention_layers = tuple(
+        layer.attention for layer in model.layers if layer.is_full_attention
+    )
+    if not full_attention_layers:
+        raise MtpProbeAdapterError("the model has no full-attention layers")
+    for layer in full_attention_layers:
+        for cache in (layer.paged_k, layer.paged_v):
+            if cache is None or len(cache.shape) <= CACHE_BLOCK_DIMENSION:
+                raise MtpProbeAdapterError("paged-KV cache is not bound")
+            block_size = int(cache.shape[CACHE_BLOCK_DIMENSION])
+            if block_size <= 0:
+                raise MtpProbeAdapterError("paged-KV block size is invalid")
+            for device_cache in ttnn.get_device_tensors(cache):
+                host_cache = ttnn.to_torch(device_cache)
+                selected = []
+                for position in positions:
+                    logical_block = position // block_size
+                    block_offset = position % block_size
+                    if logical_block >= page_table.shape[TOKEN_DIMENSION]:
+                        raise MtpProbeAdapterError(
+                            "paged-KV snapshot exceeds the page table"
+                        )
+                    physical_block = int(page_table[0, logical_block].item())
+                    if not 0 <= physical_block < host_cache.shape[0]:
+                        raise MtpProbeAdapterError(
+                            "paged-KV snapshot block is outside the cache"
+                        )
+                    selected.append(
+                        host_cache[physical_block, :, block_offset, :].clone()
+                    )
+                snapshots.append(torch.stack(selected))
+    if not snapshots:
+        raise MtpProbeAdapterError("paged-KV snapshot is empty")
+    return tuple(snapshots)
+
+
+def compare_tensor_collections(
+    left: tuple[torch.Tensor, ...],
+    right: tuple[torch.Tensor, ...],
+) -> StateComparison:
+    """Compare one non-empty tensor collection with aggregate PCC and NMSE."""
+    if len(left) != len(right) or not left:
+        raise MtpProbeAdapterError("tensor collection counts do not match")
+    totals = _ComparisonTotals()
+    for left_tensor, right_tensor in zip(left, right, strict=True):
+        _accumulate_tensor(totals, left_tensor, right_tensor)
+    return _finish_comparison(totals)
 
 
 def compare_tp_gdn_states(
