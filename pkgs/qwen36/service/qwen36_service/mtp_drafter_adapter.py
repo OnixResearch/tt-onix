@@ -32,6 +32,7 @@ from .mtp_probe_adapter import (
     compare_tp_gdn_states,
     snapshot_tp_paged_kv,
 )
+from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
 from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
 
 PROBE_BATCH_SIZE = 1
@@ -60,6 +61,7 @@ class MtpDrafterSmokeResult:
     accepted_prefix_length: int
     mtp_prefill_seconds: float
     draft_decode_seconds: float
+    draft_selection_seconds: float
     target_sequential_seconds: float
     weight_shapes: dict[str, tuple[int, ...]]
 
@@ -74,6 +76,7 @@ class MtpDrafterPilotResult:
     accepted_prefix_length: int
     mtp_prefill_seconds: float
     draft_decode_seconds: float
+    draft_selection_seconds: float
     target_sequential_seconds: float
     target_verification_trace_capture_seconds: float
     target_verification_seconds: float
@@ -121,7 +124,14 @@ class MtpDrafterAdapter:
         )
         self._load_mtp()
 
-    def run_smoke(self, prompt_tokens: torch.Tensor) -> MtpDrafterSmokeResult:
+    def run_smoke(
+        self,
+        prompt_tokens: torch.Tensor,
+        *,
+        selector_mode: str = FULL_LOGIT_READBACK,
+    ) -> MtpDrafterSmokeResult:
+        if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
+            raise MtpDrafterAdapterError("MTP selector mode is unsupported")
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -143,11 +153,17 @@ class MtpDrafterAdapter:
             prompt_length,
         )
         try:
-            draft_tokens, mtp_prefill_seconds, draft_decode_seconds = self._draft(
+            (
+                draft_tokens,
+                mtp_prefill_seconds,
+                draft_decode_seconds,
+                draft_selection_seconds,
+            ) = self._draft(
                 prompt_tokens,
                 target_hidden,
                 anchor,
                 prompt_length,
+                selector_mode=selector_mode,
             )
         finally:
             ttnn.deallocate(target_hidden)
@@ -176,12 +192,20 @@ class MtpDrafterAdapter:
             accepted_prefix_length=accepted,
             mtp_prefill_seconds=mtp_prefill_seconds,
             draft_decode_seconds=draft_decode_seconds,
+            draft_selection_seconds=draft_selection_seconds,
             target_sequential_seconds=target_sequential_seconds,
             weight_shapes=dict(self._weight_shapes),
         )
 
-    def run_pilot(self, prompt_tokens: torch.Tensor) -> MtpDrafterPilotResult:
+    def run_pilot(
+        self,
+        prompt_tokens: torch.Tensor,
+        *,
+        selector_mode: str = FULL_LOGIT_READBACK,
+    ) -> MtpDrafterPilotResult:
         """Measure one complete draft and native target-verification round."""
+        if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
+            raise MtpDrafterAdapterError("MTP selector mode is unsupported")
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -203,11 +227,17 @@ class MtpDrafterAdapter:
             prompt_length,
         )
         try:
-            draft_tokens, mtp_prefill_seconds, draft_decode_seconds = self._draft(
+            (
+                draft_tokens,
+                mtp_prefill_seconds,
+                draft_decode_seconds,
+                draft_selection_seconds,
+            ) = self._draft(
                 prompt_tokens,
                 target_hidden,
                 anchor,
                 prompt_length,
+                selector_mode=selector_mode,
             )
         finally:
             ttnn.deallocate(target_hidden)
@@ -313,6 +343,7 @@ class MtpDrafterAdapter:
                     prompt_length=prompt_length,
                     accepted_prefix_length=accepted,
                     expected_draft_tokens=draft_tokens,
+                    selector_mode=selector_mode,
                 )
                 rollback_valid = (
                     recurrent.pcc == EXACT_STATE_PCC
@@ -339,6 +370,7 @@ class MtpDrafterAdapter:
             accepted_prefix_length=accepted,
             mtp_prefill_seconds=mtp_prefill_seconds,
             draft_decode_seconds=draft_decode_seconds,
+            draft_selection_seconds=draft_selection_seconds,
             target_sequential_seconds=target_sequential_seconds,
             target_verification_trace_capture_seconds=(
                 verification.trace_capture_seconds
@@ -462,7 +494,7 @@ class MtpDrafterAdapter:
         logits = self.model._lm_head(selected)
         ttnn.deallocate(selected)
         ttnn.synchronize_device(self.mesh)
-        anchor = self._read_token(logits)
+        anchor = self._read_full_token(logits)
         ttnn.deallocate(logits)
         return target_hidden, anchor
 
@@ -518,13 +550,16 @@ class MtpDrafterAdapter:
         target_hidden: Any,
         anchor: int,
         prompt_length: int,
-    ) -> tuple[tuple[int, ...], float, float]:
+        *,
+        selector_mode: str,
+    ) -> tuple[tuple[int, ...], float, float, float]:
         prefill_started = time.monotonic()
-        first_draft, feedback = self._mtp_prefill(
+        first_draft, feedback, draft_selection_seconds = self._mtp_prefill(
             prompt_tokens,
             target_hidden,
             anchor,
             prompt_length,
+            selector_mode=selector_mode,
         )
         mtp_prefill_seconds = time.monotonic() - prefill_started
 
@@ -532,22 +567,36 @@ class MtpDrafterAdapter:
         draft_started = time.monotonic()
         current = first_draft
         for step in range(self.profile.draft_token_count - PROBE_BATCH_SIZE):
-            current, next_feedback = self._draft_step(
+            current, next_feedback, selection_seconds = self._draft_step(
                 current,
                 feedback,
                 prompt_length + step,
+                selector_mode=selector_mode,
             )
+            draft_selection_seconds += selection_seconds
             ttnn.deallocate(feedback)
             feedback = next_feedback
             drafts.append(current)
         ttnn.deallocate(feedback)
         draft_decode_seconds = time.monotonic() - draft_started
+        total_draft_seconds = mtp_prefill_seconds + draft_decode_seconds
         if any(
             not math.isfinite(value) or value <= 0
-            for value in (mtp_prefill_seconds, draft_decode_seconds)
+            for value in (
+                mtp_prefill_seconds,
+                draft_decode_seconds,
+                draft_selection_seconds,
+            )
         ):
             raise MtpDrafterAdapterError("MTP drafter duration is invalid")
-        return tuple(drafts), mtp_prefill_seconds, draft_decode_seconds
+        if draft_selection_seconds > total_draft_seconds:
+            raise MtpDrafterAdapterError("MTP selection exceeds total draft duration")
+        return (
+            tuple(drafts),
+            mtp_prefill_seconds,
+            draft_decode_seconds,
+            draft_selection_seconds,
+        )
 
     def _rebuild_mtp_cache(
         self,
@@ -558,21 +607,24 @@ class MtpDrafterAdapter:
         prompt_length: int,
         accepted_prefix_length: int,
         expected_draft_tokens: tuple[int, ...],
+        selector_mode: str,
     ) -> tuple[float, bool]:
         rebuild_started = time.monotonic()
-        first_draft, feedback = self._mtp_prefill(
+        first_draft, feedback, _selection_seconds = self._mtp_prefill(
             prompt_tokens,
             target_hidden,
             anchor,
             prompt_length,
+            selector_mode=selector_mode,
         )
         reproduced = [first_draft]
         current = first_draft
         for step in range(accepted_prefix_length):
-            current, next_feedback = self._draft_step(
+            current, next_feedback, _selection_seconds = self._draft_step(
                 current,
                 feedback,
                 prompt_length + step,
+                selector_mode=selector_mode,
             )
             ttnn.deallocate(feedback)
             feedback = next_feedback
@@ -591,7 +643,9 @@ class MtpDrafterAdapter:
         target_hidden: Any,
         anchor: int,
         prompt_length: int,
-    ) -> tuple[int, Any]:
+        *,
+        selector_mode: str,
+    ) -> tuple[int, Any, float]:
         shifted = torch.cat(
             [
                 prompt_tokens[:, PROBE_BATCH_SIZE:],
@@ -641,13 +695,17 @@ class MtpDrafterAdapter:
         ttnn.deallocate(output)
         feedback = self._select_row(normalized, prompt_length - PROBE_BATCH_SIZE)
         ttnn.deallocate(normalized)
-        logits = self.model._lm_head(feedback)
-        ttnn.synchronize_device(self.mesh)
-        first_draft = self._read_token(logits)
-        ttnn.deallocate(logits)
-        return first_draft, feedback
+        first_draft, selection_seconds = self._select_token(feedback, selector_mode)
+        return first_draft, feedback, selection_seconds
 
-    def _draft_step(self, token: int, feedback: Any, position: int) -> tuple[int, Any]:
+    def _draft_step(
+        self,
+        token: int,
+        feedback: Any,
+        position: int,
+        *,
+        selector_mode: str,
+    ) -> tuple[int, Any, float]:
         host_inputs = self.model.prepare_decode_inputs_host(
             torch.tensor([[token]], dtype=torch.int32),
             torch.tensor([position], dtype=torch.int32),
@@ -674,13 +732,10 @@ class MtpDrafterAdapter:
         ttnn.deallocate(fused)
         normalized = self._final_normalize(output)
         ttnn.deallocate(output)
-        logits = self.model._lm_head(normalized)
-        ttnn.synchronize_device(self.mesh)
-        next_token = self._read_token(logits)
-        ttnn.deallocate(logits)
+        next_token, selection_seconds = self._select_token(normalized, selector_mode)
         for tensor in (token_buffer, position_buffer, rope_buffer):
             ttnn.deallocate(tensor)
-        return next_token, normalized
+        return next_token, normalized, selection_seconds
 
     def _embed_full(self, tokens: torch.Tensor) -> Any:
         token_device = ttnn.from_torch(
@@ -770,7 +825,27 @@ class MtpDrafterAdapter:
         ttnn.deallocate(selector_device)
         return ttnn.to_memory_config(selected, ttnn.DRAM_MEMORY_CONFIG)
 
-    def _read_token(self, logits: Any) -> int:
+    def _select_token(self, hidden: Any, selector_mode: str) -> tuple[int, float]:
+        selection_started = time.monotonic()
+        if selector_mode == FULL_LOGIT_READBACK:
+            logits = self.model._lm_head(hidden)
+        elif selector_mode == SHARD_LOCAL_TOP1:
+            logits = ttnn.linear(hidden, self.model.lm_head_weight)
+        else:
+            raise MtpDrafterAdapterError("MTP selector mode is unsupported")
+        try:
+            if selector_mode == FULL_LOGIT_READBACK:
+                token = self._read_full_token(logits)
+            else:
+                token = self.decode_adapter.select_sharded_logits(logits)
+        finally:
+            ttnn.deallocate(logits)
+        selection_seconds = time.monotonic() - selection_started
+        if not math.isfinite(selection_seconds) or selection_seconds <= 0:
+            raise MtpDrafterAdapterError("MTP selector duration is invalid")
+        return token, selection_seconds
+
+    def _read_full_token(self, logits: Any) -> int:
         device_logits = ttnn.get_device_tensors(logits)
         if not device_logits:
             raise MtpDrafterAdapterError("MTP drafter produced no logit replica")

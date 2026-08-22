@@ -17,13 +17,21 @@ from transformers import AutoTokenizer
 
 from .decode_adapter import TracedDecodeAdapter
 from .decode_core import DecodePolicyError, DecodeProfile
-from .mtp_drafter_adapter import MtpDrafterAdapter
+from .mtp_drafter_adapter import MtpDrafterAdapter, MtpDrafterPilotResult
 from .mtp_drafter_core import (
     MtpDrafterIdentity,
     MtpDrafterPolicyError,
     MtpDrafterProfile,
     MtpDrafterSample,
     evaluate_mtp_drafter,
+)
+from .mtp_selection_core import (
+    FULL_LOGIT_READBACK,
+    SHARD_LOCAL_TOP1,
+    MtpSelectionPolicyError,
+    MtpSelectionProfile,
+    MtpSelectionSample,
+    evaluate_mtp_selection,
 )
 
 RECEIPT_SCHEMA_VERSION = 1
@@ -40,8 +48,10 @@ INITIAL_BUFFER_GENERATION = 1
 MODEL_ALIAS = "Qwen3.8-27B"
 SMOKE_MEASUREMENT_MODE = "diagnostic-mtp-drafter-smoke"
 PILOT_MEASUREMENT_MODE = "diagnostic-mtp-drafter-pilot"
+SELECTION_MEASUREMENT_MODE = "diagnostic-mtp-draft-selection"
 SMOKE_MODE = "smoke"
 PILOT_MODE = "pilot"
+SELECTION_MODE = "selection"
 VLLM_REFERENCE_REVISION = "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
 SGLANG_REFERENCE_REVISION = "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3"
 
@@ -55,13 +65,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--decode-profile", required=True)
     parser.add_argument("--mtp-drafter-profile", required=True)
+    parser.add_argument("--mtp-selection-profile")
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument(
         "--mode",
-        choices=(SMOKE_MODE, PILOT_MODE),
+        choices=(SMOKE_MODE, PILOT_MODE, SELECTION_MODE),
         default=SMOKE_MODE,
+    )
+    parser.add_argument(
+        "--selector-mode",
+        choices=(FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1),
+        default=FULL_LOGIT_READBACK,
     )
     return parser.parse_args()
 
@@ -86,6 +102,19 @@ def main() -> None:
 
     decode_profile = _load_decode_profile(decode_profile_path)
     drafter_profile = _load_drafter_profile(drafter_profile_path)
+    selection_profile = None
+    if args.mode == SELECTION_MODE:
+        if args.mtp_selection_profile is None:
+            raise SystemExit("--mtp-selection-profile is required in selection mode")
+        selection_profile = _load_selection_profile(
+            _existing_absolute_file(
+                args.mtp_selection_profile,
+                "--mtp-selection-profile",
+            )
+        )
+        _require_selection_profile_match(drafter_profile, selection_profile)
+    elif args.mtp_selection_profile is not None:
+        raise SystemExit("--mtp-selection-profile requires selection mode")
     if model_path.name != drafter_profile.checkpoint_revision:
         raise SystemExit("model path does not match the MTP drafter checkpoint")
     if decode_profile.authority_blake3 != drafter_profile.authority_blake3:
@@ -118,6 +147,7 @@ def main() -> None:
     decode_adapter = None
     smoke_result = None
     pilot_results = None
+    selection_results = None
     cleanup_complete = False
     identity = MtpDrafterIdentity(
         runtime_identity=args.runtime_identity,
@@ -165,8 +195,11 @@ def main() -> None:
             profile=drafter_profile,
         )
         if args.mode == SMOKE_MODE:
-            smoke_result = adapter.run_smoke(prompt_tokens)
-        else:
+            smoke_result = adapter.run_smoke(
+                prompt_tokens,
+                selector_mode=args.selector_mode,
+            )
+        elif args.mode == PILOT_MODE:
             prompt_token_rows = tuple(
                 tokenizer(
                     prompt,
@@ -177,10 +210,37 @@ def main() -> None:
             )
             # Warm every measured prompt and rejection path, then discard them.
             for tokens in prompt_token_rows:
-                adapter.run_pilot(tokens)
+                adapter.run_pilot(tokens, selector_mode=args.selector_mode)
             pilot_results = tuple(
-                adapter.run_pilot(tokens) for tokens in prompt_token_rows
+                adapter.run_pilot(tokens, selector_mode=args.selector_mode)
+                for tokens in prompt_token_rows
             )
+        else:
+            assert selection_profile is not None
+            prompt_token_rows = tuple(
+                tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    add_special_tokens=True,
+                ).input_ids.to(torch.int32)
+                for prompt in selection_profile.prompts
+            )
+            for tokens in prompt_token_rows:
+                adapter.run_pilot(tokens, selector_mode=FULL_LOGIT_READBACK)
+                adapter.run_pilot(tokens, selector_mode=SHARD_LOCAL_TOP1)
+            measured = []
+            for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
+                for root_index, route in enumerate(
+                    selection_profile.route_schedule,
+                    start=1,
+                ):
+                    measured.append((
+                        prompt_index,
+                        root_index,
+                        route,
+                        adapter.run_pilot(tokens, selector_mode=route),
+                    ))
+            selection_results = tuple(measured)
     finally:
         if decode_adapter is not None:
             decode_adapter.close()
@@ -221,7 +281,11 @@ def main() -> None:
         "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
         "mesh_shape": [MESH_ROWS, MESH_COLUMNS],
         "host_cpu_affinity": sorted(os.sched_getaffinity(0)),
-        "profile_id": drafter_profile.profile_id,
+        "profile_id": (
+            selection_profile.profile_id
+            if selection_profile is not None
+            else drafter_profile.profile_id
+        ),
     }
     if args.mode == SMOKE_MODE:
         if smoke_result is None:
@@ -237,6 +301,8 @@ def main() -> None:
             "accepted_prefix_length": smoke_result.accepted_prefix_length,
             "mtp_prefill_seconds": smoke_result.mtp_prefill_seconds,
             "draft_decode_seconds": smoke_result.draft_decode_seconds,
+            "draft_selection_seconds": smoke_result.draft_selection_seconds,
+            "selector_mode": args.selector_mode,
             "target_sequential_seconds": smoke_result.target_sequential_seconds,
             "weight_shapes": {
                 name: list(shape)
@@ -255,7 +321,7 @@ def main() -> None:
                 "No speculative speedup or production admission is established.",
             ],
         }
-    else:
+    elif args.mode == PILOT_MODE:
         if pilot_results is None or len(pilot_results) != len(drafter_profile.prompts):
             raise MtpDrafterCommandError(
                 "MTP drafter pilot produced incomplete results"
@@ -291,53 +357,7 @@ def main() -> None:
             "smoke_only": False,
             "warmup_discarded": True,
             "samples": [
-                {
-                    "prompt_index": prompt_index,
-                    "anchor_token_id": result.anchor_token_id,
-                    "draft_token_ids": list(result.draft_token_ids),
-                    "target_token_ids": list(result.target_token_ids),
-                    "target_continuation_token_id": (
-                        result.target_continuation_token_id
-                    ),
-                    "target_verification_token_ids": list(
-                        result.target_verification_token_ids
-                    ),
-                    "accepted_prefix_length": result.accepted_prefix_length,
-                    "mtp_prefill_seconds": result.mtp_prefill_seconds,
-                    "draft_decode_seconds": result.draft_decode_seconds,
-                    "total_draft_seconds": (
-                        result.mtp_prefill_seconds + result.draft_decode_seconds
-                    ),
-                    "target_sequential_seconds": result.target_sequential_seconds,
-                    "target_verification_trace_capture_seconds": (
-                        result.target_verification_trace_capture_seconds
-                    ),
-                    "target_verification_seconds": (result.target_verification_seconds),
-                    "target_verification_readback_seconds": (
-                        result.target_verification_readback_seconds
-                    ),
-                    "target_output_valid": result.target_output_valid,
-                    "rollback_applied": result.rollback_applied,
-                    "rollback_valid": result.rollback_valid,
-                    "rollback_seconds": result.rollback_seconds,
-                    "mtp_cache_reprefill_seconds": (result.mtp_cache_reprefill_seconds),
-                    "rollback_recurrent_state_pcc": (
-                        result.rollback_recurrent_state_pcc
-                    ),
-                    "rollback_recurrent_state_nmse": (
-                        result.rollback_recurrent_state_nmse
-                    ),
-                    "rollback_convolution_state_pcc": (
-                        result.rollback_convolution_state_pcc
-                    ),
-                    "rollback_convolution_state_nmse": (
-                        result.rollback_convolution_state_nmse
-                    ),
-                    "rollback_paged_kv_state_pcc": (result.rollback_paged_kv_state_pcc),
-                    "rollback_paged_kv_state_nmse": (
-                        result.rollback_paged_kv_state_nmse
-                    ),
-                }
+                _pilot_result_mapping(prompt_index, result)
                 for prompt_index, result in enumerate(pilot_results, start=1)
             ],
             "weight_shapes": {
@@ -345,6 +365,7 @@ def main() -> None:
                 for name, shape in sorted(pilot_results[0].weight_shapes.items())
             },
             "decision": decision.to_mapping(),
+            "selector_mode": args.selector_mode,
             "mtp_selected": decision.mtp_selected,
             "blockers": list(decision.blockers),
             "non_claims": [
@@ -353,8 +374,126 @@ def main() -> None:
                 "Trace-capture setup is diagnostic and excluded from replay economics.",
             ],
         }
+    else:
+        assert selection_profile is not None
+        expected_result_count = len(selection_profile.prompts) * len(
+            selection_profile.route_schedule
+        )
+        if selection_results is None or len(selection_results) != expected_result_count:
+            raise MtpDrafterCommandError(
+                "MTP selector control produced incomplete results"
+            )
+        selection_samples = tuple(
+            MtpSelectionSample(
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+                identity=identity,
+                physical_pcie_device_ids=(selection_profile.expected_pcie_device_ids),
+                draft_token_ids=result.draft_token_ids,
+                target_token_ids=result.target_token_ids,
+                accepted_prefix_length=result.accepted_prefix_length,
+                mtp_prefill_seconds=result.mtp_prefill_seconds,
+                draft_decode_seconds=result.draft_decode_seconds,
+                draft_selection_seconds=result.draft_selection_seconds,
+                target_sequential_seconds=result.target_sequential_seconds,
+                target_verification_seconds=result.target_verification_seconds,
+                target_verification_readback_seconds=(
+                    result.target_verification_readback_seconds
+                ),
+                rollback_seconds=result.rollback_seconds,
+                mtp_cache_reprefill_seconds=result.mtp_cache_reprefill_seconds,
+                rollback_valid=result.rollback_valid,
+                target_output_valid=result.target_output_valid,
+            )
+            for prompt_index, root_index, route, result in selection_results
+        )
+        selection_decision = evaluate_mtp_selection(
+            selection_profile,
+            identity,
+            selection_samples,
+        )
+        first_result = selection_results[0][3]
+        receipt = {
+            **common_receipt,
+            "measurement_mode": SELECTION_MEASUREMENT_MODE,
+            "smoke_only": False,
+            "warmup_discarded": True,
+            "route_schedule": list(selection_profile.route_schedule),
+            "samples": [
+                _pilot_result_mapping(
+                    prompt_index,
+                    result,
+                    root_index=root_index,
+                    route=route,
+                )
+                for prompt_index, root_index, route, result in selection_results
+            ],
+            "weight_shapes": {
+                name: list(shape)
+                for name, shape in sorted(first_result.weight_shapes.items())
+            },
+            "decision": selection_decision.to_mapping(),
+            "bounded_selector_selected": (selection_decision.bounded_selector_selected),
+            "mtp_selected": False,
+            "blockers": list(selection_decision.blockers),
+            "non_claims": [
+                "Selector evidence does not admit MTP or traced decode.",
+                "The control does not establish sustained multi-round economics.",
+                "The control does not apply to batching, TP4, or long context.",
+            ],
+        }
     _write_receipt(output_path, receipt)
     print(json.dumps(receipt, sort_keys=True))
+
+
+def _pilot_result_mapping(
+    prompt_index: int,
+    result: MtpDrafterPilotResult,
+    *,
+    root_index: int | None = None,
+    route: str | None = None,
+) -> dict[str, object]:
+    if (root_index is None) != (route is None):
+        raise MtpDrafterCommandError("selector root metadata is incomplete")
+    total_draft_seconds = result.mtp_prefill_seconds + result.draft_decode_seconds
+    mapping: dict[str, object] = {
+        "prompt_index": prompt_index,
+        "anchor_token_id": result.anchor_token_id,
+        "draft_token_ids": list(result.draft_token_ids),
+        "target_token_ids": list(result.target_token_ids),
+        "target_continuation_token_id": result.target_continuation_token_id,
+        "target_verification_token_ids": list(result.target_verification_token_ids),
+        "accepted_prefix_length": result.accepted_prefix_length,
+        "mtp_prefill_seconds": result.mtp_prefill_seconds,
+        "draft_decode_seconds": result.draft_decode_seconds,
+        "draft_selection_seconds": result.draft_selection_seconds,
+        "draft_compute_seconds": total_draft_seconds - result.draft_selection_seconds,
+        "total_draft_seconds": total_draft_seconds,
+        "target_sequential_seconds": result.target_sequential_seconds,
+        "target_verification_trace_capture_seconds": (
+            result.target_verification_trace_capture_seconds
+        ),
+        "target_verification_seconds": result.target_verification_seconds,
+        "target_verification_readback_seconds": (
+            result.target_verification_readback_seconds
+        ),
+        "target_output_valid": result.target_output_valid,
+        "rollback_applied": result.rollback_applied,
+        "rollback_valid": result.rollback_valid,
+        "rollback_seconds": result.rollback_seconds,
+        "mtp_cache_reprefill_seconds": result.mtp_cache_reprefill_seconds,
+        "rollback_recurrent_state_pcc": result.rollback_recurrent_state_pcc,
+        "rollback_recurrent_state_nmse": result.rollback_recurrent_state_nmse,
+        "rollback_convolution_state_pcc": result.rollback_convolution_state_pcc,
+        "rollback_convolution_state_nmse": result.rollback_convolution_state_nmse,
+        "rollback_paged_kv_state_pcc": result.rollback_paged_kv_state_pcc,
+        "rollback_paged_kv_state_nmse": result.rollback_paged_kv_state_nmse,
+    }
+    if root_index is not None and route is not None:
+        mapping["root_index"] = root_index
+        mapping["route"] = route
+    return mapping
 
 
 def _load_decode_profile(path: Path) -> DecodeProfile:
@@ -371,6 +510,36 @@ def _load_drafter_profile(path: Path) -> MtpDrafterProfile:
             return MtpDrafterProfile.from_mapping(json.load(profile_file))
     except (MtpDrafterPolicyError, OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"MTP drafter profile is invalid: {error}") from error
+
+
+def _load_selection_profile(path: Path) -> MtpSelectionProfile:
+    try:
+        with path.open(encoding="utf-8") as profile_file:
+            return MtpSelectionProfile.from_mapping(json.load(profile_file))
+    except (MtpSelectionPolicyError, OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"MTP selection profile is invalid: {error}") from error
+
+
+def _require_selection_profile_match(
+    drafter: MtpDrafterProfile,
+    selection: MtpSelectionProfile,
+) -> None:
+    comparisons = (
+        (drafter.authority_blake3, selection.authority_blake3, "authority"),
+        (drafter.checkpoint_revision, selection.checkpoint_revision, "checkpoint"),
+        (drafter.model_source_revision, selection.model_source_revision, "source"),
+        (drafter.tokenizer_revision, selection.tokenizer_revision, "tokenizer"),
+        (
+            drafter.expected_pcie_device_ids,
+            selection.expected_pcie_device_ids,
+            "physical devices",
+        ),
+        (drafter.draft_token_count, selection.draft_token_count, "draft count"),
+        (drafter.prompts, selection.prompts, "prompts"),
+    )
+    for drafter_value, selection_value, label in comparisons:
+        if drafter_value != selection_value:
+            raise SystemExit(f"MTP drafter and selection {label} differ")
 
 
 def _existing_absolute_directory(value: str, name: str) -> Path:

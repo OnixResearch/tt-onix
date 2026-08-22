@@ -788,6 +788,18 @@
       "blake3": "4f7ded48cd17217d2eb931803921df24fc38099ac51b54a3448bbe9f2ebc68a8"
     },
     {
+      "path": "cairn/archive/2026-08-22-optimize-qwen38-mtp-draft-selection/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 5875,
+      "blake3": "f6d5da35b1edb5a288a7d59b21f5f85f7acea7c0108b388a77785b89ce5168b7"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-optimize-qwen38-mtp-draft-selection/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 4693,
+      "blake3": "f9feefb47dd0cc7ed8e9756cbe7450281631c9c89c39788cc5a2af01a49c400e"
+    },
+    {
       "path": "cairn/archive/2026-08-22-profile-qwen38-decode-components/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 4145,
@@ -942,6 +954,12 @@
       "class": "portable_evidence",
       "byte_count": 16530,
       "blake3": "58241201ed7eff7b1156b435e2af152eb7e10e359382af72e3b1ba7435df8025"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-selection-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 32088,
+      "blake3": "b0e0eb8df13fe8db1667cca7d82973cb069596675bdf50a5857b9f67e995d923"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-drafter-receipt.json",

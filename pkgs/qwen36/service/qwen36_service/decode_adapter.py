@@ -4,6 +4,7 @@
 # r[impl tenstorrent.qwen38_p150x2.persistent_decode_buffers]
 # r[impl tenstorrent.qwen38_p150x2.shard_local_argmax]
 # r[impl tenstorrent.qwen38_p150x2.traced_decode_ttft]
+# r[impl tenstorrent.qwen38_p150x2.mtp_draft_selection]
 
 from __future__ import annotations
 
@@ -358,6 +359,21 @@ class TracedDecodeAdapter:
             page_table=self.decode_inputs[3],
         )
         return output
+
+    def select_sharded_logits(self, sharded_logits: Any) -> int:
+        """Read one deterministic global winner from vocabulary-sharded logits."""
+        self._require_open()
+        indices = None
+        values = None
+        try:
+            indices, values = self._reduce_shards(sharded_logits)
+            ttnn.synchronize_device(self.mesh)
+            return self._read_global_winner(indices, values)
+        finally:
+            if indices is not None:
+                ttnn.deallocate(indices)
+            if values is not None:
+                ttnn.deallocate(values)
 
     def _reduce_shards(self, sharded_logits: Any) -> tuple[Any, Any]:
         logits_row_major = ttnn.to_layout(sharded_logits, ttnn.ROW_MAJOR_LAYOUT)

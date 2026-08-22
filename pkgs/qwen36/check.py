@@ -1462,6 +1462,10 @@ def probe_mtp_drafter():
     require("shifted" in adapter_source, "MTP drafter lost shifted token inputs")
     require("reset_state" in adapter_source, "MTP drafter lost its cache reset")
     require(
+        "self._read_token(" not in adapter_source,
+        "MTP drafter retained the removed full-token helper",
+    )
+    require(
         "_rebuild_mtp_cache" in adapter_source,
         "MTP drafter lost rejected-prefix cache re-prefill",
     )
@@ -1474,6 +1478,173 @@ def probe_mtp_drafter():
     require(
         "_GdnPrefixSnapshot" in verifier_source,
         "target verifier lost trace-time prefix snapshots",
+    )
+
+
+# r[verify tenstorrent.qwen38_p150x2.mtp_draft_selection]
+def probe_mtp_draft_selection():
+    """Positive and negative tests for paired MTP selector evidence."""
+    from dataclasses import replace
+
+    from qwen36_service.mtp_drafter_core import MtpDrafterIdentity
+    from qwen36_service.mtp_selection_core import (
+        FULL_LOGIT_READBACK,
+        SHARD_LOCAL_TOP1,
+        MtpSelectionPolicyError,
+        MtpSelectionProfile,
+        MtpSelectionSample,
+        evaluate_mtp_selection,
+    )
+
+    profile_source = json.loads(
+        Path(__file__).with_name("mtp-selection-profile.json").read_text()
+    )
+    profile = MtpSelectionProfile.from_mapping(profile_source)
+    identity = MtpDrafterIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity="model-test",
+    )
+    draft_tokens = (10, 11, 12)
+    samples = []
+    root_variation = 0.01
+    prompt_variation = 0.005
+    full_prefill_seconds = 0.03
+    full_decode_seconds = 0.05
+    full_selection_seconds = 0.03
+    bounded_prefill_seconds = 0.02
+    bounded_decode_seconds = 0.03
+    bounded_selection_seconds = 0.01
+    target_sequential_seconds = 0.32
+    target_verification_seconds = 0.09
+    target_readback_seconds = 0.005
+    for prompt_index in range(1, profile.minimum_prompt_count + 1):
+        for root_index, route in enumerate(profile.route_schedule, start=1):
+            scale = (
+                1.0
+                + root_variation * (root_index - 1)
+                + prompt_variation * (prompt_index - 1)
+            )
+            if route == FULL_LOGIT_READBACK:
+                mtp_prefill_seconds = full_prefill_seconds * scale
+                draft_decode_seconds = full_decode_seconds * scale
+                draft_selection_seconds = full_selection_seconds * scale
+            else:
+                mtp_prefill_seconds = bounded_prefill_seconds * scale
+                draft_decode_seconds = bounded_decode_seconds * scale
+                draft_selection_seconds = bounded_selection_seconds * scale
+            samples.append(
+                MtpSelectionSample(
+                    prompt_index=prompt_index,
+                    root_index=root_index,
+                    route=route,
+                    identity=identity,
+                    physical_pcie_device_ids=profile.expected_pcie_device_ids,
+                    draft_token_ids=draft_tokens,
+                    target_token_ids=draft_tokens,
+                    accepted_prefix_length=profile.draft_token_count,
+                    mtp_prefill_seconds=mtp_prefill_seconds,
+                    draft_decode_seconds=draft_decode_seconds,
+                    draft_selection_seconds=draft_selection_seconds,
+                    target_sequential_seconds=target_sequential_seconds * scale,
+                    target_verification_seconds=target_verification_seconds * scale,
+                    target_verification_readback_seconds=(
+                        target_readback_seconds * scale
+                    ),
+                    rollback_seconds=0.0,
+                    mtp_cache_reprefill_seconds=0.0,
+                    rollback_valid=True,
+                    target_output_valid=True,
+                )
+            )
+
+    decision = evaluate_mtp_selection(profile, identity, samples)
+    require(decision.selector_valid, f"valid selector rejected: {decision.reasons}")
+    require(decision.bounded_selector_selected, "bounded selector was not selected")
+    require(not decision.admission_eligible, "selector evidence admitted production")
+    require(
+        decision.selector_ratio < profile.maximum_selector_ratio,
+        "bounded selector did not satisfy the gain gate",
+    )
+    require(
+        decision.aggregate_emitted_token_speedup > 1.0,
+        "bounded selector did not satisfy aggregate economics",
+    )
+
+    mismatched = list(samples)
+    mismatch_index = 1
+    mismatched[mismatch_index] = replace(
+        mismatched[mismatch_index],
+        draft_token_ids=(13, 11, 12),
+    )
+    mismatch_decision = evaluate_mtp_selection(profile, identity, mismatched)
+    require(
+        any("route-parity" in reason for reason in mismatch_decision.reasons),
+        "selector route token mismatch was accepted",
+    )
+
+    unstable = list(samples)
+    unstable_index = 2
+    unstable[unstable_index] = replace(
+        unstable[unstable_index],
+        draft_selection_seconds=bounded_selection_seconds * 2,
+    )
+    unstable_decision = evaluate_mtp_selection(profile, identity, unstable)
+    require(
+        any("instability" in reason for reason in unstable_decision.reasons),
+        "unstable selector roots were accepted",
+    )
+
+    slow_target_seconds = 0.04
+    uneconomic = [
+        replace(sample, target_sequential_seconds=slow_target_seconds)
+        for sample in samples
+    ]
+    uneconomic_decision = evaluate_mtp_selection(profile, identity, uneconomic)
+    require(
+        "emitted-token-economics" in uneconomic_decision.reasons,
+        "uneconomic bounded selector was accepted",
+    )
+
+    impossible_selection = list(samples)
+    impossible_selection[0] = replace(
+        impossible_selection[0],
+        draft_selection_seconds=1.0,
+    )
+    impossible_decision = evaluate_mtp_selection(
+        profile,
+        identity,
+        impossible_selection,
+    )
+    require(
+        any("selection-duration" in reason for reason in impossible_decision.reasons),
+        "selector duration above total draft time was accepted",
+    )
+
+    invalid_profile = {
+        **profile_source,
+        "route_schedule": [SHARD_LOCAL_TOP1, FULL_LOGIT_READBACK],
+    }
+    try:
+        MtpSelectionProfile.from_mapping(invalid_profile)
+    except MtpSelectionPolicyError as error:
+        require("route schedule" in str(error), "wrong selector schedule diagnostic")
+    else:
+        require(False, "invalid selector route schedule was accepted")
+
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.decode_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "select_sharded_logits" in adapter_source,
+        "bounded selector adapter boundary is missing",
+    )
+    require(
+        "select_global_winner" in adapter_source,
+        "bounded selector lost deterministic global tie policy",
     )
 
 
@@ -2135,6 +2306,7 @@ def main():
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)
+    probe("MTP draft selection", probe_mtp_draft_selection)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)

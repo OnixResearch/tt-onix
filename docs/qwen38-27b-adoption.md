@@ -78,6 +78,8 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
   not importable.
 - `qwen36-p150x2-mtp-probe` — diagnostic target-verification probe; it cannot
   admit MTP or change production behavior.
+- `qwen36-p150x2-mtp-drafter-probe` — diagnostic checkpoint drafter and rollback probe.
+- `qwen36-p150x2-mtp-selection-probe` — paired full-logit and bounded draft-selector control.
 - `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
   it cannot select production behavior.
 - `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
@@ -384,6 +386,29 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-drafter-receipt.json`
 - receipt BLAKE3: `a102a170ce5d9fd1a2d2335bb6936ca1982e7a33df69b13df758b5073492141f`
 - `cairn/archive/2026-08-22-evaluate-qwen38-mtp-drafter/evidence/physical-result.md`
+
+### MTP draft-selector diagnostic
+
+The package provides `qwen36-p150x2-mtp-selection-probe`. It compares historical full-vocabulary MTP selection with the target path's shard-local greedy policy.
+
+The paired physical control produced identical draft, target, and continuation tokens. Prompt 2 restored hybrid state exactly after rejection. The observed selector reduction was `66.49554434507507%`, with bounded/full ratio `0.3350445565492493`.
+
+The complete candidate remained invalid:
+
+- aggregate emitted-token speedup was `0.8197972276186697`;
+- one bounded MTP-prefill root took `0.4443297780235298` seconds;
+- prompt 2 accepted zero drafts; and
+- most duplicate prompt-route groups exceeded the `1.25` stability bound.
+
+The implementation removes full-vocabulary draft readback. Unstable roots prevent a validated speedup claim. The next candidate must trace the fixed-shape MTP draft step and replace cache re-prefill with KV snapshot restore. Calibrated confidence can then choose zero, one, or three drafts.
+
+MTP, traced decode, and production behavior remain unselected.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-selection-receipt.json`
+- receipt BLAKE3: `b0e0eb8df13fe8db1667cca7d82973cb069596675bdf50a5857b9f67e995d923`
+- `cairn/archive/2026-08-22-optimize-qwen38-mtp-draft-selection/evidence/physical-result.md`
 
 ### Decode component replay diagnostic
 
