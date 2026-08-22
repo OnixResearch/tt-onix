@@ -78,6 +78,8 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
   not importable.
 - `qwen36-p150x2-mtp-probe` — diagnostic target-verification probe; it cannot
   admit MTP or change production behavior.
+- `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
+  it cannot select production behavior.
 - `nix build .#checks.x86_64-linux.qwen36` and
   `.#checks.x86_64-linux.qwen36-authority-negative` — CI-shaped gates.
 
@@ -380,6 +382,31 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-drafter-receipt.json`
 - receipt BLAKE3: `a102a170ce5d9fd1a2d2335bb6936ca1982e7a33df69b13df758b5073492141f`
 - `cairn/archive/2026-08-22-evaluate-qwen38-mtp-drafter/evidence/physical-result.md`
+
+### Decode component replay diagnostic
+
+The package provides `qwen36-p150x2-decode-component-probe`. It captures coherent component traces around real package-selected layers. It measures three GDN mixers, three MLPs, three full-attention mixers, embedding, LM-head reduction, the full decode trace, synchronized input update, and bounded winner readback.
+
+The final P150x2 run produced these results:
+
+- full device replay median: `0.05421315398416482` seconds
+- additive closure ratio: `1.1025414225426509`
+- weighted GDN share: `0.4657840443580814`
+- weighted MLP share: `0.4028968075511107`
+- weighted full-attention share: `0.09527631774481014`
+- weighted LM-head and argmax share: `0.03499570592223391`
+- GDN-to-MLP weighted ratio: `1.156087701933436`
+
+The additive model closed within its typed bounds. The full trace was stable. The evaluator still rejected attribution for embedding instability, host input-update instability, host readback instability, and insufficient GDN-to-MLP dominance.
+
+No optimization is selected. Direct replay does not support the earlier assumption that static MLP bytes identify one dominant target. GDN and MLP costs are close on this exact traced path.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-decode-component-attribution-receipt.json`
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-decode-component-attribution-pilot-receipt.json`
+- final receipt BLAKE3: `58241201ed7eff7b1156b435e2af152eb7e10e359382af72e3b1ba7435df8025`
+- `cairn/archive/2026-08-22-profile-qwen38-decode-components/evidence/physical-result.md`
 
 ## Serialized P150x2 service
 

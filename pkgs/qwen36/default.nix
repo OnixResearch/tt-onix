@@ -117,6 +117,8 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
     cp ${./mtp-drafter-profile.ncl} "$out/share/qwen36/mtp-drafter-profile.ncl"
     cp ${./mtp-drafter-contracts.ncl} "$out/share/qwen36/mtp-drafter-contracts.ncl"
+    cp ${./decode-component-profile.ncl} "$out/share/qwen36/decode-component-profile.ncl"
+    cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
     mkdir -p decode-profile-export
     cp ${./decode-profile.ncl} decode-profile-export/decode-profile.ncl
     cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
@@ -132,6 +134,11 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-export/mtp-drafter-contracts.ncl
     nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile.ncl \
       > "$out/share/qwen36/mtp-drafter-profile.json"
+    mkdir -p decode-component-profile-export
+    cp ${./decode-component-profile.ncl} decode-component-profile-export/decode-component-profile.ncl
+    cp ${./decode-component-contracts.ncl} decode-component-profile-export/decode-component-contracts.ncl
+    nickel export --format json decode-component-profile-export/decode-component-profile.ncl \
+      > "$out/share/qwen36/decode-component-profile.json"
 
     mkdir -p "$out/bin"
 
@@ -274,6 +281,28 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.decode_component_attribution]
+    # This explicit command measures diagnostic component traces only.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-decode-component-probe" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.decode_component_probe" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--component-profile" \
+      --add-flags "$out/share/qwen36/decode-component-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
     # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-serve" \
@@ -314,16 +343,22 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
+    test -f "$out/share/qwen36/decode-component-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
+    test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \
@@ -427,6 +462,30 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-mtp-drafter-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
+    # Positive: component policy exports deterministically and binds authority.
+    mkdir -p decode-component-profile-check
+    cp ${./decode-component-profile.ncl} decode-component-profile-check/decode-component-profile.ncl
+    cp ${./decode-component-contracts.ncl} decode-component-profile-check/decode-component-contracts.ncl
+    nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-first.json
+    nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-second.json
+    cmp decode-component-profile-first.json decode-component-profile-second.json
+    cmp decode-component-profile-first.json "$out/share/qwen36/decode-component-profile.json"
+    grep -F '"diagnostic_only": true' decode-component-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-component-profile-first.json
+
+    # Negative: production eligibility must fail the typed component contract.
+    mkdir -p decode-component-profile-negative
+    cp ${./decode-component-profile.ncl} decode-component-profile-negative/decode-component-profile.ncl
+    cp ${./decode-component-contracts.ncl} decode-component-profile-negative/decode-component-contracts.ncl
+    cp ${./fixtures/invalid-decode-component-profile.ncl} decode-component-profile-negative/invalid-decode-component-profile.ncl
+    if nickel export --format json decode-component-profile-negative/invalid-decode-component-profile.ncl \
+        > invalid-decode-component-profile.json 2> invalid-decode-component-profile.log; then
+      echo "invalid decode component profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-decode-component-profile.log
 
     # Negative: a drifted authority (wrong upstream commit) must be rejected by
     # the Nickel contract shape (commit no longer a 40-hex revision).

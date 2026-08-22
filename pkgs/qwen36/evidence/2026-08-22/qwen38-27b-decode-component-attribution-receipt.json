@@ -1,0 +1,674 @@
+{
+  "admission_eligible": false,
+  "cleanup_complete": true,
+  "component_samples": [
+    {
+      "component": "embedding",
+      "layer_index": null,
+      "sample_index": 1,
+      "seconds": 0.0001104460097849369
+    },
+    {
+      "component": "embedding",
+      "layer_index": null,
+      "sample_index": 2,
+      "seconds": 0.00010026601376011968
+    },
+    {
+      "component": "embedding",
+      "layer_index": null,
+      "sample_index": 3,
+      "seconds": 5.383000825531781e-05
+    },
+    {
+      "component": "embedding",
+      "layer_index": null,
+      "sample_index": 4,
+      "seconds": 6.258898065425456e-05
+    },
+    {
+      "component": "embedding",
+      "layer_index": null,
+      "sample_index": 5,
+      "seconds": 6.040401058271527e-05
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 0,
+      "sample_index": 1,
+      "seconds": 0.0005818239878863096
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 0,
+      "sample_index": 2,
+      "seconds": 0.000576853024540469
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 0,
+      "sample_index": 3,
+      "seconds": 0.0005481340049300343
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 0,
+      "sample_index": 4,
+      "seconds": 0.000580019986955449
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 0,
+      "sample_index": 5,
+      "seconds": 0.0005874350026715547
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 32,
+      "sample_index": 1,
+      "seconds": 0.0005801299994345754
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 32,
+      "sample_index": 2,
+      "seconds": 0.0005497779930010438
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 32,
+      "sample_index": 3,
+      "seconds": 0.0005823950050398707
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 32,
+      "sample_index": 4,
+      "seconds": 0.0005858819931745529
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 32,
+      "sample_index": 5,
+      "seconds": 0.0005768740084022284
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 60,
+      "sample_index": 1,
+      "seconds": 0.0005502590211108327
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 60,
+      "sample_index": 2,
+      "seconds": 0.000561602006200701
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 60,
+      "sample_index": 3,
+      "seconds": 0.000557903986191377
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 60,
+      "sample_index": 4,
+      "seconds": 0.0005806520057376474
+    },
+    {
+      "component": "gdn_mixer",
+      "layer_index": 60,
+      "sample_index": 5,
+      "seconds": 0.0005806720000691712
+    },
+    {
+      "component": "mlp",
+      "layer_index": 0,
+      "sample_index": 1,
+      "seconds": 0.00039239501347765326
+    },
+    {
+      "component": "mlp",
+      "layer_index": 0,
+      "sample_index": 2,
+      "seconds": 0.00040354797965846956
+    },
+    {
+      "component": "mlp",
+      "layer_index": 0,
+      "sample_index": 3,
+      "seconds": 0.0003833369992207736
+    },
+    {
+      "component": "mlp",
+      "layer_index": 0,
+      "sample_index": 4,
+      "seconds": 0.0003853810194414109
+    },
+    {
+      "component": "mlp",
+      "layer_index": 0,
+      "sample_index": 5,
+      "seconds": 0.00037847700878046453
+    },
+    {
+      "component": "mlp",
+      "layer_index": 31,
+      "sample_index": 1,
+      "seconds": 0.00037238397635519505
+    },
+    {
+      "component": "mlp",
+      "layer_index": 31,
+      "sample_index": 2,
+      "seconds": 0.0003877360140904784
+    },
+    {
+      "component": "mlp",
+      "layer_index": 31,
+      "sample_index": 3,
+      "seconds": 0.000383967999368906
+    },
+    {
+      "component": "mlp",
+      "layer_index": 31,
+      "sample_index": 4,
+      "seconds": 0.00037342600990086794
+    },
+    {
+      "component": "mlp",
+      "layer_index": 31,
+      "sample_index": 5,
+      "seconds": 0.0003762819978874177
+    },
+    {
+      "component": "mlp",
+      "layer_index": 63,
+      "sample_index": 1,
+      "seconds": 0.0003679649962577969
+    },
+    {
+      "component": "mlp",
+      "layer_index": 63,
+      "sample_index": 2,
+      "seconds": 0.00037029999657534063
+    },
+    {
+      "component": "mlp",
+      "layer_index": 63,
+      "sample_index": 3,
+      "seconds": 0.00037430800148285925
+    },
+    {
+      "component": "mlp",
+      "layer_index": 63,
+      "sample_index": 4,
+      "seconds": 0.0003723240224644542
+    },
+    {
+      "component": "mlp",
+      "layer_index": 63,
+      "sample_index": 5,
+      "seconds": 0.00037436801358126104
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 3,
+      "sample_index": 1,
+      "seconds": 0.0003537159936968237
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 3,
+      "sample_index": 2,
+      "seconds": 0.00035125098656862974
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 3,
+      "sample_index": 3,
+      "seconds": 0.0003584359947126359
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 3,
+      "sample_index": 4,
+      "seconds": 0.0003602700016926974
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 3,
+      "sample_index": 5,
+      "seconds": 0.00035592998028732836
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 31,
+      "sample_index": 1,
+      "seconds": 0.00035250300425104797
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 31,
+      "sample_index": 2,
+      "seconds": 0.0003541960031725466
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 31,
+      "sample_index": 3,
+      "seconds": 0.0003528039960656315
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 31,
+      "sample_index": 4,
+      "seconds": 0.00036030999035574496
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 31,
+      "sample_index": 5,
+      "seconds": 0.0003531840047799051
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 63,
+      "sample_index": 1,
+      "seconds": 0.0003534550196491182
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 63,
+      "sample_index": 2,
+      "seconds": 0.00035532901529222727
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 63,
+      "sample_index": 3,
+      "seconds": 0.00036395699135027826
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 63,
+      "sample_index": 4,
+      "seconds": 0.0003593479923438281
+    },
+    {
+      "component": "full_attention_mixer",
+      "layer_index": 63,
+      "sample_index": 5,
+      "seconds": 0.00043674602056853473
+    },
+    {
+      "component": "lm_head_argmax",
+      "layer_index": null,
+      "sample_index": 1,
+      "seconds": 0.002091972011839971
+    },
+    {
+      "component": "lm_head_argmax",
+      "layer_index": null,
+      "sample_index": 2,
+      "seconds": 0.0021019330015406013
+    },
+    {
+      "component": "lm_head_argmax",
+      "layer_index": null,
+      "sample_index": 3,
+      "seconds": 0.002079978003166616
+    },
+    {
+      "component": "lm_head_argmax",
+      "layer_index": null,
+      "sample_index": 4,
+      "seconds": 0.002081550977891311
+    },
+    {
+      "component": "lm_head_argmax",
+      "layer_index": null,
+      "sample_index": 5,
+      "seconds": 0.0020917720103170723
+    }
+  ],
+  "decision": {
+    "attribution_valid": false,
+    "closure_ratio": 1.1025414225426509,
+    "full_spread_ratio": 1.004727385259557,
+    "group_summaries": [
+      {
+        "component": "embedding",
+        "layer_index": null,
+        "median_seconds": 6.258898065425456e-05,
+        "sample_count": 5,
+        "spread_ratio": 2.051755393777523
+      },
+      {
+        "component": "gdn_mixer",
+        "layer_index": 0,
+        "median_seconds": 0.000580019986955449,
+        "sample_count": 5,
+        "spread_ratio": 1.071699616130433
+      },
+      {
+        "component": "gdn_mixer",
+        "layer_index": 32,
+        "median_seconds": 0.0005801299994345754,
+        "sample_count": 5,
+        "spread_ratio": 1.065670144373059
+      },
+      {
+        "component": "gdn_mixer",
+        "layer_index": 60,
+        "median_seconds": 0.000561602006200701,
+        "sample_count": 5,
+        "spread_ratio": 1.0552702959725084
+      },
+      {
+        "component": "mlp",
+        "layer_index": 0,
+        "median_seconds": 0.0003853810194414109,
+        "sample_count": 5,
+        "spread_ratio": 1.0662417274930098
+      },
+      {
+        "component": "mlp",
+        "layer_index": 31,
+        "median_seconds": 0.0003762819978874177,
+        "sample_count": 5,
+        "spread_ratio": 1.041226365015878
+      },
+      {
+        "component": "mlp",
+        "layer_index": 63,
+        "median_seconds": 0.0003723240224644542,
+        "sample_count": 5,
+        "spread_ratio": 1.0174011587748368
+      },
+      {
+        "component": "full_attention_mixer",
+        "layer_index": 3,
+        "median_seconds": 0.00035592998028732836,
+        "sample_count": 5,
+        "spread_ratio": 1.0256768392657751
+      },
+      {
+        "component": "full_attention_mixer",
+        "layer_index": 31,
+        "median_seconds": 0.0003531840047799051,
+        "sample_count": 5,
+        "spread_ratio": 1.0221472895565364
+      },
+      {
+        "component": "full_attention_mixer",
+        "layer_index": 63,
+        "median_seconds": 0.0003593479923438281,
+        "sample_count": 5,
+        "spread_ratio": 1.2356480918055746
+      },
+      {
+        "component": "lm_head_argmax",
+        "layer_index": null,
+        "median_seconds": 0.0020917720103170723,
+        "sample_count": 5,
+        "spread_ratio": 1.0105553993073775
+      }
+    ],
+    "input_update_spread_ratio": 1.611457421591108,
+    "measured_full_device_seconds": 0.05421315398416482,
+    "median_input_update_seconds": 0.0006399830162990838,
+    "median_winner_readback_seconds": 0.0015717649948783219,
+    "modeled_full_device_seconds": 0.05977224791422486,
+    "reasons": [
+      "embedding-instability",
+      "host-input-update-instability",
+      "host-winner-readback-instability",
+      "minimum-dominance-ratio"
+    ],
+    "repeated_token_id": 13,
+    "selected_component": null,
+    "verdict": "rejected",
+    "weighted_components": [
+      {
+        "component": "embedding",
+        "multiplicity": 1,
+        "representative_median_seconds": 6.258898065425456e-05,
+        "weighted_seconds": 6.258898065425456e-05,
+        "weighted_share": 0.0010471244237638812
+      },
+      {
+        "component": "gdn_mixer",
+        "multiplicity": 48,
+        "representative_median_seconds": 0.000580019986955449,
+        "weighted_seconds": 0.02784095937386155,
+        "weighted_share": 0.4657840443580814
+      },
+      {
+        "component": "mlp",
+        "multiplicity": 64,
+        "representative_median_seconds": 0.0003762819978874177,
+        "weighted_seconds": 0.02408204786479473,
+        "weighted_share": 0.4028968075511107
+      },
+      {
+        "component": "full_attention_mixer",
+        "multiplicity": 16,
+        "representative_median_seconds": 0.00035592998028732836,
+        "weighted_seconds": 0.005694879684597254,
+        "weighted_share": 0.09527631774481014
+      },
+      {
+        "component": "lm_head_argmax",
+        "multiplicity": 1,
+        "representative_median_seconds": 0.0020917720103170723,
+        "weighted_seconds": 0.0020917720103170723,
+        "weighted_share": 0.03499570592223391
+      }
+    ],
+    "winner_readback_spread_ratio": 38.500578404176125
+  },
+  "diagnostic_only": true,
+  "execution_path": "matched-component-trace-replay",
+  "first_decode_token": 11751,
+  "full_samples": [
+    {
+      "device_seconds": 0.05421315398416482,
+      "sample_index": 1,
+      "token_id": 13
+    },
+    {
+      "device_seconds": 0.05417075697914697,
+      "sample_index": 2,
+      "token_id": 13
+    },
+    {
+      "device_seconds": 0.05415149801410735,
+      "sample_index": 3,
+      "token_id": 13
+    },
+    {
+      "device_seconds": 0.05440749300760217,
+      "sample_index": 4,
+      "token_id": 13
+    },
+    {
+      "device_seconds": 0.054251393012236804,
+      "sample_index": 5,
+      "token_id": 13
+    }
+  ],
+  "host_cpu_affinity": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "host_samples": [
+    {
+      "input_update_seconds": 0.0009777259838301688,
+      "sample_index": 1,
+      "winner_readback_seconds": 0.001822418998926878
+    },
+    {
+      "input_update_seconds": 0.000970121007412672,
+      "sample_index": 2,
+      "winner_readback_seconds": 0.00149274300201796
+    },
+    {
+      "input_update_seconds": 0.0006200930220074952,
+      "sample_index": 3,
+      "winner_readback_seconds": 0.0015717649948783219
+    },
+    {
+      "input_update_seconds": 0.0006067339854780585,
+      "sample_index": 4,
+      "winner_readback_seconds": 0.0574714689864777
+    },
+    {
+      "input_update_seconds": 0.0006399830162990838,
+      "sample_index": 5,
+      "winner_readback_seconds": 0.0014939150132704526
+    }
+  ],
+  "identity": {
+    "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "package": "/nix/store/16k19gpafpv6a9wadg742axf6qzdk2gd-qwen36-0.1.0",
+    "runtime": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "layer_types": [
+    {
+      "layer_index": 0,
+      "mixer_type": "linear_attention"
+    },
+    {
+      "layer_index": 3,
+      "mixer_type": "full_attention"
+    },
+    {
+      "layer_index": 31,
+      "mixer_type": "full_attention"
+    },
+    {
+      "layer_index": 32,
+      "mixer_type": "linear_attention"
+    },
+    {
+      "layer_index": 60,
+      "mixer_type": "linear_attention"
+    },
+    {
+      "layer_index": 63,
+      "mixer_type": "full_attention"
+    }
+  ],
+  "measurement_mode": "diagnostic-decode-component-trace-replay",
+  "mesh_shape": [
+    1,
+    2
+  ],
+  "non_claims": [
+    "Component replay is diagnostic and is ineligible for production admission.",
+    "Independent component traces do not prove full-model optimization speedup.",
+    "The receipt makes no batch, concurrency, long-context, thermal, or TP4 claim.",
+    "Production remains eager."
+  ],
+  "physical_pcie_device_ids": [
+    0,
+    1
+  ],
+  "profile_id": "qwen38-p150x2-decode-component-replay-v1",
+  "prompt": "The capital of France is",
+  "prompt_token_count": 5,
+  "samples_per_group": 5,
+  "schema_version": 1,
+  "simulated": false,
+  "trace_captures": [
+    {
+      "capture_seconds": 25.53319086699048,
+      "component": "full_decode",
+      "layer_index": null
+    },
+    {
+      "capture_seconds": 0.00043374000233598053,
+      "component": "embedding",
+      "layer_index": null
+    },
+    {
+      "capture_seconds": 0.006296339008258656,
+      "component": "gdn_mixer",
+      "layer_index": 0
+    },
+    {
+      "capture_seconds": 0.007318215008126572,
+      "component": "gdn_mixer",
+      "layer_index": 32
+    },
+    {
+      "capture_seconds": 0.0065073320001829416,
+      "component": "gdn_mixer",
+      "layer_index": 60
+    },
+    {
+      "capture_seconds": 0.003920845018001273,
+      "component": "mlp",
+      "layer_index": 0
+    },
+    {
+      "capture_seconds": 0.001261337980395183,
+      "component": "mlp",
+      "layer_index": 31
+    },
+    {
+      "capture_seconds": 0.0011602809827309102,
+      "component": "mlp",
+      "layer_index": 63
+    },
+    {
+      "capture_seconds": 0.003285239974502474,
+      "component": "full_attention_mixer",
+      "layer_index": 3
+    },
+    {
+      "capture_seconds": 0.0030042839935049415,
+      "component": "full_attention_mixer",
+      "layer_index": 31
+    },
+    {
+      "capture_seconds": 0.002548137999838218,
+      "component": "full_attention_mixer",
+      "layer_index": 63
+    },
+    {
+      "capture_seconds": 0.0018981949833687395,
+      "component": "lm_head_argmax",
+      "layer_index": null
+    }
+  ],
+  "warmup_replays": 1
+}

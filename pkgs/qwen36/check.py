@@ -1477,6 +1477,238 @@ def probe_mtp_drafter():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
+def probe_decode_component_attribution():
+    """Positive and negative tests for pure component attribution."""
+    from dataclasses import replace
+
+    from qwen36_service.decode_component_core import (
+        EMBEDDING_COMPONENT,
+        FULL_ATTENTION_MIXER_COMPONENT,
+        FULL_ATTENTION_TYPE,
+        GDN_MIXER_COMPONENT,
+        LINEAR_ATTENTION_TYPE,
+        LM_HEAD_ARGMAX_COMPONENT,
+        MLP_COMPONENT,
+        ComponentReplaySample,
+        DecodeComponentEvidence,
+        DecodeComponentIdentity,
+        DecodeComponentPolicyError,
+        DecodeComponentProfile,
+        FullReplaySample,
+        HostBoundarySample,
+        LayerTypeObservation,
+        evaluate_decode_components,
+    )
+
+    profile_source = json.loads(
+        Path(__file__).with_name("decode-component-profile.json").read_text()
+    )
+    profile = DecodeComponentProfile.from_mapping(profile_source)
+    identity = DecodeComponentIdentity(
+        runtime_identity="runtime",
+        package_identity="package",
+        model_identity=f"Qwen3.8-27B:{profile.checkpoint_revision}",
+        authority_blake3=profile.authority_blake3,
+        checkpoint_revision=profile.checkpoint_revision,
+        model_source_revision=profile.model_source_revision,
+        tokenizer_revision=profile.tokenizer_revision,
+    )
+    full_attention_indices = set(profile.full_attention_representatives)
+    representative_indices = set(profile.gdn_representatives)
+    representative_indices.update(profile.full_attention_representatives)
+    representative_indices.update(profile.mlp_representatives)
+    layer_types = tuple(
+        LayerTypeObservation(
+            layer_index=layer_index,
+            mixer_type=(
+                FULL_ATTENTION_TYPE
+                if layer_index in full_attention_indices
+                else LINEAR_ATTENTION_TYPE
+            ),
+        )
+        for layer_index in sorted(representative_indices)
+    )
+
+    embedding_seconds = 0.0002
+    gdn_seconds = 0.0003
+    mlp_seconds = 0.0005
+    full_attention_seconds = 0.00025
+    lm_head_seconds = 0.006
+    input_update_seconds = 0.001
+    winner_readback_seconds = 0.0005
+    sample_step_ratio = 0.001
+    exact_closure_tolerance = 1.0e-12
+    instability_multiplier = 2.0
+    closure_failure_multiplier = 2.0
+    invalid_duration_seconds = -1.0
+    component_groups = [(EMBEDDING_COMPONENT, None, embedding_seconds)]
+    component_groups.extend(
+        (GDN_MIXER_COMPONENT, layer_index, gdn_seconds)
+        for layer_index in profile.gdn_representatives
+    )
+    component_groups.extend(
+        (MLP_COMPONENT, layer_index, mlp_seconds)
+        for layer_index in profile.mlp_representatives
+    )
+    component_groups.extend(
+        (
+            FULL_ATTENTION_MIXER_COMPONENT,
+            layer_index,
+            full_attention_seconds,
+        )
+        for layer_index in profile.full_attention_representatives
+    )
+    component_groups.append((LM_HEAD_ARGMAX_COMPONENT, None, lm_head_seconds))
+    component_samples = tuple(
+        ComponentReplaySample(
+            component=component,
+            layer_index=layer_index,
+            sample_index=sample_index,
+            seconds=seconds * (1.0 + (sample_index - 1) * sample_step_ratio),
+        )
+        for component, layer_index, seconds in component_groups
+        for sample_index in range(1, profile.samples_per_group + 1)
+    )
+    modeled_seconds = (
+        embedding_seconds
+        + gdn_seconds * profile.gdn_layer_count
+        + mlp_seconds * profile.mlp_layer_count
+        + full_attention_seconds * profile.full_attention_layer_count
+        + lm_head_seconds
+    )
+    repeated_token_id = 42
+    full_samples = tuple(
+        FullReplaySample(
+            sample_index=sample_index,
+            device_seconds=modeled_seconds
+            * (1.0 + (sample_index - 1) * sample_step_ratio),
+            token_id=repeated_token_id,
+        )
+        for sample_index in range(1, profile.samples_per_group + 1)
+    )
+    host_samples = tuple(
+        HostBoundarySample(
+            sample_index=sample_index,
+            input_update_seconds=input_update_seconds
+            * (1.0 + (sample_index - 1) * sample_step_ratio),
+            winner_readback_seconds=winner_readback_seconds
+            * (1.0 + (sample_index - 1) * sample_step_ratio),
+        )
+        for sample_index in range(1, profile.samples_per_group + 1)
+    )
+    evidence = DecodeComponentEvidence(
+        identity=identity,
+        physical_pcie_device_ids=profile.expected_pcie_device_ids,
+        mesh_shape=profile.mesh_shape,
+        host_cpu_affinity=profile.expected_cpu_affinity,
+        layer_types=layer_types,
+        component_samples=component_samples,
+        full_samples=full_samples,
+        host_samples=host_samples,
+        cleanup_complete=True,
+    )
+    decision = evaluate_decode_components(profile, evidence)
+    require(
+        decision.attribution_valid,
+        f"valid component evidence failed: {decision.reasons}",
+    )
+    require(
+        decision.selected_component == MLP_COMPONENT,
+        "valid evidence did not select MLP",
+    )
+    require(
+        decision.repeated_token_id == repeated_token_id, "full replay token changed"
+    )
+    require(
+        decision.closure_ratio is not None
+        and math.isclose(decision.closure_ratio, 1.0, rel_tol=exact_closure_tolerance),
+        "additive component model did not close",
+    )
+
+    missing = replace(evidence, component_samples=component_samples[:-1])
+    require(
+        "lm_head_argmax-samples"
+        in evaluate_decode_components(profile, missing).reasons,
+        "missing component samples were accepted",
+    )
+    wrong_layer_types = list(layer_types)
+    wrong_layer_types[0] = replace(
+        wrong_layer_types[0],
+        mixer_type=FULL_ATTENTION_TYPE,
+    )
+    wrong_type = replace(evidence, layer_types=tuple(wrong_layer_types))
+    require(
+        "gdn-layer-0-type" in evaluate_decode_components(profile, wrong_type).reasons,
+        "wrong representative layer type was accepted",
+    )
+    unstable_samples = list(component_samples)
+    unstable_samples[0] = replace(
+        unstable_samples[0],
+        seconds=unstable_samples[0].seconds * instability_multiplier,
+    )
+    unstable = replace(evidence, component_samples=tuple(unstable_samples))
+    require(
+        "embedding-instability"
+        in evaluate_decode_components(profile, unstable).reasons,
+        "unstable component samples were accepted",
+    )
+    closure_failure = replace(
+        evidence,
+        full_samples=tuple(
+            replace(
+                sample,
+                device_seconds=sample.device_seconds * closure_failure_multiplier,
+            )
+            for sample in full_samples
+        ),
+    )
+    require(
+        "additive-model-closure"
+        in evaluate_decode_components(profile, closure_failure).reasons,
+        "non-closing component model was accepted",
+    )
+    invalid_samples = list(component_samples)
+    invalid_samples[0] = replace(
+        invalid_samples[0],
+        seconds=invalid_duration_seconds,
+    )
+    invalid_duration = replace(evidence, component_samples=tuple(invalid_samples))
+    require(
+        "component-duration"
+        in evaluate_decode_components(profile, invalid_duration).reasons,
+        "negative component duration was accepted",
+    )
+    require(
+        "cleanup-incomplete"
+        in evaluate_decode_components(
+            profile,
+            replace(evidence, cleanup_complete=False),
+        ).reasons,
+        "incomplete cleanup was accepted",
+    )
+    mismatched_identity = replace(
+        evidence,
+        identity=replace(
+            identity,
+            authority_blake3="0" * len(identity.authority_blake3),
+        ),
+    )
+    require(
+        "authority-identity"
+        in evaluate_decode_components(profile, mismatched_identity).reasons,
+        "mismatched authority was accepted",
+    )
+
+    invalid_profile = {**profile_source, "diagnostic_only": False}
+    try:
+        DecodeComponentProfile.from_mapping(invalid_profile)
+    except DecodeComponentPolicyError as error:
+        require("diagnostic-only" in str(error), "wrong component profile diagnostic")
+    else:
+        require(False, "non-diagnostic component profile was accepted")
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -1613,6 +1845,7 @@ def main():
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)
+    probe("decode component attribution", probe_decode_component_attribution)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:
