@@ -58,8 +58,9 @@ authority only when it matches:
   commit `d102e7f...`, base `c71ea3ca...`, `merged_upstream = false`;
 - PR 53543 facts (117 additions / 40 deletions / 9 files);
 - release `Qwen/Qwen3.8-27B`, revision `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`,
-  architecture `Qwen3_5ForConditionalGeneration`, 18 checkpoint shards,
-  weights excluded;
+  architecture `Qwen3_5ForConditionalGeneration`, and 18 checkpoint shards;
+- 64 text layers: 48 linear-attention layers and 16 full-attention layers;
+- one checkpoint MTP layer, with checkpoint weights excluded from authority hashing;
 - hashed metadata artifacts (license, config, tokenizers, preprocessors,
   checkpoint index) with exact Nix and BLAKE3 identities.
 
@@ -73,6 +74,8 @@ Drift in any recorded fact fails the package evaluation. A separate
 - `qwen36-check` — device-free adoption gate (no hardware).
 - `qwen36-serve` — text-only vLLM 0.10 entrypoint; fails closed when vLLM is
   not importable.
+- `qwen36-p150x2-mtp-probe` — diagnostic target-verification probe; it cannot
+  admit MTP or change production behavior.
 - `nix build .#checks.x86_64-linux.qwen36` and
   `.#checks.x86_64-linux.qwen36-authority-negative` — CI-shaped gates.
 
@@ -306,7 +309,7 @@ The comparator rejected the result as `duplicate-root-instability` against its `
 No host attribution or optimization is selected from the rejected receipt.
 A follow-up used Tracy signpost messages without Python call profiling. It still failed duplicate stability: eager enqueue ratio `3.174942201847243` and candidate enqueue ratio `1.4077723936685347`.
 
-A second follow-up used five independent fixed-affinity samples per root. Eager duplicates passed, but candidate wall and gap ratios remained `1.3928346091490837` and `1.4276727516605083`. This isolates the blocker to persistent candidate cross-process drift. Both results were rejected, so no host attribution or optimization was selected.
+A second follow-up used five independent fixed-affinity samples per root. Candidate duplicates passed. Eager wall and gap ratios were `1.3928346091490837` and `1.4276727516605083`. This isolates the blocker to persistent eager cross-process drift. Both results were rejected, so no host attribution or optimization was selected.
 
 Evidence:
 
@@ -318,6 +321,41 @@ Evidence:
 - `cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md`
 - `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-ttft-candidate-receipt.json`
 - `cairn/archive/2026-08-20-reduce-qwen38-traced-decode-ttft/evidence/physical-result.md`
+
+### MTP target-verification diagnostic
+
+The package provides `qwen36-p150x2-mtp-probe` for an explicit physical diagnostic.
+The command compares traced sequential decode with teacher-forced widths `1`, `2`, and `4`.
+It uses five samples per width and checks target tokens, recurrent state, and convolution state.
+Production remains eager, and the diagnostic cannot admit MTP.
+
+The packaged runtime does not expose a native short-width GDN verification operation.
+The probe therefore tested the existing 128-token masked fallback.
+It released the decode trace before verifier allocations and recaptured it for each sequential sample.
+
+The 2026-08-21 P150x2 result rejected that fallback:
+
+- width-one target token: sequential `89454`, fallback `623`;
+- width-four median sequential time: `0.2376689650118351` seconds;
+- width-four median fallback time: `1.2836667579831555` seconds;
+- width-four end-to-end amortization ratio: `0.18514849242123463`;
+- width-four recurrent-state PCC/NMSE: `0.9940086238177922`/`0.018922876020279887`;
+- width-four convolution-state PCC/NMSE: `0.7756611409995481`/`0.5698385668219748`.
+
+The fallback failed token parity and state equivalence at every width.
+Each width also failed at least one `1.25` timing-spread check.
+It was about `5.40` times slower than four traced sequential steps at width four.
+MTP remains unselected and unadmitted.
+
+A future MTP change needs a native short-width hybrid verifier.
+That verifier must preserve GDN recurrent and convolution state.
+It must also continue paged attention from non-block-aligned positions without trace-time allocation.
+Only then can a local drafter-acceptance test measure MTP economics.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-mtp-target-verification-receipt.json`
+- receipt BLAKE3: `1750300f560a9f11bd479a057cf85d1f40a3dc51a73769de6600176f041dfe3a`
 
 ## Serialized P150x2 service
 

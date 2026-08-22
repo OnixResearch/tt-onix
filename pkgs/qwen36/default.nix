@@ -7,6 +7,7 @@
   python3,
   makeWrapper,
   nickel,
+  b3sum,
   tt-metal,
   tt-metal-tracy-tools,
 }:
@@ -83,6 +84,7 @@ stdenvNoCC.mkDerivation {
     ./tp2-runtime-compat.patch
   ];
   nativeBuildInputs = [
+    b3sum
     makeWrapper
     nickel
   ];
@@ -107,11 +109,18 @@ stdenvNoCC.mkDerivation {
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
     cp ${./decode-profile.ncl} "$out/share/qwen36/decode-profile.ncl"
     cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
+    cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
+    cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
     mkdir -p decode-profile-export
     cp ${./decode-profile.ncl} decode-profile-export/decode-profile.ncl
     cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
     nickel export --format json decode-profile-export/decode-profile.ncl \
       > "$out/share/qwen36/decode-profile.json"
+    mkdir -p mtp-probe-profile-export
+    cp ${./mtp-probe-profile.ncl} mtp-probe-profile-export/mtp-probe-profile.ncl
+    cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-export/mtp-probe-contracts.ncl
+    nickel export --format json mtp-probe-profile-export/mtp-probe-profile.ncl \
+      > "$out/share/qwen36/mtp-probe-profile.json"
 
     mkdir -p "$out/bin"
 
@@ -210,6 +219,28 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.mtp_verification_probe]
+    # This command is explicit and diagnostic-only. Production remains eager.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-mtp-probe" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.mtp_probe" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--mtp-probe-profile" \
+      --add-flags "$out/share/qwen36/mtp-probe-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
     # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-serve" \
@@ -243,10 +274,16 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
+    test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
+    test -x "$out/bin/qwen36-p150x2-mtp-probe"
+    "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \
@@ -300,6 +337,32 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-decode-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.mtp_verification_probe]
+    # Positive: the diagnostic target-probe profile exports deterministically.
+    mkdir -p mtp-probe-profile-check
+    cp ${./mtp-probe-profile.ncl} mtp-probe-profile-check/mtp-probe-profile.ncl
+    cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-check/mtp-probe-contracts.ncl
+    nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-first.json
+    nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-second.json
+    cmp mtp-probe-profile-first.json mtp-probe-profile-second.json
+    cmp mtp-probe-profile-first.json "$out/share/qwen36/mtp-probe-profile.json"
+    grep -F '"diagnostic_only": true' mtp-probe-profile-first.json
+    authority_blake3="$(b3sum authority-first.json | cut -d ' ' -f 1)"
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-probe-profile-first.json
+
+    # Negative: a changed width set or admission mode must fail its typed contract.
+    mkdir -p mtp-probe-profile-negative
+    cp ${./mtp-probe-profile.ncl} mtp-probe-profile-negative/mtp-probe-profile.ncl
+    cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-negative/mtp-probe-contracts.ncl
+    cp ${./fixtures/invalid-mtp-probe-profile.ncl} mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl
+    if nickel export --format json mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl \
+        > invalid-mtp-probe-profile.json 2> invalid-mtp-probe-profile.log; then
+      echo "invalid MTP probe profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-probe-profile.log
 
     # Negative: a drifted authority (wrong upstream commit) must be rejected by
     # the Nickel contract shape (commit no longer a 40-hex revision).

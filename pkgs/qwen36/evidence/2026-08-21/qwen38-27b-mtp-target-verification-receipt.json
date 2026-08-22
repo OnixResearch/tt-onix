@@ -1,0 +1,508 @@
+{
+  "admission_eligible": false,
+  "cleanup_complete": true,
+  "decision": {
+    "admission_eligible": false,
+    "blockers": [
+      "target-verification-invalid",
+      "mtp-drafter-not-measured",
+      "local-acceptance-not-measured",
+      "rejection-rollback-not-implemented",
+      "end-to-end-admission-missing"
+    ],
+    "mtp_selected": false,
+    "reasons": [
+      "width-1-token-parity",
+      "width-1-recurrent-state-pcc",
+      "width-1-recurrent-state-nmse",
+      "width-1-convolution-state-pcc",
+      "width-1-convolution-state-nmse",
+      "width-1-sample-instability",
+      "width-2-token-parity",
+      "width-2-recurrent-state-pcc",
+      "width-2-recurrent-state-nmse",
+      "width-2-convolution-state-pcc",
+      "width-2-convolution-state-nmse",
+      "width-2-sample-instability",
+      "width-4-token-parity",
+      "width-4-recurrent-state-pcc",
+      "width-4-recurrent-state-nmse",
+      "width-4-convolution-state-pcc",
+      "width-4-convolution-state-nmse",
+      "width-4-sample-instability"
+    ],
+    "target_verification_valid": false,
+    "widths": [
+      {
+        "device_amortization_ratio": 0.04084693593362323,
+        "end_to_end_amortization_ratio": 0.04047025108803542,
+        "maximum_convolution_state_nmse": 0.369715937928293,
+        "maximum_recurrent_state_nmse": 0.006652461864978162,
+        "median_sequential_seconds": 0.06181934999767691,
+        "median_verification_device_seconds": 1.5134391009924002,
+        "median_verification_end_to_end_seconds": 1.5275257339817472,
+        "median_verification_readback_seconds": 0.014086632989346981,
+        "minimum_convolution_state_pcc": 0.853000382866104,
+        "minimum_recurrent_state_pcc": 0.9977930379508367,
+        "sample_count": 5,
+        "sequential_spread_ratio": 1.1310384645168405,
+        "verification_device_spread_ratio": 1.7115022393348338,
+        "verification_end_to_end_spread_ratio": 1.7117906598612325,
+        "width": 1
+      },
+      {
+        "device_amortization_ratio": 0.09710226423158545,
+        "end_to_end_amortization_ratio": 0.09594983785944096,
+        "maximum_convolution_state_nmse": 0.45411309589493515,
+        "maximum_recurrent_state_nmse": 0.015245893040781115,
+        "median_sequential_seconds": 0.12026785401394591,
+        "median_verification_device_seconds": 1.2385689969814848,
+        "median_verification_end_to_end_seconds": 1.2534450989915058,
+        "median_verification_readback_seconds": 0.014410256990231574,
+        "minimum_convolution_state_pcc": 0.8190965203538724,
+        "minimum_recurrent_state_pcc": 0.9947017894585628,
+        "sample_count": 5,
+        "sequential_spread_ratio": 1.282989845463521,
+        "verification_device_spread_ratio": 1.1651422913428608,
+        "verification_end_to_end_spread_ratio": 1.1630183179118314,
+        "width": 2
+      },
+      {
+        "device_amortization_ratio": 0.18734922917177627,
+        "end_to_end_amortization_ratio": 0.18514849242123463,
+        "maximum_convolution_state_nmse": 0.5698385668219748,
+        "maximum_recurrent_state_nmse": 0.018922876020279887,
+        "median_sequential_seconds": 0.2376689650118351,
+        "median_verification_device_seconds": 1.2685878989868797,
+        "median_verification_end_to_end_seconds": 1.2836667579831555,
+        "median_verification_readback_seconds": 0.013484708004398271,
+        "minimum_convolution_state_pcc": 0.7756611409995481,
+        "minimum_recurrent_state_pcc": 0.9940086238177922,
+        "sample_count": 5,
+        "sequential_spread_ratio": 1.8643514872437208,
+        "verification_device_spread_ratio": 1.1269912788398742,
+        "verification_end_to_end_spread_ratio": 1.1287005450720817,
+        "width": 4
+      }
+    ]
+  },
+  "diagnostic_only": true,
+  "host_cpu_affinity": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "identity": {
+    "authority_blake3": "c6146a5b5ea290afad2f5abbd99e73e987ed0d85e7d8df9ffb3b4ec0c56ee444",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "package": "/nix/store/r8sqn9dj0r5c32329zw3jpza96yrf81m-qwen36-0.1.0",
+    "runtime": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "masked_bucket_width": 128,
+  "measurement_mode": "diagnostic-mtp-target-verification",
+  "mesh_shape": [
+    1,
+    2
+  ],
+  "non_claims": [
+    "No MTP drafter execution or acceptance result is established.",
+    "No rejection rollback behavior is established.",
+    "No speculative decoding speedup or production admission is established.",
+    "The masked fallback is not a native short-width GDN verification kernel."
+  ],
+  "physical_pcie_device_ids": [
+    0,
+    1
+  ],
+  "probe_profile_id": "qwen38-p150x2-mtp-target-probe-v1",
+  "runtime_supports_native_short_gdn_verify": false,
+  "samples": [
+    {
+      "convolution_state_nmse": 0.369715937928293,
+      "convolution_state_pcc": 0.853000382866104,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.006652461864978162,
+      "recurrent_state_pcc": 0.9977930379508367,
+      "sample_index": 1,
+      "sequential_seconds": 0.06664203500258736,
+      "sequential_token_ids": [
+        89454
+      ],
+      "verification_device_seconds": 2.2053149410057813,
+      "verification_readback_seconds": 0.022943575982935727,
+      "verification_token_ids": [
+        623
+      ],
+      "width": 1
+    },
+    {
+      "convolution_state_nmse": 0.369715937928293,
+      "convolution_state_pcc": 0.853000382866104,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.006652461864978162,
+      "recurrent_state_pcc": 0.9977930379508367,
+      "sample_index": 2,
+      "sequential_seconds": 0.05892110400600359,
+      "sequential_token_ids": [
+        89454
+      ],
+      "verification_device_seconds": 1.5134391009924002,
+      "verification_readback_seconds": 0.014086632989346981,
+      "verification_token_ids": [
+        623
+      ],
+      "width": 1
+    },
+    {
+      "convolution_state_nmse": 0.369715937928293,
+      "convolution_state_pcc": 0.853000382866104,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.006652461864978162,
+      "recurrent_state_pcc": 0.9977930379508367,
+      "sample_index": 3,
+      "sequential_seconds": 0.059330582997063175,
+      "sequential_token_ids": [
+        89454
+      ],
+      "verification_device_seconds": 1.288525886979187,
+      "verification_readback_seconds": 0.01318615599302575,
+      "verification_token_ids": [
+        623
+      ],
+      "width": 1
+    },
+    {
+      "convolution_state_nmse": 0.369715937928293,
+      "convolution_state_pcc": 0.853000382866104,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.006652461864978162,
+      "recurrent_state_pcc": 0.9977930379508367,
+      "sample_index": 4,
+      "sequential_seconds": 0.06321285897865891,
+      "sequential_token_ids": [
+        89454
+      ],
+      "verification_device_seconds": 1.393172971002059,
+      "verification_readback_seconds": 0.009274860000004992,
+      "verification_token_ids": [
+        623
+      ],
+      "width": 1
+    },
+    {
+      "convolution_state_nmse": 0.369715937928293,
+      "convolution_state_pcc": 0.853000382866104,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.006652461864978162,
+      "recurrent_state_pcc": 0.9977930379508367,
+      "sample_index": 5,
+      "sequential_seconds": 0.06181934999767691,
+      "sequential_token_ids": [
+        89454
+      ],
+      "verification_device_seconds": 1.7382080380048137,
+      "verification_readback_seconds": 0.01897858001757413,
+      "verification_token_ids": [
+        623
+      ],
+      "width": 1
+    },
+    {
+      "convolution_state_nmse": 0.45411309589493515,
+      "convolution_state_pcc": 0.8190965203538724,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.015245893040781115,
+      "recurrent_state_pcc": 0.9947017894585628,
+      "sample_index": 1,
+      "sequential_seconds": 0.12026785401394591,
+      "sequential_token_ids": [
+        89454,
+        4384
+      ],
+      "verification_device_seconds": 1.3114079159859102,
+      "verification_readback_seconds": 0.01867488698917441,
+      "verification_token_ids": [
+        623,
+        2074
+      ],
+      "width": 2
+    },
+    {
+      "convolution_state_nmse": 0.45411309589493515,
+      "convolution_state_pcc": 0.8190965203538724,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.015245893040781115,
+      "recurrent_state_pcc": 0.9947017894585628,
+      "sample_index": 2,
+      "sequential_seconds": 0.11594260900164954,
+      "sequential_token_ids": [
+        89454,
+        4384
+      ],
+      "verification_device_seconds": 1.2385689969814848,
+      "verification_readback_seconds": 0.014876102010020986,
+      "verification_token_ids": [
+        623,
+        2074
+      ],
+      "width": 2
+    },
+    {
+      "convolution_state_nmse": 0.45411309589493515,
+      "convolution_state_pcc": 0.8190965203538724,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.015245893040781115,
+      "recurrent_state_pcc": 0.9947017894585628,
+      "sample_index": 3,
+      "sequential_seconds": 0.12155568599700928,
+      "sequential_token_ids": [
+        89454,
+        4384
+      ],
+      "verification_device_seconds": 1.3213596749992575,
+      "verification_readback_seconds": 0.010399418009910733,
+      "verification_token_ids": [
+        623,
+        2074
+      ],
+      "width": 2
+    },
+    {
+      "convolution_state_nmse": 0.45411309589493515,
+      "convolution_state_pcc": 0.8190965203538724,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.015245893040781115,
+      "recurrent_state_pcc": 0.9947017894585628,
+      "sample_index": 4,
+      "sequential_seconds": 0.11729815998114645,
+      "sequential_token_ids": [
+        89454,
+        4384
+      ],
+      "verification_device_seconds": 1.147529242996825,
+      "verification_readback_seconds": 0.014410256990231574,
+      "verification_token_ids": [
+        623,
+        2074
+      ],
+      "width": 2
+    },
+    {
+      "convolution_state_nmse": 0.45411309589493515,
+      "convolution_state_pcc": 0.8190965203538724,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.015245893040781115,
+      "recurrent_state_pcc": 0.9947017894585628,
+      "sample_index": 5,
+      "sequential_seconds": 0.14875319000566378,
+      "sequential_token_ids": [
+        89454,
+        4384
+      ],
+      "verification_device_seconds": 1.1340757989964914,
+      "verification_readback_seconds": 0.011012865987140685,
+      "verification_token_ids": [
+        623,
+        2074
+      ],
+      "width": 2
+    },
+    {
+      "convolution_state_nmse": 0.5698385668219748,
+      "convolution_state_pcc": 0.7756611409995481,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.018922876020279887,
+      "recurrent_state_pcc": 0.9940086238177922,
+      "sample_index": 1,
+      "sequential_seconds": 0.2376689650118351,
+      "sequential_token_ids": [
+        89454,
+        4384,
+        1528,
+        58377
+      ],
+      "verification_device_seconds": 1.1945414709916804,
+      "verification_readback_seconds": 0.012034973013214767,
+      "verification_token_ids": [
+        623,
+        2074,
+        7465,
+        369
+      ],
+      "width": 4
+    },
+    {
+      "convolution_state_nmse": 0.5698385668219748,
+      "convolution_state_pcc": 0.7756611409995481,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.018922876020279887,
+      "recurrent_state_pcc": 0.9940086238177922,
+      "sample_index": 2,
+      "sequential_seconds": 0.23651496801176108,
+      "sequential_token_ids": [
+        89454,
+        4384,
+        1528,
+        58377
+      ],
+      "verification_device_seconds": 1.2685878989868797,
+      "verification_readback_seconds": 0.015078858996275812,
+      "verification_token_ids": [
+        623,
+        2074,
+        7465,
+        369
+      ],
+      "width": 4
+    },
+    {
+      "convolution_state_nmse": 0.5698385668219748,
+      "convolution_state_pcc": 0.7756611409995481,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.018922876020279887,
+      "recurrent_state_pcc": 0.9940086238177922,
+      "sample_index": 3,
+      "sequential_seconds": 0.2528205630078446,
+      "sequential_token_ids": [
+        89454,
+        4384,
+        1528,
+        58377
+      ],
+      "verification_device_seconds": 1.3462378200201783,
+      "verification_readback_seconds": 0.015625669999280944,
+      "verification_token_ids": [
+        623,
+        2074,
+        7465,
+        369
+      ],
+      "width": 4
+    },
+    {
+      "convolution_state_nmse": 0.5698385668219748,
+      "convolution_state_pcc": 0.7756611409995481,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.018922876020279887,
+      "recurrent_state_pcc": 0.9940086238177922,
+      "sample_index": 4,
+      "sequential_seconds": 0.43926645000465214,
+      "sequential_token_ids": [
+        89454,
+        4384,
+        1528,
+        58377
+      ],
+      "verification_device_seconds": 1.3258734359988011,
+      "verification_readback_seconds": 0.012606506003066897,
+      "verification_token_ids": [
+        623,
+        2074,
+        7465,
+        369
+      ],
+      "width": 4
+    },
+    {
+      "convolution_state_nmse": 0.5698385668219748,
+      "convolution_state_pcc": 0.7756611409995481,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "recurrent_state_nmse": 0.018922876020279887,
+      "recurrent_state_pcc": 0.9940086238177922,
+      "sample_index": 5,
+      "sequential_seconds": 0.23561353801051155,
+      "sequential_token_ids": [
+        89454,
+        4384,
+        1528,
+        58377
+      ],
+      "verification_device_seconds": 1.2509362310229335,
+      "verification_readback_seconds": 0.013484708004398271,
+      "verification_token_ids": [
+        623,
+        2074,
+        7465,
+        369
+      ],
+      "width": 4
+    }
+  ],
+  "schema_version": 1,
+  "simulated": false,
+  "trace_lifetime": "released-before-teacher-forced-verification",
+  "verification_widths": [
+    1,
+    2,
+    4
+  ]
+}

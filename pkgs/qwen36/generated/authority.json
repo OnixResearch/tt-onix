@@ -9,7 +9,7 @@
       "The local serialized service limits prompt plus generation to 2048 tokens because full-model chunk-trace warmup collides with L1 allocation on runtime 0.74",
       "Three warm P150x2 service runs at 5 prompt tokens and 64 generated tokens measured median TTFT 0.5750412510024034 seconds and median decode 4.2306764265491275 tokens/second"
     ],
-    "default_weight_precision": "BFP8 on-device cache; opt-in BF4 via QWEN36_LM_HEAD_BF4/QWEN36_MLP_DOWN_BF4/QWEN36_GDN_BF4",
+    "default_weight_precision": "mixed on-device cache: BF4 MLP gate/up, BFP8 MLP down/GDN/LM head; opt-in BF4 via QWEN36_LM_HEAD_BF4/QWEN36_MLP_DOWN_BF4/QWEN36_GDN_BF4",
     "measured": {
       "measured_flags": "QWEN36_LM_HEAD_BF4=1 QWEN36_MLP_DOWN_BF4=1 QWEN36_GDN_BF4=1 QWEN_SDPA_BF8=1",
       "traced_150k_tokens_per_s": 25.54,
@@ -161,11 +161,11 @@
       "model-00017-of-00018.safetensors",
       "model-00018-of-00018.safetensors"
     ],
-    "full_attention_layer_count": 8,
+    "full_attention_layer_count": 16,
     "hidden_size": 5120,
     "layer_count": 64,
     "license": "Apache-2.0",
-    "linear_attention_layer_count": 56,
+    "linear_attention_layer_count": 48,
     "linear_conv_kernel_dim": 4,
     "linear_key_head_dim": 128,
     "linear_num_key_heads": 16,

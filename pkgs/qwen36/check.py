@@ -900,6 +900,167 @@ def probe_prefill_program_profile():
         require(False, "inactive real-time profiler was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_verification_probe]
+def probe_mtp_target_verification():
+    """Positive and negative tests for target-only MTP evidence."""
+    from dataclasses import replace
+
+    import torch
+    from qwen36_service.mtp_probe_adapter import (
+        MtpProbeAdapterError,
+        compare_tp_gdn_states,
+    )
+    from qwen36_service.mtp_probe_core import (
+        MtpProbeIdentity,
+        MtpProbePolicyError,
+        MtpProbeProfile,
+        MtpProbeSample,
+        evaluate_mtp_probe,
+    )
+
+    profile_path = Path(__file__).with_name("mtp-probe-profile.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile_source = json.load(profile_file)
+    profile = MtpProbeProfile.from_mapping(profile_source)
+    require(profile.diagnostic_only, "MTP target probe became admission eligible")
+
+    state_source_values = (0.0, 1.0, 2.0, 3.0)
+    state_source = torch.tensor(state_source_values, dtype=torch.float32)
+    exact_snapshot = ((state_source, (state_source,)),)
+    recurrent_comparison, convolution_comparison = compare_tp_gdn_states(
+        exact_snapshot,
+        exact_snapshot,
+    )
+    require(recurrent_comparison.pcc == 1.0, "exact recurrent state lost PCC")
+    require(recurrent_comparison.nmse == 0.0, "exact recurrent state gained NMSE")
+    require(convolution_comparison.pcc == 1.0, "exact convolution state lost PCC")
+    try:
+        compare_tp_gdn_states(
+            exact_snapshot,
+            ((state_source[:-1], (state_source,)),),
+        )
+    except MtpProbeAdapterError as error:
+        require("shapes" in str(error), "wrong state-shape diagnostic")
+    else:
+        require(False, "mismatched state shapes were accepted")
+
+    identity = MtpProbeIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity="model-test",
+    )
+    baseline_token_seconds = 0.060
+    width_one_verification_seconds = 0.065
+    width_two_verification_seconds = 0.080
+    width_four_verification_seconds = 0.110
+    readback_seconds = 0.002
+    width_one, width_two, width_four = profile.verification_widths
+    verification_seconds = {
+        width_one: width_one_verification_seconds,
+        width_two: width_two_verification_seconds,
+        width_four: width_four_verification_seconds,
+    }
+    samples = []
+    for width in profile.verification_widths:
+        token_ids = tuple(range(width))
+        for sample_index in range(1, profile.minimum_samples_per_width + 1):
+            samples.append(
+                MtpProbeSample(
+                    width=width,
+                    sample_index=sample_index,
+                    identity=identity,
+                    physical_pcie_device_ids=profile.expected_pcie_device_ids,
+                    sequential_token_ids=token_ids,
+                    verification_token_ids=token_ids,
+                    sequential_seconds=baseline_token_seconds * width,
+                    verification_device_seconds=verification_seconds[width],
+                    verification_readback_seconds=readback_seconds,
+                    recurrent_state_pcc=1.0,
+                    recurrent_state_nmse=0.0,
+                    convolution_state_pcc=1.0,
+                    convolution_state_nmse=0.0,
+                )
+            )
+
+    decision = evaluate_mtp_probe(profile, identity, samples)
+    require(
+        decision.target_verification_valid,
+        f"valid target-verification evidence was rejected: {decision.reasons}",
+    )
+    require(not decision.mtp_selected, "target-only evidence selected MTP")
+    require(
+        not decision.admission_eligible,
+        "target-only evidence became admission eligible",
+    )
+    require(
+        decision.width_summaries[-1].device_amortization_ratio > 1.0,
+        "width-four fixture did not report device amortization",
+    )
+
+    alternate_token_id = 999
+    token_mismatch = list(samples)
+    token_mismatch[0] = replace(
+        token_mismatch[0], verification_token_ids=(alternate_token_id,)
+    )
+    mismatch_decision = evaluate_mtp_probe(profile, identity, token_mismatch)
+    require(
+        "width-1-token-parity" in mismatch_decision.reasons,
+        "target-token mismatch was accepted",
+    )
+
+    pcc_failure_margin = 0.1
+    state_mismatch = list(samples)
+    state_mismatch[0] = replace(
+        state_mismatch[0],
+        recurrent_state_pcc=profile.minimum_state_pcc - pcc_failure_margin,
+    )
+    state_decision = evaluate_mtp_probe(profile, identity, state_mismatch)
+    require(
+        "width-1-recurrent-state-pcc" in state_decision.reasons,
+        "recurrent-state mismatch was accepted",
+    )
+
+    largest_width = profile.verification_widths[-1]
+    incomplete = [
+        sample
+        for sample in samples
+        if not (
+            sample.width == largest_width
+            and sample.sample_index == profile.minimum_samples_per_width
+        )
+    ]
+    incomplete_decision = evaluate_mtp_probe(profile, identity, incomplete)
+    require(
+        f"width-{largest_width}-sample-count" in incomplete_decision.reasons,
+        "incomplete width evidence was accepted",
+    )
+
+    unstable_multiplier = 2.0
+    unstable = list(samples)
+    unstable[-1] = replace(
+        unstable[-1],
+        verification_device_seconds=(
+            unstable[-1].verification_device_seconds * unstable_multiplier
+        ),
+    )
+    unstable_decision = evaluate_mtp_probe(profile, identity, unstable)
+    require(
+        f"width-{largest_width}-sample-instability" in unstable_decision.reasons,
+        "unstable width evidence was accepted",
+    )
+
+    invalid_profile = {
+        **profile_source,
+        "verification_widths": [width_one, width_four],
+    }
+    try:
+        MtpProbeProfile.from_mapping(invalid_profile)
+    except MtpProbePolicyError as error:
+        require("widths 1, 2, and 4" in str(error), "wrong width-set diagnostic")
+    else:
+        require(False, "invalid target-verification width set was accepted")
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -1033,6 +1194,7 @@ def main():
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("prefill program profile", probe_prefill_program_profile)
+    probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:
