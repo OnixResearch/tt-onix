@@ -1191,6 +1191,214 @@ def probe_mtp_target_verification():
         require(False, "invalid target-verification width set was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+def probe_mtp_drafter():
+    """Positive and negative tests for MTP drafter evidence."""
+    from dataclasses import replace
+
+    from qwen36_service.mtp_drafter_core import (
+        EXPECTED_MTP_WEIGHT_SHAPES,
+        MtpDrafterIdentity,
+        MtpDrafterPolicyError,
+        MtpDrafterProfile,
+        MtpDrafterSample,
+        accepted_prefix_length,
+        evaluate_mtp_drafter,
+        validate_mtp_weight_shapes,
+    )
+
+    profile_path = Path(__file__).with_name("mtp-drafter-profile.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile_source = json.load(profile_file)
+    profile = MtpDrafterProfile.from_mapping(profile_source)
+    require(profile.diagnostic_only, "MTP drafter profile became admission eligible")
+    validate_mtp_weight_shapes(EXPECTED_MTP_WEIGHT_SHAPES)
+
+    missing_weights = dict(EXPECTED_MTP_WEIGHT_SHAPES)
+    missing_weights.pop(next(iter(missing_weights)))
+    try:
+        validate_mtp_weight_shapes(missing_weights)
+    except MtpDrafterPolicyError as error:
+        require("missing=" in str(error), "wrong missing-weight diagnostic")
+    else:
+        require(False, "missing MTP weight was accepted")
+
+    shape_drift = dict(EXPECTED_MTP_WEIGHT_SHAPES)
+    drift_name = "mtp.fc.weight"
+    drift_shape = shape_drift[drift_name]
+    shape_drift[drift_name] = (drift_shape[0], drift_shape[1] + 1)
+    try:
+        validate_mtp_weight_shapes(shape_drift)
+    except MtpDrafterPolicyError as error:
+        require(drift_name in str(error), "wrong weight-shape diagnostic")
+    else:
+        require(False, "drifted MTP weight shape was accepted")
+
+    draft_tokens = tuple(range(profile.draft_token_count))
+    require(
+        accepted_prefix_length(draft_tokens, draft_tokens) == profile.draft_token_count,
+        "matching drafts lost acceptance",
+    )
+    mismatched_targets = list(draft_tokens)
+    mismatched_targets[1] = profile.draft_token_count + 1
+    require(
+        accepted_prefix_length(draft_tokens, mismatched_targets) == 1,
+        "draft mismatch used the wrong prefix",
+    )
+
+    identity = MtpDrafterIdentity(
+        runtime_identity="runtime-test",
+        package_identity="package-test",
+        model_identity="model-test",
+    )
+    mtp_prefill_seconds = 0.5
+    draft_seconds = 0.04
+    target_sequential_seconds = 0.24
+    target_verification_seconds = 0.11
+    target_readback_seconds = 0.008
+    samples = [
+        MtpDrafterSample(
+            prompt_index=prompt_index,
+            identity=identity,
+            physical_pcie_device_ids=profile.expected_pcie_device_ids,
+            draft_token_ids=draft_tokens,
+            target_token_ids=draft_tokens,
+            accepted_prefix_length=profile.draft_token_count,
+            mtp_prefill_seconds=mtp_prefill_seconds,
+            draft_seconds=draft_seconds,
+            target_sequential_seconds=target_sequential_seconds,
+            target_verification_seconds=target_verification_seconds,
+            target_verification_readback_seconds=target_readback_seconds,
+            rollback_seconds=0.0,
+            mtp_cache_reprefill_seconds=0.0,
+            rollback_valid=True,
+            target_output_valid=True,
+        )
+        for prompt_index in range(1, profile.minimum_prompt_count + 1)
+    ]
+    decision = evaluate_mtp_drafter(profile, identity, samples)
+    require(
+        decision.drafter_valid, f"valid drafter evidence failed: {decision.reasons}"
+    )
+    require(decision.mtp_selected, "valid drafter evidence was not selected")
+    require(
+        decision.aggregate_emitted_token_speedup
+        > profile.minimum_emitted_token_speedup,
+        "valid aggregate economics did not pass",
+    )
+    require(not decision.admission_eligible, "drafter evidence admitted production")
+
+    rollback_failure = list(samples)
+    rollback_failure[0] = replace(rollback_failure[0], rollback_valid=False)
+    rollback_decision = evaluate_mtp_drafter(profile, identity, rollback_failure)
+    require(
+        "prompt-1-rollback" in rollback_decision.reasons,
+        "rollback failure was accepted",
+    )
+
+    alignment_failure = list(samples)
+    alignment_failure[0] = replace(alignment_failure[0], accepted_prefix_length=0)
+    alignment_decision = evaluate_mtp_drafter(profile, identity, alignment_failure)
+    require(
+        "prompt-1-acceptance-alignment" in alignment_decision.reasons,
+        "misaligned acceptance was accepted",
+    )
+
+    unstable_multiplier = 2.0
+    unstable = list(samples)
+    unstable[-1] = replace(
+        unstable[-1],
+        draft_seconds=unstable[-1].draft_seconds * unstable_multiplier,
+    )
+    unstable_decision = evaluate_mtp_drafter(profile, identity, unstable)
+    require(
+        "sample-instability" in unstable_decision.reasons,
+        "unstable drafts were accepted",
+    )
+
+    slow = [
+        replace(sample, draft_seconds=target_sequential_seconds) for sample in samples
+    ]
+    slow_decision = evaluate_mtp_drafter(profile, identity, slow)
+    require(
+        "emitted-token-economics" in slow_decision.reasons,
+        "slow emitted-token economics were accepted",
+    )
+
+    aggregate_rollback_seconds = 1.0
+    zero_accept_targets = list(draft_tokens)
+    zero_accept_targets[0] = profile.draft_token_count + 1
+    aggregate_failure = list(samples)
+    aggregate_failure[-1] = replace(
+        aggregate_failure[-1],
+        target_token_ids=tuple(zero_accept_targets),
+        accepted_prefix_length=0,
+        rollback_seconds=aggregate_rollback_seconds,
+    )
+    aggregate_decision = evaluate_mtp_drafter(
+        profile,
+        identity,
+        aggregate_failure,
+    )
+    require(
+        "emitted-token-economics" in aggregate_decision.reasons,
+        "median-positive but aggregate-negative economics were accepted",
+    )
+
+    invalid_rollback_seconds = -0.01
+    invalid_duration = list(samples)
+    invalid_duration[0] = replace(
+        invalid_duration[0],
+        rollback_seconds=invalid_rollback_seconds,
+    )
+    invalid_duration_decision = evaluate_mtp_drafter(
+        profile,
+        identity,
+        invalid_duration,
+    )
+    require(
+        "prompt-1-duration" in invalid_duration_decision.reasons,
+        "negative rollback duration was accepted",
+    )
+
+    invalid_profile = {**profile_source, "draft_token_count": 2}
+    try:
+        MtpDrafterProfile.from_mapping(invalid_profile)
+    except MtpDrafterPolicyError as error:
+        require("three drafts" in str(error), "wrong draft-count diagnostic")
+    else:
+        require(False, "invalid MTP drafter profile was accepted")
+
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.mtp_drafter_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "safe_open" in adapter_source, "MTP drafter lost bounded safetensor loading"
+    )
+    require(
+        "pre_hidden_norm" in adapter_source, "MTP drafter lost hidden normalization"
+    )
+    require("shifted" in adapter_source, "MTP drafter lost shifted token inputs")
+    require("reset_state" in adapter_source, "MTP drafter lost its cache reset")
+    require(
+        "_rebuild_mtp_cache" in adapter_source,
+        "MTP drafter lost rejected-prefix cache re-prefill",
+    )
+    verifier_source = Path(
+        __import__(
+            "qwen36_service.native_mtp_verifier_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "_GdnPrefixSnapshot" in verifier_source,
+        "target verifier lost trace-time prefix snapshots",
+    )
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
@@ -1325,6 +1533,7 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)
+    probe("MTP drafter pure core", probe_mtp_drafter)
     probe("serialized service request contract", probe_service_contract)
 
     if FAILURES:

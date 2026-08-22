@@ -1,0 +1,343 @@
+{
+  "admission_eligible": false,
+  "blockers": [
+    "mtp-drafter-invalid",
+    "production-admission-missing"
+  ],
+  "cleanup_complete": true,
+  "decision": {
+    "admission_eligible": false,
+    "aggregate_emitted_token_speedup": 0.9687222124830936,
+    "blockers": [
+      "mtp-drafter-invalid",
+      "production-admission-missing"
+    ],
+    "drafter_valid": false,
+    "mean_accepted_drafts": 2.4,
+    "median_draft_seconds": 0.07706965002580546,
+    "median_emitted_token_speedup": 1.202354705288087,
+    "median_target_verification_seconds": 0.10943353400216438,
+    "mtp_selected": false,
+    "reasons": [
+      "sample-instability",
+      "emitted-token-economics"
+    ]
+  },
+  "diagnostic_only": true,
+  "host_cpu_affinity": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "identity": {
+    "authority_blake3": "c6146a5b5ea290afad2f5abbd99e73e987ed0d85e7d8df9ffb3b4ec0c56ee444",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "package": "/nix/store/qy7l1pn3833rwbjar6xb7ysh3qzzjdpv-qwen36-0.1.0",
+    "runtime": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "measurement_mode": "diagnostic-mtp-drafter-pilot",
+  "mesh_shape": [
+    1,
+    2
+  ],
+  "mtp_selected": false,
+  "non_claims": [
+    "The pilot does not admit production behavior.",
+    "Rejected-prefix target or MTP-cache rollback is not established.",
+    "Trace-capture setup is diagnostic and excluded from replay economics."
+  ],
+  "physical_pcie_device_ids": [
+    0,
+    1
+  ],
+  "profile_id": "qwen38-p150x2-mtp-drafter-probe-v1",
+  "reference_revisions": {
+    "sglang": "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3",
+    "vllm": "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
+  },
+  "samples": [
+    {
+      "accepted_prefix_length": 3,
+      "anchor_token_id": 271,
+      "draft_decode_seconds": 0.051965332007966936,
+      "draft_token_ids": [
+        89454,
+        4384,
+        58377
+      ],
+      "mtp_cache_reprefill_seconds": 0.0,
+      "mtp_prefill_seconds": 0.029059172986308113,
+      "prompt_index": 1,
+      "rollback_applied": false,
+      "rollback_convolution_state_nmse": 0.0,
+      "rollback_convolution_state_pcc": 1.0,
+      "rollback_paged_kv_state_nmse": 0.0,
+      "rollback_paged_kv_state_pcc": 1.0,
+      "rollback_recurrent_state_nmse": 0.0,
+      "rollback_recurrent_state_pcc": 1.0,
+      "rollback_seconds": 0.0,
+      "rollback_valid": true,
+      "target_continuation_token_id": 12482,
+      "target_output_valid": true,
+      "target_sequential_seconds": 0.282738859008532,
+      "target_token_ids": [
+        89454,
+        4384,
+        58377
+      ],
+      "target_verification_readback_seconds": 0.013962619006633759,
+      "target_verification_seconds": 0.10930749500403181,
+      "target_verification_token_ids": [
+        89454,
+        4384,
+        58377,
+        12482
+      ],
+      "target_verification_trace_capture_seconds": 2.164317362010479,
+      "total_draft_seconds": 0.08102450499427505
+    },
+    {
+      "accepted_prefix_length": 0,
+      "anchor_token_id": 271,
+      "draft_decode_seconds": 0.04782063700258732,
+      "draft_token_ids": [
+        248045,
+        74455,
+        198
+      ],
+      "mtp_cache_reprefill_seconds": 0.02764936999301426,
+      "mtp_prefill_seconds": 0.02924901302321814,
+      "prompt_index": 2,
+      "rollback_applied": true,
+      "rollback_convolution_state_nmse": 0.0,
+      "rollback_convolution_state_pcc": 1.0,
+      "rollback_paged_kv_state_nmse": 0.0,
+      "rollback_paged_kv_state_pcc": 1.0,
+      "rollback_recurrent_state_nmse": 0.0,
+      "rollback_recurrent_state_pcc": 1.0,
+      "rollback_seconds": 0.017195059976074845,
+      "rollback_valid": true,
+      "target_continuation_token_id": 279,
+      "target_output_valid": true,
+      "target_sequential_seconds": 0.286270285025239,
+      "target_token_ids": [
+        37132,
+        55404,
+        369
+      ],
+      "target_verification_readback_seconds": 0.012938837986439466,
+      "target_verification_seconds": 0.11477097601164132,
+      "target_verification_token_ids": [
+        37132,
+        55404,
+        369,
+        279
+      ],
+      "target_verification_trace_capture_seconds": 2.218371308990754,
+      "total_draft_seconds": 0.07706965002580546
+    },
+    {
+      "accepted_prefix_length": 3,
+      "anchor_token_id": 271,
+      "draft_decode_seconds": 0.03564039699267596,
+      "draft_token_ids": [
+        760,
+        6511,
+        314
+      ],
+      "mtp_cache_reprefill_seconds": 0.0,
+      "mtp_prefill_seconds": 0.030714218999492005,
+      "prompt_index": 3,
+      "rollback_applied": false,
+      "rollback_convolution_state_nmse": 0.0,
+      "rollback_convolution_state_pcc": 1.0,
+      "rollback_paged_kv_state_nmse": 0.0,
+      "rollback_paged_kv_state_pcc": 1.0,
+      "rollback_recurrent_state_nmse": 0.0,
+      "rollback_recurrent_state_pcc": 1.0,
+      "rollback_seconds": 0.0,
+      "rollback_valid": true,
+      "target_continuation_token_id": 9338,
+      "target_output_valid": true,
+      "target_sequential_seconds": 0.2804581100062933,
+      "target_token_ids": [
+        760,
+        6511,
+        314
+      ],
+      "target_verification_readback_seconds": 0.052020745002664626,
+      "target_verification_seconds": 0.10943353400216438,
+      "target_verification_token_ids": [
+        760,
+        6511,
+        314,
+        9338
+      ],
+      "target_verification_trace_capture_seconds": 2.1544560789770912,
+      "total_draft_seconds": 0.06635461599216796
+    },
+    {
+      "accepted_prefix_length": 3,
+      "anchor_token_id": 271,
+      "draft_decode_seconds": 0.05332563299452886,
+      "draft_token_ids": [
+        32,
+        14294,
+        6297
+      ],
+      "mtp_cache_reprefill_seconds": 0.0,
+      "mtp_prefill_seconds": 0.08335429499857128,
+      "prompt_index": 4,
+      "rollback_applied": false,
+      "rollback_convolution_state_nmse": 0.0,
+      "rollback_convolution_state_pcc": 1.0,
+      "rollback_paged_kv_state_nmse": 0.0,
+      "rollback_paged_kv_state_pcc": 1.0,
+      "rollback_recurrent_state_nmse": 0.0,
+      "rollback_recurrent_state_pcc": 1.0,
+      "rollback_seconds": 0.0,
+      "rollback_valid": true,
+      "target_continuation_token_id": 1220,
+      "target_output_valid": true,
+      "target_sequential_seconds": 0.23244877500110306,
+      "target_token_ids": [
+        32,
+        14294,
+        6297
+      ],
+      "target_verification_readback_seconds": 0.01481975699425675,
+      "target_verification_seconds": 0.10961015601060353,
+      "target_verification_token_ids": [
+        32,
+        14294,
+        6297,
+        1220
+      ],
+      "target_verification_trace_capture_seconds": 2.179728282004362,
+      "total_draft_seconds": 0.13667992799310014
+    },
+    {
+      "accepted_prefix_length": 3,
+      "anchor_token_id": 2943,
+      "draft_decode_seconds": 0.05051802200614475,
+      "draft_token_ids": [
+        11,
+        4097,
+        11
+      ],
+      "mtp_cache_reprefill_seconds": 0.0,
+      "mtp_prefill_seconds": 0.026039707998279482,
+      "prompt_index": 5,
+      "rollback_applied": false,
+      "rollback_convolution_state_nmse": 0.0,
+      "rollback_convolution_state_pcc": 1.0,
+      "rollback_paged_kv_state_nmse": 0.0,
+      "rollback_paged_kv_state_pcc": 1.0,
+      "rollback_recurrent_state_nmse": 0.0,
+      "rollback_recurrent_state_pcc": 1.0,
+      "rollback_seconds": 0.0,
+      "rollback_valid": true,
+      "target_continuation_token_id": 4590,
+      "target_output_valid": true,
+      "target_sequential_seconds": 0.23742209901683964,
+      "target_token_ids": [
+        11,
+        4097,
+        11
+      ],
+      "target_verification_readback_seconds": 0.011483792011858895,
+      "target_verification_seconds": 0.1094227520225104,
+      "target_verification_token_ids": [
+        11,
+        4097,
+        11,
+        4590
+      ],
+      "target_verification_trace_capture_seconds": 2.0341093229944818,
+      "total_draft_seconds": 0.07655773000442423
+    }
+  ],
+  "schema_version": 1,
+  "simulated": false,
+  "smoke_only": false,
+  "warmup_discarded": true,
+  "weight_shapes": {
+    "mtp.fc.weight": [
+      5120,
+      10240
+    ],
+    "mtp.layers.0.input_layernorm.weight": [
+      5120
+    ],
+    "mtp.layers.0.mlp.down_proj.weight": [
+      5120,
+      17408
+    ],
+    "mtp.layers.0.mlp.gate_proj.weight": [
+      17408,
+      5120
+    ],
+    "mtp.layers.0.mlp.up_proj.weight": [
+      17408,
+      5120
+    ],
+    "mtp.layers.0.post_attention_layernorm.weight": [
+      5120
+    ],
+    "mtp.layers.0.self_attn.k_norm.weight": [
+      256
+    ],
+    "mtp.layers.0.self_attn.k_proj.weight": [
+      1024,
+      5120
+    ],
+    "mtp.layers.0.self_attn.o_proj.weight": [
+      5120,
+      6144
+    ],
+    "mtp.layers.0.self_attn.q_norm.weight": [
+      256
+    ],
+    "mtp.layers.0.self_attn.q_proj.weight": [
+      12288,
+      5120
+    ],
+    "mtp.layers.0.self_attn.v_proj.weight": [
+      1024,
+      5120
+    ],
+    "mtp.norm.weight": [
+      5120
+    ],
+    "mtp.pre_fc_norm_embedding.weight": [
+      5120
+    ],
+    "mtp.pre_fc_norm_hidden.weight": [
+      5120
+    ]
+  }
+}

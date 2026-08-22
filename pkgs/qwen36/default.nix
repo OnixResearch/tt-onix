@@ -111,6 +111,8 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
     cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
+    cp ${./mtp-drafter-profile.ncl} "$out/share/qwen36/mtp-drafter-profile.ncl"
+    cp ${./mtp-drafter-contracts.ncl} "$out/share/qwen36/mtp-drafter-contracts.ncl"
     mkdir -p decode-profile-export
     cp ${./decode-profile.ncl} decode-profile-export/decode-profile.ncl
     cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
@@ -121,6 +123,11 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-export/mtp-probe-contracts.ncl
     nickel export --format json mtp-probe-profile-export/mtp-probe-profile.ncl \
       > "$out/share/qwen36/mtp-probe-profile.json"
+    mkdir -p mtp-drafter-profile-export
+    cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-export/mtp-drafter-profile.ncl
+    cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-export/mtp-drafter-contracts.ncl
+    nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile.ncl \
+      > "$out/share/qwen36/mtp-drafter-profile.json"
 
     mkdir -p "$out/bin"
 
@@ -241,6 +248,28 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+    # The drafter command loads checkpoint MTP weights only when invoked.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-mtp-drafter-probe" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.mtp_drafter" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--mtp-drafter-profile" \
+      --add-flags "$out/share/qwen36/mtp-drafter-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # qwen36-serve remains the adopted vLLM entry point. It fails closed unless
     # a text-only vLLM 0.10 is supplied by a compatible consumer environment.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-serve" \
@@ -278,13 +307,19 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/native_mtp_verifier_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
+    test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
 
     # Positive: the adopted 9-file PR scope is present in the installed tree.
     for f in \
@@ -364,6 +399,30 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-mtp-probe-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+    # Positive: the diagnostic drafter profile exports deterministically.
+    mkdir -p mtp-drafter-profile-check
+    cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-check/mtp-drafter-profile.ncl
+    cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-check/mtp-drafter-contracts.ncl
+    nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-first.json
+    nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-second.json
+    cmp mtp-drafter-profile-first.json mtp-drafter-profile-second.json
+    cmp mtp-drafter-profile-first.json "$out/share/qwen36/mtp-drafter-profile.json"
+    grep -F '"draft_token_count": 3' mtp-drafter-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-drafter-profile-first.json
+
+    # Negative: weakened drafter bounds must fail the typed contract.
+    mkdir -p mtp-drafter-profile-negative
+    cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-negative/mtp-drafter-profile.ncl
+    cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-negative/mtp-drafter-contracts.ncl
+    cp ${./fixtures/invalid-mtp-drafter-profile.ncl} mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl
+    if nickel export --format json mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl \
+        > invalid-mtp-drafter-profile.json 2> invalid-mtp-drafter-profile.log; then
+      echo "invalid MTP drafter profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-drafter-profile.log
 
     # Negative: a drifted authority (wrong upstream commit) must be rejected by
     # the Nickel contract shape (commit no longer a 40-hex revision).

@@ -343,9 +343,9 @@ The final 2026-08-22 P150x2 result validated this target-only base:
 
 Full-logit host readback remains separately visible and diagnostic. A speculative loop must keep target logits on device for acceptance. The untraced hybrid route was exact but slower than sequential execution, so tracing is load-bearing.
 
-The valid target path does not select MTP. The checkpoint drafter, local acceptance, rejection rollback, emitted-token latency, and production admission remain unmeasured. Production remains eager.
+The valid target path did not select MTP by itself. At this stage, the checkpoint drafter, local acceptance, rejection rollback, and emitted-token latency were unmeasured.
 
-At width four, drafter generation plus acceptance has an approximate `0.11282991201733239`-second end-to-end budget before the iteration becomes slower than four ordinary traced steps.
+At width four, drafter generation plus acceptance had an approximate `0.11282991201733239`-second budget before the iteration became slower than four traced steps.
 
 Evidence:
 
@@ -354,6 +354,30 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-untraced-receipt.json`
 - untraced receipt BLAKE3: `f87a06702f49047c921f78873d2eeceff1dadd8a478d7fab7f00328ec15ff473`
 - prior masked-fallback receipt: `pkgs/qwen36/evidence/2026-08-21/qwen38-27b-mtp-target-verification-receipt.json`
+
+### MTP drafter and rollback diagnostic
+
+The package also provides `qwen36-p150x2-mtp-drafter-probe`. This explicit command loads the 15 pinned `mtp.*` tensors. Production wrappers do not load them.
+
+The probe shares the target embedding and LM head. It separately normalizes shifted embeddings and post-final-norm target hidden rows. It runs one full-attention MTP layer with its own KV cache.
+
+The final five-prompt P150x2 pilot produced these results:
+
+- 12 of 15 drafts were accepted, for a mean prefix length of `2.4`;
+- all target-verifier outputs matched the sequential target outputs;
+- the rejected prompt restored recurrent state, convolution state, and committed paged KV exactly;
+- rollback took `0.017195059976074845` seconds;
+- MTP cache re-prefill took `0.02764936999301426` seconds;
+- the emitted-token-weighted aggregate speedup was `0.9687222124830936`;
+- total draft timing spread was `2.059840539341421`, above the `1.25` bound.
+
+The deterministic evaluator rejected MTP for `sample-instability` and `emitted-token-economics`. A positive median did not override the negative aggregate result. Production remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-drafter-receipt.json`
+- receipt BLAKE3: `a102a170ce5d9fd1a2d2335bb6936ca1982e7a33df69b13df758b5073492141f`
+- `cairn/archive/2026-08-22-evaluate-qwen38-mtp-drafter/evidence/physical-result.md`
 
 ## Serialized P150x2 service
 

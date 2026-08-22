@@ -34,6 +34,7 @@ FOUR_DIMENSIONAL_TENSOR = 4
 MUTABLE_INPUT_COUNT = 3
 TRACE_COMMAND_QUEUE_ID = 0
 TRACE_BLOCKING_REPLAY = False
+ZERO_DURATION_SECONDS = 0.0
 
 
 class NativeMtpVerifierError(RuntimeError):
@@ -47,6 +48,7 @@ class NativeVerificationResult:
     trace_capture_seconds: float
     device_seconds: float
     readback_seconds: float
+    rollback_seconds: float
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,13 @@ class _GdnDeviceSnapshot:
     recurrent: Any
     convolution: tuple[Any, ...]
     convolution_carry: Any
+
+
+@dataclass(frozen=True)
+class _GdnPrefixSnapshot:
+    layer: Any
+    recurrent: Any
+    convolution: tuple[Any, ...]
 
 
 class NativeMtpVerifierAdapter:
@@ -85,6 +94,7 @@ class NativeMtpVerifierAdapter:
         *,
         start_position: int,
         page_table: torch.Tensor,
+        committed_width: int | None = None,
     ) -> NativeVerificationResult:
         width = len(input_token_ids)
         if not MINIMUM_WIDTH <= width <= self.maximum_width:
@@ -107,6 +117,11 @@ class NativeMtpVerifierAdapter:
             )
         if page_table.ndim != QK_STREAM_COUNT or page_table.shape[0] != MINIMUM_WIDTH:
             raise NativeMtpVerifierError("native verifier page table must have one row")
+        committed_width = width if committed_width is None else committed_width
+        if not MINIMUM_WIDTH <= committed_width <= width:
+            raise NativeMtpVerifierError(
+                "native verifier commit width is outside policy"
+            )
 
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
@@ -126,11 +141,18 @@ class NativeMtpVerifierAdapter:
             raise NativeMtpVerifierError("native verifier model inputs are incomplete")
 
         snapshots = self._clone_gdn_state()
+        prefix_snapshots = (
+            self._clone_gdn_prefix_states(width) if committed_width < width else ()
+        )
         trace_id = None
         logits_device = None
         try:
             capture_started = time.monotonic()
-            warm_logits = self._forward_device(device_inputs, width)
+            warm_logits = self._forward_device(
+                device_inputs,
+                width,
+                prefix_snapshots=prefix_snapshots,
+            )
             ttnn.synchronize_device(self.model.mesh_device)
             ttnn.deallocate(warm_logits)
             self._restore_gdn_state(snapshots)
@@ -140,7 +162,11 @@ class NativeMtpVerifierAdapter:
                 self.model.mesh_device,
                 cq_id=TRACE_COMMAND_QUEUE_ID,
             )
-            logits_device = self._forward_device(device_inputs, width)
+            logits_device = self._forward_device(
+                device_inputs,
+                width,
+                prefix_snapshots=prefix_snapshots,
+            )
             ttnn.end_trace_capture(
                 self.model.mesh_device,
                 trace_id,
@@ -204,12 +230,27 @@ class NativeMtpVerifierAdapter:
             token_ids = tuple(
                 int(torch.argmax(logits[row]).item()) for row in range(width)
             )
+            rollback_seconds = ZERO_DURATION_SECONDS
+            if committed_width < width:
+                ttnn.release_trace(self.model.mesh_device, trace_id)
+                trace_id = None
+                rollback_started = time.monotonic()
+                self._restore_gdn_prefix_state(
+                    prefix_snapshots[committed_width - MINIMUM_WIDTH]
+                )
+                ttnn.synchronize_device(self.model.mesh_device)
+                rollback_seconds = time.monotonic() - rollback_started
+                if not math.isfinite(rollback_seconds) or rollback_seconds <= 0:
+                    raise NativeMtpVerifierError(
+                        "native verifier rollback duration is invalid"
+                    )
             return NativeVerificationResult(
                 token_ids=token_ids,
                 logits=logits,
                 trace_capture_seconds=trace_capture_seconds,
                 device_seconds=device_seconds,
                 readback_seconds=readback_seconds,
+                rollback_seconds=rollback_seconds,
             )
         finally:
             if trace_id is not None:
@@ -217,11 +258,18 @@ class NativeMtpVerifierAdapter:
             if logits_device is not None:
                 ttnn.deallocate(logits_device)
             self._deallocate_gdn_snapshots(snapshots)
+            self._deallocate_gdn_prefix_states(prefix_snapshots)
             for tensor in device_inputs:
                 if tensor is not None:
                     ttnn.deallocate(tensor)
 
-    def _forward_device(self, device_inputs: tuple[Any, ...], width: int) -> Any:
+    def _forward_device(
+        self,
+        device_inputs: tuple[Any, ...],
+        width: int,
+        *,
+        prefix_snapshots: tuple[tuple[_GdnPrefixSnapshot, ...], ...] = (),
+    ) -> Any:
         from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
 
         token_buffer, position_buffer, rope_buffer, page_table_buffer = device_inputs
@@ -236,7 +284,13 @@ class NativeMtpVerifierAdapter:
                 x.shape[LAST_DIMENSION],
             ),
         )
+        gdn_index = 0
         for layer in self.model.layers:
+            layer_prefix_snapshots = (
+                tuple(prefix[gdn_index] for prefix in prefix_snapshots)
+                if prefix_snapshots and not layer.is_full_attention
+                else ()
+            )
             x = _verify_layer(
                 layer,
                 x,
@@ -244,6 +298,13 @@ class NativeMtpVerifierAdapter:
                 sin=sin,
                 positions=position_buffer,
                 page_table=page_table_buffer,
+                prefix_snapshots=layer_prefix_snapshots,
+            )
+            if not layer.is_full_attention:
+                gdn_index += MINIMUM_WIDTH
+        if prefix_snapshots and gdn_index != len(prefix_snapshots[0]):
+            raise NativeMtpVerifierError(
+                "native verifier prefix snapshot layer count changed"
             )
         x = self.model._final_norm_decode(x)
         logits = self.model._lm_head(x)
@@ -278,6 +339,33 @@ class NativeMtpVerifierAdapter:
             raise NativeMtpVerifierError("native verifier has no GDN state")
         return tuple(snapshots)
 
+    def _clone_gdn_prefix_states(
+        self,
+        width: int,
+    ) -> tuple[tuple[_GdnPrefixSnapshot, ...], ...]:
+        prefixes = []
+        for _offset in range(width):
+            layers = []
+            for layer in self.model.layers:
+                if layer.is_full_attention:
+                    continue
+                attention = layer.attention
+                if attention.rec_state is None or attention.conv_states is None:
+                    raise NativeMtpVerifierError(
+                        "native verifier GDN prefix state is not allocated"
+                    )
+                layers.append(
+                    _GdnPrefixSnapshot(
+                        layer=attention,
+                        recurrent=ttnn.clone(attention.rec_state),
+                        convolution=tuple(
+                            ttnn.clone(state) for state in attention.conv_states
+                        ),
+                    )
+                )
+            prefixes.append(tuple(layers))
+        return tuple(prefixes)
+
     @staticmethod
     def _restore_gdn_state(snapshots: tuple[_GdnDeviceSnapshot, ...]) -> None:
         for snapshot in snapshots:
@@ -291,6 +379,20 @@ class NativeMtpVerifierAdapter:
             ttnn.copy(snapshot.convolution_carry, snapshot.layer.conv_carry)
 
     @staticmethod
+    def _restore_gdn_prefix_state(
+        snapshots: tuple[_GdnPrefixSnapshot, ...],
+    ) -> None:
+        for snapshot in snapshots:
+            ttnn.copy(snapshot.recurrent, snapshot.layer.rec_state)
+            for source, target in zip(
+                snapshot.convolution,
+                snapshot.layer.conv_states,
+                strict=True,
+            ):
+                ttnn.copy(source, target)
+            _synchronize_convolution_carry(snapshot.layer)
+
+    @staticmethod
     def _deallocate_gdn_snapshots(
         snapshots: tuple[_GdnDeviceSnapshot, ...],
     ) -> None:
@@ -299,6 +401,16 @@ class NativeMtpVerifierAdapter:
             for tensor in snapshot.convolution:
                 ttnn.deallocate(tensor)
             ttnn.deallocate(snapshot.convolution_carry)
+
+    @staticmethod
+    def _deallocate_gdn_prefix_states(
+        prefixes: tuple[tuple[_GdnPrefixSnapshot, ...], ...],
+    ) -> None:
+        for snapshots in prefixes:
+            for snapshot in snapshots:
+                ttnn.deallocate(snapshot.recurrent)
+                for tensor in snapshot.convolution:
+                    ttnn.deallocate(tensor)
 
 
 def validate_native_verifier_model(model: Any) -> None:
@@ -347,6 +459,7 @@ def _verify_layer(
     sin: Any,
     positions: Any,
     page_table: Any,
+    prefix_snapshots: tuple[_GdnPrefixSnapshot, ...],
 ) -> Any:
     attention_norm_config = layer.args.get_norm_config("attn", Mode.DECODE)
     feed_forward_norm_config = layer.args.get_norm_config("attn", Mode.DECODE)
@@ -365,7 +478,11 @@ def _verify_layer(
             page_table=page_table,
         )
         if layer.is_full_attention
-        else _verify_gdn(layer.attention, attention_input)
+        else _verify_gdn(
+            layer.attention,
+            attention_input,
+            prefix_snapshots=prefix_snapshots,
+        )
     )
     ttnn.deallocate(attention_input)
     residual = ttnn.add(x, attention_output)
@@ -384,7 +501,12 @@ def _verify_layer(
     return output
 
 
-def _verify_gdn(layer: Any, x: Any) -> Any:
+def _verify_gdn(
+    layer: Any,
+    x: Any,
+    *,
+    prefix_snapshots: tuple[_GdnPrefixSnapshot, ...],
+) -> Any:
     if layer.rec_state is None or layer.conv_states is None:
         raise NativeMtpVerifierError("native verifier GDN state is not allocated")
     if len(x.shape) == FOUR_DIMENSIONAL_TENSOR:
@@ -394,6 +516,10 @@ def _verify_gdn(layer: Any, x: Any) -> Any:
     width = x.shape[PENULTIMATE_DIMENSION]
     if width < MINIMUM_WIDTH:
         raise NativeMtpVerifierError("native verifier GDN width is empty")
+    if prefix_snapshots and len(prefix_snapshots) != width:
+        raise NativeMtpVerifierError(
+            "native verifier GDN prefix snapshot width changed"
+        )
 
     tw = layer.tw
     key_heads = layer.Nk
@@ -524,6 +650,19 @@ def _verify_gdn(layer: Any, x: Any) -> Any:
         )
         ttnn.copy(new_recurrent, layer.rec_state)
         ttnn.deallocate(new_recurrent)
+        if prefix_snapshots:
+            prefix_snapshot = prefix_snapshots[offset]
+            if prefix_snapshot.layer is not layer:
+                raise NativeMtpVerifierError(
+                    "native verifier GDN prefix snapshot owner changed"
+                )
+            ttnn.copy(layer.rec_state, prefix_snapshot.recurrent)
+            for source, target in zip(
+                layer.conv_states,
+                prefix_snapshot.convolution,
+                strict=True,
+            ):
+                ttnn.copy(source, target)
         output_rows.append(
             ttnn.reshape(output_row, (MINIMUM_WIDTH, value_heads, value_width))
         )
