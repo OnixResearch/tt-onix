@@ -812,16 +812,16 @@
       "blake3": "f18a63b038dbbb305ee545322a970cb2902fc0da917418a3b5836817f7af69d4"
     },
     {
-      "path": "cairn/changes/stabilize-qwen38-mtp-drafting/evidence/physical-access-blocker.md",
+      "path": "cairn/archive/2026-08-22-stabilize-qwen38-mtp-drafting/evidence/physical-result.md",
       "class": "portable_evidence",
-      "byte_count": 721,
-      "blake3": "ff70fb3c8d55043f331a299da5fe16ab18df673417fb4020b34d13c84dcb5ad2"
+      "byte_count": 2069,
+      "blake3": "fa09e693ece876c8bd1cd8fe6cf353814379c757f0b54da88155fc6c71d7ef53"
     },
     {
-      "path": "cairn/changes/stabilize-qwen38-mtp-drafting/evidence/search-frame.md",
+      "path": "cairn/archive/2026-08-22-stabilize-qwen38-mtp-drafting/evidence/search-frame.md",
       "class": "portable_evidence",
-      "byte_count": 2581,
-      "blake3": "2c8b88fab078dbb72bff8c257a1b5857008721c4be33229a745dad1b0364a4a8"
+      "byte_count": 2646,
+      "blake3": "30c7be6e07bfec1222b8996bc248176afa91e6922d76d03614cd178d85b9b735"
     },
     {
       "path": "model-targets/generated/consumer-identities.h",
@@ -972,6 +972,12 @@
       "class": "portable_evidence",
       "byte_count": 32088,
       "blake3": "b0e0eb8df13fe8db1667cca7d82973cb069596675bdf50a5857b9f67e995d923"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-trace-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 136252,
+      "blake3": "c35ed4dacc2557086d811ee90f14c423f2a89b051bc91f716229dfb9320daddc"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-drafter-receipt.json",

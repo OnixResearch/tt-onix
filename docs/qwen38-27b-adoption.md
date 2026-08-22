@@ -419,7 +419,18 @@ The trace owns stable token, position, RoPE, feedback, MTP KV-cache, and output 
 
 The profile retains six roots per route and prompt in three `eager,traced,traced,eager` blocks. The evaluator rejects address drift, capture mutation, token drift, target drift, rollback failure, timing spread above `1.25`, traced/eager draft ratio above `0.95`, or aggregate speedup at or below `1.0`.
 
-Device-free package and policy checks pass. No physical receipt exists yet. The control cannot select traced drafting until an authorized P150x2 outage produces matched evidence. It does not prove rejected-row overwrite or multi-round MTP rollback.
+The matched physical control preserved draft, target, and continuation tokens in all 60 roots. Every traced root passed address-binding, capture-idempotence, MTP KV-prefix, and target-rollback checks. Accepted prefix lengths remained `3,0,3,3,3`.
+
+The traced draft-decode median was `0.01038352950126864` seconds, compared with `0.020045544501044787` seconds for eager draft decode. The traced/eager ratio was `0.507276627509049`, the total draft ratio was `0.7213822465863816`, and aggregate emitted-token speedup was `1.2921427224106086`.
+
+The evaluator rejected traced drafting because every prompt-route group exceeded the `1.25` duplicate-root bound in at least one required timing group. The receipt's BLAKE3 is `c35ed4dacc2557086d811ee90f14c423f2a89b051bc91f716229dfb9320daddc`.
+
+The observed gains are diagnostic opportunity bounds. The control does not prove rejected-row overwrite or multi-round MTP rollback. MTP and traced decode remain unadmitted, and production remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-draft-trace-receipt.json`
+- `cairn/archive/2026-08-22-stabilize-qwen38-mtp-drafting/evidence/physical-result.md`
 
 ### Decode component replay diagnostic
 

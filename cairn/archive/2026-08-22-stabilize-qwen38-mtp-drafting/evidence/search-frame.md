@@ -25,6 +25,6 @@ The goal is to reduce and stabilize fixed-shape MTP draft decode without changin
 
 The pinned `ttsim` documentation does not establish host-side TTNN trace capture and replay as supported evidence. A simulator run cannot establish silicon trace-region capacity or timing. No simulator result is used for this change.
 
-## Current terminal state
+## Terminal state
 
-Device-free implementation and checks pass. Physical evidence is pending an authorized outage of `qwen38-p150x2.service`. Until that outage occurs, the trace is not selected and no performance claim exists.
+Device-free checks and the matched physical control completed. The trace preserved outputs and reduced median draft time, but all ten prompt-route groups failed the `1.25` duplicate-root gate. Traced drafting is not selected, MTP remains unadmitted, and production remains eager.
