@@ -24,3 +24,7 @@ The goal is exact MTP continuation after target rejection without rerunning the 
 ## Simulator disposition
 
 The pinned simulator does not establish host trace allocation safety or silicon timing. Simulator evidence cannot select this rollback mechanism.
+
+## Terminal state
+
+The matched physical control proved exact next-round MTP state and a snapshot/re-prefill median ratio of `0.43887204011198166`. Six prompt-route groups failed the `1.25` recovery-stability gate. Snapshot rollback is not selected, MTP remains unadmitted, and production remains eager.

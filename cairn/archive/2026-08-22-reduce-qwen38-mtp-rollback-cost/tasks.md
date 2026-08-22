@@ -12,5 +12,5 @@
 ## Phase 3: Validation and evidence
 
 - [x] [serial] Run Ruff, Python compilation, Nickel export, Qwen positive and negative checks, NixOS service checks, and Cairn validation for r[tenstorrent.qwen38_p150x2.mtp_kv_rollback].
-- [ ] [serial] During an authorized outage, run the balanced P150x2 control, restore eager service health, and preserve the immutable receipt for r[tenstorrent.qwen38_p150x2.mtp_kv_rollback].
-- [ ] [serial] Record either a selected diagnostic rollback mechanism or an exact blocker, sync the requirement, regenerate the artifact manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_kv_rollback].
+- [x] [serial] During an authorized outage, run the balanced P150x2 control, restore eager service health, and preserve the immutable receipt for r[tenstorrent.qwen38_p150x2.mtp_kv_rollback].
+- [x] [serial] Record either a selected diagnostic rollback mechanism or an exact blocker, sync the requirement, regenerate the artifact manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_kv_rollback].

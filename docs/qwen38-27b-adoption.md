@@ -441,7 +441,19 @@ The snapshot route allocates its K/V row and prefix-feedback buffers before trac
 
 The evaluator compares the next draft token, feedback tensor, and committed MTP K/V prefix exactly. It requires six roots per route and prompt in three `reprefill,snapshot,snapshot,reprefill` blocks. It rejects recovery spread above `1.25` or snapshot/re-prefill ratio above `0.8`.
 
-Device-free package and policy checks pass. No physical result exists yet. The control cannot admit MTP, traced target decode, or production behavior.
+The matched physical control preserved the next draft token, feedback tensor, and committed MTP K/V prefix in all 60 roots. It covered natural accepted lengths zero and three. Target output and rollback also remained exact.
+
+Re-prefill recovery had median `0.046100162508082576` seconds. Snapshot recovery had median `0.02023772850225214` seconds. The ratio was `0.43887204011198166`, for an observed reduction of `56.11279598880183%`.
+
+The evaluator rejected snapshot rollback because six prompt-route groups exceeded the `1.25` recovery-stability bound. Exact state and a lower median do not override unstable roots.
+
+Snapshot rollback, MTP, and traced target decode remain unselected. Production remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-kv-rollback-receipt.json`
+- receipt BLAKE3: `ea0b1d77b8c6be61a566778862a12e1faa620a597ec7cad1101a01efee929921`
+- `cairn/archive/2026-08-22-reduce-qwen38-mtp-rollback-cost/evidence/physical-result.md`
 
 ### Decode component replay diagnostic
 

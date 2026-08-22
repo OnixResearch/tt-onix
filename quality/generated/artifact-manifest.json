@@ -812,6 +812,18 @@
       "blake3": "f18a63b038dbbb305ee545322a970cb2902fc0da917418a3b5836817f7af69d4"
     },
     {
+      "path": "cairn/archive/2026-08-22-reduce-qwen38-mtp-rollback-cost/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 1848,
+      "blake3": "bde59b1a034f90f6fc0af9889cffdf94edb6c9d385d87ff0cf2446505398111c"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-reduce-qwen38-mtp-rollback-cost/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 2213,
+      "blake3": "81f28be529c198a9ef8b03e98241e80f5211bd6b85cf8f3a56df6bf1c21f36fa"
+    },
+    {
       "path": "cairn/archive/2026-08-22-stabilize-qwen38-mtp-drafting/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 2069,
@@ -822,12 +834,6 @@
       "class": "portable_evidence",
       "byte_count": 2646,
       "blake3": "30c7be6e07bfec1222b8996bc248176afa91e6922d76d03614cd178d85b9b735"
-    },
-    {
-      "path": "cairn/changes/reduce-qwen38-mtp-rollback-cost/evidence/search-frame.md",
-      "class": "portable_evidence",
-      "byte_count": 1909,
-      "blake3": "941abaa2501451ec699774366605a3af3ba68f14eb3de57d7d7fd5d9f366fbbd"
     },
     {
       "path": "model-targets/generated/consumer-identities.h",
@@ -990,6 +996,12 @@
       "class": "portable_evidence",
       "byte_count": 9445,
       "blake3": "a102a170ce5d9fd1a2d2335bb6936ca1982e7a33df69b13df758b5073492141f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-mtp-kv-rollback-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 190160,
+      "blake3": "ea0b1d77b8c6be61a566778862a12e1faa620a597ec7cad1101a01efee929921"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-22/qwen38-27b-native-mtp-verifier-receipt.json",
