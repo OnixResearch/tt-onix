@@ -740,13 +740,13 @@
       "blake3": "41d30db8f1f881c9472426121beebe2881efd6d02c72d5c06928bc16fdddc3aa"
     },
     {
-      "path": "cairn/changes/evaluate-qwen38-native-mtp-verifier/evidence/physical-result.md",
+      "path": "cairn/archive/2026-08-22-evaluate-qwen38-native-mtp-verifier/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 3503,
       "blake3": "032fa7a7d5ca97d530be67f6afeb8b8abba5a4b8d9377083c6453f93e4d63bc9"
     },
     {
-      "path": "cairn/changes/evaluate-qwen38-native-mtp-verifier/evidence/search-frame.md",
+      "path": "cairn/archive/2026-08-22-evaluate-qwen38-native-mtp-verifier/evidence/search-frame.md",
       "class": "portable_evidence",
       "byte_count": 5396,
       "blake3": "fef5b224a441538169c0915d3f2b50dcd9ebbaeb164ef5a4b6622357e57a1802"
