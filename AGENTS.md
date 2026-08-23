@@ -220,5 +220,24 @@ Treat its PCC, performance, memory, and firmware observations as upstream claims
 Record the Blackhole firmware floor (`>= 19.5.0`) and the pinned tt-metal `python_env` as machine facts, not as local evidence.
 Do not run demo, server, or test commands from the reference tree without a bounded change.
 
+- Read the Adartras independent tt-kernel vLLM bundle at `.pi/references/qwen3-6-a3b/adartras-tt-kernel`.
+  Source: <https://huggingface.co/Adartras/qwen3.6-a3b-blackhole>.
+  It is a code-only bundle (commit `42a71032659a9d0e3b860b6104c59cfa6ca82149`) serving the
+  same model on one p150 with `ttnn >= 0.77`, BFP4 routed experts, and MTP spec-decode.
+  This is a SECOND, independent Qwen3.6-A3B implementation; it is not the bring-up reference.
+- Read the distilled transferable-technique study at `.pi/references/qwen3-6-a3b/LESSONS-FROM-ADARTRAS-BUNDLE.md`
+  before changing the local `pkgs/qwen36` MTP, precision, or gated-delta code.
+  It maps the bundle's distribution-exact speculative sampling, recurrent-state
+  verify/commit contract, KV bf8 gating discipline, and trace-capture hygiene to the
+  local 0.74 path, and it flags which lessons require the 0.77 pin and which do not.
+
+Use the brought-up tree and the Adartras bundle as independent implementation references for the Qwen3.6-A3B target candidate.
+
+## Adartras-bundle caveats (machine facts, not local evidence)
+
+- The bundle is built against `ttnn 0.77.1.dev0+g9f9cd4fd590.d20260819` (2026-08-19 dev build); the local tt-metal pin is `0.74.0`.
+- The bundle targets a single p150 (`1x1` mesh); the local serialized qwen36 service requires `P150x2`.
+- Its routed-expert default is BFP4 because only that fits one 32 GB p150 (~17.5 GB vs ~35 GB BFP8).
+
 The `.pi/` directory is not in version control.
 Download a missing reference from its listed source before you use it.
