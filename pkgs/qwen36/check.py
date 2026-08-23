@@ -2959,6 +2959,336 @@ def probe_mtp_recovery_stage():
     require(not rejected, f"invalid staged progress was accepted: {rejected}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control]
+def probe_mtp_recovery_prewarmed_control():
+    """Positive and negative tests for the full prewarmed recovery ledger."""
+    from tempfile import TemporaryDirectory
+
+    from qwen36_service import mtp_recovery_control_core as recovery_core
+    from qwen36_service import mtp_target_prewarm_core as prewarm_core
+    from qwen36_service.mtp_drafter import (
+        MtpDrafterCommandError,
+        _MtpRecoveryControlProgressWriter,
+    )
+    from qwen36_service.mtp_drafter_core import EXPECTED_DRAFT_TOKEN_COUNT
+    from qwen36_service.mtp_rollback_core import (
+        EXPECTED_ROUTE_SCHEDULE,
+        SNAPSHOT_RECOVERY,
+    )
+
+    prompt_count = recovery_core.EXPECTED_MINIMUM_PROMPT_COUNT
+    route_schedule = EXPECTED_ROUTE_SCHEDULE
+    progress = recovery_core.new_mtp_recovery_control_progress(
+        prompt_count=prompt_count,
+        route_schedule=route_schedule,
+    )
+    token_start = recovery_core.MINIMUM_PROMPT_INDEX
+    draft_token_ids = tuple(
+        range(token_start, token_start + EXPECTED_DRAFT_TOKEN_COUNT)
+    )
+    target_token_ids = draft_token_ids
+    target_verification_token_ids = (*target_token_ids, target_token_ids[-1])
+    signature = prewarm_core.make_target_validation_signature(
+        draft_token_ids=draft_token_ids,
+        target_token_ids=target_token_ids,
+        target_verification_token_ids=target_verification_token_ids,
+        accepted_prefix_length=prewarm_core.MINIMUM_ACCEPTED_PREFIX_LENGTH,
+        rollback_applied=True,
+        target_output_valid=True,
+        rollback_valid=True,
+    )
+    changed_signature = prewarm_core.make_target_validation_signature(
+        draft_token_ids=draft_token_ids,
+        target_token_ids=target_token_ids,
+        target_verification_token_ids=(
+            *target_token_ids,
+            target_token_ids[-1] + recovery_core.MINIMUM_PROMPT_INDEX,
+        ),
+        accepted_prefix_length=prewarm_core.MINIMUM_ACCEPTED_PREFIX_LENGTH,
+        rollback_applied=True,
+        target_output_valid=True,
+        rollback_valid=True,
+    )
+    event_index = 0
+    cache_entries = recovery_core.MINIMUM_PROGRAM_CACHE_ENTRIES
+
+    def record(
+        stage,
+        *,
+        observed_cache_entries=cache_entries,
+        prompt_index=None,
+        root_index=None,
+        route=None,
+        observed_signature=None,
+    ):
+        nonlocal event_index, progress
+        event_index += recovery_core.MINIMUM_PROMPT_INDEX
+        progress = recovery_core.advance_mtp_recovery_control_progress(
+            progress,
+            stage=stage,
+            elapsed_seconds=float(event_index),
+            program_cache_entries=observed_cache_entries,
+            prompt_index=prompt_index,
+            root_index=root_index,
+            route=route,
+            signature=observed_signature,
+        )
+
+    record(recovery_core.COMMAND_START, observed_cache_entries=None)
+    record(recovery_core.MESH_OPEN_START, observed_cache_entries=None)
+    record(recovery_core.MESH_OPEN_COMPLETE)
+    record(recovery_core.MODEL_LOAD_START)
+    record(recovery_core.MODEL_LOAD_COMPLETE)
+    record(recovery_core.ADAPTER_CREATE_START)
+    record(recovery_core.ADAPTER_CREATE_COMPLETE)
+    record(recovery_core.PREWARM_START)
+    first_prewarm_start = None
+    for prompt_index in range(
+        recovery_core.MINIMUM_PROMPT_INDEX,
+        prompt_count + recovery_core.MINIMUM_PROMPT_INDEX,
+    ):
+        record(recovery_core.PREWARM_PROMPT_START, prompt_index=prompt_index)
+        if first_prewarm_start is None:
+            first_prewarm_start = progress
+        record(
+            recovery_core.PREWARM_PROMPT_COMPLETE,
+            prompt_index=prompt_index,
+            observed_signature=signature,
+        )
+    record(recovery_core.PREWARM_COMPLETE)
+    record(recovery_core.PERSISTENT_WARMUP_START)
+    first_warmup_start = None
+    for prompt_index in range(
+        recovery_core.MINIMUM_PROMPT_INDEX,
+        prompt_count + recovery_core.MINIMUM_PROMPT_INDEX,
+    ):
+        for root_index, route in enumerate(
+            recovery_core.WARMUP_ROUTES,
+            start=recovery_core.MINIMUM_ROOT_INDEX,
+        ):
+            record(
+                recovery_core.WARMUP_ROOT_START,
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+            )
+            if first_warmup_start is None:
+                first_warmup_start = progress
+            record(
+                recovery_core.WARMUP_ROOT_COMPLETE,
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+                observed_signature=signature,
+            )
+    record(recovery_core.PERSISTENT_WARMUP_COMPLETE)
+    record(recovery_core.MEASUREMENT_START)
+    measurement_started = progress
+    first_measured_start = None
+    for prompt_index in range(
+        recovery_core.MINIMUM_PROMPT_INDEX,
+        prompt_count + recovery_core.MINIMUM_PROMPT_INDEX,
+    ):
+        for root_index, route in enumerate(
+            route_schedule,
+            start=recovery_core.MINIMUM_ROOT_INDEX,
+        ):
+            record(
+                recovery_core.MEASURED_ROOT_START,
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+            )
+            if first_measured_start is None:
+                first_measured_start = progress
+            record(
+                recovery_core.MEASURED_ROOT_COMPLETE,
+                prompt_index=prompt_index,
+                root_index=root_index,
+                route=route,
+                observed_signature=signature,
+            )
+    record(recovery_core.MEASUREMENT_COMPLETE)
+    record(recovery_core.CLEANUP_START)
+    record(recovery_core.CLEANUP_COMPLETE)
+    record(recovery_core.EVALUATION_START)
+    record(recovery_core.EVALUATION_COMPLETE)
+    record(recovery_core.RECEIPT_WRITE_START)
+    record(recovery_core.COMPLETE)
+    require(progress.complete, "valid recovery control progress did not complete")
+    progress_mapping = progress.to_mapping()
+    require(
+        progress_mapping["measurement_program_cache_entries"] == cache_entries,
+        "recovery control lost its frozen program-cache count",
+    )
+    require(
+        progress_mapping["admission_eligible"] is False,
+        "recovery control progress became admission eligible",
+    )
+
+    failed = recovery_core.new_mtp_recovery_control_progress(
+        prompt_count=prompt_count,
+        route_schedule=route_schedule,
+    )
+    failure_elapsed_seconds = float(recovery_core.MINIMUM_PROMPT_INDEX)
+    failed = recovery_core.advance_mtp_recovery_control_progress(
+        failed,
+        stage=recovery_core.COMMAND_START,
+        elapsed_seconds=failure_elapsed_seconds,
+        program_cache_entries=None,
+    )
+    failure_elapsed_seconds += recovery_core.MINIMUM_PROMPT_INDEX
+    failed = recovery_core.advance_mtp_recovery_control_progress(
+        failed,
+        stage=recovery_core.FAILURE_RECORDED,
+        elapsed_seconds=failure_elapsed_seconds,
+        program_cache_entries=None,
+    )
+    failure_elapsed_seconds += recovery_core.MINIMUM_PROMPT_INDEX
+    failed = recovery_core.advance_mtp_recovery_control_progress(
+        failed,
+        stage=recovery_core.CLEANUP_START,
+        elapsed_seconds=failure_elapsed_seconds,
+        program_cache_entries=None,
+    )
+    failure_elapsed_seconds += recovery_core.MINIMUM_PROMPT_INDEX
+    failed = recovery_core.advance_mtp_recovery_control_progress(
+        failed,
+        stage=recovery_core.CLEANUP_COMPLETE,
+        elapsed_seconds=failure_elapsed_seconds,
+        program_cache_entries=None,
+    )
+    require(failed.failed, "recovery control failure was not retained")
+    require(not failed.complete, "failed recovery control became complete")
+
+    require(first_prewarm_start is not None, "prewarm test boundary is missing")
+    require(first_warmup_start is not None, "warmup test boundary is missing")
+    require(first_measured_start is not None, "measured test boundary is missing")
+    rejected = []
+    invalid_route_schedule = (
+        SNAPSHOT_RECOVERY,
+        *route_schedule[recovery_core.MINIMUM_PROMPT_INDEX :],
+    )
+    try:
+        recovery_core.new_mtp_recovery_control_progress(
+            prompt_count=prompt_count,
+            route_schedule=invalid_route_schedule,
+        )
+    except recovery_core.MtpRecoveryControlProgressError:
+        pass
+    else:
+        rejected.append("changed route schedule")
+    try:
+        recovery_core.advance_mtp_recovery_control_progress(
+            first_prewarm_start,
+            stage=recovery_core.PREWARM_PROMPT_COMPLETE,
+            elapsed_seconds=first_prewarm_start.events[-1].elapsed_seconds
+            + recovery_core.MINIMUM_PROMPT_INDEX,
+            program_cache_entries=cache_entries,
+            prompt_index=recovery_core.MINIMUM_PROMPT_INDEX,
+        )
+    except recovery_core.MtpRecoveryControlProgressError:
+        pass
+    else:
+        rejected.append("missing prewarm signature")
+    first_warmup_event = first_warmup_start.events[-1]
+    try:
+        recovery_core.advance_mtp_recovery_control_progress(
+            first_warmup_start,
+            stage=recovery_core.WARMUP_ROOT_COMPLETE,
+            elapsed_seconds=first_warmup_event.elapsed_seconds
+            + recovery_core.MINIMUM_PROMPT_INDEX,
+            program_cache_entries=cache_entries,
+            prompt_index=first_warmup_event.prompt_index,
+            root_index=first_warmup_event.root_index,
+            route=first_warmup_event.route,
+            signature=changed_signature,
+        )
+    except recovery_core.MtpRecoveryControlProgressError:
+        pass
+    else:
+        rejected.append("false warmup signature match")
+    first_measured_event = first_measured_start.events[-1]
+    try:
+        recovery_core.advance_mtp_recovery_control_progress(
+            first_measured_start,
+            stage=recovery_core.MEASURED_ROOT_COMPLETE,
+            elapsed_seconds=first_measured_event.elapsed_seconds
+            + recovery_core.MINIMUM_PROMPT_INDEX,
+            program_cache_entries=cache_entries + recovery_core.MINIMUM_PROMPT_INDEX,
+            prompt_index=first_measured_event.prompt_index,
+            root_index=first_measured_event.root_index,
+            route=first_measured_event.route,
+            signature=signature,
+        )
+    except recovery_core.MtpRecoveryControlProgressError:
+        pass
+    else:
+        rejected.append("measured program-cache growth")
+    try:
+        recovery_core.advance_mtp_recovery_control_progress(
+            measurement_started,
+            stage=recovery_core.MEASURED_ROOT_START,
+            elapsed_seconds=measurement_started.events[-1].elapsed_seconds
+            - recovery_core.MINIMUM_PROMPT_INDEX,
+            program_cache_entries=cache_entries,
+            prompt_index=recovery_core.MINIMUM_PROMPT_INDEX,
+            root_index=recovery_core.MINIMUM_ROOT_INDEX,
+            route=route_schedule[0],
+        )
+    except recovery_core.MtpRecoveryControlProgressError:
+        pass
+    else:
+        rejected.append("regressed elapsed time")
+    require(not rejected, f"invalid recovery control progress was accepted: {rejected}")
+
+    class FakeMesh:
+        def __init__(self):
+            self.entries = cache_entries
+
+        def num_program_cache_entries(self):
+            return self.entries
+
+    with TemporaryDirectory() as temporary_directory:
+        progress_path = Path(temporary_directory) / "progress.json"
+        writer = _MtpRecoveryControlProgressWriter(
+            path=progress_path,
+            prompt_count=prompt_count,
+            route_schedule=route_schedule,
+        )
+        writer.record(recovery_core.COMMAND_START)
+        writer.record(recovery_core.MESH_OPEN_START)
+        fake_mesh = FakeMesh()
+        writer.bind_program_cache(fake_mesh)
+        writer.record(recovery_core.MESH_OPEN_COMPLETE)
+        fake_mesh.entries += recovery_core.MINIMUM_PROMPT_INDEX
+        writer.record(recovery_core.MODEL_LOAD_START)
+        writer.freeze_program_cache()
+        fake_mesh.entries += recovery_core.MINIMUM_PROMPT_INDEX
+        writer.record(recovery_core.MODEL_LOAD_COMPLETE)
+        persisted = json.loads(progress_path.read_text())
+        require(
+            persisted["events"][-1]["program_cache_entries"]
+            == cache_entries + recovery_core.MINIMUM_PROMPT_INDEX,
+            "recovery control writer did not freeze its cache observation",
+        )
+        require(
+            not progress_path.with_name(progress_path.name + ".tmp").exists(),
+            "recovery control writer left its temporary file",
+        )
+        invalid_writer = _MtpRecoveryControlProgressWriter(
+            path=Path(temporary_directory) / "invalid.json",
+            prompt_count=prompt_count,
+            route_schedule=route_schedule,
+        )
+        try:
+            invalid_writer.bind_program_cache(object())
+        except MtpDrafterCommandError:
+            pass
+        else:
+            require(False, "recovery control accepted a missing cache reader")
+
+
 # r[verify tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm]
 def probe_mtp_target_validation_prewarm():
     """Positive and negative tests for exact target prewarm evidence."""
@@ -2989,9 +3319,7 @@ def probe_mtp_target_validation_prewarm():
         (stage_core.ADAPTER_CREATE_COMPLETE, warmed_cache_entries),
         (stage_core.TARGET_VALIDATION_PREWARM_START, warmed_cache_entries),
         (
-            stage_core.target_validation_prewarm_stage(
-                stage_core.TARGET_PREFILL_START
-            ),
+            stage_core.target_validation_prewarm_stage(stage_core.TARGET_PREFILL_START),
             warmed_cache_entries,
         ),
         (
@@ -3038,8 +3366,7 @@ def probe_mtp_target_validation_prewarm():
         "target-prewarm progress lost its mode",
     )
     require(
-        progress_mapping["events"][-1]["program_cache_entries"]
-        == warmed_cache_entries,
+        progress_mapping["events"][-1]["program_cache_entries"] == warmed_cache_entries,
         "target-prewarm progress lost its program-cache observation",
     )
 
@@ -3076,8 +3403,7 @@ def probe_mtp_target_validation_prewarm():
             "stage writer lost its terminal boundary",
         )
         require(
-            persisted["events"][-1]["program_cache_entries"]
-            == warmed_cache_entries,
+            persisted["events"][-1]["program_cache_entries"] == warmed_cache_entries,
             "stage writer did not freeze its last program-cache observation",
         )
         require(
@@ -3266,6 +3592,7 @@ def main():
     probe("MTP draft trace", probe_mtp_draft_trace)
     probe("MTP K/V rollback", probe_mtp_kv_rollback)
     probe("MTP recovery stage progress", probe_mtp_recovery_stage)
+    probe("MTP prewarmed recovery control", probe_mtp_recovery_prewarmed_control)
     probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)

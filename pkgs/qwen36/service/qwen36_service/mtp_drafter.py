@@ -2,6 +2,7 @@
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_drafter_probe]
 # r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control]
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.model import Qwen36Model
 from transformers import AutoTokenizer
 
+from . import mtp_recovery_control_core as recovery_control_core
 from . import mtp_stage_core as stage_core
 from .decode_adapter import TracedDecodeAdapter
 from .decode_core import DecodePolicyError, DecodeProfile
@@ -77,12 +79,14 @@ PILOT_MEASUREMENT_MODE = "diagnostic-mtp-drafter-pilot"
 SELECTION_MEASUREMENT_MODE = "diagnostic-mtp-draft-selection"
 TRACE_MEASUREMENT_MODE = "diagnostic-mtp-draft-trace"
 ROLLBACK_MEASUREMENT_MODE = "diagnostic-mtp-kv-rollback"
+RECOVERY_CONTROL_MEASUREMENT_MODE = "diagnostic-mtp-recovery-prewarmed-control"
 STAGE_MEASUREMENT_MODE = "diagnostic-mtp-recovery-stage"
 SMOKE_MODE = "smoke"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
 TRACE_MODE = "trace"
 ROLLBACK_MODE = "rollback"
+RECOVERY_CONTROL_MODE = "recovery-control"
 STAGE_MODE = "stage"
 VLLM_REFERENCE_REVISION = "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
 SGLANG_REFERENCE_REVISION = "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3"
@@ -141,6 +145,65 @@ class _MtpStageProgressWriter:
         self.record(stage_core.target_validation_prewarm_stage(stage))
 
 
+class _MtpRecoveryControlProgressWriter:
+    """Persist full-control boundaries with atomic replacements."""
+
+    def __init__(
+        self,
+        *,
+        path: Path,
+        prompt_count: int,
+        route_schedule: tuple[str, ...],
+    ) -> None:
+        self.path = path
+        self.started = time.monotonic()
+        self._program_cache_reader: Callable[[], int] | None = None
+        self._last_program_cache_entries: int | None = None
+        self.progress = recovery_control_core.new_mtp_recovery_control_progress(
+            prompt_count=prompt_count,
+            route_schedule=route_schedule,
+        )
+
+    def bind_program_cache(self, mesh_device: object) -> None:
+        if self._program_cache_reader is not None:
+            raise MtpDrafterCommandError("program-cache observation is already bound")
+        reader = getattr(mesh_device, "num_program_cache_entries", None)
+        if reader is None or not callable(reader):
+            raise MtpDrafterCommandError("program-cache observation is unavailable")
+        self._program_cache_reader = reader
+
+    def freeze_program_cache(self) -> None:
+        if self._program_cache_reader is not None:
+            self._last_program_cache_entries = self._program_cache_reader()
+            self._program_cache_reader = None
+
+    def record(
+        self,
+        stage: str,
+        *,
+        prompt_index: int | None = None,
+        root_index: int | None = None,
+        route: str | None = None,
+        signature: MtpTargetValidationSignature | None = None,
+    ) -> None:
+        if self._program_cache_reader is not None:
+            self._last_program_cache_entries = self._program_cache_reader()
+        self.progress = recovery_control_core.advance_mtp_recovery_control_progress(
+            self.progress,
+            stage=stage,
+            elapsed_seconds=time.monotonic() - self.started,
+            program_cache_entries=self._last_program_cache_entries,
+            prompt_index=prompt_index,
+            root_index=root_index,
+            route=route,
+            signature=signature,
+        )
+        _replace_json(self.path, self.progress.to_mapping())
+
+    def record_failure(self) -> None:
+        self.record(recovery_control_core.FAILURE_RECORDED)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True)
@@ -160,6 +223,7 @@ def parse_args() -> argparse.Namespace:
             SELECTION_MODE,
             TRACE_MODE,
             ROLLBACK_MODE,
+            RECOVERY_CONTROL_MODE,
             STAGE_MODE,
         ),
         default=SMOKE_MODE,
@@ -197,13 +261,11 @@ def main() -> None:
     if not output_path.parent.is_dir():
         raise SystemExit("--output parent directory does not exist")
     progress_path = None
-    if args.mode == STAGE_MODE:
+    if args.mode in (STAGE_MODE, RECOVERY_CONTROL_MODE):
         if args.progress_output is None:
-            raise SystemExit("--progress-output is required in stage mode")
-        if args.stage_route is None:
-            raise SystemExit("--stage-route is required in stage mode")
-        if args.stage_prompt_index is None:
-            raise SystemExit("--stage-prompt-index is required in stage mode")
+            raise SystemExit(
+                "--progress-output is required in stage or recovery-control mode"
+            )
         progress_path = Path(args.progress_output).expanduser()
         if not progress_path.is_absolute():
             raise SystemExit("--progress-output must be absolute")
@@ -213,13 +275,15 @@ def main() -> None:
             raise SystemExit("--progress-output parent directory does not exist")
         if progress_path.resolve() == output_path.resolve():
             raise SystemExit("--progress-output and --output must differ")
+    elif args.progress_output is not None:
+        raise SystemExit("--progress-output requires stage or recovery-control mode")
+    if args.mode == STAGE_MODE:
+        if args.stage_route is None:
+            raise SystemExit("--stage-route is required in stage mode")
+        if args.stage_prompt_index is None:
+            raise SystemExit("--stage-prompt-index is required in stage mode")
     elif args.stage_prewarm_target_validation or any(
-        value is not None
-        for value in (
-            args.progress_output,
-            args.stage_route,
-            args.stage_prompt_index,
-        )
+        value is not None for value in (args.stage_route, args.stage_prompt_index)
     ):
         raise SystemExit("stage arguments require stage mode")
 
@@ -240,10 +304,10 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
-    if args.mode in (TRACE_MODE, ROLLBACK_MODE, STAGE_MODE):
+    if args.mode in (TRACE_MODE, ROLLBACK_MODE, RECOVERY_CONTROL_MODE, STAGE_MODE):
         if args.mtp_trace_profile is None:
             raise SystemExit(
-                "--mtp-trace-profile is required in trace, rollback, or stage mode"
+                "--mtp-trace-profile is required in trace, rollback, recovery-control, or stage mode"
             )
         trace_profile = _load_trace_profile(
             _existing_absolute_file(
@@ -253,11 +317,13 @@ def main() -> None:
         )
         _require_trace_profile_match(drafter_profile, trace_profile)
     elif args.mtp_trace_profile is not None:
-        raise SystemExit("--mtp-trace-profile requires trace or rollback mode")
-    if args.mode in (ROLLBACK_MODE, STAGE_MODE):
+        raise SystemExit(
+            "--mtp-trace-profile requires trace, rollback, recovery-control, or stage mode"
+        )
+    if args.mode in (ROLLBACK_MODE, RECOVERY_CONTROL_MODE, STAGE_MODE):
         if args.mtp_rollback_profile is None:
             raise SystemExit(
-                "--mtp-rollback-profile is required in rollback or stage mode"
+                "--mtp-rollback-profile is required in rollback, recovery-control, or stage mode"
             )
         rollback_profile = _load_rollback_profile(
             _existing_absolute_file(
@@ -273,7 +339,9 @@ def main() -> None:
         ):
             raise SystemExit("--stage-prompt-index is outside the rollback prompts")
     elif args.mtp_rollback_profile is not None:
-        raise SystemExit("--mtp-rollback-profile requires rollback or stage mode")
+        raise SystemExit(
+            "--mtp-rollback-profile requires rollback, recovery-control, or stage mode"
+        )
     if model_path.name != drafter_profile.checkpoint_revision:
         raise SystemExit("model path does not match the MTP drafter checkpoint")
     if decode_profile.authority_blake3 != drafter_profile.authority_blake3:
@@ -286,6 +354,7 @@ def main() -> None:
         raise SystemExit("decode and MTP drafter tokenizer identities differ")
 
     stage_writer = None
+    control_writer = None
     if args.mode == STAGE_MODE:
         assert progress_path is not None
         assert args.stage_prompt_index is not None
@@ -297,6 +366,15 @@ def main() -> None:
             prewarm_target_validation=args.stage_prewarm_target_validation,
         )
         stage_writer.record(stage_core.COMMAND_START)
+    elif args.mode == RECOVERY_CONTROL_MODE:
+        assert progress_path is not None
+        assert rollback_profile is not None
+        control_writer = _MtpRecoveryControlProgressWriter(
+            path=progress_path,
+            prompt_count=len(rollback_profile.prompts),
+            route_schedule=rollback_profile.route_schedule,
+        )
+        control_writer.record(recovery_control_core.COMMAND_START)
 
     os.environ["HF_MODEL"] = str(model_path)
     os.environ["TT_CACHE_PATH"] = str(model_path)
@@ -323,6 +401,8 @@ def main() -> None:
     selection_results = None
     trace_results = None
     rollback_results = None
+    recovery_control_prewarm_results = None
+    recovery_control_prewarm_signatures: dict[int, MtpTargetValidationSignature] = {}
     prewarm_result = None
     prewarm_signature = None
     measured_signature = None
@@ -335,6 +415,10 @@ def main() -> None:
     )
     try:
         _record_stage(stage_writer, stage_core.MESH_OPEN_START)
+        _record_control(
+            control_writer,
+            recovery_control_core.MESH_OPEN_START,
+        )
         mesh_device = ttnn.open_mesh_device(
             mesh_shape=ttnn.MeshShape(MESH_ROWS, MESH_COLUMNS),
             l1_small_size=L1_SMALL_SIZE_BYTES,
@@ -346,14 +430,28 @@ def main() -> None:
         mesh_device.enable_program_cache()
         if stage_writer is not None:
             stage_writer.bind_program_cache(mesh_device)
+        if control_writer is not None:
+            control_writer.bind_program_cache(mesh_device)
         _record_stage(stage_writer, stage_core.MESH_OPEN_COMPLETE)
+        _record_control(
+            control_writer,
+            recovery_control_core.MESH_OPEN_COMPLETE,
+        )
         _record_stage(stage_writer, stage_core.MODEL_LOAD_START)
+        _record_control(
+            control_writer,
+            recovery_control_core.MODEL_LOAD_START,
+        )
         model = Qwen36Model.from_pretrained(
             mesh_device,
             max_batch_size=MAXIMUM_BATCH_SIZE,
             max_seq_len=decode_profile.maximum_sequence_length,
         )
         _record_stage(stage_writer, stage_core.MODEL_LOAD_COMPLETE)
+        _record_control(
+            control_writer,
+            recovery_control_core.MODEL_LOAD_COMPLETE,
+        )
         if len(model.layers) != EXPECTED_LAYER_COUNT:
             raise MtpDrafterCommandError(
                 f"expected {EXPECTED_LAYER_COUNT} layers, got {len(model.layers)}"
@@ -365,6 +463,10 @@ def main() -> None:
             add_special_tokens=True,
         ).input_ids.to(torch.int32)
         _record_stage(stage_writer, stage_core.ADAPTER_CREATE_START)
+        _record_control(
+            control_writer,
+            recovery_control_core.ADAPTER_CREATE_START,
+        )
         decode_adapter = TracedDecodeAdapter(
             model=model,
             profile=decode_profile,
@@ -383,6 +485,10 @@ def main() -> None:
             rollback_profile=rollback_profile,
         )
         _record_stage(stage_writer, stage_core.ADAPTER_CREATE_COMPLETE)
+        _record_control(
+            control_writer,
+            recovery_control_core.ADAPTER_CREATE_COMPLETE,
+        )
         if args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
                 prompt_tokens,
@@ -468,7 +574,7 @@ def main() -> None:
                         ),
                     ))
             trace_results = tuple(measured)
-        elif args.mode == ROLLBACK_MODE:
+        elif args.mode in (ROLLBACK_MODE, RECOVERY_CONTROL_MODE):
             assert trace_profile is not None
             assert rollback_profile is not None
             prompt_token_rows = tuple(
@@ -479,37 +585,90 @@ def main() -> None:
                 ).input_ids.to(torch.int32)
                 for prompt in rollback_profile.prompts
             )
-            for tokens in prompt_token_rows:
-                adapter.run_pilot(
-                    tokens,
-                    selector_mode=SHARD_LOCAL_TOP1,
-                    draft_execution_mode=TRACED_DRAFT,
-                    mtp_recovery_mode=REPREFILL_RECOVERY,
-                )
-                adapter.run_pilot(
-                    tokens,
-                    selector_mode=SHARD_LOCAL_TOP1,
-                    draft_execution_mode=TRACED_DRAFT,
-                    mtp_recovery_mode=SNAPSHOT_RECOVERY,
-                )
+            if control_writer is not None:
+                control_writer.record(recovery_control_core.PREWARM_START)
+                prewarm_results = []
+                for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
+                    control_writer.record(
+                        recovery_control_core.PREWARM_PROMPT_START,
+                        prompt_index=prompt_index,
+                    )
+                    result = adapter.run_pilot(
+                        tokens,
+                        selector_mode=SHARD_LOCAL_TOP1,
+                        draft_execution_mode=TRACED_DRAFT,
+                    )
+                    signature = _target_validation_signature(result)
+                    recovery_control_prewarm_signatures[prompt_index] = signature
+                    prewarm_results.append(result)
+                    control_writer.record(
+                        recovery_control_core.PREWARM_PROMPT_COMPLETE,
+                        prompt_index=prompt_index,
+                        signature=signature,
+                    )
+                recovery_control_prewarm_results = tuple(prewarm_results)
+                control_writer.record(recovery_control_core.PREWARM_COMPLETE)
+                control_writer.record(recovery_control_core.PERSISTENT_WARMUP_START)
+            for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
+                for root_index, route in enumerate(
+                    recovery_control_core.WARMUP_ROUTES,
+                    start=1,
+                ):
+                    if control_writer is not None:
+                        control_writer.record(
+                            recovery_control_core.WARMUP_ROOT_START,
+                            prompt_index=prompt_index,
+                            root_index=root_index,
+                            route=route,
+                        )
+                    result = adapter.run_pilot(
+                        tokens,
+                        selector_mode=SHARD_LOCAL_TOP1,
+                        draft_execution_mode=TRACED_DRAFT,
+                        mtp_recovery_mode=route,
+                    )
+                    if control_writer is not None:
+                        control_writer.record(
+                            recovery_control_core.WARMUP_ROOT_COMPLETE,
+                            prompt_index=prompt_index,
+                            root_index=root_index,
+                            route=route,
+                            signature=_target_validation_signature(result),
+                        )
+            if control_writer is not None:
+                control_writer.record(recovery_control_core.PERSISTENT_WARMUP_COMPLETE)
+                control_writer.record(recovery_control_core.MEASUREMENT_START)
             measured = []
             for prompt_index, tokens in enumerate(prompt_token_rows, start=1):
                 for root_index, route in enumerate(
                     rollback_profile.route_schedule,
                     start=1,
                 ):
-                    measured.append((
-                        prompt_index,
-                        root_index,
-                        route,
-                        adapter.run_pilot(
-                            tokens,
-                            selector_mode=SHARD_LOCAL_TOP1,
-                            draft_execution_mode=TRACED_DRAFT,
-                            mtp_recovery_mode=route,
-                        ),
-                    ))
+                    if control_writer is not None:
+                        control_writer.record(
+                            recovery_control_core.MEASURED_ROOT_START,
+                            prompt_index=prompt_index,
+                            root_index=root_index,
+                            route=route,
+                        )
+                    result = adapter.run_pilot(
+                        tokens,
+                        selector_mode=SHARD_LOCAL_TOP1,
+                        draft_execution_mode=TRACED_DRAFT,
+                        mtp_recovery_mode=route,
+                    )
+                    measured.append((prompt_index, root_index, route, result))
+                    if control_writer is not None:
+                        control_writer.record(
+                            recovery_control_core.MEASURED_ROOT_COMPLETE,
+                            prompt_index=prompt_index,
+                            root_index=root_index,
+                            route=route,
+                            signature=_target_validation_signature(result),
+                        )
             rollback_results = tuple(measured)
+            if control_writer is not None:
+                control_writer.record(recovery_control_core.MEASUREMENT_COMPLETE)
         else:
             assert args.mode == STAGE_MODE
             assert rollback_profile is not None
@@ -554,9 +713,15 @@ def main() -> None:
                 stage_writer.record(stage_core.PREWARM_SIGNATURE_COMPARE_COMPLETE)
     except Exception:
         _record_stage(stage_writer, stage_core.FAILURE_RECORDED)
+        if control_writer is not None:
+            control_writer.record_failure()
         raise
     finally:
         _record_stage(stage_writer, stage_core.CLEANUP_START)
+        _record_control(
+            control_writer,
+            recovery_control_core.CLEANUP_START,
+        )
         if adapter is not None:
             adapter.close()
             adapter = None
@@ -571,6 +736,8 @@ def main() -> None:
             if mesh_device is not None:
                 if stage_writer is not None:
                     stage_writer.freeze_program_cache()
+                if control_writer is not None:
+                    control_writer.freeze_program_cache()
                 for submesh in mesh_device.get_submeshes():
                     ttnn.close_mesh_device(submesh)
                 ttnn.close_mesh_device(mesh_device)
@@ -578,9 +745,15 @@ def main() -> None:
         finally:
             if stage_writer is not None:
                 stage_writer.freeze_program_cache()
+            if control_writer is not None:
+                control_writer.freeze_program_cache()
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
         cleanup_complete = True
         _record_stage(stage_writer, stage_core.CLEANUP_COMPLETE)
+        _record_control(
+            control_writer,
+            recovery_control_core.CLEANUP_COMPLETE,
+        )
 
     common_receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
@@ -845,8 +1018,12 @@ def main() -> None:
                 "The control does not establish rejected-row overwrite or multi-round economics.",
             ],
         }
-    elif args.mode == ROLLBACK_MODE:
+    elif args.mode in (ROLLBACK_MODE, RECOVERY_CONTROL_MODE):
         assert rollback_profile is not None
+        _record_control(
+            control_writer,
+            recovery_control_core.EVALUATION_START,
+        )
         expected_result_count = len(rollback_profile.prompts) * len(
             rollback_profile.route_schedule
         )
@@ -927,18 +1104,14 @@ def main() -> None:
                 "committed_token_id": committed_token_id,
                 "next_draft_token_id": state.next_draft_token_id,
                 "mtp_cache_recovery_seconds": (result.mtp_cache_recovery_seconds),
-                "mtp_cache_queue_drain_seconds": (
-                    result.mtp_cache_queue_drain_seconds
-                ),
+                "mtp_cache_queue_drain_seconds": (result.mtp_cache_queue_drain_seconds),
                 "mtp_cache_recovery_execution_mode": (
                     result.mtp_cache_recovery_execution_mode
                 ),
                 "mtp_cache_process_trace_capture_count": (
                     result.mtp_cache_process_trace_capture_count
                 ),
-                "mtp_cache_trace_binding_valid": (
-                    result.mtp_cache_trace_binding_valid
-                ),
+                "mtp_cache_trace_binding_valid": (result.mtp_cache_trace_binding_valid),
                 "mtp_cache_snapshot_row_count": (result.mtp_cache_snapshot_row_count),
                 "mtp_cache_committed_advance_count": (
                     result.mtp_cache_committed_advance_count
@@ -952,10 +1125,18 @@ def main() -> None:
             identity,
             tuple(rollback_samples),
         )
+        _record_control(
+            control_writer,
+            recovery_control_core.EVALUATION_COMPLETE,
+        )
         first_result = rollback_results[0][3]
         receipt = {
             **common_receipt,
-            "measurement_mode": ROLLBACK_MEASUREMENT_MODE,
+            "measurement_mode": (
+                RECOVERY_CONTROL_MEASUREMENT_MODE
+                if args.mode == RECOVERY_CONTROL_MODE
+                else ROLLBACK_MEASUREMENT_MODE
+            ),
             "smoke_only": False,
             "warmup_discarded": True,
             "selector_mode": SHARD_LOCAL_TOP1,
@@ -983,6 +1164,56 @@ def main() -> None:
                 "The control does not establish sustained multi-round economics.",
             ],
         }
+        if args.mode == RECOVERY_CONTROL_MODE:
+            assert control_writer is not None
+            assert progress_path is not None
+            if recovery_control_prewarm_results is None or len(
+                recovery_control_prewarm_results
+            ) != len(rollback_profile.prompts):
+                raise MtpDrafterCommandError(
+                    "MTP recovery control prewarm results are incomplete"
+                )
+            if len(recovery_control_prewarm_signatures) != len(
+                rollback_profile.prompts
+            ):
+                raise MtpDrafterCommandError(
+                    "MTP recovery control prewarm signatures are incomplete"
+                )
+            receipt.update({
+                "target_validation_prewarm": True,
+                "prewarm_cost_included": True,
+                "prewarm_samples": [
+                    _pilot_result_mapping(prompt_index, result)
+                    for prompt_index, result in enumerate(
+                        recovery_control_prewarm_results,
+                        start=1,
+                    )
+                ],
+                "prewarm_signatures": [
+                    {
+                        "prompt_index": prompt_index,
+                        **recovery_control_prewarm_signatures[
+                            prompt_index
+                        ].to_mapping(),
+                    }
+                    for prompt_index in range(
+                        recovery_control_core.MINIMUM_PROMPT_INDEX,
+                        len(rollback_profile.prompts)
+                        + recovery_control_core.MINIMUM_PROMPT_INDEX,
+                    )
+                ],
+                "prewarm_signature_match": True,
+                "measured_program_cache_stable": True,
+                "measurement_program_cache_entries": (
+                    recovery_control_core.measurement_program_cache_entries(
+                        control_writer.progress
+                    )
+                ),
+                "progress_output": str(progress_path),
+            })
+            receipt["non_claims"].append(
+                "Prewarm and persistent warmup remain part of process startup cost."
+            )
     else:
         assert args.mode == STAGE_MODE
         assert stage_result is not None
@@ -1037,10 +1268,17 @@ def main() -> None:
                 "prewarm_signature_match": True,
             })
     _record_stage(stage_writer, stage_core.RECEIPT_WRITE_START)
+    _record_control(
+        control_writer,
+        recovery_control_core.RECEIPT_WRITE_START,
+    )
     if stage_writer is not None:
         receipt["progress"] = stage_writer.progress.to_mapping()
+    if control_writer is not None:
+        receipt["progress"] = control_writer.progress.to_mapping()
     _write_receipt(output_path, receipt)
     _record_stage(stage_writer, stage_core.COMPLETE)
+    _record_control(control_writer, recovery_control_core.COMPLETE)
     print(json.dumps(receipt, sort_keys=True))
 
 
@@ -1102,9 +1340,7 @@ def _pilot_result_mapping(
         "mtp_cache_reprefill_seconds": result.mtp_cache_reprefill_seconds,
         "mtp_cache_recovery_seconds": result.mtp_cache_recovery_seconds,
         "mtp_cache_queue_drain_seconds": result.mtp_cache_queue_drain_seconds,
-        "mtp_cache_recovery_execution_mode": (
-            result.mtp_cache_recovery_execution_mode
-        ),
+        "mtp_cache_recovery_execution_mode": (result.mtp_cache_recovery_execution_mode),
         "mtp_cache_process_trace_capture_count": (
             result.mtp_cache_process_trace_capture_count
         ),
@@ -1244,6 +1480,14 @@ def _existing_absolute_file(value: str, name: str) -> Path:
 
 def _record_stage(
     writer: _MtpStageProgressWriter | None,
+    stage: str,
+) -> None:
+    if writer is not None:
+        writer.record(stage)
+
+
+def _record_control(
+    writer: _MtpRecoveryControlProgressWriter | None,
     stage: str,
 ) -> None:
     if writer is not None:

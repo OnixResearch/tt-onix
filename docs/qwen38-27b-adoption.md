@@ -82,6 +82,7 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
 - `qwen36-p150x2-mtp-selection-probe` — paired full-logit and bounded draft-selector control.
 - `qwen36-p150x2-mtp-trace-probe` — paired eager and persistent-trace MTP draft control.
 - `qwen36-p150x2-mtp-rollback-probe` — paired MTP cache re-prefill and bounded row-restore control.
+- `qwen36-p150x2-mtp-recovery-prewarmed-control` — full persistent recovery control after exact per-prompt target prewarm.
 - `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
   it cannot select production behavior.
 - `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
@@ -514,6 +515,16 @@ Evidence:
 - receipt BLAKE3: `04b8087eb04a8e609c0cb3bd83f419a21f1405360659bdb6aa24cf669da8c88a`
 - `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-target-validation-prewarm-progress.json`
 - progress BLAKE3: `9b95efa146fb38de18fbc7da0a4fb304dd919be579714f2ba8adb752d7e6e3da`
+
+The package now also provides `qwen36-p150x2-mtp-recovery-prewarmed-control`. This diagnostic command prewarms all five fixed prompts before persistent recovery warmups.
+
+It then runs both warmup routes for each prompt and the accepted sixty-root measured schedule. The pure progress ledger records every root boundary and program-cache count.
+
+The command compares each warmup and measured signature with its prompt prewarm signature. It also rejects any program-cache change after measurement starts.
+
+The command reuses the existing recovery evaluator without weakening state, trace-binding, route-order, stability, or recovery-ratio gates. Prewarm and warmup remain part of process startup cost.
+
+This command has no physical result. It is admission-ineligible, production remains eager, and physical execution requires a new exact bound and explicit authorization.
 
 ### Decode component replay diagnostic
 

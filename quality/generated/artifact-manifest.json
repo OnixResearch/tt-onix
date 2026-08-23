@@ -878,6 +878,18 @@
       "blake3": "cee4a9785e80db9fb455c1dba1e6b27020d1a5c3ceb05714d34b574cadc4672e"
     },
     {
+      "path": "cairn/changes/validate-qwen38-mtp-recovery-after-prewarm/evidence/physical-access-blocker.md",
+      "class": "portable_evidence",
+      "byte_count": 1335,
+      "blake3": "4e6a9b7600ae72a15a89c7e39f120adc5cc4c0440b2e623cb184d82bc0f58d07"
+    },
+    {
+      "path": "cairn/changes/validate-qwen38-mtp-recovery-after-prewarm/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 5128,
+      "blake3": "8cbf150e6ce7042a50a846ffa381ceab01b84c1be4122178dd1d5b9851a8b80c"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
