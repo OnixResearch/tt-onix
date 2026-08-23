@@ -73,3 +73,9 @@ Source inspection found that `TPAttention.reset_state()` assigns new `k_caches` 
 ## Second mechanism round
 
 The first result falsified process-wide trace reuse with allocation-based cache reset. The revised adapter allocates the four MTP cache tensors once. It clones fixed zero sources and copies them into the same cache objects before each prefill. The next check must reject any address drift and preserve exact cache state.
+
+## Terminal state
+
+The in-place reset package removed the immediate binding error. The physical control still produced no receipt before its named `7200 s` timeout. The watchdog restored eager service and health.
+
+The persistent-trace route is blocked without complete roots. The declared two mechanism rounds and matched physical budget are exhausted. The result does not identify the nontermination mechanism.

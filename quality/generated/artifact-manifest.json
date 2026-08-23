@@ -776,6 +776,18 @@
       "blake3": "fef5b224a441538169c0915d3f2b50dcd9ebbaeb164ef5a4b6622357e57a1802"
     },
     {
+      "path": "cairn/archive/2026-08-22-isolate-qwen38-mtp-recovery-jitter/evidence/physical-result.md",
+      "class": "portable_evidence",
+      "byte_count": 1693,
+      "blake3": "7a0fedc1f9a2d7acf19ab24b69fc0d6b10058e1c1c3f56eae8a311fb311306b7"
+    },
+    {
+      "path": "cairn/archive/2026-08-22-isolate-qwen38-mtp-recovery-jitter/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 5218,
+      "blake3": "97f4f69a1381b132f96ec7c7bf9f5a76843165d002771621368c01a2148318ce"
+    },
+    {
       "path": "cairn/archive/2026-08-22-isolate-qwen38-traced-ttft/evidence/physical-result.md",
       "class": "portable_evidence",
       "byte_count": 4654,

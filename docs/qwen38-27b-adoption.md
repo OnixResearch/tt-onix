@@ -463,7 +463,15 @@ The control captures the trace during discarded warmup. Measured roots must repo
 
 The control retains the five prompts and three `reprefill,snapshot,snapshot,reprefill` blocks. It does not remove outliers or weaken the `1.25` stability bound.
 
-Device-free policy, core, and package checks pass. No version-two physical result exists. The candidate cannot change production behavior without matched physical evidence.
+The first physical warmup rejected `MTP trace binding changed before-controlled-replay: kv_buffer_identity`. The package-matched attention reset allocated new K/V cache objects.
+
+A second package reset the same K/V objects from fixed zero sources. This change removed the immediate binding error. The control still produced no receipt before its named `7200`-second timeout.
+
+The watchdog restored eager service and health. No complete matched roots exist. Persistent recovery tracing, MTP, and traced target decode remain unselected.
+
+Evidence:
+
+- `cairn/archive/2026-08-22-isolate-qwen38-mtp-recovery-jitter/evidence/physical-result.md`
 
 ### Decode component replay diagnostic
 
