@@ -12,5 +12,5 @@
 ## Phase 3: Evidence
 
 - [x] [serial] Pass Qwen, package, service, Cairn, and repository-quality checks for r[tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control].
-- [ ] [serial] Run one explicitly authorized bounded P150x2 control and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control].
-- [ ] [serial] Preserve the result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control].
+- [x] [serial] Run one explicitly authorized bounded P150x2 control and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control].
+- [x] [serial] Preserve the result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_recovery_prewarmed_control].

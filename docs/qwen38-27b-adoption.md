@@ -516,15 +516,26 @@ Evidence:
 - `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-target-validation-prewarm-progress.json`
 - progress BLAKE3: `9b95efa146fb38de18fbc7da0a4fb304dd919be579714f2ba8adb752d7e6e3da`
 
-The package now also provides `qwen36-p150x2-mtp-recovery-prewarmed-control`. This diagnostic command prewarms all five fixed prompts before persistent recovery warmups.
+The package also provides `qwen36-p150x2-mtp-recovery-prewarmed-control`. This diagnostic command prewarms all five fixed prompts before persistent recovery warmups.
 
 It then runs both warmup routes for each prompt and the accepted sixty-root measured schedule. The pure progress ledger records every root boundary and program-cache count.
 
-The command compares each warmup and measured signature with its prompt prewarm signature. It also rejects any program-cache change after measurement starts.
+The authorized physical control completed all five prewarms, ten warmups, and sixty measured roots. All target-validation signatures matched their prompt prewarm signatures.
 
-The command reuses the existing recovery evaluator without weakening state, trace-binding, route-order, stability, or recovery-ratio gates. Prewarm and warmup remain part of process startup cost.
+The program cache had `411` entries throughout measurement. One persistent trace capture served all measured roots.
 
-This command has no physical result. It is admission-ineligible, production remains eager, and physical execution requires a new exact bound and explicit authorization.
+The evaluator rejected the snapshot route. All six prompt-2 snapshot roots failed next-draft, feedback-state, and committed-prefix parity.
+
+Eight prompt-route groups exceeded the `1.25` recovery-spread limit. The aggregate snapshot-to-re-prefill recovery ratio was `0.38005667764112233`, but correctness and stability gates failed.
+
+The receipt has `rollback_valid=false`, `snapshot_rollback_selected=false`, and `admission_eligible=false`. Production remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-prewarmed-control-receipt.json`
+- receipt BLAKE3: `9ab2ceef2cb3cbe710561ba0c56b61ad5155a3ce2159075deb3b37705ed0e24e`
+- `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-prewarmed-control-progress.json`
+- progress BLAKE3: `d1d13010d5bd734a6124a6f3e4ddefb67c5783864ca777f8298b905d359cc36d`
 
 ### Decode component replay diagnostic
 

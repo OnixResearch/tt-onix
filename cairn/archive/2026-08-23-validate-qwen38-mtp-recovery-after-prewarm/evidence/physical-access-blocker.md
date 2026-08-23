@@ -31,6 +31,8 @@ The reset command is:
 
 The operator must restore the eager service and require the expected `/healthz` response.
 
-## Required authorization
+## Authorization disposition
 
-A new explicit authorization for this exact bounded outage is required before physical execution. Device-free validation does not authorize the outage.
+The user authorized this exact bounded outage. The control completed within the bound and restored eager health.
+
+The declared one-case physical budget is exhausted. Any additional physical case requires a new explicit authorization.

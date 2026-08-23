@@ -878,16 +878,22 @@
       "blake3": "cee4a9785e80db9fb455c1dba1e6b27020d1a5c3ceb05714d34b574cadc4672e"
     },
     {
-      "path": "cairn/changes/validate-qwen38-mtp-recovery-after-prewarm/evidence/physical-access-blocker.md",
+      "path": "cairn/archive/2026-08-23-validate-qwen38-mtp-recovery-after-prewarm/evidence/physical-access-blocker.md",
       "class": "portable_evidence",
-      "byte_count": 1335,
-      "blake3": "4e6a9b7600ae72a15a89c7e39f120adc5cc4c0440b2e623cb184d82bc0f58d07"
+      "byte_count": 1420,
+      "blake3": "68ce8d8e77fd8de66dd31f1f9fa2458c1e7498838c7d8796fb4d998c74dd6062"
     },
     {
-      "path": "cairn/changes/validate-qwen38-mtp-recovery-after-prewarm/evidence/search-frame.md",
+      "path": "cairn/archive/2026-08-23-validate-qwen38-mtp-recovery-after-prewarm/evidence/physical-result.md",
       "class": "portable_evidence",
-      "byte_count": 5128,
-      "blake3": "8cbf150e6ce7042a50a846ffa381ceab01b84c1be4122178dd1d5b9851a8b80c"
+      "byte_count": 4010,
+      "blake3": "12e23eae94c0b4591a84c73a2eac035b0bb66dc1384d140624fbc7472c99cc7b"
+    },
+    {
+      "path": "cairn/archive/2026-08-23-validate-qwen38-mtp-recovery-after-prewarm/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 5321,
+      "blake3": "cd54551705d7729158851f4cff3a84e07ee4f8d44c138f91e17c5627566a4828"
     },
     {
       "path": "model-targets/generated/consumer-identities.h",
@@ -1074,6 +1080,18 @@
       "class": "portable_evidence",
       "byte_count": 17360,
       "blake3": "fd127f0cf88d8393487dc95949b072f334037ab2cf3459db914db7e93660f759"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-prewarmed-control-progress.json",
+      "class": "portable_evidence",
+      "byte_count": 74515,
+      "blake3": "d1d13010d5bd734a6124a6f3e4ddefb67c5783864ca777f8298b905d359cc36d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-prewarmed-control-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 301293,
+      "blake3": "9ab2ceef2cb3cbe710561ba0c56b61ad5155a3ce2159075deb3b37705ed0e24e"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-stage-reprefill-progress.json",

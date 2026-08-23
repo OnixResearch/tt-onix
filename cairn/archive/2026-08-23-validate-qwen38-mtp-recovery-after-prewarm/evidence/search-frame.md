@@ -39,11 +39,11 @@ Produce one complete matched persistent-recovery control after exact target prew
 - **Mechanism:** Prewarm each prompt once, run both persistent warmup routes, then run the unchanged sixty-root schedule.
 - **Claim:** Complete roots can evaluate persistent recovery without cold target-validation compilation.
 - **Artifact:** A distinct recovery-control mode, ordered ledger, and unchanged rollback decision.
-- **Evidence:** The prompt-2 snapshot path completed after exact prewarm with no measured target-validation cache growth.
+- **Evidence:** The full control completed with exact signatures and a fixed measured cache count. All six prompt-2 snapshot roots failed next-draft, feedback, and committed-prefix parity. Eight prompt-route groups also exceeded the `1.25` spread limit.
 - **Gap strength:** Equivalent to the accepted recovery evidence goal.
-- **Blocker:** The validated package needs explicit authorization for its `1800`-second command bound and `120`-second termination grace.
-- **Next check:** Run the one prepared physical control only after authorization.
-- **State:** Active.
+- **Blocker:** Snapshot recovery is incorrect for prompt 2. Recovery timing is unstable for prompts 2 through 5.
+- **Next check:** Do not repeat this control. A future change must first correct snapshot recovery and isolate recovery-time jitter.
+- **State:** Falsified as a selectable recovery mechanism.
 
 ### Prewarm one prompt only
 
@@ -99,5 +99,5 @@ Produce one complete matched persistent-recovery control after exact target prew
 - Retrieval: local accepted specifications, archived evidence, and current source.
 - Exploration: correlated serial lenses only; subagent consent is absent.
 - Implementation: one exact full-control mechanism.
-- Physical: zero cases until the prepared `1800`-second bound and `120`-second termination grace receive explicit authorization.
-- Final outcomes: validated, blocked, exhausted, or user-decision-required.
+- Physical: one authorized full control completed. Its declared physical budget is exhausted.
+- Final outcomes: the control completed, rejected snapshot recovery, and preserved eager production health.
