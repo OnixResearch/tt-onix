@@ -477,7 +477,7 @@ Evidence:
 
 The diagnostic package adds `qwen36-p150x2-mtp-recovery-stage`. It runs one prompt and one route through the unchanged full recovery path.
 
-An atomic progress ledger records the last completed trace, replay, recovery, verification, cleanup, or receipt boundary. Ledger writes stay outside measured timing windows.
+An atomic progress ledger records the last completed trace, replay, recovery, verification, cleanup, or receipt boundary. Diagnostic timings include ledger overhead.
 
 The staged command is admission-ineligible. It cannot select MTP, traced target decode, or production behavior.
 
@@ -495,6 +495,14 @@ Evidence:
 - `cairn/archive/2026-08-23-stage-qwen38-mtp-recovery-replay/evidence/physical-result.md`
 - re-prefill ledger BLAKE3: `de1f81db3e9c9b279aacc8f28fcedb9fd6f00f71efbe7ada0e1bab2a79514d35`
 - snapshot ledger BLAKE3: `64de84aa0cbe1a32ec1ed88b43a992a69500116b3b031cac92e3132a37e8c556`
+
+The package also provides `qwen36-p150x2-mtp-recovery-prewarm-stage`. This command prewarms the same prompt through the nonpersistent target-validation path.
+
+The same process then runs the persistent recovery route. The ledger records each prewarm boundary and the program-cache entry count.
+
+The command requires exact prewarm and measured target-validation signatures. It rejects changed draft, target, verifier, acceptance, or rollback facts.
+
+This command has no physical result. It remains admission-ineligible and requires a new bounded outage authorization.
 
 ### Decode component replay diagnostic
 

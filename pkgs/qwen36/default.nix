@@ -417,6 +417,35 @@ stdenvNoCC.mkDerivation {
       --add-flags "--package-identity" \
       --add-flags "$out"
 
+    # r[impl tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm]
+    # This command prewarms the exact target path before persistent recovery.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.mtp_drafter" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--mtp-drafter-profile" \
+      --add-flags "$out/share/qwen36/mtp-drafter-profile.json" \
+      --add-flags "--mtp-trace-profile" \
+      --add-flags "$out/share/qwen36/mtp-trace-profile.json" \
+      --add-flags "--mtp-rollback-profile" \
+      --add-flags "$out/share/qwen36/mtp-rollback-profile.json" \
+      --add-flags "--mode" \
+      --add-flags "stage" \
+      --add-flags "--stage-prewarm-target-validation" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
     # r[impl tenstorrent.qwen38_p150x2.decode_component_attribution]
     # This explicit command measures diagnostic component traces only.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-decode-component-probe" \
@@ -507,6 +536,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_stage_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_target_prewarm_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
@@ -530,6 +560,7 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-mtp-trace-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-rollback-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-recovery-stage"
+    test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage"
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     test -x "$out/bin/qwen36-p150x2-ttft-control"
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
@@ -538,6 +569,7 @@ stdenvNoCC.mkDerivation {
     "$out/bin/qwen36-p150x2-mtp-trace-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-rollback-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-recovery-stage" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage" --help > /dev/null
     "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
 

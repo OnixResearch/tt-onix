@@ -10,6 +10,7 @@ import gc
 import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -44,6 +45,11 @@ from .mtp_selection_core import (
     MtpSelectionProfile,
     MtpSelectionSample,
     evaluate_mtp_selection,
+)
+from .mtp_target_prewarm_core import (
+    MtpTargetValidationSignature,
+    make_target_validation_signature,
+    target_validation_signatures_match,
 )
 from .mtp_trace_core import (
     EAGER_DRAFT,
@@ -89,21 +95,50 @@ class MtpDrafterCommandError(RuntimeError):
 class _MtpStageProgressWriter:
     """Persist each pure stage transition with an atomic replacement."""
 
-    def __init__(self, *, path: Path, prompt_index: int, route: str) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path,
+        prompt_index: int,
+        route: str,
+        prewarm_target_validation: bool,
+    ) -> None:
         self.path = path
         self.started = time.monotonic()
+        self._program_cache_reader: Callable[[], int] | None = None
+        self._last_program_cache_entries: int | None = None
         self.progress = stage_core.new_mtp_stage_progress(
             prompt_index=prompt_index,
             route=route,
+            prewarm_target_validation=prewarm_target_validation,
         )
 
+    def bind_program_cache(self, mesh_device: object) -> None:
+        if self._program_cache_reader is not None:
+            raise MtpDrafterCommandError("program-cache observation is already bound")
+        reader = getattr(mesh_device, "num_program_cache_entries", None)
+        if reader is None or not callable(reader):
+            raise MtpDrafterCommandError("program-cache observation is unavailable")
+        self._program_cache_reader = reader
+
+    def freeze_program_cache(self) -> None:
+        if self._program_cache_reader is not None:
+            self._last_program_cache_entries = self._program_cache_reader()
+            self._program_cache_reader = None
+
     def record(self, stage: str) -> None:
+        if self._program_cache_reader is not None:
+            self._last_program_cache_entries = self._program_cache_reader()
         self.progress = stage_core.advance_mtp_stage_progress(
             self.progress,
             stage=stage,
             elapsed_seconds=time.monotonic() - self.started,
+            program_cache_entries=self._last_program_cache_entries,
         )
         _replace_json(self.path, self.progress.to_mapping())
+
+    def record_prewarm(self, stage: str) -> None:
+        self.record(stage_core.target_validation_prewarm_stage(stage))
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,6 +175,7 @@ def parse_args() -> argparse.Namespace:
         choices=(REPREFILL_RECOVERY, SNAPSHOT_RECOVERY),
     )
     parser.add_argument("--stage-prompt-index", type=int)
+    parser.add_argument("--stage-prewarm-target-validation", action="store_true")
     return parser.parse_args()
 
 
@@ -177,7 +213,7 @@ def main() -> None:
             raise SystemExit("--progress-output parent directory does not exist")
         if progress_path.resolve() == output_path.resolve():
             raise SystemExit("--progress-output and --output must differ")
-    elif any(
+    elif args.stage_prewarm_target_validation or any(
         value is not None
         for value in (
             args.progress_output,
@@ -258,6 +294,7 @@ def main() -> None:
             path=progress_path,
             prompt_index=args.stage_prompt_index,
             route=args.stage_route,
+            prewarm_target_validation=args.stage_prewarm_target_validation,
         )
         stage_writer.record(stage_core.COMMAND_START)
 
@@ -286,6 +323,9 @@ def main() -> None:
     selection_results = None
     trace_results = None
     rollback_results = None
+    prewarm_result = None
+    prewarm_signature = None
+    measured_signature = None
     stage_result = None
     cleanup_complete = False
     identity = MtpDrafterIdentity(
@@ -301,10 +341,12 @@ def main() -> None:
             num_command_queues=COMMAND_QUEUE_COUNT,
             trace_region_size=TRACE_REGION_SIZE_BYTES,
         )
-        _record_stage(stage_writer, stage_core.MESH_OPEN_COMPLETE)
         if mesh_device.get_num_devices() != len(EXPECTED_PCIE_DEVICE_IDS):
             raise MtpDrafterCommandError("P150x2 mesh did not open both devices")
         mesh_device.enable_program_cache()
+        if stage_writer is not None:
+            stage_writer.bind_program_cache(mesh_device)
+        _record_stage(stage_writer, stage_core.MESH_OPEN_COMPLETE)
         _record_stage(stage_writer, stage_core.MODEL_LOAD_START)
         model = Qwen36Model.from_pretrained(
             mesh_device,
@@ -480,6 +522,16 @@ def main() -> None:
                 return_tensors="pt",
                 add_special_tokens=True,
             ).input_ids.to(torch.int32)
+            if args.stage_prewarm_target_validation:
+                stage_writer.record(stage_core.TARGET_VALIDATION_PREWARM_START)
+                prewarm_result = adapter.run_pilot(
+                    stage_tokens,
+                    selector_mode=SHARD_LOCAL_TOP1,
+                    draft_execution_mode=TRACED_DRAFT,
+                    progress=stage_writer.record_prewarm,
+                )
+                prewarm_signature = _target_validation_signature(prewarm_result)
+                stage_writer.record(stage_core.TARGET_VALIDATION_PREWARM_COMPLETE)
             stage_writer.record(stage_core.PILOT_START)
             stage_result = adapter.run_pilot(
                 stage_tokens,
@@ -488,6 +540,18 @@ def main() -> None:
                 mtp_recovery_mode=args.stage_route,
                 progress=stage_writer.record,
             )
+            if args.stage_prewarm_target_validation:
+                assert prewarm_signature is not None
+                stage_writer.record(stage_core.PREWARM_SIGNATURE_COMPARE_START)
+                measured_signature = _target_validation_signature(stage_result)
+                if not target_validation_signatures_match(
+                    prewarm_signature,
+                    measured_signature,
+                ):
+                    raise MtpDrafterCommandError(
+                        "prewarm and measured target-validation signatures differ"
+                    )
+                stage_writer.record(stage_core.PREWARM_SIGNATURE_COMPARE_COMPLETE)
     except Exception:
         _record_stage(stage_writer, stage_core.FAILURE_RECORDED)
         raise
@@ -505,11 +569,15 @@ def main() -> None:
             gc.collect()
         try:
             if mesh_device is not None:
+                if stage_writer is not None:
+                    stage_writer.freeze_program_cache()
                 for submesh in mesh_device.get_submeshes():
                     ttnn.close_mesh_device(submesh)
                 ttnn.close_mesh_device(mesh_device)
                 mesh_device = None
         finally:
+            if stage_writer is not None:
+                stage_writer.freeze_program_cache()
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
         cleanup_complete = True
         _record_stage(stage_writer, stage_core.CLEANUP_COMPLETE)
@@ -926,7 +994,8 @@ def main() -> None:
             **common_receipt,
             "measurement_mode": STAGE_MEASUREMENT_MODE,
             "smoke_only": True,
-            "warmup_discarded": False,
+            "warmup_discarded": args.stage_prewarm_target_validation,
+            "target_validation_prewarm": args.stage_prewarm_target_validation,
             "selector_mode": SHARD_LOCAL_TOP1,
             "draft_execution_mode": TRACED_DRAFT,
             "prompt_index": args.stage_prompt_index,
@@ -954,12 +1023,39 @@ def main() -> None:
                 "Staged evidence does not admit MTP or traced target decode.",
             ],
         }
+        if args.stage_prewarm_target_validation:
+            assert prewarm_result is not None
+            assert prewarm_signature is not None
+            assert measured_signature is not None
+            receipt.update({
+                "prewarm_sample": _pilot_result_mapping(
+                    args.stage_prompt_index,
+                    prewarm_result,
+                ),
+                "prewarm_signature": prewarm_signature.to_mapping(),
+                "measured_signature": measured_signature.to_mapping(),
+                "prewarm_signature_match": True,
+            })
     _record_stage(stage_writer, stage_core.RECEIPT_WRITE_START)
     if stage_writer is not None:
         receipt["progress"] = stage_writer.progress.to_mapping()
     _write_receipt(output_path, receipt)
     _record_stage(stage_writer, stage_core.COMPLETE)
     print(json.dumps(receipt, sort_keys=True))
+
+
+def _target_validation_signature(
+    result: MtpDrafterPilotResult,
+) -> MtpTargetValidationSignature:
+    return make_target_validation_signature(
+        draft_token_ids=result.draft_token_ids,
+        target_token_ids=result.target_token_ids,
+        target_verification_token_ids=result.target_verification_token_ids,
+        accepted_prefix_length=result.accepted_prefix_length,
+        rollback_applied=result.rollback_applied,
+        target_output_valid=result.target_output_valid,
+        rollback_valid=result.rollback_valid,
+    )
 
 
 def _pilot_result_mapping(

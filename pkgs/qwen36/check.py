@@ -2959,6 +2959,292 @@ def probe_mtp_recovery_stage():
     require(not rejected, f"invalid staged progress was accepted: {rejected}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm]
+def probe_mtp_target_validation_prewarm():
+    """Positive and negative tests for exact target prewarm evidence."""
+    from tempfile import TemporaryDirectory
+
+    from qwen36_service import mtp_stage_core as stage_core
+    from qwen36_service import mtp_target_prewarm_core as prewarm_core
+    from qwen36_service.mtp_drafter import (
+        MtpDrafterCommandError,
+        _MtpStageProgressWriter,
+    )
+    from qwen36_service.mtp_rollback_core import REPREFILL_RECOVERY
+
+    progress = stage_core.new_mtp_stage_progress(
+        prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+        route=REPREFILL_RECOVERY,
+        prewarm_target_validation=True,
+    )
+    initial_cache_entries = stage_core.MINIMUM_PROGRAM_CACHE_ENTRIES
+    warmed_cache_entries = initial_cache_entries + stage_core.MINIMUM_PROMPT_INDEX
+    progress_events = (
+        (stage_core.COMMAND_START, None),
+        (stage_core.MESH_OPEN_START, None),
+        (stage_core.MESH_OPEN_COMPLETE, initial_cache_entries),
+        (stage_core.MODEL_LOAD_START, initial_cache_entries),
+        (stage_core.MODEL_LOAD_COMPLETE, warmed_cache_entries),
+        (stage_core.ADAPTER_CREATE_START, warmed_cache_entries),
+        (stage_core.ADAPTER_CREATE_COMPLETE, warmed_cache_entries),
+        (stage_core.TARGET_VALIDATION_PREWARM_START, warmed_cache_entries),
+        (
+            stage_core.target_validation_prewarm_stage(
+                stage_core.TARGET_PREFILL_START
+            ),
+            warmed_cache_entries,
+        ),
+        (
+            stage_core.target_validation_prewarm_stage(
+                stage_core.NATIVE_VERIFIER_START
+            ),
+            warmed_cache_entries,
+        ),
+        (
+            stage_core.target_validation_prewarm_stage(
+                stage_core.NATIVE_VERIFIER_COMPLETE
+            ),
+            warmed_cache_entries,
+        ),
+        (
+            stage_core.target_validation_prewarm_stage(stage_core.PILOT_COMPLETE),
+            warmed_cache_entries,
+        ),
+        (stage_core.TARGET_VALIDATION_PREWARM_COMPLETE, warmed_cache_entries),
+        (stage_core.PILOT_START, warmed_cache_entries),
+        (stage_core.RECOVERY_START, warmed_cache_entries),
+        (stage_core.RECOVERY_COMPLETE, warmed_cache_entries),
+        (stage_core.NATIVE_VERIFIER_START, warmed_cache_entries),
+        (stage_core.NATIVE_VERIFIER_COMPLETE, warmed_cache_entries),
+        (stage_core.PILOT_COMPLETE, warmed_cache_entries),
+        (stage_core.PREWARM_SIGNATURE_COMPARE_START, warmed_cache_entries),
+        (stage_core.PREWARM_SIGNATURE_COMPARE_COMPLETE, warmed_cache_entries),
+        (stage_core.CLEANUP_START, warmed_cache_entries),
+        (stage_core.CLEANUP_COMPLETE, warmed_cache_entries),
+        (stage_core.RECEIPT_WRITE_START, warmed_cache_entries),
+        (stage_core.COMPLETE, warmed_cache_entries),
+    )
+    for event_index, (stage, cache_entries) in enumerate(progress_events, start=1):
+        progress = stage_core.advance_mtp_stage_progress(
+            progress,
+            stage=stage,
+            elapsed_seconds=float(event_index),
+            program_cache_entries=cache_entries,
+        )
+    require(progress.complete, "valid target-prewarm progress did not complete")
+    progress_mapping = progress.to_mapping()
+    require(
+        progress_mapping["prewarm_target_validation"] is True,
+        "target-prewarm progress lost its mode",
+    )
+    require(
+        progress_mapping["events"][-1]["program_cache_entries"]
+        == warmed_cache_entries,
+        "target-prewarm progress lost its program-cache observation",
+    )
+
+    class FakeMesh:
+        def __init__(self):
+            self.entries = initial_cache_entries
+
+        def num_program_cache_entries(self):
+            return self.entries
+
+    with TemporaryDirectory() as temporary_directory:
+        progress_path = Path(temporary_directory) / "progress.json"
+        writer = _MtpStageProgressWriter(
+            path=progress_path,
+            prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+            route=REPREFILL_RECOVERY,
+            prewarm_target_validation=False,
+        )
+        writer.record(stage_core.COMMAND_START)
+        writer.record(stage_core.MESH_OPEN_START)
+        fake_mesh = FakeMesh()
+        writer.bind_program_cache(fake_mesh)
+        writer.record(stage_core.MESH_OPEN_COMPLETE)
+        fake_mesh.entries = warmed_cache_entries
+        writer.record(stage_core.MODEL_LOAD_START)
+        writer.freeze_program_cache()
+        fake_mesh.entries = initial_cache_entries
+        writer.record(stage_core.FAILURE_RECORDED)
+        writer.record(stage_core.CLEANUP_START)
+        writer.record(stage_core.CLEANUP_COMPLETE)
+        persisted = json.loads(progress_path.read_text())
+        require(
+            persisted["last_stage"] == stage_core.CLEANUP_COMPLETE,
+            "stage writer lost its terminal boundary",
+        )
+        require(
+            persisted["events"][-1]["program_cache_entries"]
+            == warmed_cache_entries,
+            "stage writer did not freeze its last program-cache observation",
+        )
+        require(
+            not progress_path.with_name(progress_path.name + ".tmp").exists(),
+            "stage writer left its temporary file",
+        )
+        invalid_writer = _MtpStageProgressWriter(
+            path=Path(temporary_directory) / "invalid.json",
+            prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+            route=REPREFILL_RECOVERY,
+            prewarm_target_validation=False,
+        )
+        try:
+            invalid_writer.bind_program_cache(object())
+        except MtpDrafterCommandError:
+            pass
+        else:
+            require(False, "stage writer accepted a missing program-cache reader")
+
+    token_start = prewarm_core.MINIMUM_TOKEN_ID + stage_core.MINIMUM_PROMPT_INDEX
+    draft_count = 3
+    draft_token_ids = tuple(range(token_start, token_start + draft_count))
+    target_token_ids = draft_token_ids
+    target_verification_token_ids = (*target_token_ids, target_token_ids[-1])
+    signature = prewarm_core.make_target_validation_signature(
+        draft_token_ids=draft_token_ids,
+        target_token_ids=target_token_ids,
+        target_verification_token_ids=target_verification_token_ids,
+        accepted_prefix_length=stage_core.MINIMUM_PROMPT_INDEX,
+        rollback_applied=True,
+        target_output_valid=True,
+        rollback_valid=True,
+    )
+    same_signature = prewarm_core.make_target_validation_signature(
+        draft_token_ids=draft_token_ids,
+        target_token_ids=target_token_ids,
+        target_verification_token_ids=target_verification_token_ids,
+        accepted_prefix_length=stage_core.MINIMUM_PROMPT_INDEX,
+        rollback_applied=True,
+        target_output_valid=True,
+        rollback_valid=True,
+    )
+    require(
+        prewarm_core.target_validation_signatures_match(signature, same_signature),
+        "equal target-prewarm signatures did not match",
+    )
+    changed_verification = (
+        *target_token_ids,
+        target_token_ids[-1] + stage_core.MINIMUM_PROMPT_INDEX,
+    )
+    changed_signature = prewarm_core.make_target_validation_signature(
+        draft_token_ids=draft_token_ids,
+        target_token_ids=target_token_ids,
+        target_verification_token_ids=changed_verification,
+        accepted_prefix_length=stage_core.MINIMUM_PROMPT_INDEX,
+        rollback_applied=True,
+        target_output_valid=True,
+        rollback_valid=True,
+    )
+    require(
+        not prewarm_core.target_validation_signatures_match(
+            signature,
+            changed_signature,
+        ),
+        "changed target-prewarm signature matched",
+    )
+
+    rejected = []
+    invalid_signature_cases = (
+        {
+            "target_output_valid": False,
+            "rollback_valid": True,
+            "rollback_applied": True,
+            "accepted_prefix_length": stage_core.MINIMUM_PROMPT_INDEX,
+            "label": "inexact target output",
+        },
+        {
+            "target_output_valid": True,
+            "rollback_valid": False,
+            "rollback_applied": True,
+            "accepted_prefix_length": stage_core.MINIMUM_PROMPT_INDEX,
+            "label": "inexact rollback",
+        },
+        {
+            "target_output_valid": True,
+            "rollback_valid": True,
+            "rollback_applied": False,
+            "accepted_prefix_length": stage_core.MINIMUM_PROMPT_INDEX,
+            "label": "wrong rollback flag",
+        },
+    )
+    for case in invalid_signature_cases:
+        label = case["label"]
+        try:
+            prewarm_core.make_target_validation_signature(
+                draft_token_ids=draft_token_ids,
+                target_token_ids=target_token_ids,
+                target_verification_token_ids=target_verification_token_ids,
+                accepted_prefix_length=case["accepted_prefix_length"],
+                rollback_applied=case["rollback_applied"],
+                target_output_valid=case["target_output_valid"],
+                rollback_valid=case["rollback_valid"],
+            )
+        except prewarm_core.MtpTargetPrewarmError:
+            continue
+        rejected.append(label)
+
+    try:
+        stage_core.target_validation_prewarm_stage(stage_core.RECOVERY_START)
+    except stage_core.MtpStageProgressError:
+        pass
+    else:
+        rejected.append("recovery stage in prewarm namespace")
+
+    try:
+        stage_core.new_mtp_stage_progress(
+            prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+            route=REPREFILL_RECOVERY,
+            prewarm_target_validation="yes",
+        )
+    except stage_core.MtpStageProgressError:
+        pass
+    else:
+        rejected.append("non-boolean prewarm mode")
+
+    cache_progress = stage_core.new_mtp_stage_progress(
+        prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+        route=REPREFILL_RECOVERY,
+    )
+    cache_progress = stage_core.advance_mtp_stage_progress(
+        cache_progress,
+        stage=stage_core.MESH_OPEN_COMPLETE,
+        elapsed_seconds=float(stage_core.MINIMUM_PROMPT_INDEX),
+        program_cache_entries=warmed_cache_entries,
+    )
+    invalid_cache_cases = (
+        (initial_cache_entries, "regressing program-cache count"),
+        (None, "missing program-cache count"),
+    )
+    for cache_entries, label in invalid_cache_cases:
+        try:
+            stage_core.advance_mtp_stage_progress(
+                cache_progress,
+                stage=stage_core.MODEL_LOAD_START,
+                elapsed_seconds=float(warmed_cache_entries),
+                program_cache_entries=cache_entries,
+            )
+        except stage_core.MtpStageProgressError:
+            continue
+        rejected.append(label)
+    try:
+        stage_core.advance_mtp_stage_progress(
+            stage_core.new_mtp_stage_progress(
+                prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+                route=REPREFILL_RECOVERY,
+            ),
+            stage=stage_core.MESH_OPEN_COMPLETE,
+            elapsed_seconds=float(stage_core.MINIMUM_PROMPT_INDEX),
+            program_cache_entries=-stage_core.MINIMUM_PROMPT_INDEX,
+        )
+    except stage_core.MtpStageProgressError:
+        pass
+    else:
+        rejected.append("negative program-cache count")
+    require(not rejected, f"invalid target-prewarm evidence was accepted: {rejected}")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -2980,6 +3266,7 @@ def main():
     probe("MTP draft trace", probe_mtp_draft_trace)
     probe("MTP K/V rollback", probe_mtp_kv_rollback)
     probe("MTP recovery stage progress", probe_mtp_recovery_stage)
+    probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
