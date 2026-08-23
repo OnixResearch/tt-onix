@@ -1,0 +1,804 @@
+{
+  "admission_eligible": false,
+  "blockers": [
+    "single-stage-diagnostic",
+    "matched-roots-missing",
+    "production-admission-missing"
+  ],
+  "cleanup_complete": true,
+  "diagnostic_only": true,
+  "draft_execution_mode": "traced",
+  "host_cpu_affinity": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31
+  ],
+  "identity": {
+    "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "package": "/nix/store/b3w97pzld9hg2ndim8y9pkjx4rkx613k-qwen36-0.1.0",
+    "runtime": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "measured_signature": {
+    "accepted_prefix_length": 0,
+    "committed_width": 1,
+    "draft_token_ids": [
+      248045,
+      74455,
+      198
+    ],
+    "rollback_applied": true,
+    "target_token_ids": [
+      37132,
+      55404,
+      369
+    ],
+    "target_verification_token_ids": [
+      37132,
+      55404,
+      369,
+      279
+    ]
+  },
+  "measurement_mode": "diagnostic-mtp-recovery-stage",
+  "mesh_shape": [
+    1,
+    2
+  ],
+  "mtp_selected": false,
+  "non_claims": [
+    "Stage completion does not establish timing stability.",
+    "One prompt and route do not establish rollback selection.",
+    "Staged evidence does not admit MTP or traced target decode."
+  ],
+  "physical_pcie_device_ids": [
+    0,
+    1
+  ],
+  "prewarm_sample": {
+    "accepted_prefix_length": 0,
+    "anchor_token_id": 271,
+    "capture_idempotence_valid": true,
+    "draft_compute_seconds": 2.8106820951215923,
+    "draft_decode_seconds": 0.02711169800022617,
+    "draft_execution_mode": "traced",
+    "draft_selection_seconds": 3.019664077903144,
+    "draft_token_ids": [
+      248045,
+      74455,
+      198
+    ],
+    "draft_trace_binding": {
+      "feedback_buffer_identity": "Tensor:device:[1586001920,1586001920]",
+      "feedback_output_dtype": "DataType.BFLOAT16",
+      "feedback_output_identity": "Tensor:device:[1587275776,1587275776]",
+      "feedback_output_shape": [
+        1,
+        1,
+        1,
+        5120
+      ],
+      "index_output_dtype": "DataType.UINT32",
+      "index_output_identity": "Tensor:device:[232153600,232153600]",
+      "index_output_shape": [
+        1,
+        1,
+        1
+      ],
+      "kv_buffer_identity": "[Tensor:device:[1586239488,1586239488],Tensor:device:[1586370560,1586370560],Tensor:device:[1586620416,1586620416],Tensor:device:[1586751488,1586751488]]",
+      "position_buffer_identity": "Tensor:device:[212781632,212781632]",
+      "rope_buffer_identity": "Tensor:device:[1521594368,1521594368]",
+      "token_buffer_identity": "Tensor:device:[212781568,212781568]",
+      "value_output_dtype": "DataType.BFLOAT16",
+      "value_output_identity": "Tensor:device:[1530152960,1530152960]",
+      "value_output_shape": [
+        1,
+        1,
+        1
+      ]
+    },
+    "draft_trace_capture_seconds": 14.550986623973586,
+    "mtp_cache_process_trace_capture_count": 0,
+    "mtp_cache_queue_drain_seconds": 0.0,
+    "mtp_cache_recovery_execution_mode": null,
+    "mtp_cache_recovery_seconds": 0.0,
+    "mtp_cache_reprefill_seconds": 0.014767069020308554,
+    "mtp_cache_trace_binding_valid": false,
+    "mtp_kv_prefix_valid": true,
+    "mtp_prefill_seconds": 5.80323447502451,
+    "prompt_index": 2,
+    "rollback_applied": true,
+    "rollback_convolution_state_nmse": 0.0,
+    "rollback_convolution_state_pcc": 1.0,
+    "rollback_paged_kv_state_nmse": 0.0,
+    "rollback_paged_kv_state_pcc": 1.0,
+    "rollback_recurrent_state_nmse": 0.0,
+    "rollback_recurrent_state_pcc": 1.0,
+    "rollback_seconds": 0.014969924988690764,
+    "rollback_valid": true,
+    "target_continuation_token_id": 279,
+    "target_output_valid": true,
+    "target_sequential_seconds": 0.27121854096185416,
+    "target_token_ids": [
+      37132,
+      55404,
+      369
+    ],
+    "target_verification_readback_seconds": 0.007001084974035621,
+    "target_verification_seconds": 0.11484333401313052,
+    "target_verification_token_ids": [
+      37132,
+      55404,
+      369,
+      279
+    ],
+    "target_verification_trace_capture_seconds": 10.243616839987226,
+    "total_draft_seconds": 5.830346173024736,
+    "trace_binding_valid": true
+  },
+  "prewarm_signature": {
+    "accepted_prefix_length": 0,
+    "committed_width": 1,
+    "draft_token_ids": [
+      248045,
+      74455,
+      198
+    ],
+    "rollback_applied": true,
+    "target_token_ids": [
+      37132,
+      55404,
+      369
+    ],
+    "target_verification_token_ids": [
+      37132,
+      55404,
+      369,
+      279
+    ]
+  },
+  "prewarm_signature_match": true,
+  "profile_id": "qwen38-p150x2-mtp-recovery-stability-v2",
+  "progress": {
+    "admission_eligible": false,
+    "complete": false,
+    "diagnostic_only": true,
+    "events": [
+      {
+        "elapsed_seconds": 8.077011443674564e-06,
+        "program_cache_entries": null,
+        "stage": "command-start"
+      },
+      {
+        "elapsed_seconds": 2.7072157619986683,
+        "program_cache_entries": null,
+        "stage": "mesh-open-start"
+      },
+      {
+        "elapsed_seconds": 6.969990074983798,
+        "program_cache_entries": 0,
+        "stage": "mesh-open-complete"
+      },
+      {
+        "elapsed_seconds": 6.972299924003892,
+        "program_cache_entries": 0,
+        "stage": "model-load-start"
+      },
+      {
+        "elapsed_seconds": 81.27695259300526,
+        "program_cache_entries": 9,
+        "stage": "model-load-complete"
+      },
+      {
+        "elapsed_seconds": 82.16864607500611,
+        "program_cache_entries": 9,
+        "stage": "adapter-create-start"
+      },
+      {
+        "elapsed_seconds": 84.80794644996058,
+        "program_cache_entries": 14,
+        "stage": "adapter-create-complete"
+      },
+      {
+        "elapsed_seconds": 84.81083911500173,
+        "program_cache_entries": 14,
+        "stage": "target-validation-prewarm-start"
+      },
+      {
+        "elapsed_seconds": 84.81296631897567,
+        "program_cache_entries": 14,
+        "stage": "target-validation-prewarm-target-prefill-start"
+      },
+      {
+        "elapsed_seconds": 134.4731940869824,
+        "program_cache_entries": 175,
+        "stage": "target-validation-prewarm-target-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 134.4754606980132,
+        "program_cache_entries": 175,
+        "stage": "target-validation-prewarm-draft-start"
+      },
+      {
+        "elapsed_seconds": 134.47723703295924,
+        "program_cache_entries": 175,
+        "stage": "target-validation-prewarm-mtp-prefill-start"
+      },
+      {
+        "elapsed_seconds": 140.28279511496658,
+        "program_cache_entries": 193,
+        "stage": "target-validation-prewarm-mtp-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 140.28537372499704,
+        "program_cache_entries": 193,
+        "stage": "target-validation-prewarm-trace-run-start"
+      },
+      {
+        "elapsed_seconds": 140.28807602997404,
+        "program_cache_entries": 193,
+        "stage": "target-validation-prewarm-trace-input-allocation-start"
+      },
+      {
+        "elapsed_seconds": 140.2918772189878,
+        "program_cache_entries": 194,
+        "stage": "target-validation-prewarm-trace-input-allocation-complete"
+      },
+      {
+        "elapsed_seconds": 140.29396804899443,
+        "program_cache_entries": 194,
+        "stage": "target-validation-prewarm-trace-capture-start"
+      },
+      {
+        "elapsed_seconds": 154.8551154799643,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-capture-complete"
+      },
+      {
+        "elapsed_seconds": 154.86028567899484,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-draft-replay-step-1-start"
+      },
+      {
+        "elapsed_seconds": 154.87098802800756,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-draft-replay-step-1-complete"
+      },
+      {
+        "elapsed_seconds": 154.873852876015,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-draft-replay-step-2-start"
+      },
+      {
+        "elapsed_seconds": 154.88347682199674,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-draft-replay-step-2-complete"
+      },
+      {
+        "elapsed_seconds": 154.88770864496473,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-trace-run-complete"
+      },
+      {
+        "elapsed_seconds": 154.89265281899134,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-draft-complete"
+      },
+      {
+        "elapsed_seconds": 154.89678340399405,
+        "program_cache_entries": 257,
+        "stage": "target-validation-prewarm-target-trace-start"
+      },
+      {
+        "elapsed_seconds": 168.35501577198738,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-trace-complete"
+      },
+      {
+        "elapsed_seconds": 168.35783729096875,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-sequential-start"
+      },
+      {
+        "elapsed_seconds": 168.63346665300196,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-sequential-complete"
+      },
+      {
+        "elapsed_seconds": 168.64166459301487,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-trace-release-complete"
+      },
+      {
+        "elapsed_seconds": 168.64431212597992,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-reference-state-start"
+      },
+      {
+        "elapsed_seconds": 171.04859158798354,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-target-reference-state-complete"
+      },
+      {
+        "elapsed_seconds": 171.05230654997285,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-verification-prefill-start"
+      },
+      {
+        "elapsed_seconds": 171.72248203598429,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-verification-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 171.72786963998806,
+        "program_cache_entries": 311,
+        "stage": "target-validation-prewarm-native-verifier-start"
+      },
+      {
+        "elapsed_seconds": 182.40208634897135,
+        "program_cache_entries": 405,
+        "stage": "target-validation-prewarm-native-verifier-complete"
+      },
+      {
+        "elapsed_seconds": 182.4071180729661,
+        "program_cache_entries": 405,
+        "stage": "target-validation-prewarm-target-state-compare-start"
+      },
+      {
+        "elapsed_seconds": 183.80050352896797,
+        "program_cache_entries": 406,
+        "stage": "target-validation-prewarm-target-state-compare-complete"
+      },
+      {
+        "elapsed_seconds": 183.80653622600948,
+        "program_cache_entries": 406,
+        "stage": "target-validation-prewarm-pilot-complete"
+      },
+      {
+        "elapsed_seconds": 183.81818358396413,
+        "program_cache_entries": 406,
+        "stage": "target-validation-prewarm-complete"
+      },
+      {
+        "elapsed_seconds": 183.8215450809803,
+        "program_cache_entries": 406,
+        "stage": "pilot-start"
+      },
+      {
+        "elapsed_seconds": 183.82399151095888,
+        "program_cache_entries": 406,
+        "stage": "target-prefill-start"
+      },
+      {
+        "elapsed_seconds": 184.56739923299756,
+        "program_cache_entries": 406,
+        "stage": "target-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 184.57011699897703,
+        "program_cache_entries": 406,
+        "stage": "draft-start"
+      },
+      {
+        "elapsed_seconds": 184.57253649400081,
+        "program_cache_entries": 406,
+        "stage": "mtp-prefill-start"
+      },
+      {
+        "elapsed_seconds": 184.58990720496513,
+        "program_cache_entries": 406,
+        "stage": "mtp-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 184.59348486497765,
+        "program_cache_entries": 406,
+        "stage": "rollback-context-start"
+      },
+      {
+        "elapsed_seconds": 184.6038723079837,
+        "program_cache_entries": 407,
+        "stage": "rollback-context-complete"
+      },
+      {
+        "elapsed_seconds": 184.60637201700592,
+        "program_cache_entries": 407,
+        "stage": "trace-run-start"
+      },
+      {
+        "elapsed_seconds": 184.60927477298537,
+        "program_cache_entries": 407,
+        "stage": "trace-input-allocation-start"
+      },
+      {
+        "elapsed_seconds": 184.61257616599323,
+        "program_cache_entries": 407,
+        "stage": "trace-input-allocation-complete"
+      },
+      {
+        "elapsed_seconds": 184.6148631189717,
+        "program_cache_entries": 407,
+        "stage": "trace-capture-start"
+      },
+      {
+        "elapsed_seconds": 184.6390149029903,
+        "program_cache_entries": 407,
+        "stage": "trace-capture-complete"
+      },
+      {
+        "elapsed_seconds": 184.64371651998954,
+        "program_cache_entries": 407,
+        "stage": "trace-draft-replay-step-1-start"
+      },
+      {
+        "elapsed_seconds": 184.65306647401303,
+        "program_cache_entries": 407,
+        "stage": "trace-draft-replay-step-1-complete"
+      },
+      {
+        "elapsed_seconds": 184.6555590479984,
+        "program_cache_entries": 407,
+        "stage": "trace-draft-replay-step-2-start"
+      },
+      {
+        "elapsed_seconds": 184.66323154995916,
+        "program_cache_entries": 407,
+        "stage": "trace-draft-replay-step-2-complete"
+      },
+      {
+        "elapsed_seconds": 184.66652494797017,
+        "program_cache_entries": 407,
+        "stage": "trace-run-complete"
+      },
+      {
+        "elapsed_seconds": 184.66910854895832,
+        "program_cache_entries": 407,
+        "stage": "draft-complete"
+      },
+      {
+        "elapsed_seconds": 184.67148969398113,
+        "program_cache_entries": 407,
+        "stage": "target-trace-start"
+      },
+      {
+        "elapsed_seconds": 185.48514894698747,
+        "program_cache_entries": 407,
+        "stage": "target-trace-complete"
+      },
+      {
+        "elapsed_seconds": 185.4892326759873,
+        "program_cache_entries": 407,
+        "stage": "target-sequential-start"
+      },
+      {
+        "elapsed_seconds": 185.7237697459641,
+        "program_cache_entries": 407,
+        "stage": "target-sequential-complete"
+      },
+      {
+        "elapsed_seconds": 185.72960363596212,
+        "program_cache_entries": 407,
+        "stage": "target-trace-release-complete"
+      },
+      {
+        "elapsed_seconds": 185.7322844460141,
+        "program_cache_entries": 407,
+        "stage": "recovery-start"
+      },
+      {
+        "elapsed_seconds": 185.7351390629774,
+        "program_cache_entries": 407,
+        "stage": "recovery-queue-drain-start"
+      },
+      {
+        "elapsed_seconds": 185.7381513940054,
+        "program_cache_entries": 407,
+        "stage": "recovery-queue-drain-complete"
+      },
+      {
+        "elapsed_seconds": 185.7405442839954,
+        "program_cache_entries": 407,
+        "stage": "recovery-restore-start"
+      },
+      {
+        "elapsed_seconds": 185.74466140096774,
+        "program_cache_entries": 407,
+        "stage": "recovery-restore-complete"
+      },
+      {
+        "elapsed_seconds": 185.74760305701056,
+        "program_cache_entries": 407,
+        "stage": "controlled-replay-start"
+      },
+      {
+        "elapsed_seconds": 185.74979183799587,
+        "program_cache_entries": 407,
+        "stage": "controlled-replay-step-1-start"
+      },
+      {
+        "elapsed_seconds": 185.75710284797242,
+        "program_cache_entries": 407,
+        "stage": "controlled-replay-step-1-complete"
+      },
+      {
+        "elapsed_seconds": 185.75948457501363,
+        "program_cache_entries": 407,
+        "stage": "controlled-replay-complete"
+      },
+      {
+        "elapsed_seconds": 185.76239825296216,
+        "program_cache_entries": 407,
+        "stage": "recovery-synchronize-start"
+      },
+      {
+        "elapsed_seconds": 185.76481826900272,
+        "program_cache_entries": 407,
+        "stage": "recovery-synchronize-complete"
+      },
+      {
+        "elapsed_seconds": 185.76712475100067,
+        "program_cache_entries": 407,
+        "stage": "recovery-state-readback-start"
+      },
+      {
+        "elapsed_seconds": 185.7775287979748,
+        "program_cache_entries": 408,
+        "stage": "recovery-state-readback-complete"
+      },
+      {
+        "elapsed_seconds": 185.7804959960049,
+        "program_cache_entries": 408,
+        "stage": "recovery-complete"
+      },
+      {
+        "elapsed_seconds": 185.7829362829798,
+        "program_cache_entries": 408,
+        "stage": "target-reference-state-start"
+      },
+      {
+        "elapsed_seconds": 187.72660753701348,
+        "program_cache_entries": 408,
+        "stage": "target-reference-state-complete"
+      },
+      {
+        "elapsed_seconds": 187.7293675399851,
+        "program_cache_entries": 408,
+        "stage": "verification-prefill-start"
+      },
+      {
+        "elapsed_seconds": 188.55635713395895,
+        "program_cache_entries": 408,
+        "stage": "verification-prefill-complete"
+      },
+      {
+        "elapsed_seconds": 188.56350934901275,
+        "program_cache_entries": 408,
+        "stage": "native-verifier-start"
+      },
+      {
+        "elapsed_seconds": 190.38529466895852,
+        "program_cache_entries": 408,
+        "stage": "native-verifier-complete"
+      },
+      {
+        "elapsed_seconds": 190.3931955199805,
+        "program_cache_entries": 408,
+        "stage": "target-state-compare-start"
+      },
+      {
+        "elapsed_seconds": 191.00999631197192,
+        "program_cache_entries": 408,
+        "stage": "target-state-compare-complete"
+      },
+      {
+        "elapsed_seconds": 191.01315907097887,
+        "program_cache_entries": 408,
+        "stage": "pilot-complete"
+      },
+      {
+        "elapsed_seconds": 191.02284570597112,
+        "program_cache_entries": 408,
+        "stage": "target-prewarm-signature-compare-start"
+      },
+      {
+        "elapsed_seconds": 191.02542009798344,
+        "program_cache_entries": 408,
+        "stage": "target-prewarm-signature-compare-complete"
+      },
+      {
+        "elapsed_seconds": 191.02737978898222,
+        "program_cache_entries": 408,
+        "stage": "cleanup-start"
+      },
+      {
+        "elapsed_seconds": 191.30757227301365,
+        "program_cache_entries": 408,
+        "stage": "cleanup-complete"
+      },
+      {
+        "elapsed_seconds": 191.31295836396748,
+        "program_cache_entries": 408,
+        "stage": "receipt-write-start"
+      }
+    ],
+    "last_stage": "receipt-write-start",
+    "prewarm_target_validation": true,
+    "prompt_index": 2,
+    "route": "snapshot",
+    "schema_version": 2
+  },
+  "progress_output": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-mtp-prewarm-20260823/progress.json",
+  "prompt_index": 2,
+  "reference_revisions": {
+    "sglang": "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3",
+    "vllm": "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
+  },
+  "route": "snapshot",
+  "sample": {
+    "accepted_prefix_length": 0,
+    "anchor_token_id": 271,
+    "capture_idempotence_valid": true,
+    "draft_compute_seconds": 0.032347598986234516,
+    "draft_decode_seconds": 0.02279197401367128,
+    "draft_execution_mode": "traced",
+    "draft_selection_seconds": 0.004909975046757609,
+    "draft_token_ids": [
+      248045,
+      74455,
+      198
+    ],
+    "draft_trace_binding": {
+      "feedback_buffer_identity": "Tensor:device:[1586124800,1586124800]",
+      "feedback_output_dtype": "DataType.BFLOAT16",
+      "feedback_output_identity": "Tensor:device:[1586501632,1586501632]",
+      "feedback_output_shape": [
+        1,
+        1,
+        1,
+        5120
+      ],
+      "index_output_dtype": "DataType.UINT32",
+      "index_output_identity": "Tensor:device:[232153600,232153600]",
+      "index_output_shape": [
+        1,
+        1,
+        1
+      ],
+      "kv_buffer_identity": "[Tensor:device:[1586239488,1586239488],Tensor:device:[1586370560,1586370560],Tensor:device:[1586620416,1586620416],Tensor:device:[1586751488,1586751488]]",
+      "position_buffer_identity": "Tensor:device:[212781632,212781632]",
+      "rope_buffer_identity": "Tensor:device:[1521594368,1521594368]",
+      "token_buffer_identity": "Tensor:device:[212781568,212781568]",
+      "value_output_dtype": "DataType.BFLOAT16",
+      "value_output_identity": "Tensor:device:[1530163456,1530163456]",
+      "value_output_shape": [
+        1,
+        1,
+        1
+      ]
+    },
+    "draft_trace_capture_seconds": 0.018525340012274683,
+    "mtp_cache_process_trace_capture_count": 1,
+    "mtp_cache_queue_drain_seconds": 0.0008059539832174778,
+    "mtp_cache_recovery_execution_mode": "persistent-traced",
+    "mtp_cache_recovery_seconds": 0.026576790027320385,
+    "mtp_cache_reprefill_seconds": 0.026576790027320385,
+    "mtp_cache_trace_binding_valid": true,
+    "mtp_kv_prefix_valid": true,
+    "mtp_prefill_seconds": 0.014465600019320846,
+    "prompt_index": 2,
+    "rollback_applied": true,
+    "rollback_convolution_state_nmse": 0.0,
+    "rollback_convolution_state_pcc": 1.0,
+    "rollback_paged_kv_state_nmse": 0.0,
+    "rollback_paged_kv_state_pcc": 1.0,
+    "rollback_recurrent_state_nmse": 0.0,
+    "rollback_recurrent_state_pcc": 1.0,
+    "rollback_seconds": 0.015108039020560682,
+    "rollback_valid": true,
+    "root_index": 1,
+    "route": "snapshot",
+    "target_continuation_token_id": 279,
+    "target_output_valid": true,
+    "target_sequential_seconds": 0.2300573080428876,
+    "target_token_ids": [
+      37132,
+      55404,
+      369
+    ],
+    "target_verification_readback_seconds": 0.007517934951465577,
+    "target_verification_seconds": 0.11480369296623394,
+    "target_verification_token_ids": [
+      37132,
+      55404,
+      369,
+      279
+    ],
+    "target_verification_trace_capture_seconds": 1.628027550992556,
+    "total_draft_seconds": 0.037257574032992125,
+    "trace_binding_valid": true
+  },
+  "schema_version": 1,
+  "selector_mode": "shard-local-top1",
+  "simulated": false,
+  "smoke_only": true,
+  "target_validation_prewarm": true,
+  "warmup_discarded": true,
+  "weight_shapes": {
+    "mtp.fc.weight": [
+      5120,
+      10240
+    ],
+    "mtp.layers.0.input_layernorm.weight": [
+      5120
+    ],
+    "mtp.layers.0.mlp.down_proj.weight": [
+      5120,
+      17408
+    ],
+    "mtp.layers.0.mlp.gate_proj.weight": [
+      17408,
+      5120
+    ],
+    "mtp.layers.0.mlp.up_proj.weight": [
+      17408,
+      5120
+    ],
+    "mtp.layers.0.post_attention_layernorm.weight": [
+      5120
+    ],
+    "mtp.layers.0.self_attn.k_norm.weight": [
+      256
+    ],
+    "mtp.layers.0.self_attn.k_proj.weight": [
+      1024,
+      5120
+    ],
+    "mtp.layers.0.self_attn.o_proj.weight": [
+      5120,
+      6144
+    ],
+    "mtp.layers.0.self_attn.q_norm.weight": [
+      256
+    ],
+    "mtp.layers.0.self_attn.q_proj.weight": [
+      12288,
+      5120
+    ],
+    "mtp.layers.0.self_attn.v_proj.weight": [
+      1024,
+      5120
+    ],
+    "mtp.norm.weight": [
+      5120
+    ],
+    "mtp.pre_fc_norm_embedding.weight": [
+      5120
+    ],
+    "mtp.pre_fc_norm_hidden.weight": [
+      5120
+    ]
+  }
+}

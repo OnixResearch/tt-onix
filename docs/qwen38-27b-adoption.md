@@ -502,7 +502,18 @@ The same process then runs the persistent recovery route. The ledger records eac
 
 The command requires exact prewarm and measured target-validation signatures. It rejects changed draft, target, verifier, acceptance, or rollback facts.
 
-This command has no physical result. It remains admission-ineligible and requires a new bounded outage authorization.
+The bounded prompt-2 snapshot case returned status `0` and reached the complete boundary after `191.3243064180133` seconds. The prewarm and measured signatures matched exactly. The measured route retained acceptance length zero, exact target tokens, exact rollback state, one persistent trace capture, and valid trace bindings.
+
+The prewarm increased the program-cache count from `14` to `406`. Measured setup raised it to `408`. Target reference-state construction and native verification then completed without increasing the count.
+
+This bounded case identifies cold target-validation compilation as the observed blocker. It does not establish repeated-root stability, MTP selection, speedup, or production admission. Production remains eager.
+
+Evidence:
+
+- `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-target-validation-prewarm-receipt.json`
+- receipt BLAKE3: `04b8087eb04a8e609c0cb3bd83f419a21f1405360659bdb6aa24cf669da8c88a`
+- `pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-target-validation-prewarm-progress.json`
+- progress BLAKE3: `9b95efa146fb38de18fbc7da0a4fb304dd919be579714f2ba8adb752d7e6e3da`
 
 ### Decode component replay diagnostic
 

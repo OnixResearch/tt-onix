@@ -11,5 +11,5 @@
 ## Phase 3: Evidence
 
 - [x] [serial] Pass Qwen, package, service, Cairn, and repository-quality checks for r[tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm].
-- [ ] [serial] Run one authorized bounded P150x2 case and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm].
-- [ ] [serial] Preserve the result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm].
+- [x] [serial] Run one authorized bounded P150x2 case and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm].
+- [x] [serial] Preserve the result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_target_validation_prewarm].

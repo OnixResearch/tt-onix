@@ -1,0 +1,472 @@
+{
+  "admission_eligible": false,
+  "complete": true,
+  "diagnostic_only": true,
+  "events": [
+    {
+      "elapsed_seconds": 8.077011443674564e-06,
+      "program_cache_entries": null,
+      "stage": "command-start"
+    },
+    {
+      "elapsed_seconds": 2.7072157619986683,
+      "program_cache_entries": null,
+      "stage": "mesh-open-start"
+    },
+    {
+      "elapsed_seconds": 6.969990074983798,
+      "program_cache_entries": 0,
+      "stage": "mesh-open-complete"
+    },
+    {
+      "elapsed_seconds": 6.972299924003892,
+      "program_cache_entries": 0,
+      "stage": "model-load-start"
+    },
+    {
+      "elapsed_seconds": 81.27695259300526,
+      "program_cache_entries": 9,
+      "stage": "model-load-complete"
+    },
+    {
+      "elapsed_seconds": 82.16864607500611,
+      "program_cache_entries": 9,
+      "stage": "adapter-create-start"
+    },
+    {
+      "elapsed_seconds": 84.80794644996058,
+      "program_cache_entries": 14,
+      "stage": "adapter-create-complete"
+    },
+    {
+      "elapsed_seconds": 84.81083911500173,
+      "program_cache_entries": 14,
+      "stage": "target-validation-prewarm-start"
+    },
+    {
+      "elapsed_seconds": 84.81296631897567,
+      "program_cache_entries": 14,
+      "stage": "target-validation-prewarm-target-prefill-start"
+    },
+    {
+      "elapsed_seconds": 134.4731940869824,
+      "program_cache_entries": 175,
+      "stage": "target-validation-prewarm-target-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 134.4754606980132,
+      "program_cache_entries": 175,
+      "stage": "target-validation-prewarm-draft-start"
+    },
+    {
+      "elapsed_seconds": 134.47723703295924,
+      "program_cache_entries": 175,
+      "stage": "target-validation-prewarm-mtp-prefill-start"
+    },
+    {
+      "elapsed_seconds": 140.28279511496658,
+      "program_cache_entries": 193,
+      "stage": "target-validation-prewarm-mtp-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 140.28537372499704,
+      "program_cache_entries": 193,
+      "stage": "target-validation-prewarm-trace-run-start"
+    },
+    {
+      "elapsed_seconds": 140.28807602997404,
+      "program_cache_entries": 193,
+      "stage": "target-validation-prewarm-trace-input-allocation-start"
+    },
+    {
+      "elapsed_seconds": 140.2918772189878,
+      "program_cache_entries": 194,
+      "stage": "target-validation-prewarm-trace-input-allocation-complete"
+    },
+    {
+      "elapsed_seconds": 140.29396804899443,
+      "program_cache_entries": 194,
+      "stage": "target-validation-prewarm-trace-capture-start"
+    },
+    {
+      "elapsed_seconds": 154.8551154799643,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-capture-complete"
+    },
+    {
+      "elapsed_seconds": 154.86028567899484,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-draft-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 154.87098802800756,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-draft-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 154.873852876015,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-draft-replay-step-2-start"
+    },
+    {
+      "elapsed_seconds": 154.88347682199674,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-draft-replay-step-2-complete"
+    },
+    {
+      "elapsed_seconds": 154.88770864496473,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-trace-run-complete"
+    },
+    {
+      "elapsed_seconds": 154.89265281899134,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-draft-complete"
+    },
+    {
+      "elapsed_seconds": 154.89678340399405,
+      "program_cache_entries": 257,
+      "stage": "target-validation-prewarm-target-trace-start"
+    },
+    {
+      "elapsed_seconds": 168.35501577198738,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-trace-complete"
+    },
+    {
+      "elapsed_seconds": 168.35783729096875,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-sequential-start"
+    },
+    {
+      "elapsed_seconds": 168.63346665300196,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-sequential-complete"
+    },
+    {
+      "elapsed_seconds": 168.64166459301487,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-trace-release-complete"
+    },
+    {
+      "elapsed_seconds": 168.64431212597992,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-reference-state-start"
+    },
+    {
+      "elapsed_seconds": 171.04859158798354,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-target-reference-state-complete"
+    },
+    {
+      "elapsed_seconds": 171.05230654997285,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-verification-prefill-start"
+    },
+    {
+      "elapsed_seconds": 171.72248203598429,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-verification-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 171.72786963998806,
+      "program_cache_entries": 311,
+      "stage": "target-validation-prewarm-native-verifier-start"
+    },
+    {
+      "elapsed_seconds": 182.40208634897135,
+      "program_cache_entries": 405,
+      "stage": "target-validation-prewarm-native-verifier-complete"
+    },
+    {
+      "elapsed_seconds": 182.4071180729661,
+      "program_cache_entries": 405,
+      "stage": "target-validation-prewarm-target-state-compare-start"
+    },
+    {
+      "elapsed_seconds": 183.80050352896797,
+      "program_cache_entries": 406,
+      "stage": "target-validation-prewarm-target-state-compare-complete"
+    },
+    {
+      "elapsed_seconds": 183.80653622600948,
+      "program_cache_entries": 406,
+      "stage": "target-validation-prewarm-pilot-complete"
+    },
+    {
+      "elapsed_seconds": 183.81818358396413,
+      "program_cache_entries": 406,
+      "stage": "target-validation-prewarm-complete"
+    },
+    {
+      "elapsed_seconds": 183.8215450809803,
+      "program_cache_entries": 406,
+      "stage": "pilot-start"
+    },
+    {
+      "elapsed_seconds": 183.82399151095888,
+      "program_cache_entries": 406,
+      "stage": "target-prefill-start"
+    },
+    {
+      "elapsed_seconds": 184.56739923299756,
+      "program_cache_entries": 406,
+      "stage": "target-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 184.57011699897703,
+      "program_cache_entries": 406,
+      "stage": "draft-start"
+    },
+    {
+      "elapsed_seconds": 184.57253649400081,
+      "program_cache_entries": 406,
+      "stage": "mtp-prefill-start"
+    },
+    {
+      "elapsed_seconds": 184.58990720496513,
+      "program_cache_entries": 406,
+      "stage": "mtp-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 184.59348486497765,
+      "program_cache_entries": 406,
+      "stage": "rollback-context-start"
+    },
+    {
+      "elapsed_seconds": 184.6038723079837,
+      "program_cache_entries": 407,
+      "stage": "rollback-context-complete"
+    },
+    {
+      "elapsed_seconds": 184.60637201700592,
+      "program_cache_entries": 407,
+      "stage": "trace-run-start"
+    },
+    {
+      "elapsed_seconds": 184.60927477298537,
+      "program_cache_entries": 407,
+      "stage": "trace-input-allocation-start"
+    },
+    {
+      "elapsed_seconds": 184.61257616599323,
+      "program_cache_entries": 407,
+      "stage": "trace-input-allocation-complete"
+    },
+    {
+      "elapsed_seconds": 184.6148631189717,
+      "program_cache_entries": 407,
+      "stage": "trace-capture-start"
+    },
+    {
+      "elapsed_seconds": 184.6390149029903,
+      "program_cache_entries": 407,
+      "stage": "trace-capture-complete"
+    },
+    {
+      "elapsed_seconds": 184.64371651998954,
+      "program_cache_entries": 407,
+      "stage": "trace-draft-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 184.65306647401303,
+      "program_cache_entries": 407,
+      "stage": "trace-draft-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 184.6555590479984,
+      "program_cache_entries": 407,
+      "stage": "trace-draft-replay-step-2-start"
+    },
+    {
+      "elapsed_seconds": 184.66323154995916,
+      "program_cache_entries": 407,
+      "stage": "trace-draft-replay-step-2-complete"
+    },
+    {
+      "elapsed_seconds": 184.66652494797017,
+      "program_cache_entries": 407,
+      "stage": "trace-run-complete"
+    },
+    {
+      "elapsed_seconds": 184.66910854895832,
+      "program_cache_entries": 407,
+      "stage": "draft-complete"
+    },
+    {
+      "elapsed_seconds": 184.67148969398113,
+      "program_cache_entries": 407,
+      "stage": "target-trace-start"
+    },
+    {
+      "elapsed_seconds": 185.48514894698747,
+      "program_cache_entries": 407,
+      "stage": "target-trace-complete"
+    },
+    {
+      "elapsed_seconds": 185.4892326759873,
+      "program_cache_entries": 407,
+      "stage": "target-sequential-start"
+    },
+    {
+      "elapsed_seconds": 185.7237697459641,
+      "program_cache_entries": 407,
+      "stage": "target-sequential-complete"
+    },
+    {
+      "elapsed_seconds": 185.72960363596212,
+      "program_cache_entries": 407,
+      "stage": "target-trace-release-complete"
+    },
+    {
+      "elapsed_seconds": 185.7322844460141,
+      "program_cache_entries": 407,
+      "stage": "recovery-start"
+    },
+    {
+      "elapsed_seconds": 185.7351390629774,
+      "program_cache_entries": 407,
+      "stage": "recovery-queue-drain-start"
+    },
+    {
+      "elapsed_seconds": 185.7381513940054,
+      "program_cache_entries": 407,
+      "stage": "recovery-queue-drain-complete"
+    },
+    {
+      "elapsed_seconds": 185.7405442839954,
+      "program_cache_entries": 407,
+      "stage": "recovery-restore-start"
+    },
+    {
+      "elapsed_seconds": 185.74466140096774,
+      "program_cache_entries": 407,
+      "stage": "recovery-restore-complete"
+    },
+    {
+      "elapsed_seconds": 185.74760305701056,
+      "program_cache_entries": 407,
+      "stage": "controlled-replay-start"
+    },
+    {
+      "elapsed_seconds": 185.74979183799587,
+      "program_cache_entries": 407,
+      "stage": "controlled-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 185.75710284797242,
+      "program_cache_entries": 407,
+      "stage": "controlled-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 185.75948457501363,
+      "program_cache_entries": 407,
+      "stage": "controlled-replay-complete"
+    },
+    {
+      "elapsed_seconds": 185.76239825296216,
+      "program_cache_entries": 407,
+      "stage": "recovery-synchronize-start"
+    },
+    {
+      "elapsed_seconds": 185.76481826900272,
+      "program_cache_entries": 407,
+      "stage": "recovery-synchronize-complete"
+    },
+    {
+      "elapsed_seconds": 185.76712475100067,
+      "program_cache_entries": 407,
+      "stage": "recovery-state-readback-start"
+    },
+    {
+      "elapsed_seconds": 185.7775287979748,
+      "program_cache_entries": 408,
+      "stage": "recovery-state-readback-complete"
+    },
+    {
+      "elapsed_seconds": 185.7804959960049,
+      "program_cache_entries": 408,
+      "stage": "recovery-complete"
+    },
+    {
+      "elapsed_seconds": 185.7829362829798,
+      "program_cache_entries": 408,
+      "stage": "target-reference-state-start"
+    },
+    {
+      "elapsed_seconds": 187.72660753701348,
+      "program_cache_entries": 408,
+      "stage": "target-reference-state-complete"
+    },
+    {
+      "elapsed_seconds": 187.7293675399851,
+      "program_cache_entries": 408,
+      "stage": "verification-prefill-start"
+    },
+    {
+      "elapsed_seconds": 188.55635713395895,
+      "program_cache_entries": 408,
+      "stage": "verification-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 188.56350934901275,
+      "program_cache_entries": 408,
+      "stage": "native-verifier-start"
+    },
+    {
+      "elapsed_seconds": 190.38529466895852,
+      "program_cache_entries": 408,
+      "stage": "native-verifier-complete"
+    },
+    {
+      "elapsed_seconds": 190.3931955199805,
+      "program_cache_entries": 408,
+      "stage": "target-state-compare-start"
+    },
+    {
+      "elapsed_seconds": 191.00999631197192,
+      "program_cache_entries": 408,
+      "stage": "target-state-compare-complete"
+    },
+    {
+      "elapsed_seconds": 191.01315907097887,
+      "program_cache_entries": 408,
+      "stage": "pilot-complete"
+    },
+    {
+      "elapsed_seconds": 191.02284570597112,
+      "program_cache_entries": 408,
+      "stage": "target-prewarm-signature-compare-start"
+    },
+    {
+      "elapsed_seconds": 191.02542009798344,
+      "program_cache_entries": 408,
+      "stage": "target-prewarm-signature-compare-complete"
+    },
+    {
+      "elapsed_seconds": 191.02737978898222,
+      "program_cache_entries": 408,
+      "stage": "cleanup-start"
+    },
+    {
+      "elapsed_seconds": 191.30757227301365,
+      "program_cache_entries": 408,
+      "stage": "cleanup-complete"
+    },
+    {
+      "elapsed_seconds": 191.31295836396748,
+      "program_cache_entries": 408,
+      "stage": "receipt-write-start"
+    },
+    {
+      "elapsed_seconds": 191.3243064180133,
+      "program_cache_entries": 408,
+      "stage": "complete"
+    }
+  ],
+  "last_stage": "complete",
+  "prewarm_target_validation": true,
+  "prompt_index": 2,
+  "route": "snapshot",
+  "schema_version": 2
+}

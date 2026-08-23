@@ -27,11 +27,11 @@ Identify whether cold target compilation caused the two post-recovery timeouts. 
 - **Mechanism:** Run the existing nonpersistent pilot for the same prompt before persistent recovery.
 - **Claim:** A completed measured case after prewarm identifies cold target compilation as the prior blocker.
 - **Artifact:** A prewarm-aware stage ledger and exact signature comparison.
-- **Evidence:** Both prior timeouts occurred in target validation while target programs compiled.
-- **Gap strength:** Simpler than another full matched control.
-- **Blocker:** Physical execution requires a new bounded outage authorization.
-- **Next check:** Build and validate the package without devices.
-- **State:** Active.
+- **Evidence:** Prompt 2 completed exact prewarm, persistent recovery, and measured target validation in one process. The measured target-validation cache count stayed at `408`.
+- **Gap strength:** The control directly removed cold compilation without changing the measured recovery route.
+- **Blocker:** One case does not establish repeated-root stability or admission.
+- **Next check:** Use a new change and outage budget for matched repeated roots only if recovery research continues.
+- **State:** Validated.
 
 ### Release the parked MTP trace before target validation
 
@@ -39,11 +39,11 @@ Identify whether cold target compilation caused the two post-recovery timeouts. 
 - **Mechanism:** Release the persistent recovery trace after recovery and before target validation.
 - **Claim:** Completion after release identifies parked-trace coexistence as the blocker.
 - **Artifact:** None in this round.
-- **Evidence:** The blocked target work ran while the persistent MTP trace remained parked.
-- **Gap strength:** Equivalent diagnostic strength but changes the persistence condition.
-- **Blocker:** It cannot distinguish cold compilation until the exact prewarm control runs.
-- **Next check:** Use only if the prewarmed parked-trace case stalls.
-- **State:** Blocked.
+- **Evidence:** The prewarmed measured case completed while the persistent MTP recovery trace remained valid and parked.
+- **Gap strength:** It would change the tested persistence condition.
+- **Blocker:** The exact prewarm control completed, so trace release cannot improve the current explanation.
+- **Next check:** None in this change.
+- **State:** Falsified as a necessary control.
 
 ### Increase the timeout
 
@@ -66,13 +66,23 @@ Identify whether cold target compilation caused the two post-recovery timeouts. 
 - **Evidence:** Current boundaries already identify target validation as the blocked region.
 - **Gap strength:** Weaker than removing cold compilation.
 - **Blocker:** A layer index does not separate compilation from trace coexistence.
-- **Next check:** Add only if exact prewarm also stalls.
-- **State:** Audit.
+- **Next check:** None. Exact prewarm completed.
+- **State:** Exhausted.
 
 ## Budgets
 
 - Source authority: package-matched `tt-metal` `v0.74.0` and the pinned Qwen package.
 - Retrieval: local source and archived physical evidence only.
 - Implementation: one exact-prewarm mechanism round.
-- Physical: zero cases before explicit authorization. After authorization, at most one named bounded case.
+- Physical: the one authorized prompt-2 snapshot case is complete. No physical budget remains.
 - Final outcomes: validated, blocked, exhausted, or user-decision-required.
+
+## Outcome
+
+The prompt-2 snapshot command returned status `0` and reached `complete` at `191.3243064180133` seconds. Exact prewarm and measured signatures matched.
+
+The prewarm raised the program-cache count from `14` to `406`. Measured recovery raised it to `408`. The count stayed at `408` through measured target validation.
+
+This bounded result identifies cold target-validation compilation as the observed blocker for this case. It does not establish stability, admission, or production performance.
+
+Receipt BLAKE3: `04b8087eb04a8e609c0cb3bd83f419a21f1405360659bdb6aa24cf669da8c88a`.
