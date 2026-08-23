@@ -8,5 +8,5 @@
 ## Phase 2: Evidence and completion
 
 - [x] [serial] Pass device-free Qwen, package, service, Cairn, and repository-quality checks for r[tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe].
-- [ ] [serial] During the authorized outage, run bounded staged P150x2 cases and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe].
-- [ ] [serial] Preserve the exact result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe].
+- [x] [serial] During the authorized outage, run bounded staged P150x2 cases and restore eager health for r[tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe].
+- [x] [serial] Preserve the exact result, sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe].

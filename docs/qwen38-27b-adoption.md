@@ -481,6 +481,21 @@ An atomic progress ledger records the last completed trace, replay, recovery, ve
 
 The staged command is admission-ineligible. It cannot select MTP, traced target decode, or production behavior.
 
+Two physical cases reached their `1200`-second bounds without receipts. Both completed MTP recovery first.
+
+- Prompt 1 re-prefill ended after `native-verifier-start`.
+- Prompt 2 snapshot ended after `target-reference-state-start`.
+
+The logs were still compiling target validation kernels. The result localizes the bounded noncompletion after MTP recovery. It does not establish recovery parity or stability.
+
+The second timeout required `tt-smi -r /dev/tenstorrent/0 /dev/tenstorrent/1`. Eager service and expected health were restored after the reset.
+
+Evidence:
+
+- `cairn/archive/2026-08-23-stage-qwen38-mtp-recovery-replay/evidence/physical-result.md`
+- re-prefill ledger BLAKE3: `de1f81db3e9c9b279aacc8f28fcedb9fd6f00f71efbe7ada0e1bab2a79514d35`
+- snapshot ledger BLAKE3: `64de84aa0cbe1a32ec1ed88b43a992a69500116b3b031cac92e3132a37e8c556`
+
 ### Decode component replay diagnostic
 
 The package provides `qwen36-p150x2-decode-component-probe`. It captures coherent component traces around real package-selected layers. It measures three GDN mixers, three MLPs, three full-attention mixers, embedding, LM-head reduction, the full decode trace, synchronized input update, and bounded winner readback.

@@ -48,3 +48,15 @@ A killed process might not run Python cleanup. The external owner-control trap r
 - At most two physical cases.
 - A named bound for each case.
 - Stop after an exact blocked boundary or two complete cases.
+
+## Terminal state
+
+Both cases completed the configured MTP recovery route before the timeout.
+
+Prompt 1 re-prefill stopped after `native-verifier-start`. Prompt 2 snapshot stopped after `target-reference-state-start`. Both logs were still compiling target kernels.
+
+The result localizes the bounded noncompletion after MTP recovery. It does not establish recovery parity or stability because target validation did not finish.
+
+The second timeout left PCIe device `0` in a reset-required state. A package-matched `tt-smi` reset restored both devices and eager service health.
+
+The two-case physical budget is exhausted. Persistent recovery tracing remains rejected.

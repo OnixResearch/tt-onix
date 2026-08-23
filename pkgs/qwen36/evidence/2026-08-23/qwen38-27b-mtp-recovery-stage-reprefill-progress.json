@@ -1,0 +1,219 @@
+{
+  "admission_eligible": false,
+  "complete": false,
+  "diagnostic_only": true,
+  "events": [
+    {
+      "elapsed_seconds": 1.414900179952383e-05,
+      "stage": "command-start"
+    },
+    {
+      "elapsed_seconds": 4.4631911650067195,
+      "stage": "mesh-open-start"
+    },
+    {
+      "elapsed_seconds": 12.429362087976187,
+      "stage": "mesh-open-complete"
+    },
+    {
+      "elapsed_seconds": 12.441027892986313,
+      "stage": "model-load-start"
+    },
+    {
+      "elapsed_seconds": 89.93027355900267,
+      "stage": "model-load-complete"
+    },
+    {
+      "elapsed_seconds": 91.16594609199092,
+      "stage": "adapter-create-start"
+    },
+    {
+      "elapsed_seconds": 93.85209215397481,
+      "stage": "adapter-create-complete"
+    },
+    {
+      "elapsed_seconds": 93.85507618699921,
+      "stage": "pilot-start"
+    },
+    {
+      "elapsed_seconds": 93.85791607399005,
+      "stage": "target-prefill-start"
+    },
+    {
+      "elapsed_seconds": 163.3077654929948,
+      "stage": "target-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 163.31017983698985,
+      "stage": "draft-start"
+    },
+    {
+      "elapsed_seconds": 163.31283767998684,
+      "stage": "mtp-prefill-start"
+    },
+    {
+      "elapsed_seconds": 169.76411819498753,
+      "stage": "mtp-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 169.76677668001503,
+      "stage": "trace-run-start"
+    },
+    {
+      "elapsed_seconds": 169.7690977419843,
+      "stage": "trace-input-allocation-start"
+    },
+    {
+      "elapsed_seconds": 169.77426316100173,
+      "stage": "trace-input-allocation-complete"
+    },
+    {
+      "elapsed_seconds": 169.77715509396512,
+      "stage": "trace-capture-start"
+    },
+    {
+      "elapsed_seconds": 184.62425351596903,
+      "stage": "trace-capture-complete"
+    },
+    {
+      "elapsed_seconds": 184.62658147199545,
+      "stage": "trace-draft-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 184.63402253901586,
+      "stage": "trace-draft-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 184.63618676998885,
+      "stage": "trace-draft-replay-step-2-start"
+    },
+    {
+      "elapsed_seconds": 184.64396291499725,
+      "stage": "trace-draft-replay-step-2-complete"
+    },
+    {
+      "elapsed_seconds": 184.64623026701156,
+      "stage": "trace-run-complete"
+    },
+    {
+      "elapsed_seconds": 184.64841955900192,
+      "stage": "draft-complete"
+    },
+    {
+      "elapsed_seconds": 184.65044650796335,
+      "stage": "target-trace-start"
+    },
+    {
+      "elapsed_seconds": 198.1652956510079,
+      "stage": "target-trace-complete"
+    },
+    {
+      "elapsed_seconds": 198.1676293789642,
+      "stage": "target-sequential-start"
+    },
+    {
+      "elapsed_seconds": 198.41565008397447,
+      "stage": "target-sequential-complete"
+    },
+    {
+      "elapsed_seconds": 198.42219167598523,
+      "stage": "target-trace-release-complete"
+    },
+    {
+      "elapsed_seconds": 198.4245685429778,
+      "stage": "verification-prefill-start"
+    },
+    {
+      "elapsed_seconds": 199.01250783796422,
+      "stage": "verification-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 199.01545430300757,
+      "stage": "recovery-start"
+    },
+    {
+      "elapsed_seconds": 199.0177190899849,
+      "stage": "recovery-queue-drain-start"
+    },
+    {
+      "elapsed_seconds": 199.02018360700458,
+      "stage": "recovery-queue-drain-complete"
+    },
+    {
+      "elapsed_seconds": 199.02213429898256,
+      "stage": "recovery-mtp-prefill-start"
+    },
+    {
+      "elapsed_seconds": 199.03906322299736,
+      "stage": "recovery-mtp-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 199.0413551160018,
+      "stage": "controlled-replay-start"
+    },
+    {
+      "elapsed_seconds": 199.04349234100664,
+      "stage": "controlled-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 199.05058270896552,
+      "stage": "controlled-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 199.0533154559671,
+      "stage": "controlled-replay-step-2-start"
+    },
+    {
+      "elapsed_seconds": 199.0603463720181,
+      "stage": "controlled-replay-step-2-complete"
+    },
+    {
+      "elapsed_seconds": 199.0624516410171,
+      "stage": "controlled-replay-step-3-start"
+    },
+    {
+      "elapsed_seconds": 199.10493105999194,
+      "stage": "controlled-replay-step-3-complete"
+    },
+    {
+      "elapsed_seconds": 199.10896443598904,
+      "stage": "controlled-replay-step-4-start"
+    },
+    {
+      "elapsed_seconds": 199.13322457199683,
+      "stage": "controlled-replay-step-4-complete"
+    },
+    {
+      "elapsed_seconds": 199.13716401497368,
+      "stage": "controlled-replay-complete"
+    },
+    {
+      "elapsed_seconds": 199.14082962600514,
+      "stage": "recovery-synchronize-start"
+    },
+    {
+      "elapsed_seconds": 199.14400584297255,
+      "stage": "recovery-synchronize-complete"
+    },
+    {
+      "elapsed_seconds": 199.14762000896735,
+      "stage": "recovery-state-readback-start"
+    },
+    {
+      "elapsed_seconds": 199.159560849017,
+      "stage": "recovery-state-readback-complete"
+    },
+    {
+      "elapsed_seconds": 199.16399158997228,
+      "stage": "recovery-complete"
+    },
+    {
+      "elapsed_seconds": 199.17003613198176,
+      "stage": "native-verifier-start"
+    }
+  ],
+  "last_stage": "native-verifier-start",
+  "prompt_index": 1,
+  "route": "reprefill",
+  "schema_version": 1
+}
