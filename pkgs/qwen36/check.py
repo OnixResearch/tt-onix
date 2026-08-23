@@ -1921,6 +1921,7 @@ def probe_mtp_draft_trace():
 
 
 # r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+# r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 def probe_mtp_kv_rollback():
     """Positive and negative tests for matched MTP K/V rollback."""
     from dataclasses import replace
@@ -1988,6 +1989,12 @@ def probe_mtp_kv_rollback():
                         if route == SNAPSHOT_RECOVERY
                         else reprefill_recovery_seconds
                     ),
+                    recovery_execution_mode=profile.recovery_execution_mode,
+                    process_trace_capture_count=(
+                        profile.required_process_trace_capture_count
+                    ),
+                    trace_binding_identity="persistent-trace-binding-test",
+                    trace_binding_valid=True,
                     snapshot_row_count=(
                         profile.snapshot_row_count if route == SNAPSHOT_RECOVERY else 0
                     ),
@@ -2020,6 +2027,40 @@ def probe_mtp_kv_rollback():
     require(
         "sample-count" in evaluate_mtp_rollback(profile, identity, incomplete).reasons,
         "incomplete MTP rollback evidence was accepted",
+    )
+
+    capture_failure = list(samples)
+    capture_failure[1] = replace(capture_failure[1], process_trace_capture_count=2)
+    require(
+        any(
+            "process-trace-capture-count" in reason
+            for reason in evaluate_mtp_rollback(
+                profile, identity, capture_failure
+            ).reasons
+        ),
+        "repeated MTP recovery trace capture was accepted",
+    )
+
+    binding_failure = list(samples)
+    binding_failure[1] = replace(
+        binding_failure[1], trace_binding_identity="changed-trace-binding"
+    )
+    require(
+        "process-trace-binding-parity"
+        in evaluate_mtp_rollback(profile, identity, binding_failure).reasons,
+        "changed MTP recovery trace binding was accepted",
+    )
+
+    invalid_binding = list(samples)
+    invalid_binding[1] = replace(invalid_binding[1], trace_binding_valid=False)
+    require(
+        any(
+            "trace-binding" in reason
+            for reason in evaluate_mtp_rollback(
+                profile, identity, invalid_binding
+            ).reasons
+        ),
+        "invalid MTP recovery trace binding was accepted",
     )
 
     state_failure = list(samples)
@@ -2093,10 +2134,22 @@ def probe_mtp_kv_rollback():
         "recover_from_snapshot",
         "recover_from_reprefill",
         "recovery_state_components_equal",
+        "_drain_device",
     ):
         require(
             required_symbol in adapter_source,
             f"MTP rollback adapter lost {required_symbol}",
+        )
+    trace_adapter_source = Path(
+        __import__(
+            "qwen36_service.mtp_trace_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    for required_symbol in ("replay_token_inputs", "trace_capture_count"):
+        require(
+            required_symbol in trace_adapter_source,
+            f"MTP persistent trace adapter lost {required_symbol}",
         )
 
 

@@ -1,6 +1,7 @@
 """TTNN adapter for the diagnostic Qwen3.8 MTP drafter probe."""
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 
 from __future__ import annotations
 
@@ -129,6 +130,10 @@ class MtpDrafterPilotResult:
     rollback_paged_kv_state_nmse: float
     mtp_cache_recovery_mode: str | None
     mtp_cache_recovery_seconds: float
+    mtp_cache_queue_drain_seconds: float
+    mtp_cache_recovery_execution_mode: str | None
+    mtp_cache_process_trace_capture_count: int
+    mtp_cache_trace_binding_valid: bool
     mtp_cache_recovery_state: MtpRecoveryState | None
     mtp_cache_snapshot_row_count: int
     mtp_cache_committed_advance_count: int
@@ -160,6 +165,7 @@ class MtpDrafterAdapter:
         self._rollback_selector_mode = SHARD_LOCAL_TOP1
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
+        self._recovery_trace_adapter: TracedMtpDraftAdapter | None = None
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
             maximum_width=TARGET_VERIFICATION_WIDTH,
@@ -168,6 +174,12 @@ class MtpDrafterAdapter:
             ),
         )
         self._load_mtp()
+
+    def close(self) -> None:
+        """Release the process-owned MTP recovery trace."""
+        if self._recovery_trace_adapter is not None:
+            self._recovery_trace_adapter.close()
+            self._recovery_trace_adapter = None
 
     def run_smoke(
         self,
@@ -297,10 +309,16 @@ class MtpDrafterAdapter:
                 selector_mode=selector_mode,
                 draft_execution_mode=draft_execution_mode,
                 preserve_rollback_context=(mtp_recovery_mode == SNAPSHOT_RECOVERY),
+                persistent_recovery_trace=(mtp_recovery_mode is not None),
             )
         finally:
             ttnn.deallocate(target_hidden)
         rollback_context = draft_result.rollback_context
+        recovery_trace_adapter = self._recovery_trace_adapter
+        if mtp_recovery_mode is not None and recovery_trace_adapter is None:
+            if rollback_context is not None:
+                rollback_context.close()
+            raise MtpDrafterAdapterError("persistent MTP recovery trace is missing")
 
         eligibility = self.decode_adapter.ensure_trace(
             token=anchor,
@@ -351,8 +369,10 @@ class MtpDrafterAdapter:
         if mtp_recovery_mode == SNAPSHOT_RECOVERY:
             if rollback_context is None:
                 raise MtpDrafterAdapterError("MTP rollback context is missing")
+            assert recovery_trace_adapter is not None
             recovery_result = recover_from_snapshot(
                 owner=self,
+                trace_adapter=recovery_trace_adapter,
                 context=rollback_context,
                 draft_token_ids=draft_result.token_ids,
                 accepted_prefix_length=accepted,
@@ -385,8 +405,10 @@ class MtpDrafterAdapter:
                     "matched target prefill changed the anchor"
                 )
             if mtp_recovery_mode == REPREFILL_RECOVERY:
+                assert recovery_trace_adapter is not None
                 recovery_result = recover_from_reprefill(
                     owner=self,
+                    trace_adapter=recovery_trace_adapter,
                     prompt_tokens=prompt_tokens,
                     target_hidden=verification_hidden,
                     anchor_token_id=anchor,
@@ -506,6 +528,26 @@ class MtpDrafterAdapter:
                 recovery_result.recovery_seconds
                 if recovery_result is not None
                 else ZERO_DURATION_SECONDS
+            ),
+            mtp_cache_queue_drain_seconds=(
+                recovery_result.queue_drain_seconds
+                if recovery_result is not None
+                else ZERO_DURATION_SECONDS
+            ),
+            mtp_cache_recovery_execution_mode=(
+                recovery_result.recovery_execution_mode
+                if recovery_result is not None
+                else None
+            ),
+            mtp_cache_process_trace_capture_count=(
+                recovery_result.process_trace_capture_count
+                if recovery_result is not None
+                else 0
+            ),
+            mtp_cache_trace_binding_valid=(
+                recovery_result.trace_binding_valid
+                if recovery_result is not None
+                else False
             ),
             mtp_cache_recovery_state=(
                 recovery_result.state if recovery_result is not None else None
@@ -684,6 +726,7 @@ class MtpDrafterAdapter:
         selector_mode: str,
         draft_execution_mode: str,
         preserve_rollback_context: bool = False,
+        persistent_recovery_trace: bool = False,
     ) -> MtpDraftRunResult:
         if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
             raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
@@ -694,6 +737,12 @@ class MtpDrafterAdapter:
                 )
             if self.trace_profile is None:
                 raise MtpDrafterAdapterError("MTP trace profile is required")
+        if persistent_recovery_trace and (
+            draft_execution_mode != TRACED_DRAFT or self.rollback_profile is None
+        ):
+            raise MtpDrafterAdapterError(
+                "persistent recovery requires traced rollback policy"
+            )
 
         prefill_started = time.monotonic()
         first_draft, feedback, first_selection_seconds = self._mtp_prefill(
@@ -723,12 +772,23 @@ class MtpDrafterAdapter:
         try:
             if draft_execution_mode == TRACED_DRAFT:
                 assert self.trace_profile is not None
-                trace_adapter = TracedMtpDraftAdapter(
-                    owner=self,
-                    maximum_trace_capture_seconds=(
-                        self.trace_profile.maximum_trace_capture_seconds
-                    ),
-                )
+                if persistent_recovery_trace:
+                    if self._recovery_trace_adapter is None:
+                        self._recovery_trace_adapter = TracedMtpDraftAdapter(
+                            owner=self,
+                            maximum_trace_capture_seconds=(
+                                self.trace_profile.maximum_trace_capture_seconds
+                            ),
+                            persistent=True,
+                        )
+                    trace_adapter = self._recovery_trace_adapter
+                else:
+                    trace_adapter = TracedMtpDraftAdapter(
+                        owner=self,
+                        maximum_trace_capture_seconds=(
+                            self.trace_profile.maximum_trace_capture_seconds
+                        ),
+                    )
                 try:
                     replay = trace_adapter.run(
                         initial_token=first_draft,

@@ -1,6 +1,7 @@
 """Run the diagnostic Qwen3.8 MTP drafter smoke on P150x2."""
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 
 from __future__ import annotations
 
@@ -202,6 +203,7 @@ def main() -> None:
     mesh_device = None
     model = None
     decode_adapter = None
+    adapter = None
     smoke_result = None
     pilot_results = None
     selection_results = None
@@ -383,6 +385,9 @@ def main() -> None:
                     ))
             rollback_results = tuple(measured)
     finally:
+        if adapter is not None:
+            adapter.close()
+            adapter = None
         if decode_adapter is not None:
             decode_adapter.close()
             decode_adapter = None
@@ -710,6 +715,22 @@ def main() -> None:
                     committed_token_id=committed_token_id,
                     next_draft_token_id=state.next_draft_token_id,
                     recovery_seconds=result.mtp_cache_recovery_seconds,
+                    recovery_execution_mode=(
+                        result.mtp_cache_recovery_execution_mode or ""
+                    ),
+                    process_trace_capture_count=(
+                        result.mtp_cache_process_trace_capture_count
+                    ),
+                    trace_binding_identity=(
+                        json.dumps(
+                            result.draft_trace_binding,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        if result.draft_trace_binding is not None
+                        else ""
+                    ),
+                    trace_binding_valid=result.mtp_cache_trace_binding_valid,
                     snapshot_row_count=result.mtp_cache_snapshot_row_count,
                     committed_advance_count=(result.mtp_cache_committed_advance_count),
                     next_draft_valid=token_valid,
@@ -729,6 +750,18 @@ def main() -> None:
                 "committed_token_id": committed_token_id,
                 "next_draft_token_id": state.next_draft_token_id,
                 "mtp_cache_recovery_seconds": (result.mtp_cache_recovery_seconds),
+                "mtp_cache_queue_drain_seconds": (
+                    result.mtp_cache_queue_drain_seconds
+                ),
+                "mtp_cache_recovery_execution_mode": (
+                    result.mtp_cache_recovery_execution_mode
+                ),
+                "mtp_cache_process_trace_capture_count": (
+                    result.mtp_cache_process_trace_capture_count
+                ),
+                "mtp_cache_trace_binding_valid": (
+                    result.mtp_cache_trace_binding_valid
+                ),
                 "mtp_cache_snapshot_row_count": (result.mtp_cache_snapshot_row_count),
                 "mtp_cache_committed_advance_count": (
                     result.mtp_cache_committed_advance_count
@@ -750,6 +783,10 @@ def main() -> None:
             "warmup_discarded": True,
             "selector_mode": SHARD_LOCAL_TOP1,
             "draft_execution_mode": TRACED_DRAFT,
+            "recovery_execution_mode": rollback_profile.recovery_execution_mode,
+            "process_trace_capture_count": (
+                first_result.mtp_cache_process_trace_capture_count
+            ),
             "route_schedule": list(rollback_profile.route_schedule),
             "minimum_samples_per_route": (rollback_profile.minimum_samples_per_route),
             "samples": sample_mappings,
@@ -815,6 +852,15 @@ def _pilot_result_mapping(
         "rollback_valid": result.rollback_valid,
         "rollback_seconds": result.rollback_seconds,
         "mtp_cache_reprefill_seconds": result.mtp_cache_reprefill_seconds,
+        "mtp_cache_recovery_seconds": result.mtp_cache_recovery_seconds,
+        "mtp_cache_queue_drain_seconds": result.mtp_cache_queue_drain_seconds,
+        "mtp_cache_recovery_execution_mode": (
+            result.mtp_cache_recovery_execution_mode
+        ),
+        "mtp_cache_process_trace_capture_count": (
+            result.mtp_cache_process_trace_capture_count
+        ),
+        "mtp_cache_trace_binding_valid": result.mtp_cache_trace_binding_valid,
         "rollback_recurrent_state_pcc": result.rollback_recurrent_state_pcc,
         "rollback_recurrent_state_nmse": result.rollback_recurrent_state_nmse,
         "rollback_convolution_state_pcc": result.rollback_convolution_state_pcc,

@@ -664,7 +664,8 @@ stdenvNoCC.mkDerivation {
     test -s invalid-mtp-trace-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
-    # Positive: the matched rollback profile exports deterministically.
+    # r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stability]
+    # Positive: the matched persistent recovery profile exports deterministically.
     mkdir -p mtp-rollback-profile-check
     cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-check/mtp-rollback-profile.ncl
     cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-check/mtp-rollback-contracts.ncl
@@ -672,6 +673,9 @@ stdenvNoCC.mkDerivation {
     nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-second.json
     cmp mtp-rollback-profile-first.json mtp-rollback-profile-second.json
     cmp mtp-rollback-profile-first.json "$out/share/qwen36/mtp-rollback-profile.json"
+    grep -F '"schema_version": 2' mtp-rollback-profile-first.json
+    grep -F '"recovery_execution_mode": "persistent-traced"' mtp-rollback-profile-first.json
+    grep -F '"required_process_trace_capture_count": 1' mtp-rollback-profile-first.json
     grep -F '"snapshot_row_count": 2' mtp-rollback-profile-first.json
     grep -F '"maximum_snapshot_recovery_ratio": 0.8' mtp-rollback-profile-first.json
     grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-rollback-profile-first.json
@@ -687,6 +691,16 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-mtp-rollback-profile.log
+
+    # Negative: more than one trace capture must fail the stability contract.
+    cp ${./fixtures/invalid-mtp-recovery-stability-profile.ncl} \
+      mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl
+    if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl \
+        > invalid-mtp-recovery-stability-profile.json 2> invalid-mtp-recovery-stability-profile.log; then
+      echo "invalid MTP recovery stability profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-recovery-stability-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
     # Positive: component policy exports deterministically and binds authority.

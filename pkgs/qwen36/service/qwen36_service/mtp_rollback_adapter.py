@@ -1,6 +1,7 @@
 """Device-resident MTP K/V rollback for the diagnostic Qwen probe."""
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 
 from __future__ import annotations
 
@@ -16,7 +17,9 @@ from models.tt_transformers.tt.common import copy_host_to_device
 from .mtp_rollback_core import (
     EXPECTED_COMMITTED_ADVANCE_COUNT,
     EXPECTED_SNAPSHOT_ROW_COUNT,
+    PERSISTENT_TRACED_RECOVERY,
 )
+from .mtp_trace_adapter import TracedMtpDraftAdapter
 
 PROBE_BATCH_SIZE = 1
 EXPECTED_CACHE_TENSOR_COUNT = 4
@@ -48,6 +51,10 @@ class MtpRecoveryResult:
 
     route: str
     recovery_seconds: float
+    queue_drain_seconds: float
+    recovery_execution_mode: str
+    process_trace_capture_count: int
+    trace_binding_valid: bool
     state: MtpRecoveryState
     snapshot_row_count: int
     committed_advance_count: int
@@ -186,6 +193,7 @@ class MtpRollbackContext:
 def recover_from_snapshot(
     *,
     owner: Any,
+    trace_adapter: TracedMtpDraftAdapter,
     context: MtpRollbackContext,
     draft_token_ids: tuple[int, ...],
     accepted_prefix_length: int,
@@ -198,57 +206,50 @@ def recover_from_snapshot(
         accepted_prefix_length=accepted_prefix_length,
         committed_token_id=committed_token_id,
     )
+    queue_drain_seconds = _drain_device(owner)
     recovery_started = time.monotonic()
-    temporary_feedback = None
-    next_feedback = None
     try:
         context.restore_rejected_rows(accepted_prefix_length)
         current_feedback, represented_prefix = context.feedback_for_prefix(
             accepted_prefix_length
         )
-        for step in range(represented_prefix, accepted_prefix_length):
-            _next_token, produced_feedback, _selection_seconds = owner._draft_step(
-                draft_token_ids[step],
-                current_feedback,
-                context.start_position + step,
-                selector_mode=owner._rollback_selector_mode,
-            )
-            if temporary_feedback is not None:
-                ttnn.deallocate(temporary_feedback)
-            temporary_feedback = produced_feedback
-            current_feedback = produced_feedback
-        next_draft_token_id, next_feedback, _selection_seconds = owner._draft_step(
+        token_inputs = (
+            *draft_token_ids[represented_prefix:accepted_prefix_length],
             committed_token_id,
-            current_feedback,
-            context.start_position + accepted_prefix_length,
-            selector_mode=owner._rollback_selector_mode,
         )
+        replay = trace_adapter.replay_token_inputs(
+            token_inputs=token_inputs,
+            initial_feedback=current_feedback,
+            start_position=context.start_position + represented_prefix,
+        )
+        ttnn.synchronize_device(owner.mesh)
         recovery_seconds = time.monotonic() - recovery_started
         _validate_duration(recovery_seconds)
         state = _recovery_state(
             owner=owner,
-            next_draft_token_id=next_draft_token_id,
-            feedback=next_feedback,
+            next_draft_token_id=replay.token_ids[-1],
+            feedback=replay.feedback,
             stop_position=context.start_position + accepted_prefix_length + 1,
         )
         return MtpRecoveryResult(
             route="snapshot",
             recovery_seconds=recovery_seconds,
+            queue_drain_seconds=queue_drain_seconds,
+            recovery_execution_mode=PERSISTENT_TRACED_RECOVERY,
+            process_trace_capture_count=trace_adapter.trace_capture_count,
+            trace_binding_valid=replay.trace_binding_valid,
             state=state,
             snapshot_row_count=EXPECTED_SNAPSHOT_ROW_COUNT,
             committed_advance_count=EXPECTED_COMMITTED_ADVANCE_COUNT,
         )
     finally:
-        if next_feedback is not None:
-            ttnn.deallocate(next_feedback)
-        if temporary_feedback is not None:
-            ttnn.deallocate(temporary_feedback)
         context.close()
 
 
 def recover_from_reprefill(
     *,
     owner: Any,
+    trace_adapter: TracedMtpDraftAdapter,
     prompt_tokens: torch.Tensor,
     target_hidden: Any,
     anchor_token_id: int,
@@ -264,9 +265,9 @@ def recover_from_reprefill(
         accepted_prefix_length=accepted_prefix_length,
         committed_token_id=committed_token_id,
     )
+    queue_drain_seconds = _drain_device(owner)
     recovery_started = time.monotonic()
     feedback = None
-    next_feedback = None
     try:
         first_draft, feedback, _selection_seconds = owner._mtp_prefill(
             prompt_tokens,
@@ -277,49 +278,44 @@ def recover_from_reprefill(
         )
         if first_draft != draft_token_ids[0]:
             raise MtpRollbackAdapterError("MTP re-prefill changed the first draft")
-        current_feedback = feedback
+        token_inputs = (
+            *draft_token_ids[:accepted_prefix_length],
+            committed_token_id,
+        )
+        replay = trace_adapter.replay_token_inputs(
+            token_inputs=token_inputs,
+            initial_feedback=feedback,
+            start_position=prompt_length,
+        )
         for step in range(accepted_prefix_length):
-            reproduced_token, produced_feedback, _selection_seconds = owner._draft_step(
-                draft_token_ids[step],
-                current_feedback,
-                prompt_length + step,
-                selector_mode=owner._rollback_selector_mode,
-            )
             expected_next = (
                 draft_token_ids[step + 1] if step + 1 < len(draft_token_ids) else None
             )
-            if expected_next is not None and reproduced_token != expected_next:
-                ttnn.deallocate(produced_feedback)
+            if expected_next is not None and replay.token_ids[step] != expected_next:
                 raise MtpRollbackAdapterError(
                     "MTP re-prefill changed an accepted draft"
                 )
-            ttnn.deallocate(current_feedback)
-            current_feedback = produced_feedback
-            feedback = produced_feedback
-        next_draft_token_id, next_feedback, _selection_seconds = owner._draft_step(
-            committed_token_id,
-            current_feedback,
-            prompt_length + accepted_prefix_length,
-            selector_mode=owner._rollback_selector_mode,
-        )
+        ttnn.synchronize_device(owner.mesh)
         recovery_seconds = time.monotonic() - recovery_started
         _validate_duration(recovery_seconds)
         state = _recovery_state(
             owner=owner,
-            next_draft_token_id=next_draft_token_id,
-            feedback=next_feedback,
+            next_draft_token_id=replay.token_ids[-1],
+            feedback=replay.feedback,
             stop_position=prompt_length + accepted_prefix_length + 1,
         )
         return MtpRecoveryResult(
             route="reprefill",
             recovery_seconds=recovery_seconds,
+            queue_drain_seconds=queue_drain_seconds,
+            recovery_execution_mode=PERSISTENT_TRACED_RECOVERY,
+            process_trace_capture_count=trace_adapter.trace_capture_count,
+            trace_binding_valid=replay.trace_binding_valid,
             state=state,
             snapshot_row_count=0,
             committed_advance_count=EXPECTED_COMMITTED_ADVANCE_COUNT,
         )
     finally:
-        if next_feedback is not None:
-            ttnn.deallocate(next_feedback)
         if feedback is not None:
             ttnn.deallocate(feedback)
 
@@ -345,6 +341,14 @@ def recovery_state_components_equal(
 def recovery_states_equal(left: MtpRecoveryState, right: MtpRecoveryState) -> bool:
     """Compare complete bounded continuation state exactly."""
     return all(recovery_state_components_equal(left, right))
+
+
+def _drain_device(owner: Any) -> float:
+    drain_started = time.monotonic()
+    ttnn.synchronize_device(owner.mesh)
+    drain_seconds = time.monotonic() - drain_started
+    _validate_duration(drain_seconds)
+    return drain_seconds
 
 
 def _recovery_state(

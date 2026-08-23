@@ -455,6 +455,16 @@ Evidence:
 - receipt BLAKE3: `ea0b1d77b8c6be61a566778862a12e1faa620a597ec7cad1101a01efee929921`
 - `cairn/archive/2026-08-22-reduce-qwen38-mtp-rollback-cost/evidence/physical-result.md`
 
+### Persistent MTP recovery trace candidate
+
+The version-two rollback control keeps one fixed-shape MTP trace and its buffers for the loaded process. It uses this trace for draft replay, accepted-prefix replay, and committed-token advance.
+
+The control captures the trace during discarded warmup. Measured roots must report capture count one and one exact binding identity. Both recovery routes use explicit device synchronization before host-wall timing.
+
+The control retains the five prompts and three `reprefill,snapshot,snapshot,reprefill` blocks. It does not remove outliers or weaken the `1.25` stability bound.
+
+Device-free policy, core, and package checks pass. No version-two physical result exists. The candidate cannot change production behavior without matched physical evidence.
+
 ### Decode component replay diagnostic
 
 The package provides `qwen36-p150x2-decode-component-probe`. It captures coherent component traces around real package-selected layers. It measures three GDN mixers, three MLPs, three full-attention mixers, embedding, LM-head reduction, the full decode trace, synchronized input update, and bounded winner readback.

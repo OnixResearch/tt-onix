@@ -1,6 +1,8 @@
-# Typed fail-closed policy for matched MTP K/V rollback.
-let configured_schema_version = 1 in
+# Typed fail-closed policy for matched persistent MTP recovery.
+let configured_schema_version = 2 in
 let configured_pcie_device_ids = [0, 1] in
+let configured_recovery_execution_mode = "persistent-traced" in
+let configured_process_trace_capture_count = 1 in
 let configured_draft_token_count = 3 in
 let configured_minimum_prompt_count = 5 in
 let configured_route_block_count = 3 in
@@ -54,6 +56,8 @@ let ProfileC = {
   diagnostic_only | ExactC true,
   identities | IdentityClosedC | IdentityC,
   expected_pcie_device_ids | ExactC configured_pcie_device_ids,
+  recovery_execution_mode | ExactC configured_recovery_execution_mode,
+  required_process_trace_capture_count | ExactC configured_process_trace_capture_count,
   draft_token_count | ExactC configured_draft_token_count,
   minimum_prompt_count | ExactC configured_minimum_prompt_count,
   route_block_count | ExactC configured_route_block_count,
@@ -72,6 +76,8 @@ let ProfileClosedC = ClosedRecordC [
   "diagnostic_only",
   "identities",
   "expected_pcie_device_ids",
+  "recovery_execution_mode",
+  "required_process_trace_capture_count",
   "draft_token_count",
   "minimum_prompt_count",
   "route_block_count",

@@ -1,6 +1,7 @@
 """TTNN trace owner for one fixed-shape Qwen MTP draft step."""
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_draft_trace]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ TRACE_BLOCKING_REPLAY = True
 EXPECTED_DEVICE_INPUT_COUNT = 4
 MUTABLE_DEVICE_INPUT_COUNT = 3
 EXPECTED_DECODE_STEP_COUNT = 2
+MAXIMUM_CONTROLLED_STEP_COUNT = 4
 MINIMUM_TOKEN_ID = 0
 MINIMUM_POSITION = 0
 ZERO_DURATION_SECONDS = 0.0
@@ -42,6 +44,16 @@ class MtpTraceReplayResult:
     mtp_kv_prefix_valid: bool
 
 
+@dataclass(frozen=True)
+class MtpControlledReplayResult:
+    """One controlled token-input sequence through an existing trace."""
+
+    token_ids: tuple[int, ...]
+    feedback: Any
+    binding: MtpTraceBinding
+    trace_binding_valid: bool
+
+
 class TracedMtpDraftAdapter:
     """Own one short-lived trace with stable MTP draft inputs and outputs."""
 
@@ -50,6 +62,7 @@ class TracedMtpDraftAdapter:
         *,
         owner: Any,
         maximum_trace_capture_seconds: float,
+        persistent: bool = False,
     ) -> None:
         if (
             not math.isfinite(maximum_trace_capture_seconds)
@@ -61,6 +74,7 @@ class TracedMtpDraftAdapter:
         self.decode_adapter = owner.decode_adapter
         self.mesh = owner.mesh
         self.maximum_trace_capture_seconds = maximum_trace_capture_seconds
+        self._persistent = persistent
         self._mesh_reader = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
         self._trace_id: Any | None = None
         self._token_buffer: Any | None = None
@@ -71,6 +85,10 @@ class TracedMtpDraftAdapter:
         self._trace_indices: Any | None = None
         self._trace_values: Any | None = None
         self._expected_binding: MtpTraceBinding | None = None
+        self._trace_capture_count = 0
+        self._trace_capture_seconds = ZERO_DURATION_SECONDS
+        self._capture_idempotence_valid = True
+        self._mtp_kv_prefix_valid = True
         self._closed = False
 
     def run(
@@ -92,16 +110,30 @@ class TracedMtpDraftAdapter:
         if start_position + step_count > self.model.args.max_seq_len:
             raise MtpTraceAdapterError("MTP trace exceeds the sequence bound")
 
-        self._allocate_inputs(
-            token=initial_token,
-            position=start_position,
-            feedback=initial_feedback,
-        )
-        capture_token, capture_seconds, capture_exact, cache_exact = self._capture(
-            token=initial_token,
-            position=start_position,
-            feedback=initial_feedback,
-        )
+        captured_now = False
+        capture_token: int | None = None
+        capture_seconds = ZERO_DURATION_SECONDS
+        if self._trace_id is None:
+            self._allocate_inputs(
+                token=initial_token,
+                position=start_position,
+                feedback=initial_feedback,
+            )
+            capture_token, capture_seconds, capture_exact, cache_exact = self._capture(
+                token=initial_token,
+                position=start_position,
+                feedback=initial_feedback,
+            )
+            self._trace_capture_count += 1
+            if self._trace_capture_count != 1:
+                self.close()
+                raise MtpTraceAdapterError("MTP trace capture count changed")
+            self._trace_capture_seconds = capture_seconds
+            self._capture_idempotence_valid = capture_exact
+            self._mtp_kv_prefix_valid = cache_exact
+            captured_now = True
+        else:
+            self._require_stable_binding("before-root-replay")
         assert self._expected_binding is not None
 
         tokens: list[int] = []
@@ -134,8 +166,8 @@ class TracedMtpDraftAdapter:
                 selection_seconds += time.monotonic() - selection_started
                 self._validate_token(current_token)
                 self._require_stable_binding("after-replay")
-                if step == 0 and current_token != capture_token:
-                    capture_exact = False
+                if captured_now and step == 0 and current_token != capture_token:
+                    self._capture_idempotence_valid = False
                 tokens.append(current_token)
                 assert self._trace_feedback is not None
                 current_feedback = self._trace_feedback
@@ -160,11 +192,80 @@ class TracedMtpDraftAdapter:
                 draft_selection_seconds=selection_seconds,
                 binding=self._expected_binding,
                 trace_binding_valid=True,
-                capture_idempotence_valid=capture_exact,
-                mtp_kv_prefix_valid=cache_exact,
+                capture_idempotence_valid=self._capture_idempotence_valid,
+                mtp_kv_prefix_valid=self._mtp_kv_prefix_valid,
             )
-        finally:
+        except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
             self.close()
+            raise
+        finally:
+            if not self._persistent:
+                self.close()
+
+    @property
+    def trace_capture_count(self) -> int:
+        return self._trace_capture_count
+
+    @property
+    def trace_capture_seconds(self) -> float:
+        return self._trace_capture_seconds
+
+    def replay_token_inputs(
+        self,
+        *,
+        token_inputs: tuple[int, ...],
+        initial_feedback: Any,
+        start_position: int,
+    ) -> MtpControlledReplayResult:
+        """Replay supplied token inputs through one existing persistent trace."""
+        self._require_open()
+        if not self._persistent:
+            raise MtpTraceAdapterError("controlled MTP replay requires persistence")
+        if self._trace_id is None or self._expected_binding is None:
+            raise MtpTraceAdapterError("persistent MTP trace is not captured")
+        if not token_inputs or len(token_inputs) > MAXIMUM_CONTROLLED_STEP_COUNT:
+            raise MtpTraceAdapterError("controlled MTP replay width is invalid")
+        if start_position < MINIMUM_POSITION:
+            raise MtpTraceAdapterError("controlled MTP replay position is negative")
+        if start_position + len(token_inputs) > self.model.args.max_seq_len:
+            raise MtpTraceAdapterError("controlled MTP replay exceeds sequence bound")
+
+        output_tokens: list[int] = []
+        current_feedback = initial_feedback
+        try:
+            for offset, token in enumerate(token_inputs):
+                self._validate_token(token)
+                self._update_inputs(token=token, position=start_position + offset)
+                assert self._feedback_buffer is not None
+                ttnn.copy(current_feedback, self._feedback_buffer)
+                self._require_stable_binding("before-controlled-replay")
+                ttnn.execute_trace(
+                    self.mesh,
+                    self._trace_id,
+                    cq_id=TRACE_COMMAND_QUEUE_ID,
+                    blocking=TRACE_BLOCKING_REPLAY,
+                )
+                ttnn.synchronize_device(self.mesh)
+                assert self._trace_indices is not None
+                assert self._trace_values is not None
+                output_token = self.decode_adapter._read_global_winner(
+                    self._trace_indices,
+                    self._trace_values,
+                )
+                self._validate_token(output_token)
+                self._require_stable_binding("after-controlled-replay")
+                output_tokens.append(output_token)
+                assert self._trace_feedback is not None
+                current_feedback = self._trace_feedback
+            return MtpControlledReplayResult(
+                token_ids=tuple(output_tokens),
+                feedback=current_feedback,
+                binding=self._expected_binding,
+                trace_binding_valid=True,
+            )
+        except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+            self.close()
+            raise
 
     def _allocate_inputs(self, *, token: int, position: int, feedback: Any) -> None:
         try:

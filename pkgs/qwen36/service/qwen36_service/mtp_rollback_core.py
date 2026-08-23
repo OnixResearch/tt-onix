@@ -1,6 +1,7 @@
 """Pure policy and matched evidence evaluation for MTP K/V rollback."""
 
 # r[impl tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+# r[impl tenstorrent.qwen38_p150x2.mtp_recovery_stability]
 
 from __future__ import annotations
 
@@ -23,9 +24,11 @@ from .mtp_drafter_core import (
     accepted_prefix_length,
 )
 
-PROFILE_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
 REPREFILL_RECOVERY = "reprefill"
 SNAPSHOT_RECOVERY = "snapshot"
+PERSISTENT_TRACED_RECOVERY = "persistent-traced"
+EXPECTED_PROCESS_TRACE_CAPTURE_COUNT = 1
 ROUTE_BLOCK = (
     REPREFILL_RECOVERY,
     SNAPSHOT_RECOVERY,
@@ -58,6 +61,8 @@ class MtpRollbackProfile:
     model_source_revision: str
     tokenizer_revision: str
     expected_pcie_device_ids: tuple[int, ...]
+    recovery_execution_mode: str
+    required_process_trace_capture_count: int
     draft_token_count: int
     minimum_prompt_count: int
     route_block_count: int
@@ -81,6 +86,8 @@ class MtpRollbackProfile:
                 "diagnostic_only",
                 "identities",
                 "expected_pcie_device_ids",
+                "recovery_execution_mode",
+                "required_process_trace_capture_count",
                 "draft_token_count",
                 "minimum_prompt_count",
                 "route_block_count",
@@ -135,6 +142,13 @@ class MtpRollbackProfile:
                 source["expected_pcie_device_ids"],
                 "expected_pcie_device_ids",
             ),
+            recovery_execution_mode=_require_string(
+                source["recovery_execution_mode"], "recovery_execution_mode"
+            ),
+            required_process_trace_capture_count=_require_positive_int(
+                source["required_process_trace_capture_count"],
+                "required_process_trace_capture_count",
+            ),
             draft_token_count=_require_positive_int(
                 source["draft_token_count"], "draft_token_count"
             ),
@@ -177,6 +191,13 @@ class MtpRollbackProfile:
             raise MtpRollbackPolicyError(
                 "MTP rollback control requires devices 0 and 1"
             )
+        if profile.recovery_execution_mode != PERSISTENT_TRACED_RECOVERY:
+            raise MtpRollbackPolicyError("MTP recovery must use a persistent trace")
+        if (
+            profile.required_process_trace_capture_count
+            != EXPECTED_PROCESS_TRACE_CAPTURE_COUNT
+        ):
+            raise MtpRollbackPolicyError("MTP recovery must capture one process trace")
         if profile.draft_token_count != EXPECTED_DRAFT_TOKEN_COUNT:
             raise MtpRollbackPolicyError("MTP rollback control requires three drafts")
         if profile.minimum_prompt_count != EXPECTED_MINIMUM_PROMPT_COUNT:
@@ -229,6 +250,10 @@ class MtpRollbackSample:
     committed_token_id: int
     next_draft_token_id: int
     recovery_seconds: float
+    recovery_execution_mode: str
+    process_trace_capture_count: int
+    trace_binding_identity: str
+    trace_binding_valid: bool
     snapshot_row_count: int
     committed_advance_count: int
     next_draft_valid: bool
@@ -310,6 +335,17 @@ def evaluate_mtp_rollback(
             or sample.recovery_seconds <= ZERO_DURATION_SECONDS
         ):
             _append_once(reasons, f"{label}-duration")
+        if sample.recovery_execution_mode != profile.recovery_execution_mode:
+            _append_once(reasons, f"{label}-recovery-execution-mode")
+        if (
+            sample.process_trace_capture_count
+            != profile.required_process_trace_capture_count
+        ):
+            _append_once(reasons, f"{label}-process-trace-capture-count")
+        if not sample.trace_binding_identity:
+            _append_once(reasons, f"{label}-trace-binding-identity")
+        if not sample.trace_binding_valid:
+            _append_once(reasons, f"{label}-trace-binding")
         expected_rows = (
             profile.snapshot_row_count if sample.route == SNAPSHOT_RECOVERY else 0
         )
@@ -327,6 +363,12 @@ def evaluate_mtp_rollback(
             _append_once(reasons, f"{label}-target-output")
         if not sample.target_rollback_valid:
             _append_once(reasons, f"{label}-target-rollback")
+
+    binding_identities = {
+        sample.trace_binding_identity for sample in ordered if sample.trace_binding_identity
+    }
+    if len(binding_identities) != 1:
+        _append_once(reasons, "process-trace-binding-parity")
 
     expected_prompts = tuple(
         range(FIRST_PROMPT_INDEX, FIRST_PROMPT_INDEX + profile.minimum_prompt_count)
@@ -354,6 +396,8 @@ def evaluate_mtp_rollback(
 
         reference = roots[0]
         for sample in roots[1:]:
+            if sample.trace_binding_identity != reference.trace_binding_identity:
+                _append_once(reasons, f"prompt-{prompt_index}-trace-binding-parity")
             if (
                 sample.draft_token_ids != reference.draft_token_ids
                 or sample.target_token_ids != reference.target_token_ids
@@ -411,7 +455,7 @@ def evaluate_mtp_rollback(
     rollback_valid = not reasons
     blockers = ["mtp-admission-missing", "production-admission-missing"]
     if not rollback_valid:
-        blockers.insert(0, "mtp-snapshot-rollback-invalid")
+        blockers.insert(0, "mtp-recovery-stability-invalid")
     return MtpRollbackDecision(
         rollback_valid=rollback_valid,
         snapshot_rollback_selected=rollback_valid,
