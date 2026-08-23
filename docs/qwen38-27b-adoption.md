@@ -473,6 +473,14 @@ Evidence:
 
 - `cairn/archive/2026-08-22-isolate-qwen38-mtp-recovery-jitter/evidence/physical-result.md`
 
+### Staged MTP recovery localization
+
+The diagnostic package adds `qwen36-p150x2-mtp-recovery-stage`. It runs one prompt and one route through the unchanged full recovery path.
+
+An atomic progress ledger records the last completed trace, replay, recovery, verification, cleanup, or receipt boundary. Ledger writes stay outside measured timing windows.
+
+The staged command is admission-ineligible. It cannot select MTP, traced target decode, or production behavior.
+
 ### Decode component replay diagnostic
 
 The package provides `qwen36-p150x2-decode-component-probe`. It captures coherent component traces around real package-selected layers. It measures three GDN mixers, three MLPs, three full-attention mixers, embedding, LM-head reduction, the full decode trace, synchronized input update, and bounded winner readback.

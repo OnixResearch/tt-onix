@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from models.tt_transformers.tt.ccl import tt_all_gather
 from models.tt_transformers.tt.common import Mode
 from safetensors import safe_open
 
+from . import mtp_stage_core as stage_core
 from .decode_adapter import TracedDecodeAdapter
 from .mtp_drafter_core import (
     EXPECTED_MTP_WEIGHT_SHAPES,
@@ -266,6 +268,7 @@ class MtpDrafterAdapter:
         selector_mode: str = FULL_LOGIT_READBACK,
         draft_execution_mode: str = EAGER_DRAFT,
         mtp_recovery_mode: str | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> MtpDrafterPilotResult:
         """Measure one complete draft and native target-verification round."""
         if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
@@ -304,12 +307,15 @@ class MtpDrafterAdapter:
             prompt_tokens=prompt_length,
             generation_tokens=TARGET_VERIFICATION_WIDTH,
         )
+        _report(progress, stage_core.TARGET_PREFILL_START)
         target_hidden, anchor = self._target_prefill_hidden(
             prompt_tokens,
             page_table,
             prompt_length,
         )
+        _report(progress, stage_core.TARGET_PREFILL_COMPLETE)
         try:
+            _report(progress, stage_core.DRAFT_START)
             draft_result = self._draft(
                 prompt_tokens,
                 target_hidden,
@@ -319,7 +325,9 @@ class MtpDrafterAdapter:
                 draft_execution_mode=draft_execution_mode,
                 preserve_rollback_context=(mtp_recovery_mode == SNAPSHOT_RECOVERY),
                 persistent_recovery_trace=(mtp_recovery_mode is not None),
+                progress=progress,
             )
+            _report(progress, stage_core.DRAFT_COMPLETE)
         finally:
             ttnn.deallocate(target_hidden)
         rollback_context = draft_result.rollback_context
@@ -329,10 +337,12 @@ class MtpDrafterAdapter:
                 rollback_context.close()
             raise MtpDrafterAdapterError("persistent MTP recovery trace is missing")
 
+        _report(progress, stage_core.TARGET_TRACE_START)
         eligibility = self.decode_adapter.ensure_trace(
             token=anchor,
             position=prompt_length,
         )
+        _report(progress, stage_core.TARGET_TRACE_COMPLETE)
         if not eligibility.eligible:
             if rollback_context is not None:
                 rollback_context.close()
@@ -342,6 +352,7 @@ class MtpDrafterAdapter:
         sequential_inputs = []
         sequential_outputs = []
         current = anchor
+        _report(progress, stage_core.TARGET_SEQUENTIAL_START)
         target_started = time.monotonic()
         try:
             for offset in range(TARGET_VERIFICATION_WIDTH):
@@ -352,6 +363,7 @@ class MtpDrafterAdapter:
                 )
                 sequential_outputs.append(current)
             target_sequential_seconds = time.monotonic() - target_started
+            _report(progress, stage_core.TARGET_SEQUENTIAL_COMPLETE)
         except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
             if rollback_context is not None:
                 rollback_context.close()
@@ -360,6 +372,7 @@ class MtpDrafterAdapter:
             # The native verifier allocates width-specific inputs and snapshots.
             # Release the parked sequential trace before those allocations.
             self.decode_adapter._release_trace()
+            _report(progress, stage_core.TARGET_TRACE_RELEASE_COMPLETE)
         if (
             not math.isfinite(target_sequential_seconds)
             or target_sequential_seconds <= 0
@@ -386,6 +399,7 @@ class MtpDrafterAdapter:
                 draft_token_ids=draft_result.token_ids,
                 accepted_prefix_length=accepted,
                 committed_token_id=committed_token,
+                progress=progress,
             )
             rollback_context = None
         elif rollback_context is not None:
@@ -394,6 +408,7 @@ class MtpDrafterAdapter:
         expected_state = None
         expected_kv = None
         if rollback_applied:
+            _report(progress, stage_core.TARGET_REFERENCE_STATE_START)
             expected_state, expected_kv = self._sequential_prefix_snapshots(
                 prompt_tokens=prompt_tokens,
                 page_table=page_table,
@@ -402,12 +417,15 @@ class MtpDrafterAdapter:
                 input_token_ids=tuple(sequential_inputs),
                 committed_width=committed_width,
             )
+            _report(progress, stage_core.TARGET_REFERENCE_STATE_COMPLETE)
 
+        _report(progress, stage_core.VERIFICATION_PREFILL_START)
         verification_hidden, verification_anchor = self._target_prefill_hidden(
             prompt_tokens,
             page_table,
             prompt_length,
         )
+        _report(progress, stage_core.VERIFICATION_PREFILL_COMPLETE)
         try:
             if verification_anchor != anchor:
                 raise MtpDrafterAdapterError(
@@ -425,15 +443,19 @@ class MtpDrafterAdapter:
                     draft_token_ids=draft_result.token_ids,
                     accepted_prefix_length=accepted,
                     committed_token_id=committed_token,
+                    progress=progress,
                 )
+            _report(progress, stage_core.NATIVE_VERIFIER_START)
             verification = self._native_verifier.run(
                 tuple(sequential_inputs),
                 start_position=prompt_length,
                 page_table=page_table,
                 committed_width=committed_width,
             )
+            _report(progress, stage_core.NATIVE_VERIFIER_COMPLETE)
             target_output_valid = verification.token_ids == target_outputs
             mtp_cache_reprefill_seconds = ZERO_DURATION_SECONDS
+            _report(progress, stage_core.TARGET_STATE_COMPARE_START)
             if rollback_applied:
                 assert expected_state is not None
                 assert expected_kv is not None
@@ -494,11 +516,13 @@ class MtpDrafterAdapter:
                     if recovery_result is None:
                         raise MtpDrafterAdapterError("MTP recovery produced no result")
                     mtp_cache_reprefill_seconds = recovery_result.recovery_seconds
+            _report(progress, stage_core.TARGET_STATE_COMPARE_COMPLETE)
         finally:
             ttnn.deallocate(verification_hidden)
             if rollback_context is not None:
                 rollback_context.close()
 
+        _report(progress, stage_core.PILOT_COMPLETE)
         return MtpDrafterPilotResult(
             anchor_token_id=anchor,
             draft_token_ids=draft_result.token_ids,
@@ -736,6 +760,7 @@ class MtpDrafterAdapter:
         draft_execution_mode: str,
         preserve_rollback_context: bool = False,
         persistent_recovery_trace: bool = False,
+        progress: Callable[[str], None] | None = None,
     ) -> MtpDraftRunResult:
         if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
             raise MtpDrafterAdapterError("MTP draft execution mode is unsupported")
@@ -753,6 +778,7 @@ class MtpDrafterAdapter:
                 "persistent recovery requires traced rollback policy"
             )
 
+        _report(progress, stage_core.MTP_PREFILL_START)
         prefill_started = time.monotonic()
         first_draft, feedback, first_selection_seconds = self._mtp_prefill(
             prompt_tokens,
@@ -762,21 +788,22 @@ class MtpDrafterAdapter:
             selector_mode=selector_mode,
         )
         mtp_prefill_seconds = time.monotonic() - prefill_started
+        _report(progress, stage_core.MTP_PREFILL_COMPLETE)
         drafts = [first_draft]
         trace_capture_seconds = ZERO_DURATION_SECONDS
         trace_binding = None
         trace_binding_valid = True
         capture_idempotence_valid = True
         mtp_kv_prefix_valid = True
-        rollback_context = (
-            MtpRollbackContext.capture(
+        rollback_context = None
+        if preserve_rollback_context:
+            _report(progress, stage_core.ROLLBACK_CONTEXT_START)
+            rollback_context = MtpRollbackContext.capture(
                 owner=self,
                 start_position=prompt_length,
                 initial_feedback=feedback,
             )
-            if preserve_rollback_context
-            else None
-        )
+            _report(progress, stage_core.ROLLBACK_CONTEXT_COMPLETE)
 
         try:
             if draft_execution_mode == TRACED_DRAFT:
@@ -799,13 +826,16 @@ class MtpDrafterAdapter:
                         ),
                     )
                 try:
+                    _report(progress, stage_core.TRACE_RUN_START)
                     replay = trace_adapter.run(
                         initial_token=first_draft,
                         initial_feedback=feedback,
                         start_position=prompt_length,
                         step_count=(self.profile.draft_token_count - PROBE_BATCH_SIZE),
                         rollback_context=rollback_context,
+                        progress=progress,
                     )
+                    _report(progress, stage_core.TRACE_RUN_COMPLETE)
                 finally:
                     ttnn.deallocate(feedback)
                 drafts.extend(replay.token_ids)
@@ -1175,6 +1205,11 @@ class MtpDrafterAdapter:
         if not MINIMUM_TOKEN_ID <= token < self.model.args.vocab_size:
             raise MtpDrafterAdapterError("MTP drafter token is outside the vocabulary")
         return token
+
+
+def _report(progress: Callable[[str], None] | None, stage: str) -> None:
+    if progress is not None:
+        progress(stage)
 
 
 def _deallocate_tensors(tensors: Any) -> None:

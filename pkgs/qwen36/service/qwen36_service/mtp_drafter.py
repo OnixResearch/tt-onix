@@ -9,6 +9,7 @@ import argparse
 import gc
 import json
 import os
+import time
 from pathlib import Path
 
 import torch
@@ -16,6 +17,7 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.model import Qwen36Model
 from transformers import AutoTokenizer
 
+from . import mtp_stage_core as stage_core
 from .decode_adapter import TracedDecodeAdapter
 from .decode_core import DecodePolicyError, DecodeProfile
 from .mtp_drafter_adapter import MtpDrafterAdapter, MtpDrafterPilotResult
@@ -69,17 +71,39 @@ PILOT_MEASUREMENT_MODE = "diagnostic-mtp-drafter-pilot"
 SELECTION_MEASUREMENT_MODE = "diagnostic-mtp-draft-selection"
 TRACE_MEASUREMENT_MODE = "diagnostic-mtp-draft-trace"
 ROLLBACK_MEASUREMENT_MODE = "diagnostic-mtp-kv-rollback"
+STAGE_MEASUREMENT_MODE = "diagnostic-mtp-recovery-stage"
 SMOKE_MODE = "smoke"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
 TRACE_MODE = "trace"
 ROLLBACK_MODE = "rollback"
+STAGE_MODE = "stage"
 VLLM_REFERENCE_REVISION = "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
 SGLANG_REFERENCE_REVISION = "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3"
 
 
 class MtpDrafterCommandError(RuntimeError):
     """The physical drafter command cannot produce trustworthy evidence."""
+
+
+class _MtpStageProgressWriter:
+    """Persist each pure stage transition with an atomic replacement."""
+
+    def __init__(self, *, path: Path, prompt_index: int, route: str) -> None:
+        self.path = path
+        self.started = time.monotonic()
+        self.progress = stage_core.new_mtp_stage_progress(
+            prompt_index=prompt_index,
+            route=route,
+        )
+
+    def record(self, stage: str) -> None:
+        self.progress = stage_core.advance_mtp_stage_progress(
+            self.progress,
+            stage=stage,
+            elapsed_seconds=time.monotonic() - self.started,
+        )
+        _replace_json(self.path, self.progress.to_mapping())
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,6 +125,7 @@ def parse_args() -> argparse.Namespace:
             SELECTION_MODE,
             TRACE_MODE,
             ROLLBACK_MODE,
+            STAGE_MODE,
         ),
         default=SMOKE_MODE,
     )
@@ -109,6 +134,12 @@ def parse_args() -> argparse.Namespace:
         choices=(FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1),
         default=FULL_LOGIT_READBACK,
     )
+    parser.add_argument("--progress-output")
+    parser.add_argument(
+        "--stage-route",
+        choices=(REPREFILL_RECOVERY, SNAPSHOT_RECOVERY),
+    )
+    parser.add_argument("--stage-prompt-index", type=int)
     return parser.parse_args()
 
 
@@ -129,6 +160,32 @@ def main() -> None:
         raise SystemExit("--output must not exist")
     if not output_path.parent.is_dir():
         raise SystemExit("--output parent directory does not exist")
+    progress_path = None
+    if args.mode == STAGE_MODE:
+        if args.progress_output is None:
+            raise SystemExit("--progress-output is required in stage mode")
+        if args.stage_route is None:
+            raise SystemExit("--stage-route is required in stage mode")
+        if args.stage_prompt_index is None:
+            raise SystemExit("--stage-prompt-index is required in stage mode")
+        progress_path = Path(args.progress_output).expanduser()
+        if not progress_path.is_absolute():
+            raise SystemExit("--progress-output must be absolute")
+        if progress_path.exists():
+            raise SystemExit("--progress-output must not exist")
+        if not progress_path.parent.is_dir():
+            raise SystemExit("--progress-output parent directory does not exist")
+        if progress_path.resolve() == output_path.resolve():
+            raise SystemExit("--progress-output and --output must differ")
+    elif any(
+        value is not None
+        for value in (
+            args.progress_output,
+            args.stage_route,
+            args.stage_prompt_index,
+        )
+    ):
+        raise SystemExit("stage arguments require stage mode")
 
     decode_profile = _load_decode_profile(decode_profile_path)
     drafter_profile = _load_drafter_profile(drafter_profile_path)
@@ -147,10 +204,10 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
-    if args.mode in (TRACE_MODE, ROLLBACK_MODE):
+    if args.mode in (TRACE_MODE, ROLLBACK_MODE, STAGE_MODE):
         if args.mtp_trace_profile is None:
             raise SystemExit(
-                "--mtp-trace-profile is required in trace or rollback mode"
+                "--mtp-trace-profile is required in trace, rollback, or stage mode"
             )
         trace_profile = _load_trace_profile(
             _existing_absolute_file(
@@ -161,9 +218,11 @@ def main() -> None:
         _require_trace_profile_match(drafter_profile, trace_profile)
     elif args.mtp_trace_profile is not None:
         raise SystemExit("--mtp-trace-profile requires trace or rollback mode")
-    if args.mode == ROLLBACK_MODE:
+    if args.mode in (ROLLBACK_MODE, STAGE_MODE):
         if args.mtp_rollback_profile is None:
-            raise SystemExit("--mtp-rollback-profile is required in rollback mode")
+            raise SystemExit(
+                "--mtp-rollback-profile is required in rollback or stage mode"
+            )
         rollback_profile = _load_rollback_profile(
             _existing_absolute_file(
                 args.mtp_rollback_profile,
@@ -171,8 +230,14 @@ def main() -> None:
             )
         )
         _require_rollback_profile_match(drafter_profile, rollback_profile)
+        if args.mode == STAGE_MODE and not (
+            stage_core.MINIMUM_PROMPT_INDEX
+            <= args.stage_prompt_index
+            <= len(rollback_profile.prompts)
+        ):
+            raise SystemExit("--stage-prompt-index is outside the rollback prompts")
     elif args.mtp_rollback_profile is not None:
-        raise SystemExit("--mtp-rollback-profile requires rollback mode")
+        raise SystemExit("--mtp-rollback-profile requires rollback or stage mode")
     if model_path.name != drafter_profile.checkpoint_revision:
         raise SystemExit("model path does not match the MTP drafter checkpoint")
     if decode_profile.authority_blake3 != drafter_profile.authority_blake3:
@@ -183,6 +248,18 @@ def main() -> None:
         raise SystemExit("decode and MTP drafter source identities differ")
     if decode_profile.tokenizer_revision != drafter_profile.tokenizer_revision:
         raise SystemExit("decode and MTP drafter tokenizer identities differ")
+
+    stage_writer = None
+    if args.mode == STAGE_MODE:
+        assert progress_path is not None
+        assert args.stage_prompt_index is not None
+        assert args.stage_route is not None
+        stage_writer = _MtpStageProgressWriter(
+            path=progress_path,
+            prompt_index=args.stage_prompt_index,
+            route=args.stage_route,
+        )
+        stage_writer.record(stage_core.COMMAND_START)
 
     os.environ["HF_MODEL"] = str(model_path)
     os.environ["TT_CACHE_PATH"] = str(model_path)
@@ -209,6 +286,7 @@ def main() -> None:
     selection_results = None
     trace_results = None
     rollback_results = None
+    stage_result = None
     cleanup_complete = False
     identity = MtpDrafterIdentity(
         runtime_identity=args.runtime_identity,
@@ -216,20 +294,24 @@ def main() -> None:
         model_identity=f"{MODEL_ALIAS}:{drafter_profile.checkpoint_revision}",
     )
     try:
+        _record_stage(stage_writer, stage_core.MESH_OPEN_START)
         mesh_device = ttnn.open_mesh_device(
             mesh_shape=ttnn.MeshShape(MESH_ROWS, MESH_COLUMNS),
             l1_small_size=L1_SMALL_SIZE_BYTES,
             num_command_queues=COMMAND_QUEUE_COUNT,
             trace_region_size=TRACE_REGION_SIZE_BYTES,
         )
+        _record_stage(stage_writer, stage_core.MESH_OPEN_COMPLETE)
         if mesh_device.get_num_devices() != len(EXPECTED_PCIE_DEVICE_IDS):
             raise MtpDrafterCommandError("P150x2 mesh did not open both devices")
         mesh_device.enable_program_cache()
+        _record_stage(stage_writer, stage_core.MODEL_LOAD_START)
         model = Qwen36Model.from_pretrained(
             mesh_device,
             max_batch_size=MAXIMUM_BATCH_SIZE,
             max_seq_len=decode_profile.maximum_sequence_length,
         )
+        _record_stage(stage_writer, stage_core.MODEL_LOAD_COMPLETE)
         if len(model.layers) != EXPECTED_LAYER_COUNT:
             raise MtpDrafterCommandError(
                 f"expected {EXPECTED_LAYER_COUNT} layers, got {len(model.layers)}"
@@ -240,6 +322,7 @@ def main() -> None:
             return_tensors="pt",
             add_special_tokens=True,
         ).input_ids.to(torch.int32)
+        _record_stage(stage_writer, stage_core.ADAPTER_CREATE_START)
         decode_adapter = TracedDecodeAdapter(
             model=model,
             profile=decode_profile,
@@ -257,6 +340,7 @@ def main() -> None:
             trace_profile=trace_profile,
             rollback_profile=rollback_profile,
         )
+        _record_stage(stage_writer, stage_core.ADAPTER_CREATE_COMPLETE)
         if args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
                 prompt_tokens,
@@ -342,7 +426,7 @@ def main() -> None:
                         ),
                     ))
             trace_results = tuple(measured)
-        else:
+        elif args.mode == ROLLBACK_MODE:
             assert trace_profile is not None
             assert rollback_profile is not None
             prompt_token_rows = tuple(
@@ -384,7 +468,31 @@ def main() -> None:
                         ),
                     ))
             rollback_results = tuple(measured)
+        else:
+            assert args.mode == STAGE_MODE
+            assert rollback_profile is not None
+            assert args.stage_prompt_index is not None
+            assert args.stage_route is not None
+            assert stage_writer is not None
+            prompt = rollback_profile.prompts[args.stage_prompt_index - 1]
+            stage_tokens = tokenizer(
+                prompt,
+                return_tensors="pt",
+                add_special_tokens=True,
+            ).input_ids.to(torch.int32)
+            stage_writer.record(stage_core.PILOT_START)
+            stage_result = adapter.run_pilot(
+                stage_tokens,
+                selector_mode=SHARD_LOCAL_TOP1,
+                draft_execution_mode=TRACED_DRAFT,
+                mtp_recovery_mode=args.stage_route,
+                progress=stage_writer.record,
+            )
+    except Exception:
+        _record_stage(stage_writer, stage_core.FAILURE_RECORDED)
+        raise
     finally:
+        _record_stage(stage_writer, stage_core.CLEANUP_START)
         if adapter is not None:
             adapter.close()
             adapter = None
@@ -404,6 +512,7 @@ def main() -> None:
         finally:
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
         cleanup_complete = True
+        _record_stage(stage_writer, stage_core.CLEANUP_COMPLETE)
 
     common_receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
@@ -668,7 +777,7 @@ def main() -> None:
                 "The control does not establish rejected-row overwrite or multi-round economics.",
             ],
         }
-    else:
+    elif args.mode == ROLLBACK_MODE:
         assert rollback_profile is not None
         expected_result_count = len(rollback_profile.prompts) * len(
             rollback_profile.route_schedule
@@ -806,7 +915,50 @@ def main() -> None:
                 "The control does not establish sustained multi-round economics.",
             ],
         }
+    else:
+        assert args.mode == STAGE_MODE
+        assert stage_result is not None
+        assert stage_writer is not None
+        assert progress_path is not None
+        assert args.stage_prompt_index is not None
+        assert args.stage_route is not None
+        receipt = {
+            **common_receipt,
+            "measurement_mode": STAGE_MEASUREMENT_MODE,
+            "smoke_only": True,
+            "warmup_discarded": False,
+            "selector_mode": SHARD_LOCAL_TOP1,
+            "draft_execution_mode": TRACED_DRAFT,
+            "prompt_index": args.stage_prompt_index,
+            "route": args.stage_route,
+            "sample": _pilot_result_mapping(
+                args.stage_prompt_index,
+                stage_result,
+                root_index=stage_core.MINIMUM_PROMPT_INDEX,
+                route=args.stage_route,
+            ),
+            "progress_output": str(progress_path),
+            "weight_shapes": {
+                name: list(shape)
+                for name, shape in sorted(stage_result.weight_shapes.items())
+            },
+            "mtp_selected": False,
+            "blockers": [
+                "single-stage-diagnostic",
+                "matched-roots-missing",
+                "production-admission-missing",
+            ],
+            "non_claims": [
+                "Stage completion does not establish timing stability.",
+                "One prompt and route do not establish rollback selection.",
+                "Staged evidence does not admit MTP or traced target decode.",
+            ],
+        }
+    _record_stage(stage_writer, stage_core.RECEIPT_WRITE_START)
+    if stage_writer is not None:
+        receipt["progress"] = stage_writer.progress.to_mapping()
     _write_receipt(output_path, receipt)
+    _record_stage(stage_writer, stage_core.COMPLETE)
     print(json.dumps(receipt, sort_keys=True))
 
 
@@ -992,6 +1144,25 @@ def _existing_absolute_file(value: str, name: str) -> Path:
     if not path.is_absolute() or not path.is_file():
         raise SystemExit(f"{name} must be an existing absolute file")
     return path
+
+
+def _record_stage(
+    writer: _MtpStageProgressWriter | None,
+    stage: str,
+) -> None:
+    if writer is not None:
+        writer.record(stage)
+
+
+def _replace_json(path: Path, value: dict[str, object]) -> None:
+    temporary_path = path.with_name(path.name + ".tmp")
+    temporary_path.unlink(missing_ok=True)
+    with temporary_path.open("x", encoding="utf-8") as output_file:
+        json.dump(value, output_file, indent=2, sort_keys=True)
+        output_file.write("\n")
+        output_file.flush()
+        os.fsync(output_file.fileno())
+    os.replace(temporary_path, path)
 
 
 def _write_receipt(path: Path, receipt: dict[str, object]) -> None:

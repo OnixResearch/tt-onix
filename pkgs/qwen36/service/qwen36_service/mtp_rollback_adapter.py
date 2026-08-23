@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,7 @@ import torch
 import ttnn
 from models.tt_transformers.tt.common import copy_host_to_device
 
+from . import mtp_stage_core as stage_core
 from .mtp_rollback_core import (
     EXPECTED_COMMITTED_ADVANCE_COUNT,
     EXPECTED_SNAPSHOT_ROW_COUNT,
@@ -198,6 +200,7 @@ def recover_from_snapshot(
     draft_token_ids: tuple[int, ...],
     accepted_prefix_length: int,
     committed_token_id: int,
+    progress: Callable[[str], None] | None = None,
 ) -> MtpRecoveryResult:
     """Restore rejected rows and advance one committed target token."""
     _validate_recovery_inputs(
@@ -206,10 +209,13 @@ def recover_from_snapshot(
         accepted_prefix_length=accepted_prefix_length,
         committed_token_id=committed_token_id,
     )
-    queue_drain_seconds = _drain_device(owner)
+    _report(progress, stage_core.RECOVERY_START)
+    queue_drain_seconds = _drain_device(owner, progress)
     recovery_started = time.monotonic()
     try:
+        _report(progress, stage_core.RECOVERY_RESTORE_START)
         context.restore_rejected_rows(accepted_prefix_length)
+        _report(progress, stage_core.RECOVERY_RESTORE_COMPLETE)
         current_feedback, represented_prefix = context.feedback_for_prefix(
             accepted_prefix_length
         )
@@ -221,16 +227,22 @@ def recover_from_snapshot(
             token_inputs=token_inputs,
             initial_feedback=current_feedback,
             start_position=context.start_position + represented_prefix,
+            progress=progress,
         )
+        _report(progress, stage_core.RECOVERY_SYNCHRONIZE_START)
         ttnn.synchronize_device(owner.mesh)
+        _report(progress, stage_core.RECOVERY_SYNCHRONIZE_COMPLETE)
         recovery_seconds = time.monotonic() - recovery_started
         _validate_duration(recovery_seconds)
+        _report(progress, stage_core.RECOVERY_STATE_READBACK_START)
         state = _recovery_state(
             owner=owner,
             next_draft_token_id=replay.token_ids[-1],
             feedback=replay.feedback,
             stop_position=context.start_position + accepted_prefix_length + 1,
         )
+        _report(progress, stage_core.RECOVERY_STATE_READBACK_COMPLETE)
+        _report(progress, stage_core.RECOVERY_COMPLETE)
         return MtpRecoveryResult(
             route="snapshot",
             recovery_seconds=recovery_seconds,
@@ -257,6 +269,7 @@ def recover_from_reprefill(
     draft_token_ids: tuple[int, ...],
     accepted_prefix_length: int,
     committed_token_id: int,
+    progress: Callable[[str], None] | None = None,
 ) -> MtpRecoveryResult:
     """Rebuild the prefix and advance one committed target token."""
     _validate_recovery_inputs(
@@ -265,10 +278,12 @@ def recover_from_reprefill(
         accepted_prefix_length=accepted_prefix_length,
         committed_token_id=committed_token_id,
     )
-    queue_drain_seconds = _drain_device(owner)
+    _report(progress, stage_core.RECOVERY_START)
+    queue_drain_seconds = _drain_device(owner, progress)
     recovery_started = time.monotonic()
     feedback = None
     try:
+        _report(progress, stage_core.RECOVERY_MTP_PREFILL_START)
         first_draft, feedback, _selection_seconds = owner._mtp_prefill(
             prompt_tokens,
             target_hidden,
@@ -276,6 +291,7 @@ def recover_from_reprefill(
             prompt_length,
             selector_mode=owner._rollback_selector_mode,
         )
+        _report(progress, stage_core.RECOVERY_MTP_PREFILL_COMPLETE)
         if first_draft != draft_token_ids[0]:
             raise MtpRollbackAdapterError("MTP re-prefill changed the first draft")
         token_inputs = (
@@ -286,6 +302,7 @@ def recover_from_reprefill(
             token_inputs=token_inputs,
             initial_feedback=feedback,
             start_position=prompt_length,
+            progress=progress,
         )
         for step in range(accepted_prefix_length):
             expected_next = (
@@ -295,15 +312,20 @@ def recover_from_reprefill(
                 raise MtpRollbackAdapterError(
                     "MTP re-prefill changed an accepted draft"
                 )
+        _report(progress, stage_core.RECOVERY_SYNCHRONIZE_START)
         ttnn.synchronize_device(owner.mesh)
+        _report(progress, stage_core.RECOVERY_SYNCHRONIZE_COMPLETE)
         recovery_seconds = time.monotonic() - recovery_started
         _validate_duration(recovery_seconds)
+        _report(progress, stage_core.RECOVERY_STATE_READBACK_START)
         state = _recovery_state(
             owner=owner,
             next_draft_token_id=replay.token_ids[-1],
             feedback=replay.feedback,
             stop_position=prompt_length + accepted_prefix_length + 1,
         )
+        _report(progress, stage_core.RECOVERY_STATE_READBACK_COMPLETE)
+        _report(progress, stage_core.RECOVERY_COMPLETE)
         return MtpRecoveryResult(
             route="reprefill",
             recovery_seconds=recovery_seconds,
@@ -318,6 +340,11 @@ def recover_from_reprefill(
     finally:
         if feedback is not None:
             ttnn.deallocate(feedback)
+
+
+def _report(progress: Callable[[str], None] | None, stage: str) -> None:
+    if progress is not None:
+        progress(stage)
 
 
 def recovery_state_components_equal(
@@ -343,10 +370,15 @@ def recovery_states_equal(left: MtpRecoveryState, right: MtpRecoveryState) -> bo
     return all(recovery_state_components_equal(left, right))
 
 
-def _drain_device(owner: Any) -> float:
+def _drain_device(
+    owner: Any,
+    progress: Callable[[str], None] | None,
+) -> float:
+    _report(progress, stage_core.RECOVERY_QUEUE_DRAIN_START)
     drain_started = time.monotonic()
     ttnn.synchronize_device(owner.mesh)
     drain_seconds = time.monotonic() - drain_started
+    _report(progress, stage_core.RECOVERY_QUEUE_DRAIN_COMPLETE)
     _validate_duration(drain_seconds)
     return drain_seconds
 

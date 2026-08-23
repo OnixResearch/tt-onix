@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +16,7 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
 from models.tt_transformers.tt.common import copy_host_to_device
 
+from . import mtp_stage_core as stage_core
 from .mtp_trace_core import MtpTraceBinding, validate_mtp_trace_binding
 
 TRACE_COMMAND_QUEUE_ID = 0
@@ -99,6 +101,7 @@ class TracedMtpDraftAdapter:
         start_position: int,
         step_count: int = EXPECTED_DECODE_STEP_COUNT,
         rollback_context: Any | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> MtpTraceReplayResult:
         """Capture once, replay each draft step, and return bounded winners."""
         self._require_open()
@@ -114,16 +117,20 @@ class TracedMtpDraftAdapter:
         capture_token: int | None = None
         capture_seconds = ZERO_DURATION_SECONDS
         if self._trace_id is None:
+            _report(progress, stage_core.TRACE_INPUT_ALLOCATION_START)
             self._allocate_inputs(
                 token=initial_token,
                 position=start_position,
                 feedback=initial_feedback,
             )
+            _report(progress, stage_core.TRACE_INPUT_ALLOCATION_COMPLETE)
+            _report(progress, stage_core.TRACE_CAPTURE_START)
             capture_token, capture_seconds, capture_exact, cache_exact = self._capture(
                 token=initial_token,
                 position=start_position,
                 feedback=initial_feedback,
             )
+            _report(progress, stage_core.TRACE_CAPTURE_COMPLETE)
             self._trace_capture_count += 1
             if self._trace_capture_count != 1:
                 self.close()
@@ -143,6 +150,10 @@ class TracedMtpDraftAdapter:
         replay_started = time.monotonic()
         try:
             for step in range(step_count):
+                _report(
+                    progress,
+                    stage_core.TRACE_DRAFT_REPLAY_STEP_START_STAGES[step],
+                )
                 position = start_position + step
                 self._update_inputs(token=current_token, position=position)
                 assert self._feedback_buffer is not None
@@ -173,6 +184,10 @@ class TracedMtpDraftAdapter:
                 current_feedback = self._trace_feedback
                 if rollback_context is not None:
                     rollback_context.record_prefix_feedback(step + 1, current_feedback)
+                _report(
+                    progress,
+                    stage_core.TRACE_DRAFT_REPLAY_STEP_COMPLETE_STAGES[step],
+                )
             draft_decode_seconds = time.monotonic() - replay_started
             if (
                 not math.isfinite(draft_decode_seconds)
@@ -216,6 +231,7 @@ class TracedMtpDraftAdapter:
         token_inputs: tuple[int, ...],
         initial_feedback: Any,
         start_position: int,
+        progress: Callable[[str], None] | None = None,
     ) -> MtpControlledReplayResult:
         """Replay supplied token inputs through one existing persistent trace."""
         self._require_open()
@@ -233,7 +249,12 @@ class TracedMtpDraftAdapter:
         output_tokens: list[int] = []
         current_feedback = initial_feedback
         try:
+            _report(progress, stage_core.CONTROLLED_REPLAY_START)
             for offset, token in enumerate(token_inputs):
+                _report(
+                    progress,
+                    stage_core.CONTROLLED_REPLAY_STEP_START_STAGES[offset],
+                )
                 self._validate_token(token)
                 self._update_inputs(token=token, position=start_position + offset)
                 assert self._feedback_buffer is not None
@@ -257,6 +278,11 @@ class TracedMtpDraftAdapter:
                 output_tokens.append(output_token)
                 assert self._trace_feedback is not None
                 current_feedback = self._trace_feedback
+                _report(
+                    progress,
+                    stage_core.CONTROLLED_REPLAY_STEP_COMPLETE_STAGES[offset],
+                )
+            _report(progress, stage_core.CONTROLLED_REPLAY_COMPLETE)
             return MtpControlledReplayResult(
                 token_ids=tuple(output_tokens),
                 feedback=current_feedback,
@@ -574,6 +600,11 @@ class TracedMtpDraftAdapter:
     def _require_open(self) -> None:
         if self._closed:
             raise MtpTraceAdapterError("MTP trace adapter is closed")
+
+
+def _report(progress: Callable[[str], None] | None, stage: str) -> None:
+    if progress is not None:
+        progress(stage)
 
 
 def _deallocate_present(tensors: Any) -> None:

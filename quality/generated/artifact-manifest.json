@@ -848,6 +848,12 @@
       "blake3": "30c7be6e07bfec1222b8996bc248176afa91e6922d76d03614cd178d85b9b735"
     },
     {
+      "path": "cairn/changes/stage-qwen38-mtp-recovery-replay/evidence/search-frame.md",
+      "class": "portable_evidence",
+      "byte_count": 1838,
+      "blake3": "2d5cc95039a8e1b17b599d97f77e852a6718ef69cb65f5b28da61dff3f3a2e3d"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,

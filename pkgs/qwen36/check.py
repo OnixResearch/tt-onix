@@ -2805,6 +2805,160 @@ def probe_service_contract():
         require(False, "unsupported service route was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe]
+def probe_mtp_recovery_stage():
+    """Positive and negative tests for ordered staged progress."""
+    from qwen36_service import mtp_stage_core as stage_core
+    from qwen36_service.mtp_rollback_core import REPREFILL_RECOVERY, SNAPSHOT_RECOVERY
+
+    progress = stage_core.new_mtp_stage_progress(
+        prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+        route=REPREFILL_RECOVERY,
+    )
+    success_stages = (
+        stage_core.COMMAND_START,
+        stage_core.MESH_OPEN_START,
+        stage_core.MESH_OPEN_COMPLETE,
+        stage_core.MODEL_LOAD_START,
+        stage_core.MODEL_LOAD_COMPLETE,
+        stage_core.ADAPTER_CREATE_START,
+        stage_core.ADAPTER_CREATE_COMPLETE,
+        stage_core.PILOT_START,
+        stage_core.TARGET_PREFILL_START,
+        stage_core.TARGET_PREFILL_COMPLETE,
+        stage_core.DRAFT_START,
+        stage_core.MTP_PREFILL_START,
+        stage_core.MTP_PREFILL_COMPLETE,
+        stage_core.TRACE_RUN_START,
+        stage_core.TRACE_INPUT_ALLOCATION_START,
+        stage_core.TRACE_INPUT_ALLOCATION_COMPLETE,
+        stage_core.TRACE_CAPTURE_START,
+        stage_core.TRACE_CAPTURE_COMPLETE,
+        stage_core.TRACE_DRAFT_REPLAY_STEP_1_START,
+        stage_core.TRACE_DRAFT_REPLAY_STEP_1_COMPLETE,
+        stage_core.TRACE_DRAFT_REPLAY_STEP_2_START,
+        stage_core.TRACE_DRAFT_REPLAY_STEP_2_COMPLETE,
+        stage_core.TRACE_RUN_COMPLETE,
+        stage_core.DRAFT_COMPLETE,
+        stage_core.TARGET_TRACE_START,
+        stage_core.TARGET_TRACE_COMPLETE,
+        stage_core.TARGET_SEQUENTIAL_START,
+        stage_core.TARGET_SEQUENTIAL_COMPLETE,
+        stage_core.TARGET_TRACE_RELEASE_COMPLETE,
+        stage_core.TARGET_REFERENCE_STATE_START,
+        stage_core.TARGET_REFERENCE_STATE_COMPLETE,
+        stage_core.VERIFICATION_PREFILL_START,
+        stage_core.VERIFICATION_PREFILL_COMPLETE,
+        stage_core.RECOVERY_START,
+        stage_core.RECOVERY_QUEUE_DRAIN_START,
+        stage_core.RECOVERY_QUEUE_DRAIN_COMPLETE,
+        stage_core.RECOVERY_MTP_PREFILL_START,
+        stage_core.RECOVERY_MTP_PREFILL_COMPLETE,
+        stage_core.CONTROLLED_REPLAY_START,
+        stage_core.CONTROLLED_REPLAY_STEP_1_START,
+        stage_core.CONTROLLED_REPLAY_STEP_1_COMPLETE,
+        stage_core.CONTROLLED_REPLAY_STEP_2_START,
+        stage_core.CONTROLLED_REPLAY_STEP_2_COMPLETE,
+        stage_core.CONTROLLED_REPLAY_STEP_3_START,
+        stage_core.CONTROLLED_REPLAY_STEP_3_COMPLETE,
+        stage_core.CONTROLLED_REPLAY_STEP_4_START,
+        stage_core.CONTROLLED_REPLAY_STEP_4_COMPLETE,
+        stage_core.CONTROLLED_REPLAY_COMPLETE,
+        stage_core.RECOVERY_SYNCHRONIZE_START,
+        stage_core.RECOVERY_SYNCHRONIZE_COMPLETE,
+        stage_core.RECOVERY_STATE_READBACK_START,
+        stage_core.RECOVERY_STATE_READBACK_COMPLETE,
+        stage_core.RECOVERY_COMPLETE,
+        stage_core.NATIVE_VERIFIER_START,
+        stage_core.NATIVE_VERIFIER_COMPLETE,
+        stage_core.TARGET_STATE_COMPARE_START,
+        stage_core.TARGET_STATE_COMPARE_COMPLETE,
+        stage_core.PILOT_COMPLETE,
+        stage_core.CLEANUP_START,
+        stage_core.CLEANUP_COMPLETE,
+        stage_core.RECEIPT_WRITE_START,
+        stage_core.COMPLETE,
+    )
+    for event_index, stage in enumerate(success_stages, start=1):
+        progress = stage_core.advance_mtp_stage_progress(
+            progress,
+            stage=stage,
+            elapsed_seconds=float(event_index),
+        )
+    require(progress.complete, "valid staged progress did not complete")
+    require(
+        progress.to_mapping()["last_stage"] == stage_core.COMPLETE,
+        "valid staged progress lost its terminal stage",
+    )
+
+    failed = stage_core.new_mtp_stage_progress(
+        prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+        route=SNAPSHOT_RECOVERY,
+    )
+    for event_index, stage in enumerate(
+        (
+            stage_core.COMMAND_START,
+            stage_core.PILOT_START,
+            stage_core.ROLLBACK_CONTEXT_START,
+            stage_core.FAILURE_RECORDED,
+            stage_core.CLEANUP_START,
+            stage_core.CLEANUP_COMPLETE,
+        ),
+        start=1,
+    ):
+        failed = stage_core.advance_mtp_stage_progress(
+            failed,
+            stage=stage,
+            elapsed_seconds=float(event_index),
+        )
+    require(not failed.complete, "failed staged progress became complete")
+    require(
+        failed.last_stage == stage_core.CLEANUP_COMPLETE,
+        "failed staged progress lost cleanup",
+    )
+
+    rejected = []
+    try:
+        stage_core.new_mtp_stage_progress(prompt_index=0, route=REPREFILL_RECOVERY)
+    except stage_core.MtpStageProgressError:
+        pass
+    else:
+        rejected.append("non-positive prompt index")
+
+    initial = stage_core.new_mtp_stage_progress(
+        prompt_index=stage_core.MINIMUM_PROMPT_INDEX,
+        route=SNAPSHOT_RECOVERY,
+    )
+    initial = stage_core.advance_mtp_stage_progress(
+        initial,
+        stage=stage_core.COMMAND_START,
+        elapsed_seconds=1.0,
+    )
+    later_elapsed_seconds = initial.events[-1].elapsed_seconds + 1.0
+    invalid_cases = (
+        (stage_core.COMMAND_START, later_elapsed_seconds, "repeated stage"),
+        (
+            stage_core.RECOVERY_MTP_PREFILL_START,
+            later_elapsed_seconds,
+            "route-incompatible stage",
+        ),
+        (stage_core.COMPLETE, later_elapsed_seconds, "early completion"),
+        ("unknown-stage", later_elapsed_seconds, "unknown stage"),
+        (stage_core.MESH_OPEN_START, 0.0, "regressed time"),
+    )
+    for stage, elapsed_seconds, label in invalid_cases:
+        try:
+            stage_core.advance_mtp_stage_progress(
+                initial,
+                stage=stage,
+                elapsed_seconds=elapsed_seconds,
+            )
+        except stage_core.MtpStageProgressError:
+            continue
+        rejected.append(label)
+    require(not rejected, f"invalid staged progress was accepted: {rejected}")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -2825,6 +2979,7 @@ def main():
     probe("MTP draft selection", probe_mtp_draft_selection)
     probe("MTP draft trace", probe_mtp_draft_trace)
     probe("MTP K/V rollback", probe_mtp_kv_rollback)
+    probe("MTP recovery stage progress", probe_mtp_recovery_stage)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
