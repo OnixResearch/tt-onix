@@ -2151,6 +2151,17 @@ def probe_mtp_kv_rollback():
             required_symbol in trace_adapter_source,
             f"MTP persistent trace adapter lost {required_symbol}",
         )
+    drafter_adapter_source = Path(
+        __import__(
+            "qwen36_service.mtp_drafter_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    for required_symbol in ("_reset_mtp_cache", "_mtp_zero_caches"):
+        require(
+            required_symbol in drafter_adapter_source,
+            f"MTP stable cache adapter lost {required_symbol}",
+        )
 
 
 # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]

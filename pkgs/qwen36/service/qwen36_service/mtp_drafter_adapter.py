@@ -56,6 +56,7 @@ LAST_DIMENSION = -1
 MTP_PREFILL_BUCKET = 128
 MTP_REFERENCE_FULL_ATTENTION_LAYER = 63
 TARGET_VERIFICATION_WIDTH = 4
+EXPECTED_MTP_CACHE_TENSOR_COUNT = 4
 QK_STREAM_COUNT = 2
 RMS_NORM_EPSILON = 1.0e-6
 MINIMUM_TOKEN_ID = 0
@@ -166,6 +167,7 @@ class MtpDrafterAdapter:
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
         self._recovery_trace_adapter: TracedMtpDraftAdapter | None = None
+        self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
             maximum_width=TARGET_VERIFICATION_WIDTH,
@@ -176,10 +178,17 @@ class MtpDrafterAdapter:
         self._load_mtp()
 
     def close(self) -> None:
-        """Release the process-owned MTP recovery trace."""
+        """Release the process-owned MTP recovery trace and caches."""
         if self._recovery_trace_adapter is not None:
             self._recovery_trace_adapter.close()
             self._recovery_trace_adapter = None
+        _deallocate_tensors(self._mtp_zero_caches)
+        self._mtp_zero_caches = ()
+        if hasattr(self, "mtp_layer"):
+            attention = self.mtp_layer.attention
+            _deallocate_tensors(self._mtp_cache_tensors())
+            attention.k_caches = None
+            attention.v_caches = None
 
     def run_smoke(
         self,
@@ -939,7 +948,7 @@ class MtpDrafterAdapter:
             ],
             dim=TOKEN_DIMENSION,
         )
-        self.mtp_layer.attention.reset_state()
+        self._reset_mtp_cache()
         embedding = self._embed_full(shifted)
         fused = self._fuse_inputs(embedding, target_hidden)
         ttnn.deallocate(embedding)
@@ -973,6 +982,39 @@ class MtpDrafterAdapter:
         ttnn.deallocate(normalized)
         first_draft, selection_seconds = self._select_token(feedback, selector_mode)
         return first_draft, feedback, selection_seconds
+
+    def _mtp_cache_tensors(self) -> tuple[Any, ...]:
+        attention = self.mtp_layer.attention
+        return tuple(attention.k_caches or ()) + tuple(attention.v_caches or ())
+
+    def _reset_mtp_cache(self) -> None:
+        """Reset MTP K/V data without changing trace-bound addresses."""
+        attention = self.mtp_layer.attention
+        if not self._mtp_zero_caches:
+            zero_caches: list[Any] = []
+            try:
+                attention.reset_state()
+                caches = self._mtp_cache_tensors()
+                if len(caches) != EXPECTED_MTP_CACHE_TENSOR_COUNT:
+                    raise MtpDrafterAdapterError("MTP cache tensor count changed")
+                for cache in caches:
+                    zero_caches.append(ttnn.clone(cache))
+                self._mtp_zero_caches = tuple(zero_caches)
+                return
+            except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+                _deallocate_tensors(zero_caches)
+                _deallocate_tensors(self._mtp_cache_tensors())
+                attention.k_caches = None
+                attention.v_caches = None
+                raise
+        caches = self._mtp_cache_tensors()
+        if (
+            len(caches) != EXPECTED_MTP_CACHE_TENSOR_COUNT
+            or len(self._mtp_zero_caches) != EXPECTED_MTP_CACHE_TENSOR_COUNT
+        ):
+            raise MtpDrafterAdapterError("persistent MTP cache binding changed")
+        for zero_cache, cache in zip(self._mtp_zero_caches, caches, strict=True):
+            ttnn.copy(zero_cache, cache)
 
     def _draft_step(
         self,
@@ -1133,6 +1175,12 @@ class MtpDrafterAdapter:
         if not MINIMUM_TOKEN_ID <= token < self.model.args.vocab_size:
             raise MtpDrafterAdapterError("MTP drafter token is outside the vocabulary")
         return token
+
+
+def _deallocate_tensors(tensors: Any) -> None:
+    for tensor in tensors:
+        if tensor is not None:
+            ttnn.deallocate(tensor)
 
 
 def _exact_state_comparison() -> StateComparison:

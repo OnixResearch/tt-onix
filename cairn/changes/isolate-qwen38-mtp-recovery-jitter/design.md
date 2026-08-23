@@ -8,6 +8,8 @@ The MTP rollback core owns the version-two profile, exact route schedule, trace-
 
 The MTP adapter owns one fixed-shape trace for the complete loaded process. The shell captures the trace during discarded warmup, reuses its stable inputs and outputs, and closes it before device teardown.
 
+The upstream MTP attention reset allocates new K/V caches. The diagnostic adapter allocates these caches once, clones fixed zero sources, and resets cache data in place. This rule preserves trace-bound addresses.
+
 The recovery adapter restores rejected rows first. It then replays accepted drafts that exceed the two-row feedback snapshot. Finally, it advances one committed target token through the same persistent trace.
 
 The re-prefill route uses the same persistent trace after MTP prefill. This control removes repeated eager decode allocation from both routes without changing route semantics.

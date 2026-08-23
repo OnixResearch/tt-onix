@@ -63,3 +63,13 @@ The persistent-trace family is the smallest route that changes real recovery exe
 ## Adversarial audit
 
 The persistent trace can fail because the target trace and MTP trace coexist. It can also fail if one trace output is overwritten before state capture. The implementation must retain exact bindings, copy feedback before each replay, release partial state, and reject any capture count other than one.
+
+## First physical warmup result
+
+The first bounded outage reached warmup and failed before measured roots. The adapter rejected `MTP trace binding changed before-controlled-replay: kv_buffer_identity`. The eager service was restored and passed its health check.
+
+Source inspection found that `TPAttention.reset_state()` assigns new `k_caches` and `v_caches` tensors. The first persistent trace therefore remained bound to obsolete cache objects.
+
+## Second mechanism round
+
+The first result falsified process-wide trace reuse with allocation-based cache reset. The revised adapter allocates the four MTP cache tensors once. It clones fixed zero sources and copies them into the same cache objects before each prefill. The next check must reject any address drift and preserve exact cache state.
