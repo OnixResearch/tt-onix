@@ -10,4 +10,4 @@
 ## Phase 3: Evidence
 
 - [x] [serial] Pass Qwen, package, service, Cairn, and repository-quality checks for r[tenstorrent.qwen38_p150x2.mtp_exact_rejection_sampling].
-- [ ] [serial] Sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_exact_rejection_sampling].
+- [x] [serial] Sync the requirement, regenerate the manifest, and archive the change for r[tenstorrent.qwen38_p150x2.mtp_exact_rejection_sampling].
