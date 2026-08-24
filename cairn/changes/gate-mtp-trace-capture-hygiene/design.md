@@ -39,6 +39,13 @@ reallocated at a different device address after capture.
 invalidates the trace. In-place mutation of a stable-address buffer is the
 supporting practice.
 
+## Scope
+
+This change ships the pure hygiene core, its wiring into the native verifier
+capture path, and their device-free gates. Extending the gate to every trace
+control and collecting new bounded physical evidence are follow-up work under
+the same requirement.
+
 ## Risks / Trade-offs
 
 - A mandatory real warm seed round costs one extra warmup execution per

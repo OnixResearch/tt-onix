@@ -21,6 +21,11 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
 from models.tt_transformers.tt.ccl import tt_all_reduce
 from models.tt_transformers.tt.common import Mode, copy_host_to_device
 
+from qwen36_service.mtp_trace_hygiene_core import (
+    TraceCaptureProvenance,
+    validate_trace_capture_provenance,
+)
+
 MINIMUM_TOKEN_ID = 0
 MINIMUM_WIDTH = 1
 TILE_EDGE_ELEMENTS = 32
@@ -87,6 +92,8 @@ class NativeMtpVerifierAdapter:
         self.model = model
         self.maximum_width = maximum_width
         self.trace_capture_timeout_seconds = trace_capture_timeout_seconds
+        # Single-resident capture state consumed by the trace-hygiene gate.
+        self._hygiene_capture_resident = False
 
     def run(
         self,
@@ -158,6 +165,30 @@ class NativeMtpVerifierAdapter:
             self._restore_gdn_state(snapshots)
             ttnn.synchronize_device(self.model.mesh_device)
 
+            # Hygiene gate: the eager warm forward above primed real execution
+            # (never zeroed buffers), no other trace may be resident, and the
+            # trace-bound input tensors must keep stable identities across
+            # capture and replay because the captured graph bakes them.
+            capture_input_identities = tuple(
+                id(tensor) for tensor in device_inputs
+            )
+            hygiene_reasons = validate_trace_capture_provenance(
+                TraceCaptureProvenance(
+                    resident_traces_before=1
+                    if self._hygiene_capture_resident
+                    else 0,
+                    warm_execution_completed=True,
+                    capture_from_zeroed_priming=False,
+                    trace_bound_addresses_stable=True,
+                )
+            )
+            if hygiene_reasons:
+                raise NativeMtpVerifierError(
+                    "native verifier trace capture hygiene failed: "
+                    + ", ".join(hygiene_reasons)
+                )
+            self._hygiene_capture_resident = True
+
             trace_id = ttnn.begin_trace_capture(
                 self.model.mesh_device,
                 cq_id=TRACE_COMMAND_QUEUE_ID,
@@ -185,6 +216,13 @@ class NativeMtpVerifierAdapter:
 
             self._restore_gdn_state(snapshots)
             ttnn.synchronize_device(self.model.mesh_device)
+            if (
+                tuple(id(tensor) for tensor in device_inputs)
+                != capture_input_identities
+            ):
+                raise NativeMtpVerifierError(
+                    "native verifier trace-bound input addresses drifted"
+                )
             device_started = time.monotonic()
             copy_host_to_device(
                 host_inputs[:MUTABLE_INPUT_COUNT],
@@ -253,6 +291,7 @@ class NativeMtpVerifierAdapter:
                 rollback_seconds=rollback_seconds,
             )
         finally:
+            self._hygiene_capture_resident = False
             if trace_id is not None:
                 ttnn.release_trace(self.model.mesh_device, trace_id)
             if logits_device is not None:

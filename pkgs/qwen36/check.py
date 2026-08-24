@@ -3826,6 +3826,120 @@ def probe_mtp_sampled_acceptance():
             require(False, f"invalid sampler input was accepted: {negative_call!r}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_trace_capture_hygiene]
+def probe_mtp_trace_capture_hygiene():
+    """Positive and negative tests for trace-capture provenance gates."""
+    from dataclasses import replace
+
+    from qwen36_service.mtp_trace_hygiene_core import (
+        REASON_BUFFER_ADDRESS,
+        REASON_PRIMING,
+        REASON_RESIDENT_TRACE,
+        MtpTraceHygienePolicyError,
+        TraceCaptureProvenance,
+        validate_trace_capture_provenance,
+    )
+
+    clean = TraceCaptureProvenance(
+        resident_traces_before=0,
+        warm_execution_completed=True,
+        capture_from_zeroed_priming=False,
+        trace_bound_addresses_stable=True,
+    )
+    require(
+        validate_trace_capture_provenance(clean) == (),
+        "clean capture provenance was rejected",
+    )
+
+    violation_cases = (
+        (
+            replace(clean, resident_traces_before=1),
+            REASON_RESIDENT_TRACE,
+            "resident second trace",
+        ),
+        (
+            replace(clean, warm_execution_completed=False),
+            REASON_PRIMING,
+            "missing warm execution",
+        ),
+        (
+            replace(clean, capture_from_zeroed_priming=True),
+            REASON_PRIMING,
+            "zeroed priming",
+        ),
+        (
+            replace(clean, trace_bound_addresses_stable=False),
+            REASON_BUFFER_ADDRESS,
+            "unstable trace-bound addresses",
+        ),
+    )
+    for provenance, expected_reason, label in violation_cases:
+        reasons = validate_trace_capture_provenance(provenance)
+        require(
+            reasons == (expected_reason,),
+            f"{label} produced wrong hygiene reasons: {reasons}",
+        )
+
+    malformed_cases = (
+        (
+            replace(clean, resident_traces_before=-1),
+            "non-negative integer",
+        ),
+        (
+            replace(clean, resident_traces_before=True),
+            "non-negative integer",
+        ),
+        (
+            replace(clean, warm_execution_completed=1),
+            "must be boolean",
+        ),
+        (
+            replace(clean, capture_from_zeroed_priming="no"),
+            "must be boolean",
+        ),
+        (
+            replace(clean, trace_bound_addresses_stable=None),
+            "must be boolean",
+        ),
+    )
+    for provenance, diagnostic in malformed_cases:
+        try:
+            validate_trace_capture_provenance(provenance)
+        except MtpTraceHygienePolicyError as error:
+            require(diagnostic in str(error), f"wrong hygiene diagnostic: {error}")
+        else:
+            require(False, f"malformed provenance was accepted: {provenance!r}")
+
+    try:
+        validate_trace_capture_provenance({})
+    except MtpTraceHygienePolicyError as error:
+        require("TraceCaptureProvenance" in str(error), "wrong type diagnostic")
+    else:
+        require(False, "non-provenance input was accepted")
+
+    # Wiring: the native verifier capture path must run the gate and must
+    # re-check trace-bound identities before replay.
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.native_mtp_verifier_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "validate_trace_capture_provenance" in adapter_source,
+        "native verifier lost its capture-hygiene gate",
+    )
+    require(
+        "capture_input_identities" in adapter_source
+        and "trace-bound input addresses drifted" in adapter_source,
+        "native verifier lost its pre-replay address stability check",
+    )
+    require(
+        "_hygiene_capture_resident = False" in adapter_source,
+        "native verifier never clears its resident-capture flag",
+    )
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -3850,6 +3964,7 @@ def main():
     probe("MTP prewarmed recovery control", probe_mtp_recovery_prewarmed_control)
     probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
     probe("MTP sampled acceptance", probe_mtp_sampled_acceptance)
+    probe("MTP trace capture hygiene", probe_mtp_trace_capture_hygiene)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
