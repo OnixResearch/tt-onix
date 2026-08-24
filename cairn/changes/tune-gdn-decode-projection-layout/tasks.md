@@ -1,15 +1,15 @@
-## Phase 1: Layout-selection core
+## Phase 1: Evidence-backed target selection
 
-- [ ] [serial] Add the pure projection-layout selection core with bounded shape eligibility for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
-- [ ] [serial] Add positive and negative device-free tests covering eligibility bounds, gate default, and malformed shapes for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
+- [x] [serial] Reproduce the decode-component attribution twice on P150x2 and confirm the GDN mixer dominates (582 us x48, 51 percent of a 54.23 ms step) for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
+- [ ] [serial] Split the GDN mixer interior (qkvz projection, ab projection, conv, recurrence, out projection, all-reduce) with phase timers inside one bounded window so the candidate targets the dominating op for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
 
-## Phase 2: Candidate wiring
+## Phase 2: Gated candidate
 
-- [ ] [serial] Wire the env-gated candidate program configs into the GDN TP decode projections through a new adopted-tree patch for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
-- [ ] [serial] Keep prefill and the default path on AUTO and add packaged-check probes for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
-
-## Phase 3: Physical evidence
-
+- [ ] [serial] Add the pure shape-eligibility policy for the selected op's decode layout candidate behind a default-off environment gate for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
+- [ ] [serial] Wire the candidate through an adopted-tree patch with positive and negative packaged-check probes while prefill and defaults stay untouched for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
 - [ ] [serial] Pass Qwen, package, service, Cairn, and repository-quality checks for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
-- [ ] [serial] Run one matched eager-versus-candidate physical pair and record per-component medians for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
+
+## Phase 3: Physical pair
+
+- [ ] [serial] Run matched eager-versus-candidate component probes in one authorized window and record gdn_mixer median deltas for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
 - [ ] [serial] Preserve receipts, sync the requirement, and archive without an admission claim for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
