@@ -3571,6 +3571,261 @@ def probe_mtp_target_validation_prewarm():
     require(not rejected, f"invalid target-prewarm evidence was accepted: {rejected}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_exact_rejection_sampling]
+def probe_mtp_sampled_acceptance():
+    """Positive and negative tests for distribution-exact MTP acceptance."""
+    import math
+
+    from qwen36_service.mtp_sampler_core import (
+        ACCEPTANCE_RULES,
+        RULE_EXACT,
+        RULE_GREEDY,
+        RULE_LENIENT,
+        RULE_RELAXED,
+        MtpSamplerPolicyError,
+        acceptance_probability,
+        admitted_production_rule,
+        realized_total_variation,
+        resolve_rule,
+        resolve_speculative_round,
+        sample_from_distribution,
+        truncated_target_distribution,
+    )
+
+    # Candidate row with a known distribution: 0.5 / 0.3 / 0.2.
+    values = [math.log(0.5), math.log(0.3), math.log(0.2)]
+    token_ids = [7, 8, 9]
+    probabilities, ids = truncated_target_distribution(values, token_ids)
+    expected_probabilities = (0.5, 0.3, 0.2)
+    for computed, expected in zip(probabilities, expected_probabilities, strict=True):
+        require(
+            math.isclose(computed, expected, rel_tol=1e-12),
+            f"truncated distribution drifted: {probabilities}",
+        )
+    require(ids == tuple(token_ids), "distribution ordering changed")
+
+    # Exact rule: accept probability equals the draft's own mass; TV is zero.
+    draft_mass, accepted = acceptance_probability(
+        RULE_EXACT, probabilities, ids, 8
+    )
+    require(
+        math.isclose(draft_mass, 0.3, rel_tol=1e-12),
+        f"exact rule draft mass drifted: {draft_mass}",
+    )
+    require(
+        math.isclose(accepted, draft_mass, rel_tol=1e-12),
+        "exact rule acceptance probability differs from p(x^)",
+    )
+    require(
+        realized_total_variation(accepted, draft_mass) == 0.0,
+        "exact rule reported nonzero total variation",
+    )
+
+    # Lenient reduces to exact at lenience 1.0 and interpolates below it.
+    _, lenient_exact = acceptance_probability(
+        RULE_LENIENT,
+        probabilities,
+        ids,
+        8,
+        lenience=1.0,
+    )
+    require(
+        math.isclose(lenient_exact, accepted, rel_tol=1e-12),
+        "lenient rule at lenience 1.0 differs from exact",
+    )
+    _, lenient_half = acceptance_probability(
+        RULE_LENIENT,
+        probabilities,
+        ids,
+        8,
+        lenience=0.5,
+    )
+    require(
+        math.isclose(lenient_half, min(1.0, draft_mass / 0.5), rel_tol=1e-12),
+        "lenient rule interpolation changed",
+    )
+
+    # Greedy accepts only the argmax choice.
+    _, greedy_top = acceptance_probability(RULE_GREEDY, probabilities, ids, 7)
+    _, greedy_other = acceptance_probability(RULE_GREEDY, probabilities, ids, 9)
+    require(greedy_top == 1.0, "greedy rule rejected the argmax draft")
+    require(greedy_other == 0.0, "greedy rule accepted a non-argmax draft")
+
+    # Relaxed typical acceptance is deterministic against its threshold.
+    _, relaxed = acceptance_probability(RULE_RELAXED, probabilities, ids, 8)
+    entropy = -sum(p * math.log(p) for p in probabilities)
+    threshold = min(0.09, 0.3 * math.exp(-entropy))
+    require(
+        relaxed == float(0.3 >= threshold),
+        "relaxed rule diverged from its typical-acceptance threshold",
+    )
+
+    # Residual sampling excludes the rejected draft and renormalises.
+    residual = sample_from_distribution(probabilities, ids, 0.99, exclude_token_id=7)
+    require(residual in (8, 9), "residual sample escaped the renormalised support")
+    require(
+        sample_from_distribution((1.0,), (7,), 0.5, exclude_token_id=7) == 7,
+        "degenerate residual support raised instead of falling back",
+    )
+
+    # Full-accept round emits every draft plus the bonus token.
+    gamma = 2
+    row_values = [values] * (gamma + 1)
+    row_ids = [token_ids] * (gamma + 1)
+    drafts = (7, 8)
+
+    def fixed_uniforms(sequence):
+        iterator = iter(sequence)
+        return lambda: next(iterator)
+
+    outcome = resolve_speculative_round(
+        row_values,
+        row_ids,
+        drafts,
+        fixed_uniforms((0.0, 0.0, 0.95)),
+        rule=RULE_EXACT,
+    )
+    require(
+        outcome.emitted_token_ids == drafts + (9,),
+        f"full-accept round emitted {outcome.emitted_token_ids}",
+    )
+    require(outcome.bonus_emitted, "full-accept round lost its bonus flag")
+    require(
+        outcome.accepted_draft_count == gamma,
+        "full-accept round miscounted accepted drafts",
+    )
+
+    # Early rejection stops the walk and samples the residual.
+    rejecting = resolve_speculative_round(
+        row_values,
+        row_ids,
+        (9, 9),
+        fixed_uniforms((0.999, 0.0, 0.0)),
+        rule=RULE_EXACT,
+    )
+    require(
+        rejecting.accepted_draft_count == 0,
+        "rejected draft was counted as accepted",
+    )
+    require(
+        rejecting.emitted_token_ids[0] != 9 or len(rejecting.emitted_token_ids) == 2,
+        "rejected round kept walking later rows",
+    )
+
+    # Truncation exactness: penalising a candidate outside the kept top-k set
+    # leaves the kept distribution identical to no penalty at all.
+    wide_values = [3.0, 2.0, 1.0, 0.5]
+    wide_ids = [11, 12, 13, 14]
+    unpenalised = truncated_target_distribution(
+        wide_values,
+        wide_ids,
+        top_k=2,
+    )
+    penalised = truncated_target_distribution(
+        wide_values,
+        wide_ids,
+        top_k=2,
+        presence_penalty=5.0,
+        penalised_token_ids=(13, 14),
+    )
+    require(
+        unpenalised == penalised,
+        "out-of-support penalties leaked into the kept top-k distribution",
+    )
+
+    # Production admission stays closed to sampled rules.
+    require(admitted_production_rule() == RULE_GREEDY, "production rule moved")
+    require(
+        resolve_rule(RULE_GREEDY, diagnostic_only=False) == RULE_GREEDY,
+        "greedy rule lost production eligibility",
+    )
+    try:
+        resolve_rule(RULE_EXACT, diagnostic_only=False)
+    except MtpSamplerPolicyError as error:
+        require("diagnostic-only" in str(error), "wrong sampled-rule diagnostic")
+    else:
+        require(False, "sampled rule was admitted to production")
+    for rule in ACCEPTANCE_RULES:
+        resolve_rule(rule, diagnostic_only=True)
+
+    # Fail-closed matrix over malformed inputs.
+    negative_calls = (
+        (
+            lambda: truncated_target_distribution([], []),
+            "candidate list is empty",
+        ),
+        (
+            lambda: truncated_target_distribution([0.0], [1, 2]),
+            "differ in length",
+        ),
+        (
+            lambda: truncated_target_distribution([float("nan")], [1]),
+            "must be finite",
+        ),
+        (
+            lambda: truncated_target_distribution(values, token_ids, temperature=0.0),
+            "finite and positive",
+        ),
+        (
+            lambda: truncated_target_distribution(values, token_ids, top_k=-1),
+            "non-negative integer",
+        ),
+        (
+            lambda: truncated_target_distribution(values, token_ids, top_p=0.0),
+            "top_p must lie",
+        ),
+        (
+            lambda: truncated_target_distribution(
+                values,
+                token_ids,
+                presence_penalty=-1.0,
+            ),
+            "non-negative",
+        ),
+        (
+            lambda: acceptance_probability("typical", probabilities, ids, 7),
+            "acceptance rule must be one of",
+        ),
+        (
+            lambda: acceptance_probability(RULE_EXACT, [], [], 7),
+            "distribution is empty",
+        ),
+        (
+            lambda: acceptance_probability(RULE_LENIENT, probabilities, ids, 7, lenience=0.0),
+            "lenience must be finite and positive",
+        ),
+        (
+            lambda: resolved_round_exhausted_uniforms(),
+            "uniform stream exhausted",
+        ),
+        (
+            lambda: resolve_speculative_round(row_values[:-1], row_ids, drafts, iter([])),
+            "draft count plus one",
+        ),
+        (
+            lambda: resolve_speculative_round(row_values, row_ids, (), iter([])),
+            "at least one draft",
+        ),
+    )
+
+    def resolved_round_exhausted_uniforms():
+        return resolve_speculative_round(
+            row_values,
+            row_ids,
+            drafts,
+            fixed_uniforms((0.0, 0.0)),
+            rule=RULE_EXACT,
+        )
+
+    for negative_call, diagnostic in negative_calls:
+        try:
+            negative_call()
+        except MtpSamplerPolicyError as error:
+            require(diagnostic in str(error), f"wrong sampler diagnostic: {error}")
+        else:
+            require(False, f"invalid sampler input was accepted: {negative_call!r}")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -3594,6 +3849,7 @@ def main():
     probe("MTP recovery stage progress", probe_mtp_recovery_stage)
     probe("MTP prewarmed recovery control", probe_mtp_recovery_prewarmed_control)
     probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
+    probe("MTP sampled acceptance", probe_mtp_sampled_acceptance)
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)

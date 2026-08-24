@@ -46,6 +46,13 @@ when at most `NCAND − top_k` candidates are penalised. The kept top-k set is
 then identical to penalising the whole vocabulary. The restriction is exact
 for the supported `top_k` range, not close enough.
 
+## Scope
+
+This change ships the pure acceptance core, its closed rule-admission
+gating, and their device-free gates. On-device sampled rounds need a verify
+path that returns candidate distributions per row; that plumbing and its
+bounded physical evidence are a follow-up change under the same requirement.
+
 ## Risks / Trade-offs
 
 - The sampled rule changes emitted tokens versus exact-match acceptance. The
