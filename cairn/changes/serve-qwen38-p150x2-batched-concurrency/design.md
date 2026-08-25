@@ -42,6 +42,10 @@ must not flip to batched serving from extrapolation alone.
 
 ## Risks / Trade-offs
 
+- Confirmed (harness v3, 2026-08-25): the plain eager `decode()` shortcut cannot
+  run at any batch — `paged_update_cache` requires the staged prefill + page table, so the
+  curve MUST go through the production `_forward_decode` staged path at width B.
+
 - Full-model step growth may not follow the layer curve (full-attention KV, paged update,
   all-reduce at higher B). Phase-1 measures this before any service work.
 - B=32 needs program-config geometry (`per_core_M` vs `out_subblock_h`) and fp32 recurrent
