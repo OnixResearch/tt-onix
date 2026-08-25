@@ -12,4 +12,4 @@
 ## Phase 3: Physical pair
 
 - [x] [serial] Run matched eager-versus-candidate component probes in one authorized window and record gdn_mixer median deltas for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
-- [ ] [serial] Preserve receipts, sync the requirement, and archive without an admission claim for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
+- [x] [serial] Preserve receipts, sync the requirement, and archive without an admission claim for r[tenstorrent.qwen38_p150x2.gdn_decode_projection_layout].
