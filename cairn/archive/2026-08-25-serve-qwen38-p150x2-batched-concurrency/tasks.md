@@ -12,4 +12,4 @@
 
 - [x] [serial] Integrate the scheduler into the service decode shell: one full-model decode at the active width per step, per-user token output, per-user recurrent/KV state preserved across steps, for r[tenstorrent.qwen38_p150x2.batched_concurrency].
 - [x] [serial] Run a matched concurrent-versus-single-stream physical pair in one authorized window and record the aggregate served tokens-per-second delta versus the ~17 t/s single-stream floor, for r[tenstorrent.qwen38_p150x2.batched_concurrency].
-- [ ] [serial] Preserve receipts, sync the requirement, and archive without an admission claim, for r[tenstorrent.qwen38_p150x2.batched_concurrency].
+- [x] [serial] Preserve receipts, sync the requirement, and archive without an admission claim, for r[tenstorrent.qwen38_p150x2.batched_concurrency].
