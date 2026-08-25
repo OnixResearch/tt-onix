@@ -8,6 +8,6 @@
 ## Phase 2: Validation and rollout
 
 - [x] [serial] Run the package and repository checks, for r[tenstorrent.qwen38_p150x2.startup_readiness].
-- [ ] [serial] Deploy one physical restart and prove `warmup-passed` occurs before `ready`, for r[tenstorrent.qwen38_p150x2.startup_readiness].
-- [ ] [serial] Run bounded B=1/B=4/B=8/B=16 requests and negative streaming, timeout, cancellation, and restart checks. Preserve state-isolation evidence, for r[tenstorrent.qwen38_p150x2.startup_readiness].
-- [ ] [serial] Sync the accepted requirement and archive without an admission claim, for r[tenstorrent.qwen38_p150x2.startup_readiness].
+- [x] [serial] Deploy one physical restart and prove `warmup-passed` occurs before `ready`, for r[tenstorrent.qwen38_p150x2.startup_readiness].
+- [x] [serial] Run bounded B=1/B=4/B=8/B=16 requests and negative streaming, timeout, cancellation, and restart checks. Preserve state-isolation evidence, for r[tenstorrent.qwen38_p150x2.startup_readiness].
+- [x] [serial] Sync the accepted requirement and archive without an admission claim, for r[tenstorrent.qwen38_p150x2.startup_readiness].
