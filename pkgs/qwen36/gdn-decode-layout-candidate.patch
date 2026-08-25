@@ -1,0 +1,140 @@
+diff -ruN a/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py b/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py	1969-12-31 19:00:00.000000000 -0500
++++ b/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py	2026-08-24 23:16:33.389548366 -0400
+@@ -0,0 +1,82 @@
++"""Pure, device-free decode projection layout candidate for the P150x2 GDN TP path.
++
++Owns the operator gate and the shape-eligibility policy for the gated
++DRAM-sharded decode candidate. This module imports no ttnn object and opens no
++device; every rule here is domain policy, safe to exercise on a CPU-only
++interpreter.
++
++The candidate is default-off. Production keeps the tuned 1D-mcast decode
++matmul until matched eager-versus-candidate physical evidence admits the
++DRAM-sharded layout. The adopted tree only consumes ``select_decode_layout``
++and ``gate_enabled``; it never re-derives the eligibility rule.
++"""
++
++# r[impl tenstorrent.qwen38_p150x2.gdn_decode_projection_layout]
++
++import os
++
++# Operator gate. Absent or any non-listed value keeps the default path.
++ENV_GATE = "QWEN35_GDN_DECODE_LAYOUT"
++
++# The candidate layout family. The packaged default 0.74 decode path already
++# uses a 1D-mcast (multi-cast-in0) program config for the GDN TP projections
++# (gdn_qkvz_decode_1d_progcfg / gdn_out_decode_1d_progcfg), so the only
++# non-default family this change can offer is DRAM-sharded decode.
++LAYOUT_DRAM_SHARDED = "dram_sharded"
++
++# Fail closed: only explicit truthy spellings enable the candidate.
++_ENABLED_VALUES = frozenset({"1", "true", "True", "yes", "on"})
++
++# Tile width for the matmul K eligibility check.
++TILE_SIZE = 32
++
++
++def gate_enabled(env=None):
++    """Return True only for an explicit enable value.
++
++    env: a mapping (usually os.environ). The candidate must default off; a
++    missing, empty, or unrecognized value never enables it.
++    """
++    if env is None:
++        env = os.environ
++    value = env.get(ENV_GATE, "")
++    if not isinstance(value, str):
++        return False
++    return value.strip() in _ENABLED_VALUES
++
++
++def select_decode_layout(
++    activation_width,
++    projection_width,
++    decode_width,
++    grid_width,
++    enabled,
++):
++    """Return ``LAYOUT_DRAM_SHARDED`` for an eligible decode projection, else None.
++
++    This is the pure shape-eligibility policy. It accepts only a single-token
++    decode (decode_width == 1), a tile-aligned activation K, and a positive
++    projection N on a non-degenerate worker grid. N needs no tile alignment:
++    the matmul pads N to the next tile width, so the real per-device qkvzab
++    width (8240, mid-tile at the a/b tail) is legal. None means the consumer
++    keeps the production 1D-mcast path.
++
++    activation_width: K of the projection (per-device hidden width).
++    projection_width: N of the projection (per-device qkvzab width).
++    decode_width: token count for this projection (1 in decode).
++    grid_width: available worker-grid width (columns) on the device.
++    enabled: the boolean result of ``gate_enabled``.
++    """
++    if not enabled:
++        return None
++    if decode_width != 1:
++        return None
++    if not isinstance(activation_width, int) or activation_width <= 0:
++        return None
++    if activation_width % TILE_SIZE != 0:
++        return None
++    if not isinstance(projection_width, int) or projection_width <= 0:
++        return None
++    if not isinstance(grid_width, int) or grid_width < 1:
++        return None
++    return LAYOUT_DRAM_SHARDED
+diff -ruN a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py	2026-08-24 23:12:44.278565888 -0400
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py	2026-08-25 09:47:03.189655191 -0400
+@@ -13,6 +13,7 @@
+ 
+ import ttnn
+ from models.demos.blackhole.qwen36.tt import tp_common as tpc
++from models.demos.blackhole.qwen36.tt.gdn import decode_layout_candidate as gdn_decode_candidate
+ from models.demos.blackhole.qwen36.tt.gdn.weights import gdn_proj_dtype_and_tag
+ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import (
+     recurrent_gated_delta_rule_decode_ttnn,
+@@ -431,6 +432,42 @@
+                     out_memory_config=_proj_mc,
+                 )
+                 qkvzab = ttnn.reshape(qkvzab, (1, S, qkvzab.shape[-1]))
++            elif (
++                S <= tpc.TILE_SIZE
++                and gdn_decode_candidate.select_decode_layout(
++                    activation_width=self.args.dim,
++                    projection_width=self.args.gdn_qkvzab_dim_tp,
++                    decode_width=S,
++                    grid_width=getattr(self.args, "decode_grid_w", 0),
++                    enabled=gdn_decode_candidate.gate_enabled(),
++                )
++                == gdn_decode_candidate.LAYOUT_DRAM_SHARDED
++            ):
++                # Operator-gated candidate: DRAM-sharded decode matmul for the qkvzab
++                # projection (default-off; production stays 1D-mcast). Load once and
++                # cache a WIDTH_SHARDED copy (the DRAM-sharded program config rejects
++                # the interleaved weight that proj_1d_decode loads).
++                weight = getattr(self, "_gdn_qkvzab_candidate_weight", None)
++                if weight is None:
++                    weight = self.tw["qkvz"]
++                    if (
++                        weight.memory_config().memory_layout
++                        != ttnn.TensorMemoryLayout.WIDTH_SHARDED
++                    ):
++                        weight = ttnn.to_memory_config(
++                            weight, self.args.gdn_qkvzab_weight_memcfg
++                        )
++                    self._gdn_qkvzab_candidate_weight = weight
++                qkvzab = tpc.sharded_decode_matmul(
++                    x,
++                    weight,
++                    self.cfg,
++                    self.args.gdn_qkvzab_progcfg,
++                    self.args.act_shard_hidden,
++                    self.args.prefill_progcfg,
++                    self.args.dim,
++                    decode_out_memory_config=_proj_mc,
++                )
+             elif getattr(self.args, "proj_1d_decode", False) and S <= tpc.TILE_SIZE:
+                 # Decode: small-grid 1D matmul on the interleaved fused weight (beats the DRAM-sharded grid).
+                 qkvzab = tpc.matmul_1d_decode(

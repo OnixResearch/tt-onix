@@ -3940,6 +3940,105 @@ def probe_mtp_trace_capture_hygiene():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_decode_projection_layout]
+def probe_gdn_decode_layout_candidate():
+    """Positive and negative tests for the gated DRAM-sharded decode candidate.
+
+    The candidate must stay default-off, prefill must stay untouched, and
+    shape eligibility must live in the pure device-free module. The gated
+    branch must precede the production 1D-mcast branch in gdn/tp.py or the
+    gate could never engage.
+    """
+    import pathlib
+
+    qwen36 = pathlib.Path(
+        __import__("models.demos.blackhole.qwen36", fromlist=["__path__"]).__path__[0]
+    )
+    from models.demos.blackhole.qwen36.tt.gdn import (
+        decode_layout_candidate as candidate,
+    )
+
+    real_shape = dict(
+        activation_width=5120,
+        projection_width=8240,
+        decode_width=1,
+        grid_width=11,
+    )
+    require(
+        candidate.select_decode_layout(enabled=False, **real_shape) is None,
+        "candidate gate off changed the production path",
+    )
+    require(
+        candidate.select_decode_layout(enabled=candidate.gate_enabled({}), **real_shape)
+        is None,
+        "absent gate left the candidate enabled",
+    )
+    require(
+        candidate.select_decode_layout(
+            enabled=candidate.gate_enabled({"QWEN35_GDN_DECODE_LAYOUT": "0"}),
+            **real_shape,
+        )
+        is None,
+        "gate '0' left the candidate enabled",
+    )
+    gated = candidate.select_decode_layout(
+        enabled=candidate.gate_enabled({"QWEN35_GDN_DECODE_LAYOUT": "1"}),
+        **real_shape,
+    )
+    require(
+        gated == candidate.LAYOUT_DRAM_SHARDED,
+        "eligible decode shape did not select dram_sharded under the gate",
+    )
+    require(
+        candidate.select_decode_layout(
+            enabled=True,
+            activation_width=5121,
+            projection_width=8240,
+            decode_width=1,
+            grid_width=11,
+        )
+        is None,
+        "non-tile-aligned activation stayed on the candidate path",
+    )
+    require(
+        candidate.select_decode_layout(
+            enabled=True,
+            activation_width=5120,
+            projection_width=8240,
+            decode_width=2,
+            grid_width=11,
+        )
+        is None,
+        "two-token decode stayed on the candidate path",
+    )
+
+    candidate_source = (qwen36 / "tt" / "gdn" / "decode_layout_candidate.py").read_text()
+    require(
+        "import ttnn" not in candidate_source,
+        "candidate core imports ttnn (must be device-free pure policy)",
+    )
+    require(
+        "QWEN35_GDN_DECODE_LAYOUT" in candidate_source,
+        "candidate core lost the default-off gate name",
+    )
+
+    tp_source = (qwen36 / "tt" / "gdn" / "tp.py").read_text()
+    require(
+        "select_decode_layout" in tp_source and "gate_enabled" in tp_source,
+        "gdn tp.py does not consume the candidate policy",
+    )
+    require(
+        "gdn_qkvzab_progcfg" in tp_source,
+        "gdn tp.py lost the DRAM-sharded qkvzab program config route",
+    )
+    candidate_index = tp_source.index("select_decode_layout")
+    one_d_index = tp_source.index("gdn_qkvz_decode_1d_progcfg")
+    require(
+        candidate_index < one_d_index,
+        "candidate branch must precede the default 1D-mcast branch",
+    )
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -3952,6 +4051,7 @@ def main():
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
     probe("checkpoint layer-type authority", probe_layer_type_authority)
+    probe("GDN decode layout candidate gate", probe_gdn_decode_layout_candidate)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("prefill program profile", probe_prefill_program_profile)

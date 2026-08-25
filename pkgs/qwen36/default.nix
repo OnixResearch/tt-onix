@@ -86,6 +86,12 @@ stdenvNoCC.mkDerivation {
     # The checkpoint layer_types list owns hybrid dispatch. The pure resolver
     # rejects incomplete metadata and removes the unused 32-layer mapper set.
     ./layer-type-authority.patch
+    # r[impl tenstorrent.qwen38_p150x2.gdn_decode_projection_layout]
+    # Operator-gated decode projection layout candidate: a pure device-free
+    # shape-eligibility policy plus a default-off DRAM-sharded decode branch
+    # for the qkvzab projection. Production stays on the tuned 1D-mcast path
+    # (and prefill stays untouched) until matched physical evidence admits it.
+    ./gdn-decode-layout-candidate.patch
   ];
   nativeBuildInputs = [
     b3sum
@@ -544,6 +550,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/model.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/qwen36_vllm.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/tp.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
