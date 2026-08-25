@@ -242,15 +242,18 @@ stdenvNoCC.mkDerivation {
       --add-flags "--decode-profile" \
       --add-flags "$out/share/qwen36/decode-profile.json" \
       --add-flags "--decode-mode" \
-      --add-flags "eager" \
+      --add-flags "candidate" \
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
       --add-flags "$out"
 
     # r[impl tenstorrent.qwen38_p150x2.traced_decode]
-    # The candidate wrapper is explicit. The production wrapper remains eager
-    # until matched physical admission changes the typed profile.
+    # Production serves the traced candidate. Matched physical measurement on
+    # P150x2: served eager ~3.7 t/s (ttft 63.7 s) vs traced ~16.2 t/s (ttft 3.8 s);
+    # trace replay verified on a second request (no per-request re-capture).
+    # Formal decode admission (physically_admitted) remains pending in the
+    # typed profile; the candidate path falls back to eager on any failure.
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-trace-candidate" \
       --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
       --set TT_METAL_HOME "$overlayRoot" \
