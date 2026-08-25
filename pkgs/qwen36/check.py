@@ -732,6 +732,166 @@ def probe_traced_decode_contract():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
+def probe_batch_decode_scheduler():
+    """Positive and negative tests for pure active-batch planning."""
+    from qwen36_service.batch_decode_core import (
+        MAXIMUM_ACTIVE_BATCH_WIDTH,
+        ActiveDecodeUser,
+        BatchDecodePolicyError,
+        plan_decode_batch,
+    )
+
+    test_vocabulary_size = 128
+    test_sequence_length = 2048
+    first_token_id = 7
+    second_token_id = 11
+    first_position = 32
+    second_position = 64
+    users = (
+        ActiveDecodeUser("request-a", first_token_id, first_position, 0),
+        ActiveDecodeUser("request-b", second_token_id, second_position, 1),
+    )
+    plan = plan_decode_batch(
+        users,
+        vocabulary_size=test_vocabulary_size,
+        maximum_sequence_length=test_sequence_length,
+    )
+    require(plan.width == len(users), "batch planner selected the wrong active width")
+    require(
+        tuple(row.request_id for row in plan.rows)
+        == tuple(user.request_id for user in users),
+        "batch planner changed user row ownership",
+    )
+    require(
+        tuple(row.state_slice for row in plan.rows)
+        == tuple(user.state_slice for user in users),
+        "batch planner changed isolated state slices",
+    )
+    require(
+        all(row.next_position == row.position + 1 for row in plan.rows),
+        "batch planner did not advance every user by one token",
+    )
+
+    mixed_user_count = 4
+    mixed_users = tuple(
+        ActiveDecodeUser(
+            request_id=f"request-mixed-{index}",
+            token_id=first_token_id + index,
+            position=first_position + index,
+            state_slice=index,
+        )
+        for index in range(mixed_user_count)
+    )
+    mixed_plan = plan_decode_batch(
+        mixed_users,
+        vocabulary_size=test_vocabulary_size,
+        maximum_sequence_length=test_sequence_length,
+    )
+    require(
+        mixed_plan.width == mixed_user_count,
+        "mixed-user batch planner selected the wrong width",
+    )
+    require(
+        len({row.state_slice for row in mixed_plan.rows}) == mixed_user_count,
+        "mixed-user batch planner lost state isolation",
+    )
+
+    too_wide_users = tuple(
+        ActiveDecodeUser(
+            request_id=f"request-wide-{index}",
+            token_id=first_token_id,
+            position=first_position,
+            state_slice=index % MAXIMUM_ACTIVE_BATCH_WIDTH,
+        )
+        for index in range(MAXIMUM_ACTIVE_BATCH_WIDTH + 1)
+    )
+    rejected_cases = (
+        ((), "active batch width"),
+        (too_wide_users, "active batch width"),
+        (
+            (
+                ActiveDecodeUser("request-collision-a", first_token_id, first_position, 0),
+                ActiveDecodeUser("request-collision-b", second_token_id, second_position, 0),
+            ),
+            "state slice collision",
+        ),
+        (
+            (
+                ActiveDecodeUser("request-gap-a", first_token_id, first_position, 0),
+                ActiveDecodeUser("request-gap-b", second_token_id, second_position, 2),
+            ),
+            "active prefix",
+        ),
+    )
+    for rejected_users, diagnostic in rejected_cases:
+        try:
+            plan_decode_batch(
+                rejected_users,
+                vocabulary_size=test_vocabulary_size,
+                maximum_sequence_length=test_sequence_length,
+            )
+        except BatchDecodePolicyError as error:
+            require(diagnostic in str(error), f"wrong batch diagnostic: {error}")
+        else:
+            require(False, f"invalid active batch was accepted: {diagnostic}")
+
+    from qwen36_service.batch_decode_adapter import (
+        BatchDecodeAdapterError,
+        BatchedTracedDecodeAdapter,
+    )
+
+    adapter = object.__new__(BatchedTracedDecodeAdapter)
+    adapter.maximum_width = MAXIMUM_ACTIVE_BATCH_WIDTH
+    adapter._closed = False
+    adapter._require_width(1)
+    adapter._require_width(MAXIMUM_ACTIVE_BATCH_WIDTH)
+    for invalid_width in (0, MAXIMUM_ACTIVE_BATCH_WIDTH + 1, True):
+        try:
+            adapter._require_width(invalid_width)
+        except BatchDecodeAdapterError as error:
+            require("width" in str(error), f"wrong adapter-width diagnostic: {error}")
+        else:
+            require(False, f"invalid adapter width was accepted: {invalid_width!r}")
+
+    adapter_source = Path(
+        __import__(
+            "qwen36_service.batch_decode_adapter",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "prefill_paged_slots" in adapter_source,
+        "batch adapter does not use per-slot paged prefill",
+    )
+    require(
+        "sharded_lm_head=True" in adapter_source,
+        "batch adapter does not preserve shard-local token reduction",
+    )
+    require(
+        "_clone_gdn_state" in adapter_source and "_restore_gdn_state" in adapter_source,
+        "batch trace capture does not preserve post-prefill GDN state",
+    )
+    server_source = Path(
+        __import__("qwen36_service.server", fromlist=["__file__"]).__file__
+    ).read_text()
+    require(
+        "ThreadingHTTPServer" in server_source,
+        "service shell cannot accept concurrent requests",
+    )
+    batch_service_source = Path(
+        __import__("qwen36_service.batch_service", fromlist=["__file__"]).__file__
+    ).read_text()
+    require(
+        "plan_decode_batch" in batch_service_source,
+        "batch service does not call the pure batch planner",
+    )
+    require(
+        "BatchGenerationCoordinator" in server_source,
+        "service composition root does not select the batch coordinator",
+    )
+
+
 # r[verify tenstorrent.qwen38_p150x2.prefill_program_profile]
 # r[verify tenstorrent.qwen38_p150x2.host_timeline_profile]
 def probe_prefill_program_profile():
@@ -4054,6 +4214,7 @@ def main():
     probe("GDN decode layout candidate gate", probe_gdn_decode_layout_candidate)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
+    probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)

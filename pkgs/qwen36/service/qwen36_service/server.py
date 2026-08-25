@@ -9,10 +9,11 @@ import gc
 import json
 import os
 import signal
+import threading
 import time
 import uuid
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,8 @@ from models.demos.blackhole.qwen36.demo.text_demo import _blocks_for
 from models.demos.blackhole.qwen36.tt.model import Qwen36Model
 from transformers import AutoTokenizer
 
+from .batch_decode_adapter import BatchedTracedDecodeAdapter
+from .batch_service import BatchGenerationCoordinator
 from .core import (
     CompletionRequest,
     Endpoint,
@@ -34,11 +37,7 @@ from .decode_adapter import DecodeAdapterError, TracedDecodeAdapter
 from .decode_core import (
     DecodePolicyError,
     DecodeProfile,
-    DecodeSlot,
-    SlotEvent,
-    SlotState,
     request_deadline_expired,
-    transition_slot,
 )
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
@@ -52,7 +51,8 @@ EXPECTED_LAYER_COUNT = 64
 L1_SMALL_SIZE_BYTES = 24_576
 COMMAND_QUEUE_COUNT = 2
 TRACE_REGION_SIZE_BYTES = 1_073_741_824
-MAX_BATCH_SIZE = 1
+EAGER_BATCH_SIZE = 1
+MAXIMUM_BATCH_WIDTH = 16
 PAGED_KV_BLOCK_SIZE = 64
 ADMITTED_MAX_SEQUENCE_LENGTH = 2048
 DEFAULT_MAX_SEQUENCE_LENGTH = ADMITTED_MAX_SEQUENCE_LENGTH
@@ -64,8 +64,6 @@ MAXIMUM_LISTEN_PORT = 65_535
 MAX_REQUEST_BODY_BYTES = 1_048_576
 P300_CACHE_RELATIVE_PATH = Path("P300/tensor_cache_bfp8_mesh1x2")
 MODEL_OBJECT_CREATION_TIME = 0
-INITIAL_BUFFER_GENERATION = 1
-DECODE_SLOT_ID = "decode-slot-0"
 DECODE_MODE_EAGER = "eager"
 DECODE_MODE_CANDIDATE = "candidate"
 DECODE_MODE_ADMITTED = "admitted"
@@ -134,34 +132,47 @@ class QwenEngine:
             if enable_prefill_profile
             else None
         )
-        self._slot = DecodeSlot(
-            slot_id=DECODE_SLOT_ID,
-            ownership_generation=0,
-            buffer_generation=INITIAL_BUFFER_GENERATION,
-            state=SlotState.EMPTY,
-        )
         candidate_requested = decode_mode == DECODE_MODE_CANDIDATE
         admitted_requested = (
             decode_mode == DECODE_MODE_ADMITTED and decode_profile.physically_admitted
         )
-        if candidate_requested or admitted_requested:
-            self._decode_adapter: TracedDecodeAdapter | None = TracedDecodeAdapter(
+        self._decode_adapter: TracedDecodeAdapter | None = None
+        self._batch_adapter = (
+            BatchedTracedDecodeAdapter(
                 model=model,
                 profile=decode_profile,
-                runtime_identity=runtime_identity,
-                package_identity=package_identity,
-                model_identity=model_identity,
-                slot_id=self._slot.slot_id,
-                buffer_generation=self._slot.buffer_generation,
+                maximum_width=MAXIMUM_BATCH_WIDTH,
             )
-            self._startup_fallback_reason = None
-        else:
-            self._decode_adapter = None
-            self._startup_fallback_reason = (
+            if candidate_requested or admitted_requested
+            else None
+        )
+        self._startup_fallback_reason = (
+            None
+            if self._batch_adapter is not None
+            else (
                 "profile-not-physically-admitted"
                 if decode_mode == DECODE_MODE_ADMITTED
                 else "eager-selected"
             )
+        )
+        self._eager_lock = threading.Lock()
+        self._batch_coordinator = (
+            BatchGenerationCoordinator(
+                adapter=self._batch_adapter,
+                tokenizer=tokenizer,
+                model=model,
+                profile=decode_profile,
+                model_alias=model_alias,
+                model_identity=model_identity,
+                package_identity=package_identity,
+                runtime_identity=runtime_identity,
+                maximum_sequence_length=max_sequence_length,
+                physical_pcie_device_ids=tuple(EXPECTED_PCIE_DEVICE_IDS),
+                emitter=emit,
+            )
+            if self._batch_adapter is not None
+            else None
+        )
 
     def _profiled_prefill_device(
         self,
@@ -242,7 +253,7 @@ class QwenEngine:
             self.model.args.head_dim,
         ]
         self.model.allocate_kv_caches(
-            kv_cache_shape, ttnn.bfloat16, batch_size=MAX_BATCH_SIZE
+            kv_cache_shape, ttnn.bfloat16, batch_size=EAGER_BATCH_SIZE
         )
 
         next_token, prefill_metrics = self._prefill_first_token(token_ids, page_table)
@@ -263,7 +274,7 @@ class QwenEngine:
                 rot_mat_idxs=device_inputs[2],
                 page_table=device_inputs[3],
             )
-            decode_logits = self.model.process_output_decode(output, MAX_BATCH_SIZE)
+            decode_logits = self.model.process_output_decode(output, EAGER_BATCH_SIZE)
             next_token = int(
                 torch.argmax(
                     decode_logits.reshape(-1)[: self.model.args.vocab_size].float()
@@ -381,132 +392,98 @@ class QwenEngine:
         request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
-        persistent = self._decode_adapter is not None
-        if persistent:
-            self._slot = transition_slot(
-                self._slot,
-                SlotEvent.ADMIT,
+        if self._batch_coordinator is not None:
+            return self._batch_coordinator.generate(
+                request=request,
                 request_id=request_id,
+                token_ids=token_ids,
+                prompt_token_count=prompt_token_count,
+                started=started,
+                deadline=request_deadline,
             )
-            self._slot = transition_slot(
-                self._slot,
-                SlotEvent.ACTIVATE,
-                request_id=request_id,
-            )
-        response: dict[str, Any] | None = None
-        request_reset_seconds = 0.0
-        try:
-            if persistent:
-                reset_started = time.monotonic()
-                self._decode_adapter.reset_for_request()
-                request_reset_seconds = time.monotonic() - reset_started
-                generated, perf = self._run_persistent_generation(
-                    token_ids,
-                    request.max_tokens,
-                    request_deadline,
-                )
-            else:
+
+        with self._eager_lock:
+            response: dict[str, Any] | None = None
+            cleanup_started = None
+            try:
                 generated, perf = self._run_paged_generation(
                     token_ids,
                     request.max_tokens,
                 )
-            perf["request_reset_s"] = request_reset_seconds
-            generated_text = self.tokenizer.decode(generated, skip_special_tokens=True)
-            response = build_completion_response(
-                request=request,
-                request_id=request_id,
-                created=int(time.time()),
-                generated_text=generated_text,
-                prompt_token_count=prompt_token_count,
-                generated_token_count=len(generated),
-            )
-            response["x_onix_decode_evidence"] = {
-                "admission_eligible": perf["admission_eligible"],
-                "clean_reset": False,
-                "decode_page_table_blocks": perf["decode_page_table_blocks"],
-                "decode_path": perf["decode_path"],
-                "decode_tokens_per_second": perf["decode_tok_s"],
-                "fallback_reason": perf["fallback_reason"],
-                "first_token_readback_seconds": perf["first_token_readback_s"],
-                "generated_token_ids": generated,
-                "measurement_mode": perf["measurement_mode"],
-                "model_identity": self.model_identity,
-                "package_identity": self.package_identity,
-                "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
-                "prefill_device_seconds": perf["prefill_device_s"],
-                "prefill_page_table_blocks": perf["prefill_page_table_blocks"],
-                "prefill_profile_receiver_drain_seconds": perf[
-                    "prefill_profile_receiver_drain_s"
-                ],
-                "prefill_program_profile": perf["prefill_program_profile"],
-                "profile_id": self.decode_profile.profile_id,
-                "request_reset_seconds": perf["request_reset_s"],
-                "runtime_identity": self.runtime_identity,
-                "simulated": False,
-                "tail_token_latency_seconds": perf["tail_token_latency_s"],
-                "token_latency_seconds": perf["token_latency_s"],
-                "trace_capture_seconds": (
-                    self._decode_adapter.trace_capture_seconds
-                    if self._decode_adapter is not None
-                    else None
-                ),
-                "trace_prepare_seconds": perf["trace_prepare_s"],
-                "ttft_seconds": perf["ttft_s"],
-            }
-            emit(
-                "request-passed",
-                decode_path=perf["decode_path"],
-                decode_tokens_per_second=perf["decode_tok_s"],
-                elapsed_seconds=time.monotonic() - started,
-                fallback_reason=perf["fallback_reason"],
-                generated_token_count=len(generated),
-                prompt_token_count=prompt_token_count,
-                request_id=request_id,
-                tail_token_latency_seconds=perf["tail_token_latency_s"],
-                ttft_seconds=perf["ttft_s"],
-            )
-            return response
-        finally:
-            cleanup_started = time.monotonic()
-            if persistent:
-                self._slot = transition_slot(
-                    self._slot,
-                    SlotEvent.BEGIN_RESET,
+                generated_text = self.tokenizer.decode(
+                    generated,
+                    skip_special_tokens=True,
+                )
+                response = build_completion_response(
+                    request=request,
                     request_id=request_id,
+                    created=int(time.time()),
+                    generated_text=generated_text,
+                    prompt_token_count=prompt_token_count,
+                    generated_token_count=len(generated),
                 )
-                try:
-                    self._decode_adapter.reset_for_request()
-                except (
-                    AssertionError,
-                    DecodeAdapterError,
-                    OSError,
-                    RuntimeError,
-                    ValueError,
-                ) as error:
-                    self._slot = transition_slot(
-                        self._slot,
-                        SlotEvent.RESET_FAILED,
-                        quarantine_reason=type(error).__name__,
-                    )
-                    raise DecodeAdapterError("decode slot reset failed") from error
-                self._slot = transition_slot(
-                    self._slot,
-                    SlotEvent.COMPLETE_RESET,
+                response["x_onix_decode_evidence"] = {
+                    "admission_eligible": perf["admission_eligible"],
+                    "clean_reset": False,
+                    "decode_page_table_blocks": perf["decode_page_table_blocks"],
+                    "decode_path": perf["decode_path"],
+                    "decode_tokens_per_second": perf["decode_tok_s"],
+                    "fallback_reason": perf["fallback_reason"],
+                    "first_token_readback_seconds": perf["first_token_readback_s"],
+                    "generated_token_ids": generated,
+                    "measurement_mode": perf["measurement_mode"],
+                    "model_identity": self.model_identity,
+                    "package_identity": self.package_identity,
+                    "physical_pcie_device_ids": EXPECTED_PCIE_DEVICE_IDS,
+                    "prefill_device_seconds": perf["prefill_device_s"],
+                    "prefill_page_table_blocks": perf["prefill_page_table_blocks"],
+                    "prefill_profile_receiver_drain_seconds": perf[
+                        "prefill_profile_receiver_drain_s"
+                    ],
+                    "prefill_program_profile": perf["prefill_program_profile"],
+                    "profile_id": self.decode_profile.profile_id,
+                    "request_reset_seconds": 0.0,
+                    "runtime_identity": self.runtime_identity,
+                    "simulated": False,
+                    "tail_token_latency_seconds": perf["tail_token_latency_s"],
+                    "token_latency_seconds": perf["token_latency_s"],
+                    "trace_capture_seconds": None,
+                    "trace_prepare_seconds": perf["trace_prepare_s"],
+                    "ttft_seconds": perf["ttft_s"],
+                }
+                emit(
+                    "request-passed",
+                    decode_path=perf["decode_path"],
+                    decode_tokens_per_second=perf["decode_tok_s"],
+                    elapsed_seconds=time.monotonic() - started,
+                    fallback_reason=perf["fallback_reason"],
+                    generated_token_count=len(generated),
+                    prompt_token_count=prompt_token_count,
+                    request_id=request_id,
+                    tail_token_latency_seconds=perf["tail_token_latency_s"],
+                    ttft_seconds=perf["ttft_s"],
                 )
-            else:
+                return response
+            finally:
+                cleanup_started = time.monotonic()
                 self.model.free_kv_caches()
                 gc.collect()
-            if response is not None:
-                response["x_onix_decode_evidence"]["clean_reset"] = True
-                response["x_onix_decode_evidence"]["cleanup_seconds"] = (
-                    time.monotonic() - cleanup_started
-                )
+                if response is not None:
+                    response["x_onix_decode_evidence"]["clean_reset"] = True
+                    response["x_onix_decode_evidence"]["cleanup_seconds"] = (
+                        time.monotonic() - cleanup_started
+                    )
 
     def close(self) -> None:
+        if self._batch_coordinator is not None:
+            self._batch_coordinator.close()
+            self._batch_coordinator = None
         if self._prefill_profiler is not None:
             self._prefill_profiler.close()
         if self._decode_adapter is not None:
             self._decode_adapter.close()
+        if self._batch_adapter is not None:
+            self._batch_adapter.close()
 
 
 def make_handler(
@@ -701,9 +678,16 @@ def main() -> None:
         if mesh_device.get_num_devices() != len(EXPECTED_PCIE_DEVICE_IDS):
             raise RuntimeError("P150x2 mesh did not open both admitted devices")
         mesh_device.enable_program_cache()
+        persistent_requested = args.decode_mode == DECODE_MODE_CANDIDATE or (
+            args.decode_mode == DECODE_MODE_ADMITTED
+            and decode_profile.physically_admitted
+        )
+        model_batch_size = (
+            MAXIMUM_BATCH_WIDTH if persistent_requested else EAGER_BATCH_SIZE
+        )
         model = Qwen36Model.from_pretrained(
             mesh_device,
-            max_batch_size=MAX_BATCH_SIZE,
+            max_batch_size=model_batch_size,
             max_seq_len=args.max_sequence_length,
         )
         if len(model.layers) != EXPECTED_LAYER_COUNT:
@@ -724,9 +708,10 @@ def main() -> None:
             enable_prefill_profile=args.prefill_profile,
             enable_host_timeline_profile=args.host_timeline_profile,
         )
-        server = HTTPServer(
+        server = ThreadingHTTPServer(
             (args.host, args.port), make_handler(engine, args.max_generation_tokens)
         )
+        server.daemon_threads = True
         emit(
             "ready",
             decode_mode=args.decode_mode,

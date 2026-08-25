@@ -7,10 +7,9 @@ linearly with active batch (layer-only ~207 to ~2505 device t/s from B=1 to B=16
 service has one decode slot and one batch-one trace, so concurrency is unserved.
 
 The full model exposes a batched decode primitive (`model.decode(token_ids [B,1], pos)` and the
-trace-safe `_forward_decode` with staged page tables). Two integration gaps block a clean
-full-model batch harness: `Qwen36Model.reset_state` forwards an argument into the argless TP GDN
-`reset_state`, and production batched decode needs the adapter's staged page-table/position
-tensors. Both are Phase-1 work, not dead ends.
+trace-safe `_forward_decode` with staged page tables). The production primitive was measured on
+P150x2 with a persistent B=16 model and unique page-table rows. Step time increased from 60.01 ms
+at B=1 to 92.21 ms at B=16, while aggregate decode increased from 16.66 to 173.51 tokens/s.
 
 ## Decisions
 
@@ -31,6 +30,16 @@ The core rejects collisions; the shell preserves slice addresses between steps.
 **Rationale:** The batched decode shares weight reads but must never share a user's hidden
 state; isolation bugs produce silent cross-user contamination and must fail closed.
 
+### Decision: Keep one exact-width trace resident
+
+**Choice:** Release the prior decode trace before prefill. After prefill, capture one exact-width
+trace with the users' real first tokens and positions. Preserve GDN state through capture with
+device snapshots.
+
+**Rationale:** TT-Metal reported that allocations under a resident trace were unsafe. Retaining
+B=1 and B=4 traces at the same time corrupted a batch-sized GDN zero buffer. Real capture inputs
+make the repeated paged-KV writes idempotent.
+
 ### Decision: No served-throughput claim without a matched pair
 
 **Choice:** Adoption of batching as the served path requires a concurrent-versus-single-stream
@@ -46,9 +55,13 @@ must not flip to batched serving from extrapolation alone.
   run at any batch — `paged_update_cache` requires the staged prefill + page table, so the
   curve MUST go through the production `_forward_decode` staged path at width B.
 
-- Full-model step growth may not follow the layer curve (full-attention KV, paged update,
-  all-reduce at higher B). Phase-1 measures this before any service work.
+- Full-model step growth did follow the layer curve closely. The measured B=16 step was 1.54x
+  the B=1 step and delivered 10.41x the aggregate rate.
 - B=32 needs program-config geometry (`per_core_M` vs `out_subblock_h`) and fp32 recurrent
   state in L1 (50 MB); the operating range here is B <= 16.
-- Trace capture/replay at batch width: the captured trace must be batch-width-stable; width
-  changes may need re-capture or bucketed traces, verified in Phase 3.
+- Exact-width capture adds about 0.65 s at warmed B=1 and 1.25 s at warmed B=4. The adapter
+  recaptures after each prefill to avoid allocations under a resident trace.
+- Per-user prefill is serialized to preserve state isolation. In the warmed matched pair, B=4
+  TTFT was about 8.99 s versus 1.94 s at B=1.
+- The warmed service pair measured 16.44 aggregate tokens/s at B=1 and 57.12 at B=4, a 3.47x
+  increase. The typed profile remains not admitted.
