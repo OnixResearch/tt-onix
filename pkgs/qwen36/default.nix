@@ -561,6 +561,8 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/readiness_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/systemd_notify_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/native_mtp_verifier_adapter.py"

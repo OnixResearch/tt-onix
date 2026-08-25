@@ -269,14 +269,17 @@ in
             (toString qwen38.maximumSequenceLength)
             "--max-generation-tokens"
             (toString qwen38.maximumGenerationTokens)
+            "--require-systemd-notify"
           ];
           Group = cfg.deviceGroup;
+          NotifyAccess = "main";
           Restart = "on-failure";
           RestartSec = "${toString qwenRestartSeconds}s";
           StateDirectory = qwenStateDirectory;
           StateDirectoryMode = qwenStateDirectoryMode;
           TimeoutStartSec = 0;
           TimeoutStopSec = qwenStopTimeoutSeconds;
+          Type = "notify";
           UnsetEnvironment = [
             "TT_MESH_GRAPH_DESC_PATH"
             "TT_METAL_SIMULATOR"

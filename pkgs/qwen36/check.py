@@ -892,6 +892,335 @@ def probe_batch_decode_scheduler():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.startup_readiness]
+def probe_startup_readiness():
+    """Positive and negative tests for readiness policy and shell adapters."""
+    import torch
+    from qwen36_service.batch_decode_adapter import BatchDecodeAdapterError
+    from qwen36_service.batch_service import BatchGenerationCoordinator
+    from qwen36_service.core import CompletionRequest, Endpoint
+    from qwen36_service.readiness_core import (
+        StartupPhase,
+        StartupReadinessError,
+        begin_warmup,
+        complete_warmup,
+        fail_warmup,
+        initial_readiness,
+        plan_startup_warmup,
+        record_warm_width,
+    )
+    from qwen36_service.systemd_notify_adapter import (
+        SystemdNotifyError,
+        notify_ready,
+    )
+
+    warmup_widths = (1, 4)
+    maximum_width = 16
+    warmup_prompt = "Warm the test path."
+    warmup_generation_tokens = 2
+    warmup_token_id = 7
+    test_vocabulary_size = 128
+    test_maximum_sequence_length = 2048
+    test_physical_device_ids = (0, 1)
+    first_width_seconds = 0.1
+    second_width_seconds = 0.2
+    total_seconds = 0.4
+    plan = plan_startup_warmup(
+        widths=warmup_widths,
+        prompt=warmup_prompt,
+        generation_tokens=warmup_generation_tokens,
+        maximum_width=maximum_width,
+    )
+    state = begin_warmup(initial_readiness(plan))
+    state = record_warm_width(
+        state,
+        width=warmup_widths[0],
+        elapsed_seconds=first_width_seconds,
+    )
+    state = record_warm_width(
+        state,
+        width=warmup_widths[1],
+        elapsed_seconds=second_width_seconds,
+    )
+    state = complete_warmup(state, total_elapsed_seconds=total_seconds)
+    require(state.ready, "completed startup warm-up did not become ready")
+    require(
+        state.phase is StartupPhase.READY,
+        "completed startup warm-up has the wrong phase",
+    )
+    require(
+        state.completed_widths == warmup_widths,
+        "startup readiness lost a completed width",
+    )
+
+    invalid_plan_cases = (
+        ({"widths": ()}, "must not be empty"),
+        ({"widths": (1, 1)}, "unique and increasing"),
+        ({"widths": (4, 1)}, "unique and increasing"),
+        ({"widths": (1, maximum_width + 1)}, "outside capacity"),
+        ({"prompt": ""}, "prompt"),
+        ({"generation_tokens": 1}, "at least two"),
+        ({"generation_tokens": True}, "at least two"),
+    )
+    base_plan_inputs = {
+        "widths": warmup_widths,
+        "prompt": warmup_prompt,
+        "generation_tokens": warmup_generation_tokens,
+        "maximum_width": maximum_width,
+    }
+    for override, diagnostic in invalid_plan_cases:
+        try:
+            plan_startup_warmup(**{**base_plan_inputs, **override})
+        except StartupReadinessError as error:
+            require(diagnostic in str(error), f"wrong warm-up plan diagnostic: {error}")
+        else:
+            require(False, f"invalid warm-up plan was accepted: {override!r}")
+
+    incomplete = begin_warmup(initial_readiness(plan))
+    try:
+        complete_warmup(incomplete, total_elapsed_seconds=total_seconds)
+    except StartupReadinessError as error:
+        require("incomplete" in str(error), "wrong incomplete warm-up diagnostic")
+    else:
+        require(False, "incomplete warm-up became ready")
+    try:
+        record_warm_width(
+            incomplete,
+            width=warmup_widths[1],
+            elapsed_seconds=first_width_seconds,
+        )
+    except StartupReadinessError as error:
+        require("out of order" in str(error), "wrong width-order diagnostic")
+    else:
+        require(False, "out-of-order warm-up width was accepted")
+    failed = fail_warmup(incomplete)
+    require(failed.phase is StartupPhase.FAILED, "warm-up failure was not retained")
+
+    class FakeWarmupAdapter:
+        def __init__(self):
+            self.prefill_widths = []
+            self.prepared_widths = []
+            self.replay_widths = []
+            self.reset_count = 0
+
+        def prefill_users(self, token_ids, *, generation_tokens):
+            width = len(token_ids)
+            self.prefill_widths.append(width)
+            require(
+                generation_tokens == warmup_generation_tokens,
+                "warm-up shell changed the generation bound",
+            )
+            return SimpleNamespace(
+                first_token_ids=tuple(warmup_token_id for _ in range(width)),
+                elapsed_seconds=first_width_seconds,
+                page_table_blocks=1,
+            )
+
+        def prepare_width(self, *, token_ids, positions):
+            require(len(token_ids) == len(positions), "warm-up trace widths differ")
+            self.prepared_widths.append(len(token_ids))
+            return first_width_seconds
+
+        def decode_traced(self, *, token_ids, positions):
+            require(len(token_ids) == len(positions), "warm-up replay widths differ")
+            self.replay_widths.append(len(token_ids))
+            return token_ids
+
+        def reset_all(self):
+            self.reset_count += 1
+
+    emitted = []
+    fake_adapter = FakeWarmupAdapter()
+    coordinator = BatchGenerationCoordinator(
+        adapter=fake_adapter,
+        tokenizer=object(),
+        model=SimpleNamespace(
+            args=SimpleNamespace(vocab_size=test_vocabulary_size)
+        ),
+        profile=SimpleNamespace(profile_id="profile-test"),
+        model_alias="model-test",
+        model_identity="model-identity-test",
+        package_identity="package-test",
+        runtime_identity="runtime-test",
+        maximum_sequence_length=test_maximum_sequence_length,
+        physical_pcie_device_ids=test_physical_device_ids,
+        emitter=lambda stage, **fields: emitted.append((stage, fields)),
+    )
+    test_request = CompletionRequest(
+        endpoint=Endpoint.COMPLETIONS,
+        model="model-test",
+        max_tokens=warmup_generation_tokens,
+        prompt=warmup_prompt,
+        messages=(),
+    )
+    try:
+        try:
+            coordinator.generate(
+                request=test_request,
+                request_id="request-before-ready",
+                token_ids=torch.tensor([[warmup_token_id]], dtype=torch.int32),
+                prompt_token_count=1,
+                started=0.0,
+                deadline=1.0,
+            )
+        except BatchDecodeAdapterError as error:
+            require("not ready" in str(error), "wrong pre-ready request diagnostic")
+        else:
+            require(False, "batch worker accepted a request before warm-up")
+
+        observations = coordinator.warm_up(
+            plan,
+            torch.tensor([[warmup_token_id]], dtype=torch.int32),
+        )
+        require(
+            tuple(item.width for item in observations) == warmup_widths,
+            "warm-up shell completed the wrong widths",
+        )
+        require(
+            tuple(fake_adapter.prefill_widths) == warmup_widths,
+            "warm-up shell prefills differ from the plan",
+        )
+        require(
+            tuple(fake_adapter.prepared_widths) == warmup_widths,
+            "warm-up shell trace captures differ from the plan",
+        )
+        require(
+            tuple(fake_adapter.replay_widths) == warmup_widths,
+            "warm-up shell replays differ from the plan",
+        )
+        require(
+            fake_adapter.reset_count == len(warmup_widths),
+            "warm-up shell did not clean every width",
+        )
+        try:
+            coordinator.warm_up(
+                plan,
+                torch.tensor([[warmup_token_id]], dtype=torch.int32),
+            )
+        except BatchDecodeAdapterError as error:
+            require("already ready" in str(error), "wrong repeated warm-up diagnostic")
+        else:
+            require(False, "batch worker accepted repeated warm-up")
+    finally:
+        coordinator.close()
+
+    class FailingWarmupAdapter(FakeWarmupAdapter):
+        def prepare_width(self, *, token_ids, positions):
+            raise RuntimeError("negative trace fixture")
+
+    failing_adapter = FailingWarmupAdapter()
+    failing_coordinator = BatchGenerationCoordinator(
+        adapter=failing_adapter,
+        tokenizer=object(),
+        model=SimpleNamespace(
+            args=SimpleNamespace(vocab_size=test_vocabulary_size)
+        ),
+        profile=SimpleNamespace(profile_id="profile-test"),
+        model_alias="model-test",
+        model_identity="model-identity-test",
+        package_identity="package-test",
+        runtime_identity="runtime-test",
+        maximum_sequence_length=test_maximum_sequence_length,
+        physical_pcie_device_ids=test_physical_device_ids,
+        emitter=lambda _stage, **_fields: None,
+    )
+    try:
+        try:
+            failing_coordinator.warm_up(
+                plan,
+                torch.tensor([[warmup_token_id]], dtype=torch.int32),
+            )
+        except BatchDecodeAdapterError as error:
+            require("warm-up failed" in str(error), "wrong shell failure diagnostic")
+        else:
+            require(False, "failed warm-up was accepted")
+        require(
+            failing_adapter.reset_count == 1,
+            "failed warm-up did not attempt a clean reset",
+        )
+    finally:
+        failing_coordinator.close()
+
+    class FakeNotifySocket:
+        def __init__(self, *, short_write=False):
+            self.short_write = short_write
+            self.address = None
+            self.payload = None
+            self.closed = False
+
+        def connect(self, address):
+            self.address = address
+
+        def send(self, payload):
+            self.payload = payload
+            return len(payload) - 1 if self.short_write else len(payload)
+
+        def close(self):
+            self.closed = True
+
+    fake_sockets = []
+
+    def fake_socket_factory(_family, _kind):
+        result = FakeNotifySocket()
+        fake_sockets.append(result)
+        return result
+
+    require(
+        notify_ready(
+            "ready-test",
+            required=True,
+            environment={"NOTIFY_SOCKET": "@qwen-test"},
+            socket_factory=fake_socket_factory,
+        ),
+        "systemd adapter did not report a successful notification",
+    )
+    require(
+        fake_sockets[0].address == "\0qwen-test",
+        "systemd adapter did not map the abstract socket address",
+    )
+    require(
+        fake_sockets[0].payload == b"READY=1\nSTATUS=ready-test",
+        "systemd adapter sent the wrong readiness payload",
+    )
+    require(fake_sockets[0].closed, "systemd adapter did not close its socket")
+    require(
+        not notify_ready("ready-test", required=False, environment={}),
+        "optional missing systemd socket reported success",
+    )
+    try:
+        notify_ready("ready-test", required=True, environment={})
+    except SystemdNotifyError as error:
+        require("absent" in str(error), "wrong missing-notify diagnostic")
+    else:
+        require(False, "required missing systemd socket was accepted")
+
+    short_socket = FakeNotifySocket(short_write=True)
+    try:
+        notify_ready(
+            "ready-test",
+            required=True,
+            environment={"NOTIFY_SOCKET": "/run/qwen-test"},
+            socket_factory=lambda _family, _kind: short_socket,
+        )
+    except SystemdNotifyError as error:
+        require("incomplete" in str(error), "wrong short-notify diagnostic")
+    else:
+        require(False, "short systemd notification was accepted")
+
+    server_source = Path(
+        __import__("qwen36_service.server", fromlist=["__file__"]).__file__
+    ).read_text()
+    require(
+        server_source.index("engine.warm_up()")
+        < server_source.index("server = ThreadingHTTPServer"),
+        "HTTP server binds before startup warm-up",
+    )
+    require(
+        'self.path in ("/healthz", "/readyz")' in server_source,
+        "service does not expose both health and readiness endpoints",
+    )
+
+
 # r[verify tenstorrent.qwen38_p150x2.prefill_program_profile]
 # r[verify tenstorrent.qwen38_p150x2.host_timeline_profile]
 def probe_prefill_program_profile():
@@ -4215,6 +4544,7 @@ def main():
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
+    probe("startup warm-up readiness", probe_startup_readiness)
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)
     probe("MTP drafter pure core", probe_mtp_drafter)

@@ -246,6 +246,12 @@
         ) "the Qwen service must preserve device-owner conflicts";
         assert lib.assertMsg (lib.hasInfix "qwen36-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
           "the Qwen service must use the serialized package entry point";
+        assert lib.assertMsg (
+          qwenServiceUnit.serviceConfig.Type == "notify"
+        ) "the Qwen service must remain activating until startup warm-up completes";
+        assert lib.assertMsg (
+          qwenServiceUnit.serviceConfig.NotifyAccess == "main"
+        ) "the Qwen service must accept readiness only from its main process";
         pkgs.runCommand "qwen36-nixos-service" { } ''
           set -euo pipefail
           test -x ${qwen36}/bin/qwen36-p150x2-serve
@@ -253,6 +259,7 @@
           grep -F -- '--model-path ${qwenServiceModelPath}' "$exec_start"
           grep -F -- '--max-sequence-length ${toString qwenServiceMaximumSequenceLength}' "$exec_start"
           grep -F -- '--max-generation-tokens ${toString qwenServiceMaximumGenerationTokens}' "$exec_start"
+          grep -F -- '--require-systemd-notify' "$exec_start"
           conditions=${pkgs.writeText "qwen-service-conditions" (lib.concatStringsSep "\n" qwenServiceUnit.unitConfig.ConditionPathExists)}
           grep -Fx '${qwenServiceModelPath}' "$conditions"
           grep -Fx '/dev/tenstorrent/0' "$conditions"

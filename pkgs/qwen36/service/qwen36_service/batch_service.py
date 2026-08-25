@@ -20,10 +20,12 @@ from .batch_decode_core import ActiveDecodeUser, plan_decode_batch
 from .core import CompletionRequest, build_completion_response
 from .decode_adapter import DecodeAdapterError
 from .decode_core import DecodeProfile, request_deadline_expired
+from .readiness_core import StartupWarmupPlan
 
 MAXIMUM_BATCH_WIDTH = 16
 BATCH_COLLECTION_SECONDS = 0.01
 WORKER_JOIN_TIMEOUT_SECONDS = 5.0
+EXPECTED_PROMPT_RANK = 2
 
 
 @dataclass
@@ -37,6 +39,16 @@ class _PendingBatchRequest:
     completed: threading.Event = field(default_factory=threading.Event)
     response: dict[str, Any] | None = None
     error: Exception | None = None
+
+
+@dataclass(frozen=True)
+class WarmupWidthObservation:
+    width: int
+    elapsed_seconds: float
+    prefill_seconds: float
+    trace_capture_seconds: float
+    replay_seconds: float
+    reset_seconds: float
 
 
 class BatchGenerationCoordinator:
@@ -70,6 +82,7 @@ class BatchGenerationCoordinator:
         self.emitter = emitter
         self._condition = threading.Condition()
         self._queue: deque[_PendingBatchRequest] = deque()
+        self._accepting_requests = False
         self._closing = False
         self._worker = threading.Thread(
             target=self._worker_loop,
@@ -99,6 +112,8 @@ class BatchGenerationCoordinator:
         with self._condition:
             if self._closing:
                 raise BatchDecodeAdapterError("batch worker is closed")
+            if not self._accepting_requests:
+                raise BatchDecodeAdapterError("batch worker is not ready")
             self._queue.append(pending)
             self._condition.notify_all()
         pending.completed.wait()
@@ -107,6 +122,99 @@ class BatchGenerationCoordinator:
         if pending.response is None:
             raise BatchDecodeAdapterError("batch worker returned no response")
         return pending.response
+
+    def warm_up(
+        self,
+        plan: StartupWarmupPlan,
+        token_ids: torch.Tensor,
+    ) -> tuple[WarmupWidthObservation, ...]:
+        """Execute bounded TTNN warm-up before the worker accepts requests."""
+        with self._condition:
+            if self._closing:
+                raise BatchDecodeAdapterError("batch worker is closed")
+            if self._accepting_requests:
+                raise BatchDecodeAdapterError("batch worker is already ready")
+            if self._queue:
+                raise BatchDecodeAdapterError("batch worker queued before warm-up")
+        if (
+            not isinstance(token_ids, torch.Tensor)
+            or token_ids.ndim != EXPECTED_PROMPT_RANK
+        ):
+            raise BatchDecodeAdapterError("warm-up tokens must be rank two")
+        if token_ids.shape[0] != 1 or token_ids.shape[1] < 1:
+            raise BatchDecodeAdapterError("warm-up tokens must contain one prompt")
+
+        prompt_token_count = int(token_ids.shape[1])
+        observations = []
+        try:
+            for width in plan.widths:
+                width_started = time.monotonic()
+                prefill_result = self.adapter.prefill_users(
+                    tuple(token_ids.clone() for _ in range(width)),
+                    generation_tokens=plan.generation_tokens,
+                )
+                positions = tuple(prompt_token_count for _ in range(width))
+                trace_capture_seconds = self.adapter.prepare_width(
+                    token_ids=prefill_result.first_token_ids,
+                    positions=positions,
+                )
+                replay_started = time.monotonic()
+                replay_tokens = self.adapter.decode_traced(
+                    token_ids=prefill_result.first_token_ids,
+                    positions=positions,
+                )
+                replay_seconds = time.monotonic() - replay_started
+                if len(replay_tokens) != width:
+                    raise BatchDecodeAdapterError(
+                        "startup warm-up replay width changed"
+                    )
+                reset_started = time.monotonic()
+                self.adapter.reset_all()
+                reset_seconds = time.monotonic() - reset_started
+                observation = WarmupWidthObservation(
+                    width=width,
+                    elapsed_seconds=time.monotonic() - width_started,
+                    prefill_seconds=prefill_result.elapsed_seconds,
+                    trace_capture_seconds=trace_capture_seconds,
+                    replay_seconds=replay_seconds,
+                    reset_seconds=reset_seconds,
+                )
+                observations.append(observation)
+                self.emitter(
+                    "startup-warmup-width-passed",
+                    elapsed_seconds=observation.elapsed_seconds,
+                    prefill_seconds=observation.prefill_seconds,
+                    replay_seconds=observation.replay_seconds,
+                    reset_seconds=observation.reset_seconds,
+                    trace_capture_seconds=observation.trace_capture_seconds,
+                    width=width,
+                )
+        except (
+            AssertionError,
+            BatchDecodeAdapterError,
+            DecodeAdapterError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            try:
+                self.adapter.reset_all()
+            except (
+                AssertionError,
+                BatchDecodeAdapterError,
+                OSError,
+                RuntimeError,
+                ValueError,
+            ) as reset_error:
+                raise BatchDecodeAdapterError(
+                    "startup warm-up reset failed"
+                ) from reset_error
+            raise BatchDecodeAdapterError("startup warm-up failed") from error
+
+        with self._condition:
+            self._accepting_requests = True
+            self._condition.notify_all()
+        return tuple(observations)
 
     def _take_batch(self) -> tuple[_PendingBatchRequest, ...] | None:
         with self._condition:

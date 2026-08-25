@@ -41,6 +41,16 @@ from .decode_core import (
 )
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
+from .readiness_core import (
+    StartupReadiness,
+    begin_warmup,
+    complete_warmup,
+    fail_warmup,
+    initial_readiness,
+    plan_startup_warmup,
+    record_warm_width,
+)
+from .systemd_notify_adapter import notify_ready
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 HOST_TIMELINE_PREFILL_START = "QWEN_PREFILL_START"
@@ -68,6 +78,10 @@ DECODE_MODE_EAGER = "eager"
 DECODE_MODE_CANDIDATE = "candidate"
 DECODE_MODE_ADMITTED = "admitted"
 DECODE_MODES = (DECODE_MODE_EAGER, DECODE_MODE_CANDIDATE, DECODE_MODE_ADMITTED)
+STARTUP_WARMUP_WIDTHS = (1, 4)
+STARTUP_WARMUP_PROMPT = "Warm up the production inference path."
+STARTUP_WARMUP_GENERATION_TOKENS = 2
+SYSTEMD_READY_STATUS = "Qwen startup warm-up complete"
 
 
 class ServiceStop(Exception):
@@ -156,6 +170,7 @@ class QwenEngine:
             )
         )
         self._eager_lock = threading.Lock()
+        self._startup_readiness: StartupReadiness | None = None
         self._batch_coordinator = (
             BatchGenerationCoordinator(
                 adapter=self._batch_adapter,
@@ -173,6 +188,79 @@ class QwenEngine:
             if self._batch_adapter is not None
             else None
         )
+
+    @property
+    def requires_startup_warmup(self) -> bool:
+        return self._batch_coordinator is not None
+
+    def warm_up(self) -> None:
+        """Warm bounded production shapes before the service accepts traffic."""
+        if self._batch_coordinator is None:
+            return
+        plan = plan_startup_warmup(
+            widths=STARTUP_WARMUP_WIDTHS,
+            prompt=STARTUP_WARMUP_PROMPT,
+            generation_tokens=STARTUP_WARMUP_GENERATION_TOKENS,
+            maximum_width=MAXIMUM_BATCH_WIDTH,
+        )
+        state = begin_warmup(initial_readiness(plan))
+        self._startup_readiness = state
+        token_ids = self.tokenizer(plan.prompt, return_tensors="pt").input_ids
+        started = time.monotonic()
+        emit("startup-warmup-started", widths=plan.widths)
+        try:
+            observations = self._batch_coordinator.warm_up(plan, token_ids)
+            for observation in observations:
+                state = record_warm_width(
+                    state,
+                    width=observation.width,
+                    elapsed_seconds=observation.elapsed_seconds,
+                )
+            state = complete_warmup(
+                state,
+                total_elapsed_seconds=time.monotonic() - started,
+            )
+        except (
+            AssertionError,
+            DecodeAdapterError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ):
+            self._startup_readiness = fail_warmup(state)
+            emit(
+                "startup-warmup-failed",
+                completed_widths=state.completed_widths,
+            )
+            raise
+        self._startup_readiness = state
+        emit(
+            "startup-warmup-passed",
+            elapsed_seconds=state.total_elapsed_seconds,
+            widths=state.completed_widths,
+        )
+
+    def readiness_payload(self) -> dict[str, Any]:
+        state = self._startup_readiness
+        if state is None:
+            return {
+                "ready": True,
+                "startup_warmup": {
+                    "elapsed_seconds": None,
+                    "required": False,
+                    "widths": [],
+                },
+            }
+        if not state.ready or state.total_elapsed_seconds is None:
+            raise RuntimeError("service readiness was queried before warm-up completed")
+        return {
+            "ready": True,
+            "startup_warmup": {
+                "elapsed_seconds": state.total_elapsed_seconds,
+                "required": True,
+                "widths": list(state.completed_widths),
+            },
+        }
 
     def _profiled_prefill_device(
         self,
@@ -508,9 +596,14 @@ def make_handler(
             )
 
         def do_GET(self) -> None:
-            if self.path == "/healthz":
+            if self.path in ("/healthz", "/readyz"):
                 self._write_json(
-                    HTTPStatus.OK, {"model": engine.model_alias, "status": "ok"}
+                    HTTPStatus.OK,
+                    {
+                        "model": engine.model_alias,
+                        "status": "ok",
+                        **engine.readiness_payload(),
+                    },
                 )
                 return
             if self.path == "/v1/models":
@@ -591,6 +684,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--prefill-profile", action="store_true")
     parser.add_argument("--host-timeline-profile", action="store_true")
+    parser.add_argument("--require-systemd-notify", action="store_true")
     parser.add_argument(
         "--max-sequence-length", type=int, default=DEFAULT_MAX_SEQUENCE_LENGTH
     )
@@ -708,10 +802,16 @@ def main() -> None:
             enable_prefill_profile=args.prefill_profile,
             enable_host_timeline_profile=args.host_timeline_profile,
         )
+        engine.warm_up()
         server = ThreadingHTTPServer(
             (args.host, args.port), make_handler(engine, args.max_generation_tokens)
         )
         server.daemon_threads = True
+        readiness = engine.readiness_payload()
+        systemd_notified = notify_ready(
+            SYSTEMD_READY_STATUS,
+            required=args.require_systemd_notify,
+        )
         emit(
             "ready",
             decode_mode=args.decode_mode,
@@ -723,6 +823,8 @@ def main() -> None:
             host_timeline_profile=args.host_timeline_profile,
             prefill_profile=args.prefill_profile,
             simulated=False,
+            startup_warmup=readiness["startup_warmup"],
+            systemd_notified=systemd_notified,
         )
         try:
             server.serve_forever()
