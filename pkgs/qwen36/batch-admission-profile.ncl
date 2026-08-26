@@ -12,7 +12,7 @@ let configured_maximum_tail_latency_ratio = 1.5 in
 {
   schema_version = 1,
   profile_id = "qwen38-p150x2-batched-throughput-b4-v1",
-  physically_admitted = true,
+  physically_admitted = false,
   identities = {
     authority_blake3 = "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
     checkpoint_revision = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
