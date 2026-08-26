@@ -120,10 +120,11 @@ tok/s. These are upstream-reported numbers, not repository evidence.
 ## Non-claims
 
 Local silicon evidence proves a bounded TP=2 oracle, component PCC, recurrent
-state carry, and serialized short-prompt paged serving. It does not prove full
-64-layer logits PCC against a CPU model. It also makes no long-context,
-streaming, parallel-request, batch-serving, thermal, or profiler claim. The
-TTFT and throughput result applies only to the recorded three-run scope.
+state carry, short-prompt paged serving, and an admitted B=4 active-prefix
+throughput profile. It does not prove full 64-layer logits PCC against a CPU
+model. It also makes no long-context, streaming, arbitrary continuous-batching,
+thermal, or general profiler claim. Each result applies only to its recorded
+scope.
 
 ## Carried P150x2 (P300) build
 
@@ -153,7 +154,8 @@ P150x2 validation status:
 5. paged-contract logits for eight selected layers — passed against the bespoke path;
 6. full 64-layer serialized paged service — passed for two sequential requests;
 7. bounded warm-service TTFT and decode throughput — passed for three runs;
-8. long context, streaming, parallel requests, and batch serving — pending.
+8. bounded B=4 active-prefix serving — admitted; long context, streaming, B=8,
+   B=16, and arbitrary continuous batching remain pending.
 
 ## Hardware evidence (2026-08-19, britton-desktop)
 
@@ -606,9 +608,15 @@ hardware.tenstorrent = {
 ```
 
 The service listens on `127.0.0.1:8000` by default. It provides `/healthz`,
-`/v1/models`, `/v1/completions`, and `/v1/chat/completions`. Requests are
-serialized because one process owns both P150 devices. Only greedy,
-non-streaming responses are admitted.
+`/readyz`, `/v1/models`, `/v1/completions`, and `/v1/chat/completions`. It can
+assemble one active-prefix decode batch through B=16. Formal admission covers
+only B=4. Only greedy, non-streaming responses are supported.
+
+The admitted B=4 physical receipt used exact `single,batch,batch,single` order.
+It preserved all generated tokens, text, state slices, and resets. Aggregate
+decode increased by `3.5516293837023656`, with TTFT ratio
+`3.4362760366231644`. The separate single-stream eager-versus-traced profile
+remains unadmitted.
 
 This host runs the final package as the lingering per-user
 `qwen38-p150x2.service` unit on `127.0.0.1:8000`. Both previous inference

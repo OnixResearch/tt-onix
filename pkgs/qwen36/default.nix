@@ -706,7 +706,9 @@ stdenvNoCC.mkDerivation {
     cmp batch-admission-profile-first.json batch-admission-profile-second.json
     cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
     grep -F '"candidate_width": 4' batch-admission-profile-first.json
-    grep -F '"physically_admitted": false' batch-admission-profile-first.json
+    grep -F '"physically_admitted": true' batch-admission-profile-first.json
+    grep -F '"receipt_blake3": "176d912457f4c0048be90c9b477709e4360dae0681212cf275d108f3ca48465f"' \
+      batch-admission-profile-first.json
 
     # Negative: an admitted profile without a receipt must fail.
     mkdir -p batch-admission-profile-negative

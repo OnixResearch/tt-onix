@@ -371,8 +371,8 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "single_stream_ttft_gate_unchanged": true,
         },
         "response_hashes": {
-            "single": root_hashes(&single_roots),
-            "batch": root_hashes(&batch_roots),
+            "single": root_hashes("single", &single_roots),
+            "batch": root_hashes("batch", &batch_roots),
         },
         "non_claims": [
             "this receipt does not admit B=8 or B=16",
@@ -695,14 +695,15 @@ fn median(values: &[f64]) -> Result<f64, String> {
     }
 }
 
-fn root_hashes(roots: &[Root]) -> Vec<Value> {
+fn root_hashes(route: &str, roots: &[Root]) -> Vec<Value> {
     roots
         .iter()
-        .map(|root| {
+        .enumerate()
+        .map(|(index, root)| {
             json!({
-                "root": root.path,
+                "root": format!("{route}-{}", index + 1),
                 "samples": root.samples.iter().map(|sample| json!({
-                    "path": sample.path,
+                    "path": sample.path.file_name(),
                     "blake3": sample.hash,
                 })).collect::<Vec<_>>(),
             })
