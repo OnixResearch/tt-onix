@@ -34,6 +34,18 @@ let RootOrderC = std.contract.from_predicate (fun value =>
   value == ["single", "batch", "batch", "single"]
 ) in
 
+let PolicyIdentityC = {
+  authority_blake3 | Blake3C,
+  checkpoint_revision | RevisionC,
+  model_source_revision | RevisionC,
+  tokenizer_revision | RevisionC,
+} in
+let PolicyIdentityClosedC = ClosedRecordC [
+  "authority_blake3",
+  "checkpoint_revision",
+  "model_source_revision",
+  "tokenizer_revision",
+] in
 let IdentityC = {
   authority_blake3 | Blake3C,
   checkpoint_revision | RevisionC,
@@ -91,6 +103,38 @@ let AdmissionClosedC = ClosedRecordC [
   "require_physical_evidence",
 ] in
 
+let PolicyC = {
+  schema_version | ExactC 1,
+  profile_id | NonEmptyStringC,
+  identities | PolicyIdentityClosedC | PolicyIdentityC,
+  workload | WorkloadClosedC | WorkloadC,
+  admission | AdmissionClosedC | AdmissionC,
+} in
+let PolicyClosedC = ClosedRecordC [
+  "schema_version",
+  "profile_id",
+  "identities",
+  "workload",
+  "admission",
+] in
+let PolicySemanticC = std.contract.from_predicate (fun value =>
+  value.workload.candidate_width > value.workload.baseline_width
+  && value.admission.minimum_aggregate_decode_speedup_ratio > 1
+  && value.admission.minimum_per_user_decode_retention_ratio <= 1
+  && value.admission.maximum_ttft_ratio >= 1
+  && value.admission.maximum_tail_latency_ratio >= 1
+) in
+let BindingC = {
+  physically_admitted | Bool,
+  receipt_blake3 | ReceiptC,
+} in
+let BindingClosedC = ClosedRecordC [
+  "physically_admitted",
+  "receipt_blake3",
+] in
+let BindingSemanticC = std.contract.from_predicate (fun value =>
+  !value.physically_admitted || value.receipt_blake3 != "not-measured"
+) in
 let ProfileC = {
   schema_version | ExactC 1,
   profile_id | NonEmptyStringC,
@@ -116,6 +160,12 @@ let ProfileSemanticC = std.contract.from_predicate (fun value =>
   && value.admission.maximum_tail_latency_ratio >= 1
 ) in
 {
+  Binding = BindingC,
+  BindingClosed = BindingClosedC,
+  BindingSemantic = BindingSemanticC,
+  Policy = PolicyC,
+  PolicyClosed = PolicyClosedC,
+  PolicySemantic = PolicySemanticC,
   Profile = ProfileC,
   ProfileClosed = ProfileClosedC,
   ProfileSemantic = ProfileSemanticC,

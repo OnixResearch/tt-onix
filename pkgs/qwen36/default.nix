@@ -48,7 +48,66 @@ let
   ]);
   ttnnSitePackages = "${tt-metal}/lib/python${python3.pythonVersion}/site-packages";
   metaliumRoot = "${tt-metal}/libexec/tt-metalium";
+  executionPatches = [
+    ./p150x2-tp.patch
+    ./generate-tp-reset.patch
+    ./gdn-seq-fallback.patch
+    ./tp2-runtime-compat.patch
+    ./layer-type-authority.patch
+    ./gdn-decode-layout-candidate.patch
+    ./batch-prefill-observation.patch
+  ];
+  executionIdentityInputs = [
+    ./default.nix
+    ./service/qwen36_service
+    ./authority.ncl
+    ./authority-contract.ncl
+    ./generated/authority.json
+    ./decode-profile.ncl
+    ./decode-contracts.ncl
+    ./batch-admission-policy.ncl
+    ./batch-admission-policy-validated.ncl
+    ./batch-admission-contracts.ncl
+    ./batch-admission-profile.ncl
+    source
+    pythonEnvironment
+    tt-metal
+    tt-metal-tracy-tools
+    makeWrapper
+  ]
+  ++ executionPatches;
+  mkExecutionIdentity =
+    inputs:
+    let
+      manifestLines = [
+        "schema=onix.qwen36.execution-identity.v1"
+      ]
+      ++ map (input: "input=${toString input}") inputs;
+    in
+    stdenvNoCC.mkDerivation {
+      pname = "qwen36-execution-identity";
+      version = "0.1.0";
+      dontUnpack = true;
+      installPhase = ''
+        runHook preInstall
+        mkdir -p "$out/share/qwen36"
+        printf '%s\n' ${lib.concatMapStringsSep " " lib.escapeShellArg manifestLines} \
+          > "$out/share/qwen36/execution-inputs"
+        runHook postInstall
+      '';
+    };
+  executionIdentity = mkExecutionIdentity executionIdentityInputs;
+  executionIdentityAfterMetadataPromotion = mkExecutionIdentity executionIdentityInputs;
+  executionIdentityWithDrift = mkExecutionIdentity (
+    executionIdentityInputs ++ [ ./fixtures/execution-identity-drift.txt ]
+  );
 in
+assert lib.assertMsg (
+  toString executionIdentity == toString executionIdentityAfterMetadataPromotion
+) "receipt-only promotion changed the Qwen execution identity";
+assert lib.assertMsg (
+  toString executionIdentity != toString executionIdentityWithDrift
+) "an execution input failed to change the Qwen execution identity";
 stdenvNoCC.mkDerivation {
   pname = "qwen36";
   # Adopted upstream state: tt-metal PR 53543 head (Qwen3.8-27B on qwen36).
@@ -57,46 +116,8 @@ stdenvNoCC.mkDerivation {
   src = source;
   dontConfigure = true;
   dontBuild = true;
-  patches = [
-    # r[impl tenstorrent.qwen36.p150x2_tp]
-    # TP=2 (P150x2 / P300) support carried on top of the adopted PR: registers
-    # the P150x2 mesh maps, the P300 prefill-chunk entries, and the host-sampling
-    # advertisement that TP=2 requires (on-device sampling is certified only for
-    # 1x4/1x8). Generated from the adopted tree; validates with patch -p1.
-    ./p150x2-tp.patch
-    # r[impl tenstorrent.qwen36.generate_tp_reset]
-    # Hardware-found upstream bug: reset_tp() calls reset_state() on every
-    # layer, but single-device full attention (Qwen36GatedAttention) only
-    # exposes reset_cache(); only GDN and the TP wrappers expose reset_state.
-    # The 9B single-device generate_tp oracle crashes without this dispatch.
-    ./generate-tp-reset.patch
-    # r[impl tenstorrent.qwen36.gdn_seq_fallback]
-    # Hardware-found API drift: the adopted main-line code routes GDN TP
-    # prefill through ttnn.transformer.chunk_gated_delta_rule, which the
-    # packaged 0.74 bindings do not expose. The tree already carries a seq
-    # adapter built on gated_delta_attn_seq (present in 0.74); this patch makes
-    # the dispatch check the runtime instead of hardcoding the fused path.
-    ./gdn-seq-fallback.patch
-    # r[impl tenstorrent.qwen36.p150x2_runtime_compat]
-    # Silicon-found 0.74 gaps: P150x2 waits in the TP=4-tuned GDN fused
-    # matmul-reduce-scatter, and the MLP AGMM binding rejects fuse_swiglu.
-    # Keep the optimized paths on capable runtimes and admitted larger meshes.
-    ./tp2-runtime-compat.patch
-    # r[impl tenstorrent.qwen38_p150x2.layer_type_authority]
-    # The checkpoint layer_types list owns hybrid dispatch. The pure resolver
-    # rejects incomplete metadata and removes the unused 32-layer mapper set.
-    ./layer-type-authority.patch
-    # r[impl tenstorrent.qwen38_p150x2.gdn_decode_projection_layout]
-    # Operator-gated decode projection layout candidate: a pure device-free
-    # shape-eligibility policy plus a default-off DRAM-sharded decode branch
-    # for the qkvzab projection. Production stays on the tuned 1D-mcast path
-    # (and prefill stays untouched) until matched physical evidence admits it.
-    ./gdn-decode-layout-candidate.patch
-    # r[impl tenstorrent.qwen38_p150x2.batch_ttft_evidence]
-    # Observe first-token host logits before GDN state-slot writes. This keeps
-    # batch TTFT separate from later trace preparation without moving prefill.
-    ./batch-prefill-observation.patch
-  ];
+  # Every patch can change measured execution and is part of the stable identity.
+  patches = executionPatches;
   nativeBuildInputs = [
     b3sum
     makeWrapper
@@ -124,7 +145,12 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-profile.ncl} "$out/share/qwen36/decode-profile.ncl"
     cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
     cp ${./batch-admission-profile.ncl} "$out/share/qwen36/batch-admission-profile.ncl"
+    cp ${./batch-admission-policy.ncl} "$out/share/qwen36/batch-admission-policy.ncl"
+    cp ${./batch-admission-policy-validated.ncl} "$out/share/qwen36/batch-admission-policy-validated.ncl"
+    cp ${./batch-admission-binding.ncl} "$out/share/qwen36/batch-admission-binding.ncl"
+    cp ${./batch-admission-binding-validated.ncl} "$out/share/qwen36/batch-admission-binding-validated.ncl"
     cp ${./batch-admission-contracts.ncl} "$out/share/qwen36/batch-admission-contracts.ncl"
+    ln -s ${executionIdentity} "$out/share/qwen36/execution-identity"
     cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
     cp ${./mtp-drafter-profile.ncl} "$out/share/qwen36/mtp-drafter-profile.ncl"
@@ -146,6 +172,8 @@ stdenvNoCC.mkDerivation {
       > "$out/share/qwen36/decode-profile.json"
     mkdir -p batch-admission-profile-export
     cp ${./batch-admission-profile.ncl} batch-admission-profile-export/batch-admission-profile.ncl
+    cp ${./batch-admission-policy.ncl} batch-admission-profile-export/batch-admission-policy.ncl
+    cp ${./batch-admission-binding.ncl} batch-admission-profile-export/batch-admission-binding.ncl
     cp ${./batch-admission-contracts.ncl} batch-admission-profile-export/batch-admission-contracts.ncl
     nickel export --format json batch-admission-profile-export/batch-admission-profile.ncl \
       > "$out/share/qwen36/batch-admission-profile.json"
@@ -257,7 +285,7 @@ stdenvNoCC.mkDerivation {
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
-      --add-flags "$out"
+      --add-flags ${lib.escapeShellArg executionIdentity}
 
     # r[impl tenstorrent.qwen38_p150x2.traced_decode]
     # Production serves the traced candidate. Matched physical measurement on
@@ -283,7 +311,7 @@ stdenvNoCC.mkDerivation {
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
-      --add-flags "$out"
+      --add-flags ${lib.escapeShellArg executionIdentity}
 
     # r[impl tenstorrent.qwen38_p150x2.batch_performance_admission]
     # Explicit physical evidence mode. Normal production stays ineligible.
@@ -308,7 +336,7 @@ stdenvNoCC.mkDerivation {
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
-      --add-flags "$out"
+      --add-flags ${lib.escapeShellArg executionIdentity}
 
     # r[impl tenstorrent.qwen38_p150x2.mtp_verification_probe]
     # This command is explicit and diagnostic-only. Production remains eager.
@@ -624,6 +652,20 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
     test -f "$out/share/qwen36/batch-admission-profile.json"
+    test -f "$out/share/qwen36/batch-admission-policy.ncl"
+    test -f "$out/share/qwen36/batch-admission-binding.ncl"
+    test -L "$out/share/qwen36/execution-identity"
+    test "$(readlink "$out/share/qwen36/execution-identity")" = ${lib.escapeShellArg executionIdentity}
+    test -f "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    grep -F ${lib.escapeShellArg (toString ./batch-admission-policy.ncl)} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    if grep -F ${lib.escapeShellArg (toString ./batch-admission-binding.ncl)} \
+        "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
+      echo "mutable batch admission binding entered execution identity" >&2
+      exit 1
+    fi
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-serve"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-batch-admission"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/mtp-selection-profile.json"
@@ -700,7 +742,13 @@ stdenvNoCC.mkDerivation {
     # Positive: the B=4 admission profile exports deterministically.
     mkdir -p batch-admission-profile-check
     cp ${./batch-admission-profile.ncl} batch-admission-profile-check/batch-admission-profile.ncl
+    cp ${./batch-admission-policy.ncl} batch-admission-profile-check/batch-admission-policy.ncl
+    cp ${./batch-admission-policy-validated.ncl} batch-admission-profile-check/batch-admission-policy-validated.ncl
+    cp ${./batch-admission-binding.ncl} batch-admission-profile-check/batch-admission-binding.ncl
+    cp ${./batch-admission-binding-validated.ncl} batch-admission-profile-check/batch-admission-binding-validated.ncl
     cp ${./batch-admission-contracts.ncl} batch-admission-profile-check/batch-admission-contracts.ncl
+    nickel export --format json batch-admission-profile-check/batch-admission-policy-validated.ncl > batch-admission-policy.json
+    nickel export --format json batch-admission-profile-check/batch-admission-binding-validated.ncl > batch-admission-binding.json
     nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-first.json
     nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-second.json
     cmp batch-admission-profile-first.json batch-admission-profile-second.json
@@ -713,6 +761,8 @@ stdenvNoCC.mkDerivation {
     # Negative: an admitted profile without a receipt must fail.
     mkdir -p batch-admission-profile-negative
     cp ${./batch-admission-profile.ncl} batch-admission-profile-negative/batch-admission-profile.ncl
+    cp ${./batch-admission-policy.ncl} batch-admission-profile-negative/batch-admission-policy.ncl
+    cp ${./batch-admission-binding.ncl} batch-admission-profile-negative/batch-admission-binding.ncl
     cp ${./batch-admission-contracts.ncl} batch-admission-profile-negative/batch-admission-contracts.ncl
     cp ${./fixtures/invalid-batch-admission-profile.ncl} batch-admission-profile-negative/invalid-batch-admission-profile.ncl
     if nickel export --format json batch-admission-profile-negative/invalid-batch-admission-profile.ncl \
@@ -963,6 +1013,7 @@ stdenvNoCC.mkDerivation {
     inherit
       authorityValidator
       canonicalAuthority
+      executionIdentity
       pythonEnvironment
       source
       ttnnSitePackages
