@@ -55,7 +55,7 @@ let
     ./tp2-runtime-compat.patch
     ./layer-type-authority.patch
     ./gdn-decode-layout-candidate.patch
-    ./batch-prefill-observation.patch
+    ./prefill-device-staging.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   executionIdentityLocalInputs = [

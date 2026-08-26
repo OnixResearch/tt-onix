@@ -1094,6 +1094,23 @@ def probe_batch_admission():
         "first_token_callback(host_logits)" in model_source,
         "model does not expose pre-slot-write first-token evidence",
     )
+
+    # r[verify tenstorrent.qwen38_p150x2.prefill_device_staging]
+    require(
+        "_rope_decode_tables" in model_source and "tables[0][rows]" in model_source,
+        "decode RoPE does not use the cached per-position tables",
+    )
+    require(
+        "device_direct = (" in model_source
+        and "self._chunked_trace_id is None" in model_source
+        and '"_bucket_trace_id", None' in model_source,
+        "device-direct prefill staging lacks the no-parked-trace gate",
+    )
+    require(
+        "_write_gdn_slot_device" in model_source
+        and "dn.write_slot(slot, rec_clones[li], conv_clones[li])" in model_source,
+        "device-resident slot writes bypass write_slot ownership semantics",
+    )
     batch_service_source = Path(
         __import__("qwen36_service.batch_service", fromlist=["__file__"]).__file__
     ).read_text()

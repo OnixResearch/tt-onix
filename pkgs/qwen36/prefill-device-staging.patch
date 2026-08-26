@@ -1,0 +1,150 @@
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -1720,7 +1720,9 @@
+             for hl in host_logits
+         ]
+ 
+-    def prefill_paged_slots(self, token_ids_list, page_table, empty_slots, valid_lens=None):
++    def prefill_paged_slots(
++        self, token_ids_list, page_table, empty_slots, valid_lens=None, first_token_callback=None
++    ):
+         """vLLM continuous-batching TP prefill: prefill each new request into ITS decode slot.
+ 
+         The per-slot analogue of prefill_paged_peruser for online serving. Under vLLM a new
+@@ -1757,6 +1759,20 @@
+         host_logits = []
+         per_user_rec = []
+         per_user_conv = []
++        # With no parked prefill trace, per-user GDN snapshots can stay on the device: clone
++        # the scratch state inside the loop (same enqueue order as the forward, so each clone
++        # captures its user before the next reset overwrites the scratch) and write the clones
++        # into the decode slots after the loop. This removes the per-user host round trip
++        # (to_torch snapshots + from_torch re-upload) that dominated batched state staging.
++        # Under a parked bucket/chunk trace the upstream clone-aliasing hazard still applies,
++        # so the host round trip is kept there.
++        device_direct = (
++            self._chunked_trace_id is None
++            and getattr(self, "_bucket_trace_id", None) is None
++        )
++        device_logits = []
++        device_rec = []
++        device_conv = []
+         try:
+             for u in range(N):
+                 toks = token_ids_list[u]
+@@ -1766,26 +1782,58 @@
+                 # Trace-safe prefill into the B=1 scratch: prefill_traced_chunked runs short prompts in
+                 # one masked-bucket forward and chunks longer ones; GDN state carries + is snapshotted below.
+                 lg = self.prefill_traced_chunked(toks[:, :actual], pt[u : u + 1], actual_len=actual)
+-                host_logits.append(
+-                    ttnn.to_torch(lg, mesh_composer=comp).reshape(-1, self.args.vocab_size)[:1].float().view(1, 1, -1)
+-                )
+-                ttnn.deallocate(lg)
+-                # Snapshot this user's B=1 scratch state (host round trip — the next user's reset
+-                # overwrites the scratch in place; see prefill_traced_bucket_batched for why not clone).
+-                per_user_rec.append([ttnn.to_torch(dn.rec_state, mesh_composer=comp) for dn in dn_states])
+-                per_user_conv.append(
+-                    [[ttnn.to_torch(c, mesh_composer=comp) for c in dn.conv_states] for dn in dn_states]
+-                )
++                if device_direct:
++                    device_logits.append(lg)
++                    device_rec.append([ttnn.clone(dn.rec_state) for dn in dn_states])
++                    device_conv.append(
++                        [[ttnn.clone(c) for c in dn.conv_states] for dn in dn_states]
++                    )
++                else:
++                    host_logits.append(
++                        ttnn.to_torch(lg, mesh_composer=comp).reshape(-1, self.args.vocab_size)[:1].float().view(1, 1, -1)
++                    )
++                    ttnn.deallocate(lg)
++                    # Snapshot this user's B=1 scratch state (host round trip — the next user's reset
++                    # overwrites the scratch in place; see prefill_traced_bucket_batched for why not clone).
++                    per_user_rec.append([ttnn.to_torch(dn.rec_state, mesh_composer=comp) for dn in dn_states])
++                    per_user_conv.append(
++                        [[ttnn.to_torch(c, mesh_composer=comp) for c in dn.conv_states] for dn in dn_states]
++                    )
+         finally:
+             # Always rebind the batched decode buffers (a mid-loop assert must not leave GDN on scratch).
+             # Does NOT free the scratch — it persists for the next request and keeps the trace valid.
+             self._unbind_gdn_prefill_scratch(prev)
+ 
+-        # Write each user's snapshot into its decode slot, preserving the other live rows.
+-        for u in range(N):
+-            self._write_gdn_slot(int(empty_slots[u]), per_user_rec[u], per_user_conv[u])
++        if device_direct:
++            ttnn.synchronize_device(self.mesh_device)
++            for lg in device_logits:
++                host_logits.append(
++                    ttnn.to_torch(lg, mesh_composer=comp).reshape(-1, self.args.vocab_size)[:1].float().view(1, 1, -1)
++                )
++                ttnn.deallocate(lg)
++
++        if first_token_callback is not None:
++            first_token_callback(host_logits)
++
++        if device_direct:
++            for u in range(N):
++                self._write_gdn_slot_device(int(empty_slots[u]), device_rec[u], device_conv[u])
++        else:
++            # Write each user's snapshot into its decode slot, preserving the other live rows.
++            for u in range(N):
++                self._write_gdn_slot(int(empty_slots[u]), per_user_rec[u], per_user_conv[u])
+         return host_logits
+ 
++    def _write_gdn_slot_device(self, slot, rec_clones, conv_clones):
++        """Write one request's device-resident B=1 GDN state (per-layer clones of the prefill
++        scratch) into decode `slot`, preserving the other live rows. Sources are fresh clone
++        allocations rather than the persistent scratch, so write_slot's ownership semantics
++        (it consumes and deallocates its sources) free them safely. Mirrors _write_gdn_slot
++        without the host round trip."""
++        dn_layers = [layer.attention for layer in self.layers if not layer.is_full_attention]
++        for li, dn in enumerate(dn_layers):
++            dn.write_slot(slot, rec_clones[li], conv_clones[li])
++
+     def _write_gdn_slot(self, slot, rec_snap, conv_snap):
+         """Upload one request's B=1 GDN state snapshot (host torch, per GDN layer) and write it
+         into decode `slot` of the batched buffers via TPGatedDeltaNet.write_slot (preserving the
+@@ -3187,6 +3235,22 @@
+ 
+     # Generator contract — decode
+ 
++    def _rope_decode_tables(self, rd, required):
++        """Cached float32 cos/sin tables [P, rd] for TP decode RoPE (P grows on demand).
++
++        Row p equals the per-step computation it replaces (outer(p, inv_freq) -> cat -> cos/sin
++        in float32), so the gathered rows are bitwise identical to the recomputed trig.
++        """
++        tables = getattr(self, "_rope_tp_tables", None)
++        if tables is not None and tables[0].shape[0] >= required:
++            return tables
++        size = max(required, int(self.args.max_seq_len))
++        inv_freq = 1.0 / (self.args.rope_theta ** (torch.arange(0, rd, 2).float() / rd))
++        freqs = torch.outer(torch.arange(size, dtype=torch.float32), inv_freq)
++        emb = torch.cat([freqs, freqs], dim=-1)
++        self._rope_tp_tables = (emb.cos(), emb.sin())
++        return self._rope_tp_tables
++
+     def prepare_decode_inputs_host(self, tokens, current_pos, page_table=None):
+         """Build HOST decode inputs: (tokens_tt, cur_pos_tt, rope_packed, page_table_tt)."""
+         from models.demos.blackhole.qwen36.tt.generator_interface import pack_rope_host
+@@ -3205,13 +3269,14 @@
+         # stays the true KV position. rope_delta is 0 for text, so this is a no-op there.
+         rope_pos_vec = pos_vec + self.rope.rope_delta
+         if self.num_devices > 1:
+-            # TP: rope_tp cos/sin [1,B,1,rope_dim] packed on host.
++            # TP: rope_tp cos/sin [1,B,1,rope_dim] packed on host. The cos/sin rows are cached
++            # per position (identical floats to the per-step trig they replace); a decode step
++            # only gathers its rows instead of recomputing arange/outer/cos/sin every token.
+             rd = self.args.rope_head_dim
+-            inv_freq = 1.0 / (self.args.rope_theta ** (torch.arange(0, rd, 2).float() / rd))
+-            freqs = torch.outer(rope_pos_vec.float(), inv_freq)  # [B, rd/2], per-user rotation
+-            emb = torch.cat([freqs, freqs], dim=-1)
+-            cos = emb.cos().reshape(1, B, 1, rd).to(torch.bfloat16)
+-            sin = emb.sin().reshape(1, B, 1, rd).to(torch.bfloat16)
++            tables = self._rope_decode_tables(rd, int(rope_pos_vec.max().item()) + 1)
++            rows = rope_pos_vec.long()
++            cos = tables[0][rows].reshape(1, B, 1, rd).to(torch.bfloat16)
++            sin = tables[1][rows].reshape(1, B, 1, rd).to(torch.bfloat16)
+             rope_packed = ttnn.from_torch(torch.cat([cos, sin], dim=0), dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+         else:
+             # Single-device decode is B=1 in this port; per-user single-device rope is out of scope.
