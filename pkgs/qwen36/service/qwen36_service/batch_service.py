@@ -7,11 +7,17 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import torch
 
+from .batch_admission_core import (
+    PRODUCTION_MEASUREMENT_MODE,
+    BatchAdmissionPolicyError,
+    BatchAdmissionProfile,
+)
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
@@ -68,6 +74,8 @@ class BatchGenerationCoordinator:
         maximum_sequence_length: int,
         physical_pcie_device_ids: tuple[int, ...],
         emitter: Callable[..., None],
+        batch_admission_profile: BatchAdmissionProfile | None = None,
+        batch_admission_enabled: bool = False,
     ) -> None:
         self.adapter = adapter
         self.tokenizer = tokenizer
@@ -80,6 +88,12 @@ class BatchGenerationCoordinator:
         self.maximum_sequence_length = maximum_sequence_length
         self.physical_pcie_device_ids = physical_pcie_device_ids
         self.emitter = emitter
+        self.batch_admission_profile = batch_admission_profile
+        self.batch_admission_enabled = batch_admission_enabled
+        if batch_admission_enabled and batch_admission_profile is None:
+            raise BatchDecodeAdapterError(
+                "batch admission mode requires a batch admission profile"
+            )
         self._condition = threading.Condition()
         self._queue: deque[_PendingBatchRequest] = deque()
         self._accepting_requests = False
@@ -307,10 +321,12 @@ class BatchGenerationCoordinator:
         ):
             raise BatchDecodeAdapterError("request timeout exceeded before batch start")
 
+        prefill_started = time.monotonic()
         prefill_result = self.adapter.prefill_users(
             tuple(pending.token_ids for pending in pending_batch),
             generation_tokens=maximum_generation_tokens,
         )
+        first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
         positions = [pending.prompt_token_count for pending in pending_batch]
         trace_prepare_started = time.monotonic()
@@ -319,7 +335,6 @@ class BatchGenerationCoordinator:
             positions=tuple(positions),
         )
         trace_prepare_seconds = time.monotonic() - trace_prepare_started
-        prefill_finished = time.monotonic()
 
         decode_durations = []
         while len(generated[0]) < maximum_generation_tokens:
@@ -367,6 +382,24 @@ class BatchGenerationCoordinator:
             aggregate_decode_rate = 0.0
             tail_token_latency_seconds = 0.0
 
+        measurement_mode = PRODUCTION_MEASUREMENT_MODE
+        admission_eligible = False
+        evidence_profile_id = self.profile.profile_id
+        if self.batch_admission_profile is not None:
+            try:
+                measurement_mode, admission_eligible = (
+                    self.batch_admission_profile.measurement(
+                        enabled=self.batch_admission_enabled,
+                        width=width,
+                    )
+                )
+            except BatchAdmissionPolicyError as error:
+                raise BatchDecodeAdapterError(
+                    "batch admission measurement is outside policy"
+                ) from error
+            if self.batch_admission_enabled:
+                evidence_profile_id = self.batch_admission_profile.profile_id
+
         responses = []
         for state_slice, (pending, user_tokens) in enumerate(
             zip(pending_batch, generated, strict=True)
@@ -383,9 +416,10 @@ class BatchGenerationCoordinator:
                 prompt_token_count=pending.prompt_token_count,
                 generated_token_count=len(user_tokens),
             )
-            ttft_seconds = prefill_finished - pending.started
+            queue_seconds = prefill_started - pending.started
+            ttft_seconds = first_token_ready - prefill_started
             response["x_onix_decode_evidence"] = {
-                "admission_eligible": False,
+                "admission_eligible": admission_eligible,
                 "aggregate_decode_tokens_per_second": aggregate_decode_rate,
                 "batch_width": width,
                 "clean_reset": True,
@@ -396,15 +430,18 @@ class BatchGenerationCoordinator:
                 "fallback_reason": None,
                 "first_token_readback_seconds": None,
                 "generated_token_ids": user_tokens,
-                "measurement_mode": "physical-batched-service",
+                "measurement_mode": measurement_mode,
                 "model_identity": self.model_identity,
                 "package_identity": self.package_identity,
                 "physical_pcie_device_ids": self.physical_pcie_device_ids,
-                "prefill_device_seconds": prefill_result.elapsed_seconds,
+                "prefill_device_seconds": None,
+                "prefill_first_token_seconds": prefill_result.first_token_ready_seconds,
                 "prefill_page_table_blocks": prefill_result.page_table_blocks,
+                "prefill_state_install_seconds": prefill_result.state_install_seconds,
                 "prefill_profile_receiver_drain_seconds": 0.0,
                 "prefill_program_profile": None,
-                "profile_id": self.profile.profile_id,
+                "profile_id": evidence_profile_id,
+                "queue_seconds": queue_seconds,
                 "request_reset_seconds": 0.0,
                 "runtime_identity": self.runtime_identity,
                 "simulated": False,

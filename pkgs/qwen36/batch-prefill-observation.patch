@@ -1,0 +1,14 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -1729 +1729,3 @@ class Qwen36Model:
+-    def prefill_paged_slots(self, token_ids_list, page_table, empty_slots, valid_lens=None):
++    def prefill_paged_slots(
++        self, token_ids_list, page_table, empty_slots, valid_lens=None, first_token_callback=None
++    ):
+@@ -1792,3 +1794,5 @@ class Qwen36Model:
+             self._unbind_gdn_prefill_scratch(prev)
+ 
++        if first_token_callback is not None:
++            first_token_callback(host_logits)
+         # Write each user's snapshot into its decode slot, preserving the other live rows.

@@ -23,6 +23,10 @@ from models.demos.blackhole.qwen36.demo.text_demo import _blocks_for
 from models.demos.blackhole.qwen36.tt.model import Qwen36Model
 from transformers import AutoTokenizer
 
+from .batch_admission_core import (
+    BatchAdmissionPolicyError,
+    BatchAdmissionProfile,
+)
 from .batch_decode_adapter import BatchedTracedDecodeAdapter
 from .batch_service import BatchGenerationCoordinator
 from .core import (
@@ -122,6 +126,8 @@ class QwenEngine:
         model_identity: str,
         enable_prefill_profile: bool,
         enable_host_timeline_profile: bool,
+        batch_admission_profile: BatchAdmissionProfile | None = None,
+        batch_admission_enabled: bool = False,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -184,6 +190,8 @@ class QwenEngine:
                 maximum_sequence_length=max_sequence_length,
                 physical_pcie_device_ids=tuple(EXPECTED_PCIE_DEVICE_IDS),
                 emitter=emit,
+                batch_admission_profile=batch_admission_profile,
+                batch_admission_enabled=batch_admission_enabled,
             )
             if self._batch_adapter is not None
             else None
@@ -677,6 +685,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--model-alias", default="Qwen3.8-27B")
     parser.add_argument("--decode-profile", required=True)
+    parser.add_argument("--batch-admission-profile")
+    parser.add_argument("--batch-admission", action="store_true")
     parser.add_argument(
         "--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER
     )
@@ -709,6 +719,33 @@ def main() -> None:
             decode_profile = DecodeProfile.from_mapping(json.load(profile_file))
     except (DecodePolicyError, OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"decode profile is invalid: {error}") from error
+    batch_admission_profile = None
+    if args.batch_admission:
+        if args.decode_mode != DECODE_MODE_CANDIDATE:
+            raise SystemExit("--batch-admission requires candidate decode mode")
+        if args.batch_admission_profile is None:
+            raise SystemExit("--batch-admission requires --batch-admission-profile")
+        batch_admission_profile_path = Path(args.batch_admission_profile).expanduser()
+        if (
+            not batch_admission_profile_path.is_absolute()
+            or not batch_admission_profile_path.is_file()
+        ):
+            raise SystemExit(
+                "--batch-admission-profile must be an existing absolute file"
+            )
+        try:
+            with batch_admission_profile_path.open(encoding="utf-8") as profile_file:
+                batch_admission_profile = BatchAdmissionProfile.from_mapping(
+                    json.load(profile_file)
+                )
+        except (
+            BatchAdmissionPolicyError,
+            OSError,
+            json.JSONDecodeError,
+        ) as error:
+            raise SystemExit(f"batch admission profile is invalid: {error}") from error
+    elif args.batch_admission_profile is not None:
+        raise SystemExit("--batch-admission-profile requires --batch-admission")
     if not model_path.is_absolute() or not model_path.is_dir():
         raise SystemExit("--model-path must be an existing absolute directory")
     if not (model_path / "config.json").is_file():
@@ -719,6 +756,8 @@ def main() -> None:
         raise SystemExit("--port is outside the TCP port range")
     if args.prefill_profile and args.host_timeline_profile:
         raise SystemExit("--prefill-profile conflicts with --host-timeline-profile")
+    if args.batch_admission and (args.prefill_profile or args.host_timeline_profile):
+        raise SystemExit("--batch-admission conflicts with profiling modes")
     if args.max_sequence_length <= 0:
         raise SystemExit("--max-sequence-length must be positive")
     if args.max_sequence_length > ADMITTED_MAX_SEQUENCE_LENGTH:
@@ -731,6 +770,11 @@ def main() -> None:
         raise SystemExit("decode profile trace-region size does not match the service")
     if model_path.name != decode_profile.checkpoint_revision:
         raise SystemExit("model path does not match the decode profile checkpoint")
+    if (
+        batch_admission_profile is not None
+        and model_path.name != batch_admission_profile.checkpoint_revision
+    ):
+        raise SystemExit("model path does not match the batch admission checkpoint")
     if args.max_generation_tokens <= 0:
         raise SystemExit("--max-generation-tokens must be positive")
     if args.max_generation_tokens > args.max_sequence_length:
@@ -801,6 +845,8 @@ def main() -> None:
             model_identity=f"{args.model_alias}:{decode_profile.checkpoint_revision}",
             enable_prefill_profile=args.prefill_profile,
             enable_host_timeline_profile=args.host_timeline_profile,
+            batch_admission_profile=batch_admission_profile,
+            batch_admission_enabled=args.batch_admission,
         )
         engine.warm_up()
         server = ThreadingHTTPServer(
@@ -820,6 +866,7 @@ def main() -> None:
             layer_count=len(model.layers),
             model=args.model_alias,
             port=args.port,
+            batch_admission=args.batch_admission,
             host_timeline_profile=args.host_timeline_profile,
             prefill_profile=args.prefill_profile,
             simulated=False,

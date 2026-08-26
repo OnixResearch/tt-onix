@@ -892,6 +892,114 @@ def probe_batch_decode_scheduler():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
+# r[verify tenstorrent.qwen38_p150x2.batch_ttft_evidence]
+def probe_batch_admission():
+    """Positive and negative tests for batch admission policy and phases."""
+    from qwen36_service.batch_admission_core import (
+        ADMISSION_MEASUREMENT_MODE,
+        CANDIDATE_WIDTH,
+        PRODUCTION_MEASUREMENT_MODE,
+        BatchAdmissionPolicyError,
+        BatchAdmissionProfile,
+    )
+    from qwen36_service.batch_decode_adapter import BatchPrefillResult
+
+    test_token_id = 7
+    test_total_prefill_seconds = 0.4
+    test_first_token_seconds = 0.3
+    test_page_table_blocks = 8
+    test_state_install_seconds = 0.1
+    profile_path = Path(__file__).with_name("batch-admission-profile.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile_mapping = json.load(profile_file)
+    profile = BatchAdmissionProfile.from_mapping(profile_mapping)
+    require(
+        profile.candidate_width == CANDIDATE_WIDTH,
+        "batch profile selected the wrong candidate width",
+    )
+    production_mode, production_eligible = profile.measurement(
+        enabled=False,
+        width=profile.candidate_width,
+    )
+    require(
+        production_mode == PRODUCTION_MEASUREMENT_MODE and not production_eligible,
+        "normal production became admission-eligible",
+    )
+    admission_mode, admission_eligible = profile.measurement(
+        enabled=True,
+        width=profile.candidate_width,
+    )
+    require(
+        admission_mode == ADMISSION_MEASUREMENT_MODE and admission_eligible,
+        "explicit batch admission did not become eligible",
+    )
+    for invalid_width in (0, profile.candidate_width + 1, True):
+        try:
+            profile.measurement(enabled=True, width=invalid_width)
+        except BatchAdmissionPolicyError as error:
+            require("width" in str(error), f"wrong admission-width diagnostic: {error}")
+        else:
+            require(False, f"invalid admission width was accepted: {invalid_width!r}")
+
+    invalid_profile = json.loads(json.dumps(profile_mapping))
+    invalid_profile["unexpected"] = True
+    try:
+        BatchAdmissionProfile.from_mapping(invalid_profile)
+    except BatchAdmissionPolicyError as error:
+        require("fields differ" in str(error), "wrong unknown-field diagnostic")
+    else:
+        require(False, "batch profile accepted an unknown field")
+
+    invalid_admission = json.loads(json.dumps(profile_mapping))
+    invalid_admission["physically_admitted"] = True
+    invalid_admission["identities"]["receipt_blake3"] = "not-measured"
+    try:
+        BatchAdmissionProfile.from_mapping(invalid_admission)
+    except BatchAdmissionPolicyError as error:
+        require("no measured receipt" in str(error), "wrong receipt diagnostic")
+    else:
+        require(False, "unmeasured batch profile became admitted")
+
+    prefill_result = BatchPrefillResult(
+        first_token_ids=(test_token_id,),
+        elapsed_seconds=test_total_prefill_seconds,
+        first_token_ready_seconds=test_first_token_seconds,
+        page_table_blocks=test_page_table_blocks,
+        state_install_seconds=test_state_install_seconds,
+    )
+    require(
+        math.isclose(
+            prefill_result.first_token_ready_seconds
+            + prefill_result.state_install_seconds,
+            prefill_result.elapsed_seconds,
+        ),
+        "batch prefill phase split is inconsistent",
+    )
+    model_source = Path(
+        __import__(
+            "models.demos.blackhole.qwen36.tt.model",
+            fromlist=["__file__"],
+        ).__file__
+    ).read_text()
+    require(
+        "first_token_callback(host_logits)" in model_source,
+        "model does not expose pre-slot-write first-token evidence",
+    )
+    batch_service_source = Path(
+        __import__("qwen36_service.batch_service", fromlist=["__file__"]).__file__
+    ).read_text()
+    first_token_index = batch_service_source.index("first_token_ready =")
+    trace_prepare_index = batch_service_source.index("trace_prepare_started =")
+    ttft_index = batch_service_source.index(
+        "ttft_seconds = first_token_ready - prefill_started"
+    )
+    require(
+        first_token_index < trace_prepare_index < ttft_index,
+        "batch TTFT does not stay separate from trace preparation",
+    )
+
+
 # r[verify tenstorrent.qwen38_p150x2.startup_readiness]
 def probe_startup_readiness():
     """Positive and negative tests for readiness policy and shell adapters."""
@@ -4544,6 +4652,7 @@ def main():
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
+    probe("batch admission policy", probe_batch_admission)
     probe("startup warm-up readiness", probe_startup_readiness)
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)

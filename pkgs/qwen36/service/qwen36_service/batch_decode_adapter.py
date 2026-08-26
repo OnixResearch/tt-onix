@@ -39,7 +39,9 @@ class BatchDecodeAdapterError(RuntimeError):
 class BatchPrefillResult:
     first_token_ids: tuple[int, ...]
     elapsed_seconds: float
+    first_token_ready_seconds: float
     page_table_blocks: int
+    state_install_seconds: float
 
 
 @dataclass
@@ -309,26 +311,59 @@ class BatchedTracedDecodeAdapter:
             :page_table_blocks,
         ].contiguous()
         started = time.monotonic()
+        observed_first_tokens: tuple[int, ...] | None = None
+        first_token_ready_seconds: float | None = None
+
+        def observe_first_tokens(host_logits: list[torch.Tensor]) -> None:
+            nonlocal observed_first_tokens, first_token_ready_seconds
+            if (
+                observed_first_tokens is not None
+                or first_token_ready_seconds is not None
+            ):
+                raise BatchDecodeAdapterError(
+                    "prefill reported first tokens more than once"
+                )
+            if len(host_logits) != width:
+                raise BatchDecodeAdapterError(
+                    "prefill output count differs from active width"
+                )
+            first_token_ids = []
+            for user_logits in host_logits:
+                rows = user_logits.float().reshape(-1, self.vocabulary_size)
+                if rows.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH:
+                    raise BatchDecodeAdapterError(
+                        "prefill logits have the wrong row count"
+                    )
+                first_token_ids.append(int(torch.argmax(rows[0]).item()))
+            observed_first_tokens = tuple(first_token_ids)
+            first_token_ready_seconds = time.monotonic() - started
+
         logits = self.model.prefill_paged_slots(
             list(token_ids),
             bounded_page_table,
             list(range(width)),
             valid_lens=valid_lengths,
+            first_token_callback=observe_first_tokens,
         )
         ttnn.synchronize_device(self.mesh)
         elapsed_seconds = time.monotonic() - started
         if len(logits) != width:
-            raise BatchDecodeAdapterError("prefill output count differs from active width")
-        first_token_ids = []
-        for user_logits in logits:
-            rows = user_logits.float().reshape(-1, self.vocabulary_size)
-            if rows.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH:
-                raise BatchDecodeAdapterError("prefill logits have the wrong row count")
-            first_token_ids.append(int(torch.argmax(rows[0]).item()))
+            raise BatchDecodeAdapterError(
+                "prefill output count differs from active width"
+            )
+        if observed_first_tokens is None or first_token_ready_seconds is None:
+            raise BatchDecodeAdapterError(
+                "prefill did not report first-token readiness"
+            )
+        state_install_seconds = elapsed_seconds - first_token_ready_seconds
+        if state_install_seconds < 0:
+            raise BatchDecodeAdapterError("prefill phase timing regressed")
         return BatchPrefillResult(
-            first_token_ids=tuple(first_token_ids),
+            first_token_ids=observed_first_tokens,
             elapsed_seconds=elapsed_seconds,
+            first_token_ready_seconds=first_token_ready_seconds,
             page_table_blocks=page_table_blocks,
+            state_install_seconds=state_install_seconds,
         )
 
     def decode_traced(

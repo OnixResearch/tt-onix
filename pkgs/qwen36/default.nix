@@ -92,6 +92,10 @@ stdenvNoCC.mkDerivation {
     # for the qkvzab projection. Production stays on the tuned 1D-mcast path
     # (and prefill stays untouched) until matched physical evidence admits it.
     ./gdn-decode-layout-candidate.patch
+    # r[impl tenstorrent.qwen38_p150x2.batch_ttft_evidence]
+    # Observe first-token host logits before GDN state-slot writes. This keeps
+    # batch TTFT separate from later trace preparation without moving prefill.
+    ./batch-prefill-observation.patch
   ];
   nativeBuildInputs = [
     b3sum
@@ -119,6 +123,8 @@ stdenvNoCC.mkDerivation {
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
     cp ${./decode-profile.ncl} "$out/share/qwen36/decode-profile.ncl"
     cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
+    cp ${./batch-admission-profile.ncl} "$out/share/qwen36/batch-admission-profile.ncl"
+    cp ${./batch-admission-contracts.ncl} "$out/share/qwen36/batch-admission-contracts.ncl"
     cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
     cp ${./mtp-drafter-profile.ncl} "$out/share/qwen36/mtp-drafter-profile.ncl"
@@ -138,6 +144,11 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-contracts.ncl} decode-profile-export/decode-contracts.ncl
     nickel export --format json decode-profile-export/decode-profile.ncl \
       > "$out/share/qwen36/decode-profile.json"
+    mkdir -p batch-admission-profile-export
+    cp ${./batch-admission-profile.ncl} batch-admission-profile-export/batch-admission-profile.ncl
+    cp ${./batch-admission-contracts.ncl} batch-admission-profile-export/batch-admission-contracts.ncl
+    nickel export --format json batch-admission-profile-export/batch-admission-profile.ncl \
+      > "$out/share/qwen36/batch-admission-profile.json"
     mkdir -p mtp-probe-profile-export
     cp ${./mtp-probe-profile.ncl} mtp-probe-profile-export/mtp-probe-profile.ncl
     cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-export/mtp-probe-contracts.ncl
@@ -269,6 +280,31 @@ stdenvNoCC.mkDerivation {
       --add-flags "$out/share/qwen36/decode-profile.json" \
       --add-flags "--decode-mode" \
       --add-flags "candidate" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags "$out"
+
+    # r[impl tenstorrent.qwen38_p150x2.batch_performance_admission]
+    # Explicit physical evidence mode. Normal production stays ineligible.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-batch-admission" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.server" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--decode-mode" \
+      --add-flags "candidate" \
+      --add-flags "--batch-admission-profile" \
+      --add-flags "$out/share/qwen36/batch-admission-profile.json" \
+      --add-flags "--batch-admission" \
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
@@ -559,6 +595,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/batch_admission_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/readiness_core.py"
@@ -586,6 +623,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_probe.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
+    test -f "$out/share/qwen36/batch-admission-profile.json"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/mtp-selection-profile.json"
@@ -595,6 +633,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/ttft-control-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
+    test -x "$out/bin/qwen36-p150x2-batch-admission"
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
@@ -605,6 +644,7 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage"
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     test -x "$out/bin/qwen36-p150x2-ttft-control"
+    "$out/bin/qwen36-p150x2-batch-admission" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
@@ -655,6 +695,30 @@ stdenvNoCC.mkDerivation {
     cmp decode-profile-first.json decode-profile-second.json
     cmp decode-profile-first.json "$out/share/qwen36/decode-profile.json"
     grep -F '"physically_admitted": false' decode-profile-first.json
+
+    # r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
+    # Positive: the B=4 admission profile exports deterministically.
+    mkdir -p batch-admission-profile-check
+    cp ${./batch-admission-profile.ncl} batch-admission-profile-check/batch-admission-profile.ncl
+    cp ${./batch-admission-contracts.ncl} batch-admission-profile-check/batch-admission-contracts.ncl
+    nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-first.json
+    nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-second.json
+    cmp batch-admission-profile-first.json batch-admission-profile-second.json
+    cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
+    grep -F '"candidate_width": 4' batch-admission-profile-first.json
+    grep -F '"physically_admitted": false' batch-admission-profile-first.json
+
+    # Negative: an admitted profile without a receipt must fail.
+    mkdir -p batch-admission-profile-negative
+    cp ${./batch-admission-profile.ncl} batch-admission-profile-negative/batch-admission-profile.ncl
+    cp ${./batch-admission-contracts.ncl} batch-admission-profile-negative/batch-admission-contracts.ncl
+    cp ${./fixtures/invalid-batch-admission-profile.ncl} batch-admission-profile-negative/invalid-batch-admission-profile.ncl
+    if nickel export --format json batch-admission-profile-negative/invalid-batch-admission-profile.ncl \
+        > invalid-batch-admission-profile.json 2> invalid-batch-admission-profile.log; then
+      echo "invalid batch admission profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-batch-admission-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
     # Negative: an invalid slot count must fail its typed contract.
