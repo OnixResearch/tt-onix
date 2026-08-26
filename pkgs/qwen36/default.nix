@@ -57,25 +57,33 @@ let
     ./gdn-decode-layout-candidate.patch
     ./batch-prefill-observation.patch
   ];
-  executionIdentityInputs = [
-    ./default.nix
-    ./service/qwen36_service
-    ./authority.ncl
-    ./authority-contract.ncl
-    ./generated/authority.json
-    ./decode-profile.ncl
-    ./decode-contracts.ncl
-    ./batch-admission-policy.ncl
-    ./batch-admission-policy-validated.ncl
-    ./batch-admission-contracts.ncl
-    ./batch-admission-profile.ncl
-    source
-    pythonEnvironment
-    tt-metal
-    tt-metal-tracy-tools
-    makeWrapper
-  ]
-  ++ executionPatches;
+  stableIdentityPath = name: path: builtins.path { inherit name path; };
+  executionIdentityLocalInputs = [
+    (stableIdentityPath "qwen36-service" ./service/qwen36_service)
+    (stableIdentityPath "qwen36-execution-wrapper-contract.ncl" ./execution-wrapper-contract.ncl)
+    (stableIdentityPath "qwen36-authority.ncl" ./authority.ncl)
+    (stableIdentityPath "qwen36-authority-contract.ncl" ./authority-contract.ncl)
+    (stableIdentityPath "qwen36-authority.json" ./generated/authority.json)
+    (stableIdentityPath "qwen36-decode-profile.ncl" ./decode-profile.ncl)
+    (stableIdentityPath "qwen36-decode-contracts.ncl" ./decode-contracts.ncl)
+    (stableIdentityPath "qwen36-batch-admission-policy.ncl" ./batch-admission-policy.ncl)
+    (stableIdentityPath "qwen36-batch-admission-policy-validated.ncl" ./batch-admission-policy-validated.ncl)
+    (stableIdentityPath "qwen36-batch-admission-contracts.ncl" ./batch-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-batch-admission-profile.ncl" ./batch-admission-profile.ncl)
+  ];
+  executionIdentityPatchInputs = map (
+    patch: stableIdentityPath "qwen36-${builtins.baseNameOf (toString patch)}" patch
+  ) executionPatches;
+  executionIdentityInputs =
+    executionIdentityLocalInputs
+    ++ [
+      source
+      pythonEnvironment
+      tt-metal
+      tt-metal-tracy-tools
+      makeWrapper
+    ]
+    ++ executionIdentityPatchInputs;
   mkExecutionIdentity =
     inputs:
     let
@@ -99,7 +107,10 @@ let
   executionIdentity = mkExecutionIdentity executionIdentityInputs;
   executionIdentityAfterMetadataPromotion = mkExecutionIdentity executionIdentityInputs;
   executionIdentityWithDrift = mkExecutionIdentity (
-    executionIdentityInputs ++ [ ./fixtures/execution-identity-drift.txt ]
+    executionIdentityInputs
+    ++ [
+      (stableIdentityPath "qwen36-execution-identity-drift.txt" ./fixtures/execution-identity-drift.txt)
+    ]
   );
 in
 assert lib.assertMsg (
@@ -142,6 +153,7 @@ stdenvNoCC.mkDerivation {
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
+    cp ${./execution-wrapper-contract.ncl} "$out/share/qwen36/execution-wrapper-contract.ncl"
     cp ${./decode-profile.ncl} "$out/share/qwen36/decode-profile.ncl"
     cp ${./decode-contracts.ncl} "$out/share/qwen36/decode-contracts.ncl"
     cp ${./batch-admission-profile.ncl} "$out/share/qwen36/batch-admission-profile.ncl"
@@ -651,15 +663,19 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_probe.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
     test -f "$out/share/qwen36/decode-profile.json"
+    test -f "$out/share/qwen36/execution-wrapper-contract.ncl"
+    nickel export --format json "$out/share/qwen36/execution-wrapper-contract.ncl" \
+      > execution-wrapper-contract.json
+    grep -F '"package_identity_kind": "nix-execution-artifact"' execution-wrapper-contract.json
     test -f "$out/share/qwen36/batch-admission-profile.json"
     test -f "$out/share/qwen36/batch-admission-policy.ncl"
     test -f "$out/share/qwen36/batch-admission-binding.ncl"
     test -L "$out/share/qwen36/execution-identity"
     test "$(readlink "$out/share/qwen36/execution-identity")" = ${lib.escapeShellArg executionIdentity}
     test -f "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-    grep -F ${lib.escapeShellArg (toString ./batch-admission-policy.ncl)} \
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-batch-admission-policy.ncl" ./batch-admission-policy.ncl))} \
       "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-    if grep -F ${lib.escapeShellArg (toString ./batch-admission-binding.ncl)} \
+    if grep -F 'batch-admission-binding.ncl' \
         "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
       echo "mutable batch admission binding entered execution identity" >&2
       exit 1
@@ -754,8 +770,8 @@ stdenvNoCC.mkDerivation {
     cmp batch-admission-profile-first.json batch-admission-profile-second.json
     cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
     grep -F '"candidate_width": 4' batch-admission-profile-first.json
-    grep -F '"physically_admitted": false' batch-admission-profile-first.json
-    grep -F '"receipt_blake3": "176d912457f4c0048be90c9b477709e4360dae0681212cf275d108f3ca48465f"' \
+    grep -F '"physically_admitted": true' batch-admission-profile-first.json
+    grep -F '"receipt_blake3": "2bf7d74e784d2c5aecfc60a4252f7141955faf1c735d25b94dbc3d832b84b136"' \
       batch-admission-profile-first.json
 
     # Negative: an admitted profile without a receipt must fail.

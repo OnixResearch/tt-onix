@@ -6,9 +6,9 @@
 
 ## Phase 2: Physical decision
 
-- [ ] [serial] Deploy the unadmitted envelope and run exact `single,batch,batch,single` physical roots for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
-- [ ] [serial] Evaluate every gate and preserve the exact receipt for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
-- [ ] [serial] Promote only a passing receipt while proving that execution identity remains unchanged for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Execute the unadmitted envelope and run exact `single,batch,batch,single` physical roots for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Evaluate every gate and preserve the exact receipt for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Promote only a passing receipt while proving that execution identity remains unchanged for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
 
 ## Phase 3: Lifecycle completion
 
