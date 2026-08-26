@@ -5,4 +5,4 @@
 
 ## Phase 2: Validate and close
 
-- [ ] [serial] Validate package, Cairn, closure, deployment health, sync, archive, and integration for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Validate package, Cairn, closure, deployment health, sync, archive, and integration for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
