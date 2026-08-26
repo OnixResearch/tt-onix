@@ -12,5 +12,5 @@
 
 ## Phase 3: Lifecycle completion
 
-- [ ] [serial] Validate package, Cairn, Onix closure, deployed readiness, identity, and physical device ownership for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
-- [ ] [serial] Sync the accepted specification, archive the change, commit, push, integrate, and remove the worktree for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Validate package, Cairn, Onix closure, deployed readiness, identity, and physical device ownership for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Sync the accepted specification, archive the change, commit, push, integrate, and remove the worktree for r[tenstorrent.qwen38_p150x2.batch_performance_admission].

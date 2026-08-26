@@ -32,6 +32,12 @@ The first package design included `default.nix` and changed identity during a re
 
 One earlier partial run was invalidated when a concurrent fleet activation restarted the old production package during `batch-2`. No receipt was produced from that run. The final runner used a temporary runtime mask for the production unit, completed all four roots, removed the mask, and restored production.
 
+## Final deployment
+
+The integrated Onix closure `/nix/store/hd3yw7s6xnxz9nl3cvrg23h5gbrwqdiq-nixos-system-britton-desktop-26.11.20260819.afe3d8a` runs package `/nix/store/nizrk43l4gma8vcyrmvz8v4569s3ka37-qwen36-0.1.0`. The package binds the measured execution identity and receipt with `physically_admitted = true`.
+
+Startup retained `Type=notify` and completed B=1/B=4 warm-up in `104.35764978604857` seconds. The final production smoke measured `16.73992658166973` t/s at B=1 and `57.05838868065472` aggregate t/s at B=4. Normal responses remained admission-ineligible, reset cleanly, and used state slices 0 through 3. The service owned physical devices 0 and 1.
+
 ## Evidence locations
 
 - Tracked receipt: `pkgs/qwen36/evidence/2026-08-26/qwen38-27b-batch-admission-receipt.json`
