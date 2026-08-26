@@ -11,7 +11,7 @@ serde_json = "1"
 ---
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
@@ -44,6 +44,9 @@ const SUCCESS_EXIT_CODE: u8 = 0;
 const FAILURE_EXIT_CODE: u8 = 1;
 const SELF_TEST_BASELINE_WIDTH: usize = 1;
 const SELF_TEST_CANDIDATE_WIDTH: usize = 4;
+const SELF_TEST_B8_CANDIDATE_WIDTH: usize = 8;
+const ALLOWED_CANDIDATE_WIDTHS: [usize; 2] =
+    [SELF_TEST_CANDIDATE_WIDTH, SELF_TEST_B8_CANDIDATE_WIDTH];
 const SELF_TEST_PROMPT_COUNT: usize = 4;
 const SELF_TEST_MEASURED_RUNS: usize = 1;
 const SELF_TEST_GENERATED_TOKENS: usize = 2;
@@ -61,6 +64,10 @@ const SELF_TEST_MAXIMUM_TTFT_RATIO: f64 = 4.5;
 const SELF_TEST_MAXIMUM_TAIL_RATIO: f64 = 1.5;
 const SELF_TEST_MINIMUM_AGGREGATE_SPEEDUP: f64 = 3.0;
 const SELF_TEST_MINIMUM_RETENTION: f64 = 0.75;
+const SELF_TEST_B8_PROMPT_COUNT: usize = 8;
+const SELF_TEST_B8_AGGREGATE_RATE: f64 = 64.0;
+const SELF_TEST_B8_MINIMUM_AGGREGATE_SPEEDUP: f64 = 6.0;
+const SELF_TEST_B8_MAXIMUM_TTFT_RATIO: f64 = 9.0;
 const SELF_TEST_TOKEN_BASE: i64 = 100;
 const SELF_TEST_FILE_INDEX_WIDTH: usize = 2;
 const SELF_TEST_FIRST_RESPONSE_NAME: &str = "00-measured-0.json";
@@ -392,7 +399,7 @@ fn validate_profile(profile: &Profile, config: &Config) -> Result<(), String> {
         return Err("profile execution order differs from the command".to_owned());
     }
     if profile.workload.baseline_width != SELF_TEST_BASELINE_WIDTH
-        || profile.workload.candidate_width != SELF_TEST_CANDIDATE_WIDTH
+        || !ALLOWED_CANDIDATE_WIDTHS.contains(&profile.workload.candidate_width)
     {
         return Err("profile widths are unsupported".to_owned());
     }
@@ -716,8 +723,52 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
     serde_json::from_slice(&bytes).map_err(|error| format!("parse {}: {error}", path.display()))
 }
 
+struct SelfTestCase {
+    width: usize,
+    prompt_count: usize,
+    candidate_per_user_rate: f64,
+    candidate_aggregate_rate: f64,
+    minimum_aggregate_speedup: f64,
+    minimum_retention: f64,
+    maximum_ttft_ratio: f64,
+    maximum_tail_ratio: f64,
+}
+
 fn self_test() -> Result<(), String> {
-    let root = env::temp_dir().join(format!("qwen36-batch-receipt-{}", std::process::id()));
+    let cases = [
+        SelfTestCase {
+            width: SELF_TEST_CANDIDATE_WIDTH,
+            prompt_count: SELF_TEST_PROMPT_COUNT,
+            candidate_per_user_rate: SELF_TEST_CANDIDATE_RATE,
+            candidate_aggregate_rate: SELF_TEST_CANDIDATE_AGGREGATE_RATE,
+            minimum_aggregate_speedup: SELF_TEST_MINIMUM_AGGREGATE_SPEEDUP,
+            minimum_retention: SELF_TEST_MINIMUM_RETENTION,
+            maximum_ttft_ratio: SELF_TEST_MAXIMUM_TTFT_RATIO,
+            maximum_tail_ratio: SELF_TEST_MAXIMUM_TAIL_RATIO,
+        },
+        SelfTestCase {
+            width: SELF_TEST_B8_CANDIDATE_WIDTH,
+            prompt_count: SELF_TEST_B8_PROMPT_COUNT,
+            candidate_per_user_rate: SELF_TEST_CANDIDATE_RATE,
+            candidate_aggregate_rate: SELF_TEST_B8_AGGREGATE_RATE,
+            minimum_aggregate_speedup: SELF_TEST_B8_MINIMUM_AGGREGATE_SPEEDUP,
+            minimum_retention: SELF_TEST_MINIMUM_RETENTION,
+            maximum_ttft_ratio: SELF_TEST_B8_MAXIMUM_TTFT_RATIO,
+            maximum_tail_ratio: SELF_TEST_MAXIMUM_TAIL_RATIO,
+        },
+    ];
+    for case in &cases {
+        run_self_test_case(case)?;
+    }
+    Ok(())
+}
+
+fn run_self_test_case(case: &SelfTestCase) -> Result<(), String> {
+    let root = env::temp_dir().join(format!(
+        "qwen36-batch-receipt-{}-{}",
+        std::process::id(),
+        case.width
+    ));
     if root.exists() {
         fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
     }
@@ -729,22 +780,23 @@ fn self_test() -> Result<(), String> {
         fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     }
     let profile_path = root.join("profile.json");
-    write_profile(&profile_path)?;
-    for prompt in 0..SELF_TEST_PROMPT_COUNT {
+    write_profile(&profile_path, case)?;
+    for prompt in 0..case.prompt_count {
         let token =
             SELF_TEST_TOKEN_BASE + i64::try_from(prompt).map_err(|error| error.to_string())?;
         for directory in [&single_one, &single_two] {
-            write_response(directory, prompt, SELF_TEST_BASELINE_WIDTH, 0, token, false)?;
-        }
-        for directory in [&batch_one, &batch_two] {
             write_response(
                 directory,
+                case,
                 prompt,
-                SELF_TEST_CANDIDATE_WIDTH,
-                prompt,
+                SELF_TEST_BASELINE_WIDTH,
+                0,
                 token,
                 false,
             )?;
+        }
+        for directory in [&batch_one, &batch_two] {
+            write_response(directory, case, prompt, case.width, prompt, token, false)?;
         }
     }
     let config = Config {
@@ -759,7 +811,10 @@ fn self_test() -> Result<(), String> {
     };
     let receipt = build_receipt(&config)?;
     if receipt["admission"]["admitted"] != json!(true) {
-        return Err("positive fixture was not admitted".to_owned());
+        return Err(format!(
+            "positive width-{} fixture was not admitted",
+            case.width
+        ));
     }
 
     let mismatch_path = batch_one.join(SELF_TEST_FIRST_RESPONSE_NAME);
@@ -776,12 +831,16 @@ fn self_test() -> Result<(), String> {
             .as_array()
             .is_some_and(|reasons| reasons.contains(&json!("token-parity-failed")))
     {
-        return Err("token mismatch did not reject admission".to_owned());
+        return Err(format!(
+            "width-{} token mismatch did not reject admission",
+            case.width
+        ));
     }
     write_response(
         &batch_one,
+        case,
         0,
-        SELF_TEST_CANDIDATE_WIDTH,
+        case.width,
         0,
         SELF_TEST_TOKEN_BASE,
         true,
@@ -794,8 +853,8 @@ fn self_test() -> Result<(), String> {
     Ok(())
 }
 
-fn write_profile(path: &Path) -> Result<(), String> {
-    let prompts: Vec<String> = (0..SELF_TEST_PROMPT_COUNT)
+fn write_profile(path: &Path, case: &SelfTestCase) -> Result<(), String> {
+    let prompts: Vec<String> = (0..case.prompt_count)
         .map(|index| format!("prompt-{index}"))
         .collect();
     let profile = json!({
@@ -810,7 +869,7 @@ fn write_profile(path: &Path) -> Result<(), String> {
         },
         "workload": {
             "baseline_width": SELF_TEST_BASELINE_WIDTH,
-            "candidate_width": SELF_TEST_CANDIDATE_WIDTH,
+            "candidate_width": case.width,
             "execution_order": EXPECTED_EXECUTION_ORDER,
             "generated_tokens": SELF_TEST_GENERATED_TOKENS,
             "measured_runs": SELF_TEST_MEASURED_RUNS,
@@ -818,10 +877,10 @@ fn write_profile(path: &Path) -> Result<(), String> {
             "warmup_runs": 1,
         },
         "admission": {
-            "maximum_tail_latency_ratio": SELF_TEST_MAXIMUM_TAIL_RATIO,
-            "maximum_ttft_ratio": SELF_TEST_MAXIMUM_TTFT_RATIO,
-            "minimum_aggregate_decode_speedup_ratio": SELF_TEST_MINIMUM_AGGREGATE_SPEEDUP,
-            "minimum_per_user_decode_retention_ratio": SELF_TEST_MINIMUM_RETENTION,
+            "maximum_tail_latency_ratio": case.maximum_tail_ratio,
+            "maximum_ttft_ratio": case.maximum_ttft_ratio,
+            "minimum_aggregate_decode_speedup_ratio": case.minimum_aggregate_speedup,
+            "minimum_per_user_decode_retention_ratio": case.minimum_retention,
             "require_active_prefix": true,
             "require_clean_reset": true,
             "require_distinct_state_slices": true,
@@ -838,20 +897,21 @@ fn write_profile(path: &Path) -> Result<(), String> {
 
 fn write_response(
     root: &Path,
+    case: &SelfTestCase,
     prompt: usize,
     width: usize,
     state_slice: usize,
     token: i64,
     ineligible: bool,
 ) -> Result<(), String> {
-    let candidate = width == SELF_TEST_CANDIDATE_WIDTH;
+    let candidate = width == case.width;
     let per_user_rate = if candidate {
-        SELF_TEST_CANDIDATE_RATE
+        case.candidate_per_user_rate
     } else {
         SELF_TEST_BASELINE_RATE
     };
     let aggregate_rate = if candidate {
-        SELF_TEST_CANDIDATE_AGGREGATE_RATE
+        case.candidate_aggregate_rate
     } else {
         SELF_TEST_BASELINE_RATE
     };

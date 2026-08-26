@@ -18,6 +18,7 @@ let ExactC = fun expected => std.contract.from_predicate (fun value => value == 
     "qwen36-p150x2-serve",
     "qwen36-p150x2-trace-candidate",
     "qwen36-p150x2-batch-admission",
+    "qwen36-p150x2-b8-admission",
     "qwen36-p150x2-trace-reuse-admission",
   ],
   required_profiles | NonEmptyStringArrayC = [

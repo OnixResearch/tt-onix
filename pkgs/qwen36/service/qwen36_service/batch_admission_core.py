@@ -11,6 +11,8 @@ from typing import Any
 PROFILE_SCHEMA_VERSION = 1
 BASELINE_WIDTH = 1
 CANDIDATE_WIDTH = 4
+B8_CANDIDATE_WIDTH = 8
+ALLOWED_CANDIDATE_WIDTHS = (CANDIDATE_WIDTH, B8_CANDIDATE_WIDTH)
 BLAKE3_LENGTH = 64
 REVISION_LENGTH = 40
 NOT_MEASURED = "not-measured"
@@ -122,7 +124,9 @@ class BatchAdmissionProfile:
         candidate_width = _require_int(
             workload["candidate_width"], "workload.candidate_width"
         )
-        if baseline_width != BASELINE_WIDTH or candidate_width != CANDIDATE_WIDTH:
+        if baseline_width != BASELINE_WIDTH:
+            raise BatchAdmissionPolicyError("workload widths are unsupported")
+        if candidate_width not in ALLOWED_CANDIDATE_WIDTHS:
             raise BatchAdmissionPolicyError("workload widths are unsupported")
         execution_order = _require_string_tuple(
             workload["execution_order"], "workload.execution_order"

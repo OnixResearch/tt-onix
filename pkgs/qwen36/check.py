@@ -1001,6 +1001,7 @@ def probe_batch_decode_scheduler():
 
 # r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
 # r[verify tenstorrent.qwen38_p150x2.batch_ttft_evidence]
+# r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
 def probe_batch_admission():
     """Positive and negative tests for batch admission policy and phases."""
     from qwen36_service.batch_admission_core import (
@@ -1104,6 +1105,79 @@ def probe_batch_admission():
     require(
         first_token_index < trace_prepare_index < ttft_index,
         "batch TTFT does not stay separate from trace preparation",
+    )
+
+    # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
+    b8_profile_path = Path(__file__).with_name("batch-admission-b8-profile.json")
+    with b8_profile_path.open(encoding="utf-8") as b8_profile_file:
+        b8_profile_mapping = json.load(b8_profile_file)
+    b8_profile = BatchAdmissionProfile.from_mapping(b8_profile_mapping)
+    require(b8_profile.candidate_width == 8, "B=8 profile width changed")
+    require(
+        len(b8_profile.prompts) == 8,
+        "B=8 profile does not carry eight prompts",
+    )
+    require(
+        b8_profile.minimum_aggregate_decode_speedup_ratio == 6.0
+        and b8_profile.maximum_ttft_ratio == 9.0
+        and b8_profile.minimum_per_user_decode_retention_ratio == 0.75,
+        "B=8 profile bounds drifted from the predeclared policy",
+    )
+    b8_admission_mode, b8_admission_eligible = b8_profile.measurement(
+        enabled=True,
+        width=8,
+    )
+    require(
+        b8_admission_mode == ADMISSION_MEASUREMENT_MODE and b8_admission_eligible,
+        "explicit B=8 measurement did not become eligible",
+    )
+    b8_single_mode, b8_single_eligible = b8_profile.measurement(
+        enabled=True,
+        width=1,
+    )
+    require(
+        b8_single_mode == ADMISSION_MEASUREMENT_MODE and b8_single_eligible,
+        "B=8 single-stream width lost eligibility",
+    )
+    for invalid_b8_width in (5, 9, 16):
+        try:
+            b8_profile.measurement(enabled=True, width=invalid_b8_width)
+        except BatchAdmissionPolicyError as error:
+            require(
+                "outside the profile" in str(error),
+                f"wrong B=8 width diagnostic: {error}",
+            )
+        else:
+            require(
+                False,
+                f"invalid B=8 width was accepted: {invalid_b8_width!r}",
+            )
+
+    invalid_b8_mappings = []
+    b8_unsupported_width = json.loads(json.dumps(b8_profile_mapping))
+    b8_unsupported_width["workload"]["candidate_width"] = 5
+    invalid_b8_mappings.append((b8_unsupported_width, "workload widths"))
+    b8_admitted_without_receipt = json.loads(json.dumps(b8_profile_mapping))
+    b8_admitted_without_receipt["physically_admitted"] = True
+    invalid_b8_mappings.append((b8_admitted_without_receipt, "no measured receipt"))
+    for invalid_b8_mapping, diagnostic in invalid_b8_mappings:
+        try:
+            BatchAdmissionProfile.from_mapping(invalid_b8_mapping)
+        except BatchAdmissionPolicyError as error:
+            require(
+                diagnostic in str(error),
+                f"wrong B=8 profile diagnostic: {error}",
+            )
+        else:
+            require(
+                False,
+                f"invalid B=8 profile was accepted: {diagnostic}",
+            )
+
+    b4_still_valid = BatchAdmissionProfile.from_mapping(profile_mapping)
+    require(
+        b4_still_valid.candidate_width == CANDIDATE_WIDTH,
+        "B=4 profile stopped loading after B=8 parameterization",
     )
 
 
