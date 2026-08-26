@@ -1,13 +1,13 @@
 ## Phase 1: Policy and evidence
 
-- [ ] [serial] Add the closed Nickel reuse profile and pure transition policy for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
-- [ ] [serial] Add a deterministic Rust receipt evaluator with positive and negative self-tests for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
+- [x] [serial] Add the closed Nickel reuse profile and pure transition policy for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
+- [x] [serial] Add a deterministic Rust receipt evaluator with positive and negative self-tests for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
 
 ## Phase 2: Service candidate
 
-- [ ] [serial] Add one-trace same-width reuse to the adapter and keep normal production disabled for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
-- [ ] [serial] Record trace reuse, resident count, capture time, reset state, and request wall time for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
-- [ ] [serial] Add positive and negative device-free tests for width drift, binding drift, reset failure, multiple traces, and disabled policy for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
+- [x] [serial] Add one-trace same-width reuse to the adapter and keep normal production disabled for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
+- [x] [serial] Record trace reuse, resident count, capture time, reset state, and request wall time for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
+- [x] [serial] Add positive and negative device-free tests for width drift, binding drift, reset failure, multiple traces, and disabled policy for r[tenstorrent.qwen38_p150x2.same_width_trace_reuse].
 
 ## Phase 3: Physical decision
 

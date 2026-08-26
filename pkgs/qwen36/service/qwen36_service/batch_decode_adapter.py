@@ -17,6 +17,9 @@ from models.tt_transformers.tt.common import copy_host_to_device
 from .batch_decode_core import (
     MAXIMUM_ACTIVE_BATCH_WIDTH,
     MINIMUM_ACTIVE_BATCH_WIDTH,
+    TRACE_REUSE_REASON_BINDING,
+    TracePrefillPlan,
+    plan_same_width_trace_prefill,
 )
 from .decode_adapter import TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
 from .decode_core import DecodeProfile, required_page_table_blocks
@@ -42,6 +45,18 @@ class BatchPrefillResult:
     first_token_ready_seconds: float
     page_table_blocks: int
     state_install_seconds: float
+    trace_reuse_planned: bool = False
+    trace_transition_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class TracePreparationResult:
+    capture_seconds: float
+    capture_count: int
+    reused: bool
+    resident_trace_count: int
+    binding_stable: bool
+    transition_reason: str | None
 
 
 @dataclass
@@ -82,13 +97,23 @@ class BatchedTracedDecodeAdapter:
         maximum_width: int = MAXIMUM_ACTIVE_BATCH_WIDTH,
     ) -> None:
         if model.num_devices <= MINIMUM_ACTIVE_BATCH_WIDTH:
-            raise BatchDecodeAdapterError("batched TP decode requires more than one device")
-        if not MINIMUM_ACTIVE_BATCH_WIDTH <= maximum_width <= MAXIMUM_ACTIVE_BATCH_WIDTH:
+            raise BatchDecodeAdapterError(
+                "batched TP decode requires more than one device"
+            )
+        if (
+            not MINIMUM_ACTIVE_BATCH_WIDTH
+            <= maximum_width
+            <= MAXIMUM_ACTIVE_BATCH_WIDTH
+        ):
             raise BatchDecodeAdapterError("batch capacity is outside policy")
         if int(model.args.max_batch_size) < maximum_width:
-            raise BatchDecodeAdapterError("model batch capacity is smaller than adapter capacity")
+            raise BatchDecodeAdapterError(
+                "model batch capacity is smaller than adapter capacity"
+            )
         if model.args.vocab_size % model.num_devices != 0:
-            raise BatchDecodeAdapterError("vocabulary size is not divisible by the device count")
+            raise BatchDecodeAdapterError(
+                "vocabulary size is not divisible by the device count"
+            )
         self.model = model
         self.profile = profile
         self.maximum_width = maximum_width
@@ -100,6 +125,8 @@ class BatchedTracedDecodeAdapter:
         self.page_table = self._make_page_table()
         self._mesh_reader = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
         self._traces: dict[int, _BatchTrace] = {}
+        self._pending_trace_plan: TracePrefillPlan | None = None
+        self._prior_reset_complete = True
         self._closed = False
         self._allocate_persistent_state()
         self._gdn_zero_sources = self._capture_gdn_zero_sources()
@@ -149,9 +176,15 @@ class BatchedTracedDecodeAdapter:
             ):
                 raise BatchDecodeAdapterError("GDN zero state is not allocated")
             if tuple(attention._zero_rec.shape) != tuple(attention.rec_state.shape):
-                raise BatchDecodeAdapterError("GDN recurrent zero shape differs from decode state")
-            if tuple(attention._zero_conv0.shape) != tuple(attention.conv_states[0].shape):
-                raise BatchDecodeAdapterError("GDN convolution zero shape differs from decode state")
+                raise BatchDecodeAdapterError(
+                    "GDN recurrent zero shape differs from decode state"
+                )
+            if tuple(attention._zero_conv0.shape) != tuple(
+                attention.conv_states[0].shape
+            ):
+                raise BatchDecodeAdapterError(
+                    "GDN convolution zero shape differs from decode state"
+                )
             sources.append(
                 _GdnZeroSources(
                     layer=attention,
@@ -169,15 +202,13 @@ class BatchedTracedDecodeAdapter:
         *,
         token_ids: tuple[int, ...],
         positions: tuple[int, ...],
-    ) -> float:
-        """Capture one exact-width trace with idempotent post-prefill KV writes."""
+    ) -> TracePreparationResult:
+        """Reuse one safe trace or capture one exact-width replacement."""
         width = len(token_ids)
         self._require_width(width)
         self._require_open()
         if len(positions) != width:
             raise BatchDecodeAdapterError("trace token and position widths differ")
-        if self._traces:
-            raise BatchDecodeAdapterError("prefill must release the prior batch trace")
         if any(
             isinstance(token, bool)
             or not isinstance(token, int)
@@ -192,6 +223,24 @@ class BatchedTracedDecodeAdapter:
             for position in positions
         ):
             raise BatchDecodeAdapterError("trace position is outside the profile bound")
+        pending_plan = self._pending_trace_plan
+        self._pending_trace_plan = None
+        transition_reason = pending_plan.reason if pending_plan is not None else None
+        if pending_plan is not None and pending_plan.reuse_after_prefill:
+            resident_trace = self._traces.get(width)
+            if resident_trace is not None and self._binding_matches(resident_trace):
+                return TracePreparationResult(
+                    capture_seconds=0.0,
+                    capture_count=0,
+                    reused=True,
+                    resident_trace_count=len(self._traces),
+                    binding_stable=True,
+                    transition_reason=None,
+                )
+            transition_reason = TRACE_REUSE_REASON_BINDING
+            self._release_traces()
+        elif self._traces:
+            self._release_traces()
 
         tokens = torch.tensor(token_ids, dtype=torch.int32).reshape(
             width,
@@ -203,9 +252,7 @@ class BatchedTracedDecodeAdapter:
             position_tensor,
             page_table=self.page_table[:width].contiguous(),
         )
-        device_inputs = tuple(
-            copy_host_to_device(host_inputs, mesh_device=self.mesh)
-        )
+        device_inputs = tuple(copy_host_to_device(host_inputs, mesh_device=self.mesh))
         if len(device_inputs) != EXPECTED_DECODE_INPUT_COUNT:
             raise BatchDecodeAdapterError("batch trace inputs are incomplete")
 
@@ -257,7 +304,14 @@ class BatchedTracedDecodeAdapter:
             self._restore_gdn_state(snapshots)
             ttnn.synchronize_device(self.mesh)
             self._traces[width] = trace
-            return capture_seconds
+            return TracePreparationResult(
+                capture_seconds=capture_seconds,
+                capture_count=1,
+                reused=False,
+                resident_trace_count=len(self._traces),
+                binding_stable=True,
+                transition_reason=transition_reason,
+            )
         except (AssertionError, OSError, RuntimeError, ValueError) as error:
             self._restore_gdn_state(snapshots)
             ttnn.synchronize_device(self.mesh)
@@ -281,13 +335,24 @@ class BatchedTracedDecodeAdapter:
         token_ids: tuple[torch.Tensor, ...],
         *,
         generation_tokens: int,
+        trace_reuse_enabled: bool = False,
     ) -> BatchPrefillResult:
-        """Prefill each active-prefix user into isolated GDN and paged-KV state."""
+        """Prefill isolated state after a pure one-trace transition decision."""
         width = len(token_ids)
         self._require_width(width)
         self._require_open()
-        self._release_traces()
+        trace_plan = plan_same_width_trace_prefill(
+            requested_width=width,
+            resident_widths=tuple(sorted(self._traces)),
+            reuse_enabled=trace_reuse_enabled,
+            prior_reset_complete=self._prior_reset_complete,
+            binding_stable=self._single_trace_binding_stable(),
+        )
+        if not trace_plan.reuse_after_prefill:
+            self._release_traces()
+        self._pending_trace_plan = trace_plan
         self.reset_all()
+        self._prior_reset_complete = False
         required_blocks = []
         valid_lengths = []
         for user_tokens in token_ids:
@@ -364,6 +429,8 @@ class BatchedTracedDecodeAdapter:
             first_token_ready_seconds=first_token_ready_seconds,
             page_table_blocks=page_table_blocks,
             state_install_seconds=state_install_seconds,
+            trace_reuse_planned=trace_plan.reuse_after_prefill,
+            trace_transition_reason=trace_plan.reason,
         )
 
     def decode_traced(
@@ -435,6 +502,7 @@ class BatchedTracedDecodeAdapter:
             if layer.conv_carry is not None:
                 ttnn.copy(sources.convolution_carry, layer.conv_carry)
         ttnn.synchronize_device(self.mesh)
+        self._prior_reset_complete = True
 
     def _clone_gdn_state(self) -> tuple[_GdnSnapshot, ...]:
         snapshots = []
@@ -518,7 +586,12 @@ class BatchedTracedDecodeAdapter:
         partial = ttnn.max(grid, dim=-1)
         partial_row = ttnn.reshape(
             partial,
-            (MINIMUM_ACTIVE_BATCH_WIDTH, MINIMUM_ACTIVE_BATCH_WIDTH, width, padded_rows),
+            (
+                MINIMUM_ACTIVE_BATCH_WIDTH,
+                MINIMUM_ACTIVE_BATCH_WIDTH,
+                width,
+                padded_rows,
+            ),
         )
         values = ttnn.max(partial_row, dim=-1)
         ttnn.deallocate(padded)
@@ -543,10 +616,9 @@ class BatchedTracedDecodeAdapter:
         ).reshape(self.device_count, width)
         winning_devices = torch.argmax(host_values, dim=0)
         columns = torch.arange(width)
-        tokens = (
-            winning_devices * self.vocabulary_per_shard
-            + host_indices[winning_devices, columns].to(torch.int64)
-        )
+        tokens = winning_devices * self.vocabulary_per_shard + host_indices[
+            winning_devices, columns
+        ].to(torch.int64)
         result = tuple(int(token) for token in tokens.tolist())
         if any(not 0 <= token < self.vocabulary_size for token in result):
             raise BatchDecodeAdapterError("batch winner is outside the vocabulary")
@@ -569,9 +641,20 @@ class BatchedTracedDecodeAdapter:
             _tensor_identity(logits),
         )
 
+    def _binding_matches(self, trace: _BatchTrace) -> bool:
+        try:
+            observed = self._observe_binding(trace.device_inputs, trace.logits)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return False
+        return observed == trace.binding
+
+    def _single_trace_binding_stable(self) -> bool:
+        if len(self._traces) != 1:
+            return False
+        return self._binding_matches(next(iter(self._traces.values())))
+
     def _require_binding(self, trace: _BatchTrace) -> None:
-        observed = self._observe_binding(trace.device_inputs, trace.logits)
-        if observed != trace.binding:
+        if not self._binding_matches(trace):
             raise BatchDecodeAdapterError("batch trace binding changed")
 
     def _require_width(self, width: int) -> None:
@@ -593,6 +676,7 @@ class BatchedTracedDecodeAdapter:
                 if tensor is not None:
                     ttnn.deallocate(tensor)
         self._traces.clear()
+        self._pending_trace_plan = None
 
     def close(self) -> None:
         if self._closed:

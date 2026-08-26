@@ -70,6 +70,10 @@ let
     (stableIdentityPath "qwen36-batch-admission-policy-validated.ncl" ./batch-admission-policy-validated.ncl)
     (stableIdentityPath "qwen36-batch-admission-contracts.ncl" ./batch-admission-contracts.ncl)
     (stableIdentityPath "qwen36-batch-admission-profile.ncl" ./batch-admission-profile.ncl)
+    (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl)
+    (stableIdentityPath "qwen36-trace-reuse-policy-validated.ncl" ./trace-reuse-policy-validated.ncl)
+    (stableIdentityPath "qwen36-trace-reuse-contracts.ncl" ./trace-reuse-contracts.ncl)
+    (stableIdentityPath "qwen36-trace-reuse-profile.ncl" ./trace-reuse-profile.ncl)
   ];
   executionIdentityPatchInputs = map (
     patch: stableIdentityPath "qwen36-${builtins.baseNameOf (toString patch)}" patch
@@ -162,6 +166,12 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-binding.ncl} "$out/share/qwen36/batch-admission-binding.ncl"
     cp ${./batch-admission-binding-validated.ncl} "$out/share/qwen36/batch-admission-binding-validated.ncl"
     cp ${./batch-admission-contracts.ncl} "$out/share/qwen36/batch-admission-contracts.ncl"
+    cp ${./trace-reuse-profile.ncl} "$out/share/qwen36/trace-reuse-profile.ncl"
+    cp ${./trace-reuse-policy.ncl} "$out/share/qwen36/trace-reuse-policy.ncl"
+    cp ${./trace-reuse-policy-validated.ncl} "$out/share/qwen36/trace-reuse-policy-validated.ncl"
+    cp ${./trace-reuse-binding.ncl} "$out/share/qwen36/trace-reuse-binding.ncl"
+    cp ${./trace-reuse-binding-validated.ncl} "$out/share/qwen36/trace-reuse-binding-validated.ncl"
+    cp ${./trace-reuse-contracts.ncl} "$out/share/qwen36/trace-reuse-contracts.ncl"
     ln -s ${executionIdentity} "$out/share/qwen36/execution-identity"
     cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
@@ -189,6 +199,13 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-contracts.ncl} batch-admission-profile-export/batch-admission-contracts.ncl
     nickel export --format json batch-admission-profile-export/batch-admission-profile.ncl \
       > "$out/share/qwen36/batch-admission-profile.json"
+    mkdir -p trace-reuse-profile-export
+    cp ${./trace-reuse-profile.ncl} trace-reuse-profile-export/trace-reuse-profile.ncl
+    cp ${./trace-reuse-policy.ncl} trace-reuse-profile-export/trace-reuse-policy.ncl
+    cp ${./trace-reuse-binding.ncl} trace-reuse-profile-export/trace-reuse-binding.ncl
+    cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-export/trace-reuse-contracts.ncl
+    nickel export --format json trace-reuse-profile-export/trace-reuse-profile.ncl \
+      > "$out/share/qwen36/trace-reuse-profile.json"
     mkdir -p mtp-probe-profile-export
     cp ${./mtp-probe-profile.ncl} mtp-probe-profile-export/mtp-probe-profile.ncl
     cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-export/mtp-probe-contracts.ncl
@@ -294,6 +311,8 @@ stdenvNoCC.mkDerivation {
       --add-flags "$out/share/qwen36/decode-profile.json" \
       --add-flags "--decode-mode" \
       --add-flags "candidate" \
+      --add-flags "--trace-reuse-profile" \
+      --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
@@ -320,6 +339,8 @@ stdenvNoCC.mkDerivation {
       --add-flags "$out/share/qwen36/decode-profile.json" \
       --add-flags "--decode-mode" \
       --add-flags "candidate" \
+      --add-flags "--trace-reuse-profile" \
+      --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
@@ -345,6 +366,33 @@ stdenvNoCC.mkDerivation {
       --add-flags "--batch-admission-profile" \
       --add-flags "$out/share/qwen36/batch-admission-profile.json" \
       --add-flags "--batch-admission" \
+      --add-flags "--trace-reuse-profile" \
+      --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags ${lib.escapeShellArg executionIdentity}
+
+    # r[impl tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+    # Explicit physical evidence mode. Normal production follows profile admission.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-trace-reuse-admission" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.server" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--decode-mode" \
+      --add-flags "candidate" \
+      --add-flags "--trace-reuse-profile" \
+      --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
+      --add-flags "--trace-reuse-admission" \
       --add-flags "--runtime-identity" \
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
@@ -636,6 +684,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/batch_admission_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/trace_reuse_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/readiness_core.py"
@@ -670,6 +719,9 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/batch-admission-profile.json"
     test -f "$out/share/qwen36/batch-admission-policy.ncl"
     test -f "$out/share/qwen36/batch-admission-binding.ncl"
+    test -f "$out/share/qwen36/trace-reuse-profile.json"
+    test -f "$out/share/qwen36/trace-reuse-policy.ncl"
+    test -f "$out/share/qwen36/trace-reuse-binding.ncl"
     test -L "$out/share/qwen36/execution-identity"
     test "$(readlink "$out/share/qwen36/execution-identity")" = ${lib.escapeShellArg executionIdentity}
     test -f "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
@@ -680,8 +732,16 @@ stdenvNoCC.mkDerivation {
       echo "mutable batch admission binding entered execution identity" >&2
       exit 1
     fi
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl))} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    if grep -F 'trace-reuse-binding.ncl' \
+        "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
+      echo "mutable trace reuse binding entered execution identity" >&2
+      exit 1
+    fi
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-serve"
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-batch-admission"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-trace-reuse-admission"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"
     test -f "$out/share/qwen36/mtp-selection-profile.json"
@@ -692,6 +752,7 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
     test -x "$out/bin/qwen36-p150x2-batch-admission"
+    test -x "$out/bin/qwen36-p150x2-trace-reuse-admission"
     test -x "$out/bin/qwen36-p150x2-mtp-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
     test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
@@ -703,6 +764,7 @@ stdenvNoCC.mkDerivation {
     test -x "$out/bin/qwen36-p150x2-decode-component-probe"
     test -x "$out/bin/qwen36-p150x2-ttft-control"
     "$out/bin/qwen36-p150x2-batch-admission" --help > /dev/null
+    "$out/bin/qwen36-p150x2-trace-reuse-admission" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
     "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
@@ -770,11 +832,44 @@ stdenvNoCC.mkDerivation {
     cmp batch-admission-profile-first.json batch-admission-profile-second.json
     cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
     grep -F '"candidate_width": 4' batch-admission-profile-first.json
-    grep -F '"physically_admitted": true' batch-admission-profile-first.json
-    grep -F '"receipt_blake3": "2bf7d74e784d2c5aecfc60a4252f7141955faf1c735d25b94dbc3d832b84b136"' \
-      batch-admission-profile-first.json
+    grep -F '"physically_admitted": false' batch-admission-profile-first.json
+    grep -F '"receipt_blake3": "not-measured"' batch-admission-profile-first.json
 
-    # Negative: an admitted profile without a receipt must fail.
+    # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+    # Positive: the trace-reuse profile exports deterministically and stays unadmitted.
+    mkdir -p trace-reuse-profile-check
+    cp ${./trace-reuse-profile.ncl} trace-reuse-profile-check/trace-reuse-profile.ncl
+    cp ${./trace-reuse-policy.ncl} trace-reuse-profile-check/trace-reuse-policy.ncl
+    cp ${./trace-reuse-policy-validated.ncl} trace-reuse-profile-check/trace-reuse-policy-validated.ncl
+    cp ${./trace-reuse-binding.ncl} trace-reuse-profile-check/trace-reuse-binding.ncl
+    cp ${./trace-reuse-binding-validated.ncl} trace-reuse-profile-check/trace-reuse-binding-validated.ncl
+    cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-check/trace-reuse-contracts.ncl
+    nickel export --format json trace-reuse-profile-check/trace-reuse-policy-validated.ncl > trace-reuse-policy.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-binding-validated.ncl > trace-reuse-binding.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-first.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-second.json
+    cmp trace-reuse-profile-first.json trace-reuse-profile-second.json
+    cmp trace-reuse-profile-first.json "$out/share/qwen36/trace-reuse-profile.json"
+    grep -F '"width": 4' trace-reuse-profile-first.json
+    grep -F '"maximum_resident_trace_count": 1' trace-reuse-profile-first.json
+    grep -F '"physically_admitted": false' trace-reuse-profile-first.json
+    grep -F '"receipt_blake3": "not-measured"' trace-reuse-profile-first.json
+
+    # Negative: admitted trace reuse without a receipt must fail.
+    mkdir -p trace-reuse-profile-negative
+    cp ${./trace-reuse-profile.ncl} trace-reuse-profile-negative/trace-reuse-profile.ncl
+    cp ${./trace-reuse-policy.ncl} trace-reuse-profile-negative/trace-reuse-policy.ncl
+    cp ${./trace-reuse-binding.ncl} trace-reuse-profile-negative/trace-reuse-binding.ncl
+    cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-negative/trace-reuse-contracts.ncl
+    cp ${./fixtures/invalid-trace-reuse-profile.ncl} trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl
+    if nickel export --format json trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl \
+        > invalid-trace-reuse-profile.json 2> invalid-trace-reuse-profile.log; then
+      echo "invalid trace reuse profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-trace-reuse-profile.log
+
+    # Negative: an admitted batch profile without a receipt must fail.
     mkdir -p batch-admission-profile-negative
     cp ${./batch-admission-profile.ncl} batch-admission-profile-negative/batch-admission-profile.ncl
     cp ${./batch-admission-policy.ncl} batch-admission-profile-negative/batch-admission-policy.ncl

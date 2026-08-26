@@ -733,13 +733,23 @@ def probe_traced_decode_contract():
 
 
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
+# r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
 def probe_batch_decode_scheduler():
     """Positive and negative tests for pure active-batch planning."""
     from qwen36_service.batch_decode_core import (
         MAXIMUM_ACTIVE_BATCH_WIDTH,
+        MAXIMUM_RESIDENT_TRACE_COUNT,
+        TRACE_REUSE_REASON_BINDING,
+        TRACE_REUSE_REASON_DISABLED,
+        TRACE_REUSE_REASON_MISSING,
+        TRACE_REUSE_REASON_MULTIPLE,
+        TRACE_REUSE_REASON_RESET,
+        TRACE_REUSE_REASON_WIDTH,
         ActiveDecodeUser,
         BatchDecodePolicyError,
+        TracePrefillAction,
         plan_decode_batch,
+        plan_same_width_trace_prefill,
     )
 
     test_vocabulary_size = 128
@@ -797,6 +807,64 @@ def probe_batch_decode_scheduler():
         "mixed-user batch planner lost state isolation",
     )
 
+    trace_facts = {
+        "requested_width": mixed_user_count,
+        "resident_widths": (mixed_user_count,),
+        "reuse_enabled": True,
+        "prior_reset_complete": True,
+        "binding_stable": True,
+    }
+    reuse_plan = plan_same_width_trace_prefill(**trace_facts)
+    require(
+        reuse_plan.action is TracePrefillAction.PRESERVE,
+        "same-width stable trace was not preserved",
+    )
+    require(reuse_plan.reuse_after_prefill, "preserved trace was not reusable")
+    require(reuse_plan.reason is None, "valid trace reuse has a rejection reason")
+
+    release_cases = (
+        ({"reuse_enabled": False}, TRACE_REUSE_REASON_DISABLED),
+        ({"resident_widths": ()}, TRACE_REUSE_REASON_MISSING),
+        (
+            {"resident_widths": (mixed_user_count, mixed_user_count)},
+            TRACE_REUSE_REASON_MULTIPLE,
+        ),
+        ({"resident_widths": (1,)}, TRACE_REUSE_REASON_WIDTH),
+        ({"prior_reset_complete": False}, TRACE_REUSE_REASON_RESET),
+        ({"binding_stable": False}, TRACE_REUSE_REASON_BINDING),
+    )
+    for override, expected_reason in release_cases:
+        release_plan = plan_same_width_trace_prefill(**{**trace_facts, **override})
+        require(
+            release_plan.action is TracePrefillAction.RELEASE,
+            f"unsafe trace was preserved: {expected_reason}",
+        )
+        require(
+            not release_plan.reuse_after_prefill,
+            f"unsafe trace became reusable: {expected_reason}",
+        )
+        require(
+            release_plan.reason == expected_reason,
+            f"wrong trace release reason: {release_plan.reason}",
+        )
+
+    invalid_trace_facts = (
+        ({"requested_width": 0}, "requested trace width"),
+        ({"requested_width": True}, "requested trace width"),
+        ({"resident_widths": [mixed_user_count]}, "resident trace widths"),
+        ({"resident_widths": (True,)}, "resident trace width"),
+        ({"reuse_enabled": 1}, "reuse enabled"),
+        ({"prior_reset_complete": None}, "prior reset complete"),
+        ({"binding_stable": "yes"}, "binding stable"),
+    )
+    for override, diagnostic in invalid_trace_facts:
+        try:
+            plan_same_width_trace_prefill(**{**trace_facts, **override})
+        except BatchDecodePolicyError as error:
+            require(diagnostic in str(error), f"wrong trace-policy diagnostic: {error}")
+        else:
+            require(False, f"invalid trace facts were accepted: {override!r}")
+
     too_wide_users = tuple(
         ActiveDecodeUser(
             request_id=f"request-wide-{index}",
@@ -811,8 +879,12 @@ def probe_batch_decode_scheduler():
         (too_wide_users, "active batch width"),
         (
             (
-                ActiveDecodeUser("request-collision-a", first_token_id, first_position, 0),
-                ActiveDecodeUser("request-collision-b", second_token_id, second_position, 0),
+                ActiveDecodeUser(
+                    "request-collision-a", first_token_id, first_position, 0
+                ),
+                ActiveDecodeUser(
+                    "request-collision-b", second_token_id, second_position, 0
+                ),
             ),
             "state slice collision",
         ),
@@ -854,6 +926,37 @@ def probe_batch_decode_scheduler():
         else:
             require(False, f"invalid adapter width was accepted: {invalid_width!r}")
 
+    resident_trace = object()
+    adapter.vocabulary_size = test_vocabulary_size
+    adapter.profile = SimpleNamespace(maximum_sequence_length=test_sequence_length)
+    adapter._traces = {mixed_user_count: resident_trace}
+    adapter._pending_trace_plan = reuse_plan
+    adapter._binding_matches = lambda trace: trace is resident_trace
+    reused_preparation = adapter.prepare_width(
+        token_ids=tuple(user.token_id for user in mixed_users),
+        positions=tuple(user.position for user in mixed_users),
+    )
+    require(reused_preparation.reused, "adapter recaptured a reusable trace")
+    require(
+        reused_preparation.capture_count == 0,
+        "adapter reported a capture during trace reuse",
+    )
+    require(reused_preparation.binding_stable, "reused trace binding is unstable")
+    require(
+        reused_preparation.resident_trace_count == MAXIMUM_RESIDENT_TRACE_COUNT,
+        "adapter reuse changed the resident trace count",
+    )
+    adapter._pending_trace_plan = reuse_plan
+    try:
+        adapter.prepare_width(
+            token_ids=(True, *tuple(user.token_id for user in mixed_users[1:])),
+            positions=tuple(user.position for user in mixed_users),
+        )
+    except BatchDecodeAdapterError as error:
+        require("token" in str(error), f"wrong reused-token diagnostic: {error}")
+    else:
+        require(False, "trace reuse bypassed token validation")
+
     adapter_source = Path(
         __import__(
             "qwen36_service.batch_decode_adapter",
@@ -871,6 +974,10 @@ def probe_batch_decode_scheduler():
     require(
         "_clone_gdn_state" in adapter_source and "_restore_gdn_state" in adapter_source,
         "batch trace capture does not preserve post-prefill GDN state",
+    )
+    require(
+        "plan_same_width_trace_prefill" in adapter_source,
+        "batch adapter bypasses the pure trace-reuse policy",
     )
     server_source = Path(
         __import__("qwen36_service.server", fromlist=["__file__"]).__file__
@@ -1000,11 +1107,140 @@ def probe_batch_admission():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+def probe_trace_reuse_profile():
+    """Positive and negative tests for closed trace-reuse activation policy."""
+    from qwen36_service.trace_reuse_core import (
+        BLAKE3_LENGTH,
+        MAXIMUM_RESIDENT_TRACE_COUNT,
+        PRODUCTION_MEASUREMENT_MODE,
+        TRACE_REUSE_MEASUREMENT_MODE,
+        TRACE_REUSE_WIDTH,
+        TraceReusePolicyError,
+        TraceReuseProfile,
+    )
+
+    profile_path = Path(__file__).with_name("trace-reuse-profile.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile_mapping = json.load(profile_file)
+    profile = TraceReuseProfile.from_mapping(profile_mapping)
+    require(profile.width == TRACE_REUSE_WIDTH, "trace-reuse profile width changed")
+    require(
+        profile.maximum_resident_trace_count == MAXIMUM_RESIDENT_TRACE_COUNT,
+        "trace-reuse profile permits multiple resident traces",
+    )
+    production = profile.activation(
+        explicit_measurement=False,
+        width=profile.width,
+    )
+    require(not production.enabled, "unadmitted production enabled trace reuse")
+    require(
+        not production.admission_eligible,
+        "normal production became trace-reuse admission evidence",
+    )
+    require(
+        production.measurement_mode == PRODUCTION_MEASUREMENT_MODE,
+        "normal trace-reuse measurement mode changed",
+    )
+    explicit = profile.activation(
+        explicit_measurement=True,
+        width=profile.width,
+    )
+    require(explicit.enabled, "explicit trace-reuse measurement stayed disabled")
+    require(
+        explicit.admission_eligible,
+        "explicit trace-reuse measurement is not eligible",
+    )
+    require(
+        explicit.measurement_mode == TRACE_REUSE_MEASUREMENT_MODE,
+        "explicit trace-reuse measurement mode changed",
+    )
+
+    admitted_mapping = json.loads(json.dumps(profile_mapping))
+    admitted_mapping["physically_admitted"] = True
+    admitted_mapping["identities"]["receipt_blake3"] = "a" * BLAKE3_LENGTH
+    admitted_profile = TraceReuseProfile.from_mapping(admitted_mapping)
+    admitted_production = admitted_profile.activation(
+        explicit_measurement=False,
+        width=admitted_profile.width,
+    )
+    require(admitted_production.enabled, "admitted production did not enable reuse")
+    require(
+        not admitted_production.admission_eligible,
+        "admitted production became operator evidence",
+    )
+
+    invalid_profiles = []
+    unknown_profile = json.loads(json.dumps(profile_mapping))
+    unknown_profile["unexpected"] = True
+    invalid_profiles.append((unknown_profile, "fields differ"))
+    missing_receipt = json.loads(json.dumps(profile_mapping))
+    missing_receipt["physically_admitted"] = True
+    invalid_profiles.append((missing_receipt, "no measured receipt"))
+    multiple_traces = json.loads(json.dumps(profile_mapping))
+    invalid_resident_trace_count = MAXIMUM_RESIDENT_TRACE_COUNT + 1
+    multiple_traces["admission"]["maximum_resident_trace_count"] = (
+        invalid_resident_trace_count
+    )
+    invalid_profiles.append((multiple_traces, "must be one"))
+    wrong_order = json.loads(json.dumps(profile_mapping))
+    wrong_order["workload"]["execution_order"] = [
+        "reuse",
+        "recapture",
+        "reuse",
+        "recapture",
+    ]
+    invalid_profiles.append((wrong_order, "execution order"))
+    for invalid_profile, diagnostic in invalid_profiles:
+        try:
+            TraceReuseProfile.from_mapping(invalid_profile)
+        except TraceReusePolicyError as error:
+            require(
+                diagnostic in str(error), f"wrong trace profile diagnostic: {error}"
+            )
+        else:
+            require(False, f"invalid trace profile was accepted: {diagnostic}")
+
+    outside_profile_width = profile.width - 1
+    server_source = Path(
+        __import__("qwen36_service.server", fromlist=["__file__"]).__file__
+    ).read_text()
+    require(
+        "--trace-reuse-profile" in server_source,
+        "service does not load the trace-reuse profile",
+    )
+    require(
+        "--trace-reuse-admission" in server_source,
+        "service has no explicit trace-reuse evidence mode",
+    )
+
+    invalid_activations = (
+        (
+            {"explicit_measurement": True, "width": outside_profile_width},
+            "outside the profile",
+        ),
+        ({"explicit_measurement": 1, "width": profile.width}, "must be a boolean"),
+        ({"explicit_measurement": True, "width": True}, "must be an integer"),
+    )
+    for activation_input, diagnostic in invalid_activations:
+        try:
+            profile.activation(**activation_input)
+        except TraceReusePolicyError as error:
+            require(diagnostic in str(error), f"wrong activation diagnostic: {error}")
+        else:
+            require(
+                False, f"invalid trace activation was accepted: {activation_input!r}"
+            )
+
+
 # r[verify tenstorrent.qwen38_p150x2.startup_readiness]
 def probe_startup_readiness():
     """Positive and negative tests for readiness policy and shell adapters."""
     import torch
-    from qwen36_service.batch_decode_adapter import BatchDecodeAdapterError
+    from qwen36_service.batch_decode_adapter import (
+        BatchDecodeAdapterError,
+        TracePreparationResult,
+    )
     from qwen36_service.batch_service import BatchGenerationCoordinator
     from qwen36_service.core import CompletionRequest, Endpoint
     from qwen36_service.readiness_core import (
@@ -1026,6 +1262,7 @@ def probe_startup_readiness():
     maximum_width = 16
     warmup_prompt = "Warm the test path."
     warmup_generation_tokens = 2
+    expected_resident_trace_count = 1
     warmup_token_id = 7
     test_vocabulary_size = 128
     test_maximum_sequence_length = 2048
@@ -1111,12 +1348,22 @@ def probe_startup_readiness():
             self.replay_widths = []
             self.reset_count = 0
 
-        def prefill_users(self, token_ids, *, generation_tokens):
+        def prefill_users(
+            self,
+            token_ids,
+            *,
+            generation_tokens,
+            trace_reuse_enabled=False,
+        ):
             width = len(token_ids)
             self.prefill_widths.append(width)
             require(
                 generation_tokens == warmup_generation_tokens,
                 "warm-up shell changed the generation bound",
+            )
+            require(
+                trace_reuse_enabled is False,
+                "startup warm-up enabled trace reuse",
             )
             return SimpleNamespace(
                 first_token_ids=tuple(warmup_token_id for _ in range(width)),
@@ -1127,7 +1374,14 @@ def probe_startup_readiness():
         def prepare_width(self, *, token_ids, positions):
             require(len(token_ids) == len(positions), "warm-up trace widths differ")
             self.prepared_widths.append(len(token_ids))
-            return first_width_seconds
+            return TracePreparationResult(
+                capture_seconds=first_width_seconds,
+                capture_count=1,
+                reused=False,
+                resident_trace_count=expected_resident_trace_count,
+                binding_stable=True,
+                transition_reason=None,
+            )
 
         def decode_traced(self, *, token_ids, positions):
             require(len(token_ids) == len(positions), "warm-up replay widths differ")
@@ -1142,9 +1396,7 @@ def probe_startup_readiness():
     coordinator = BatchGenerationCoordinator(
         adapter=fake_adapter,
         tokenizer=object(),
-        model=SimpleNamespace(
-            args=SimpleNamespace(vocab_size=test_vocabulary_size)
-        ),
+        model=SimpleNamespace(args=SimpleNamespace(vocab_size=test_vocabulary_size)),
         profile=SimpleNamespace(profile_id="profile-test"),
         model_alias="model-test",
         model_identity="model-identity-test",
@@ -1197,6 +1449,17 @@ def probe_startup_readiness():
             "warm-up shell replays differ from the plan",
         )
         require(
+            all(not observation.trace_reused for observation in observations),
+            "startup warm-up reused a trace",
+        )
+        require(
+            all(
+                observation.resident_trace_count == expected_resident_trace_count
+                for observation in observations
+            ),
+            "startup warm-up retained the wrong trace count",
+        )
+        require(
             fake_adapter.reset_count == len(warmup_widths),
             "warm-up shell did not clean every width",
         )
@@ -1220,9 +1483,7 @@ def probe_startup_readiness():
     failing_coordinator = BatchGenerationCoordinator(
         adapter=failing_adapter,
         tokenizer=object(),
-        model=SimpleNamespace(
-            args=SimpleNamespace(vocab_size=test_vocabulary_size)
-        ),
+        model=SimpleNamespace(args=SimpleNamespace(vocab_size=test_vocabulary_size)),
         profile=SimpleNamespace(profile_id="profile-test"),
         model_alias="model-test",
         model_identity="model-identity-test",
@@ -4202,9 +4463,7 @@ def probe_mtp_sampled_acceptance():
     require(ids == tuple(token_ids), "distribution ordering changed")
 
     # Exact rule: accept probability equals the draft's own mass; TV is zero.
-    draft_mass, accepted = acceptance_probability(
-        RULE_EXACT, probabilities, ids, 8
-    )
+    draft_mass, accepted = acceptance_probability(RULE_EXACT, probabilities, ids, 8)
     require(
         math.isclose(draft_mass, 0.3, rel_tol=1e-12),
         f"exact rule draft mass drifted: {draft_mass}",
@@ -4388,7 +4647,9 @@ def probe_mtp_sampled_acceptance():
             "distribution is empty",
         ),
         (
-            lambda: acceptance_probability(RULE_LENIENT, probabilities, ids, 7, lenience=0.0),
+            lambda: acceptance_probability(
+                RULE_LENIENT, probabilities, ids, 7, lenience=0.0
+            ),
             "lenience must be finite and positive",
         ),
         (
@@ -4396,7 +4657,9 @@ def probe_mtp_sampled_acceptance():
             "uniform stream exhausted",
         ),
         (
-            lambda: resolve_speculative_round(row_values[:-1], row_ids, drafts, iter([])),
+            lambda: resolve_speculative_round(
+                row_values[:-1], row_ids, drafts, iter([])
+            ),
             "draft count plus one",
         ),
         (
@@ -4609,7 +4872,9 @@ def probe_gdn_decode_layout_candidate():
         "two-token decode stayed on the candidate path",
     )
 
-    candidate_source = (qwen36 / "tt" / "gdn" / "decode_layout_candidate.py").read_text()
+    candidate_source = (
+        qwen36 / "tt" / "gdn" / "decode_layout_candidate.py"
+    ).read_text()
     require(
         "import ttnn" not in candidate_source,
         "candidate core imports ttnn (must be device-free pure policy)",
@@ -4653,6 +4918,7 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("batch admission policy", probe_batch_admission)
+    probe("same-width trace-reuse profile", probe_trace_reuse_profile)
     probe("startup warm-up readiness", probe_startup_readiness)
     probe("prefill program profile", probe_prefill_program_profile)
     probe("MTP target-verification pure core", probe_mtp_target_verification)

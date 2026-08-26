@@ -27,6 +27,7 @@ from .core import CompletionRequest, build_completion_response
 from .decode_adapter import DecodeAdapterError
 from .decode_core import DecodeProfile, request_deadline_expired
 from .readiness_core import StartupWarmupPlan
+from .trace_reuse_core import TraceReuseProfile
 
 MAXIMUM_BATCH_WIDTH = 16
 BATCH_COLLECTION_SECONDS = 0.01
@@ -53,6 +54,8 @@ class WarmupWidthObservation:
     elapsed_seconds: float
     prefill_seconds: float
     trace_capture_seconds: float
+    trace_reused: bool
+    resident_trace_count: int
     replay_seconds: float
     reset_seconds: float
 
@@ -76,6 +79,8 @@ class BatchGenerationCoordinator:
         emitter: Callable[..., None],
         batch_admission_profile: BatchAdmissionProfile | None = None,
         batch_admission_enabled: bool = False,
+        trace_reuse_profile: TraceReuseProfile | None = None,
+        trace_reuse_admission_enabled: bool = False,
     ) -> None:
         self.adapter = adapter
         self.tokenizer = tokenizer
@@ -90,9 +95,19 @@ class BatchGenerationCoordinator:
         self.emitter = emitter
         self.batch_admission_profile = batch_admission_profile
         self.batch_admission_enabled = batch_admission_enabled
+        self.trace_reuse_profile = trace_reuse_profile
+        self.trace_reuse_admission_enabled = trace_reuse_admission_enabled
         if batch_admission_enabled and batch_admission_profile is None:
             raise BatchDecodeAdapterError(
                 "batch admission mode requires a batch admission profile"
+            )
+        if trace_reuse_admission_enabled and trace_reuse_profile is None:
+            raise BatchDecodeAdapterError(
+                "trace-reuse admission mode requires a trace-reuse profile"
+            )
+        if batch_admission_enabled and trace_reuse_admission_enabled:
+            raise BatchDecodeAdapterError(
+                "batch and trace-reuse admission modes conflict"
             )
         self._condition = threading.Condition()
         self._queue: deque[_PendingBatchRequest] = deque()
@@ -166,9 +181,10 @@ class BatchGenerationCoordinator:
                 prefill_result = self.adapter.prefill_users(
                     tuple(token_ids.clone() for _ in range(width)),
                     generation_tokens=plan.generation_tokens,
+                    trace_reuse_enabled=False,
                 )
                 positions = tuple(prompt_token_count for _ in range(width))
-                trace_capture_seconds = self.adapter.prepare_width(
+                trace_preparation = self.adapter.prepare_width(
                     token_ids=prefill_result.first_token_ids,
                     positions=positions,
                 )
@@ -189,7 +205,9 @@ class BatchGenerationCoordinator:
                     width=width,
                     elapsed_seconds=time.monotonic() - width_started,
                     prefill_seconds=prefill_result.elapsed_seconds,
-                    trace_capture_seconds=trace_capture_seconds,
+                    trace_capture_seconds=trace_preparation.capture_seconds,
+                    trace_reused=trace_preparation.reused,
+                    resident_trace_count=trace_preparation.resident_trace_count,
                     replay_seconds=replay_seconds,
                     reset_seconds=reset_seconds,
                 )
@@ -200,7 +218,9 @@ class BatchGenerationCoordinator:
                     prefill_seconds=observation.prefill_seconds,
                     replay_seconds=observation.replay_seconds,
                     reset_seconds=observation.reset_seconds,
+                    resident_trace_count=observation.resident_trace_count,
                     trace_capture_seconds=observation.trace_capture_seconds,
+                    trace_reused=observation.trace_reused,
                     width=width,
                 )
         except (
@@ -321,16 +341,28 @@ class BatchGenerationCoordinator:
         ):
             raise BatchDecodeAdapterError("request timeout exceeded before batch start")
 
+        trace_reuse_activation = None
+        if self.trace_reuse_profile is not None:
+            trace_reuse_activation = self.trace_reuse_profile.activation(
+                explicit_measurement=self.trace_reuse_admission_enabled,
+                width=width,
+            )
+        trace_reuse_enabled = (
+            trace_reuse_activation.enabled
+            if trace_reuse_activation is not None
+            else False
+        )
         prefill_started = time.monotonic()
         prefill_result = self.adapter.prefill_users(
             tuple(pending.token_ids for pending in pending_batch),
             generation_tokens=maximum_generation_tokens,
+            trace_reuse_enabled=trace_reuse_enabled,
         )
         first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
         positions = [pending.prompt_token_count for pending in pending_batch]
         trace_prepare_started = time.monotonic()
-        trace_capture_seconds = self.adapter.prepare_width(
+        trace_preparation = self.adapter.prepare_width(
             token_ids=prefill_result.first_token_ids,
             positions=tuple(positions),
         )
@@ -369,6 +401,7 @@ class BatchGenerationCoordinator:
         cleanup_started = time.monotonic()
         self.adapter.reset_all()
         cleanup_seconds = time.monotonic() - cleanup_started
+        request_finished = time.monotonic()
         steady_durations = (
             decode_durations[1:] if len(decode_durations) > 1 else decode_durations
         )
@@ -399,6 +432,14 @@ class BatchGenerationCoordinator:
                 ) from error
             if self.batch_admission_enabled:
                 evidence_profile_id = self.batch_admission_profile.profile_id
+        if (
+            trace_reuse_activation is not None
+            and not self.batch_admission_enabled
+            and trace_reuse_activation.enabled
+        ):
+            measurement_mode = trace_reuse_activation.measurement_mode
+            admission_eligible = trace_reuse_activation.admission_eligible
+            evidence_profile_id = self.trace_reuse_profile.profile_id
 
         responses = []
         for state_slice, (pending, user_tokens) in enumerate(
@@ -443,13 +484,20 @@ class BatchGenerationCoordinator:
                 "profile_id": evidence_profile_id,
                 "queue_seconds": queue_seconds,
                 "request_reset_seconds": 0.0,
+                "request_wall_seconds": request_finished - pending.started,
+                "resident_trace_count": trace_preparation.resident_trace_count,
                 "runtime_identity": self.runtime_identity,
                 "simulated": False,
                 "state_slice": state_slice,
                 "tail_token_latency_seconds": tail_token_latency_seconds,
                 "token_latency_seconds": steady_durations,
-                "trace_capture_seconds": trace_capture_seconds,
+                "trace_binding_stable": trace_preparation.binding_stable,
+                "trace_capture_count": trace_preparation.capture_count,
+                "trace_capture_seconds": trace_preparation.capture_seconds,
                 "trace_prepare_seconds": trace_prepare_seconds,
+                "trace_reuse_enabled": trace_reuse_enabled,
+                "trace_reused": trace_preparation.reused,
+                "trace_transition_reason": trace_preparation.transition_reason,
                 "ttft_seconds": ttft_seconds,
             }
             self.emitter(

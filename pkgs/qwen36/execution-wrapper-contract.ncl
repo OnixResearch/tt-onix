@@ -1,4 +1,4 @@
-# Immutable contract for the three served P150x2 execution entry points.
+# Immutable contract for the four served P150x2 execution entry points.
 let NonEmptyStringC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.length value > 0
 ) in
@@ -18,6 +18,12 @@ let ExactC = fun expected => std.contract.from_predicate (fun value => value == 
     "qwen36-p150x2-serve",
     "qwen36-p150x2-trace-candidate",
     "qwen36-p150x2-batch-admission",
+    "qwen36-p150x2-trace-reuse-admission",
+  ],
+  required_profiles | NonEmptyStringArrayC = [
+    "decode-profile.json",
+    "batch-admission-profile.json",
+    "trace-reuse-profile.json",
   ],
   required_environment | NonEmptyStringArrayC = [
     "HF_HUB_OFFLINE=1",

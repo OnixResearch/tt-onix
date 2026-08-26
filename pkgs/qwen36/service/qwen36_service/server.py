@@ -55,6 +55,7 @@ from .readiness_core import (
     record_warm_width,
 )
 from .systemd_notify_adapter import notify_ready
+from .trace_reuse_core import TraceReusePolicyError, TraceReuseProfile
 
 EXPECTED_PCIE_DEVICE_IDS = [0, 1]
 HOST_TIMELINE_PREFILL_START = "QWEN_PREFILL_START"
@@ -128,6 +129,8 @@ class QwenEngine:
         enable_host_timeline_profile: bool,
         batch_admission_profile: BatchAdmissionProfile | None = None,
         batch_admission_enabled: bool = False,
+        trace_reuse_profile: TraceReuseProfile | None = None,
+        trace_reuse_admission_enabled: bool = False,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -192,6 +195,8 @@ class QwenEngine:
                 emitter=emit,
                 batch_admission_profile=batch_admission_profile,
                 batch_admission_enabled=batch_admission_enabled,
+                trace_reuse_profile=trace_reuse_profile,
+                trace_reuse_admission_enabled=trace_reuse_admission_enabled,
             )
             if self._batch_adapter is not None
             else None
@@ -687,6 +692,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decode-profile", required=True)
     parser.add_argument("--batch-admission-profile")
     parser.add_argument("--batch-admission", action="store_true")
+    parser.add_argument("--trace-reuse-profile")
+    parser.add_argument("--trace-reuse-admission", action="store_true")
     parser.add_argument(
         "--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER
     )
@@ -746,6 +753,32 @@ def main() -> None:
             raise SystemExit(f"batch admission profile is invalid: {error}") from error
     elif args.batch_admission_profile is not None:
         raise SystemExit("--batch-admission-profile requires --batch-admission")
+    trace_reuse_profile = None
+    if args.trace_reuse_profile is not None:
+        trace_reuse_profile_path = Path(args.trace_reuse_profile).expanduser()
+        if (
+            not trace_reuse_profile_path.is_absolute()
+            or not trace_reuse_profile_path.is_file()
+        ):
+            raise SystemExit("--trace-reuse-profile must be an existing absolute file")
+        try:
+            with trace_reuse_profile_path.open(encoding="utf-8") as profile_file:
+                trace_reuse_profile = TraceReuseProfile.from_mapping(
+                    json.load(profile_file)
+                )
+        except (
+            TraceReusePolicyError,
+            OSError,
+            json.JSONDecodeError,
+        ) as error:
+            raise SystemExit(f"trace reuse profile is invalid: {error}") from error
+    if args.trace_reuse_admission:
+        if args.decode_mode != DECODE_MODE_CANDIDATE:
+            raise SystemExit("--trace-reuse-admission requires candidate decode mode")
+        if trace_reuse_profile is None:
+            raise SystemExit("--trace-reuse-admission requires --trace-reuse-profile")
+        if args.batch_admission:
+            raise SystemExit("--trace-reuse-admission conflicts with --batch-admission")
     if not model_path.is_absolute() or not model_path.is_dir():
         raise SystemExit("--model-path must be an existing absolute directory")
     if not (model_path / "config.json").is_file():
@@ -758,6 +791,10 @@ def main() -> None:
         raise SystemExit("--prefill-profile conflicts with --host-timeline-profile")
     if args.batch_admission and (args.prefill_profile or args.host_timeline_profile):
         raise SystemExit("--batch-admission conflicts with profiling modes")
+    if args.trace_reuse_admission and (
+        args.prefill_profile or args.host_timeline_profile
+    ):
+        raise SystemExit("--trace-reuse-admission conflicts with profiling modes")
     if args.max_sequence_length <= 0:
         raise SystemExit("--max-sequence-length must be positive")
     if args.max_sequence_length > ADMITTED_MAX_SEQUENCE_LENGTH:
@@ -775,6 +812,11 @@ def main() -> None:
         and model_path.name != batch_admission_profile.checkpoint_revision
     ):
         raise SystemExit("model path does not match the batch admission checkpoint")
+    if (
+        trace_reuse_profile is not None
+        and model_path.name != trace_reuse_profile.checkpoint_revision
+    ):
+        raise SystemExit("model path does not match the trace reuse checkpoint")
     if args.max_generation_tokens <= 0:
         raise SystemExit("--max-generation-tokens must be positive")
     if args.max_generation_tokens > args.max_sequence_length:
@@ -847,6 +889,8 @@ def main() -> None:
             enable_host_timeline_profile=args.host_timeline_profile,
             batch_admission_profile=batch_admission_profile,
             batch_admission_enabled=args.batch_admission,
+            trace_reuse_profile=trace_reuse_profile,
+            trace_reuse_admission_enabled=args.trace_reuse_admission,
         )
         engine.warm_up()
         server = ThreadingHTTPServer(
@@ -867,6 +911,12 @@ def main() -> None:
             model=args.model_alias,
             port=args.port,
             batch_admission=args.batch_admission,
+            trace_reuse_admission=args.trace_reuse_admission,
+            trace_reuse_profile=(
+                trace_reuse_profile.profile_id
+                if trace_reuse_profile is not None
+                else None
+            ),
             host_timeline_profile=args.host_timeline_profile,
             prefill_profile=args.prefill_profile,
             simulated=False,
