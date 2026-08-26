@@ -15,4 +15,4 @@
 
 ## Phase 4: Lifecycle completion
 
-- [ ] [serial] Restore production health, validate Cairn and package gates, sync the accepted spec, archive the change, and integrate it through `origin/main` for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
+- [x] [serial] Restore production health, validate Cairn and package gates, sync the accepted spec, archive the change, and integrate it through `origin/main` for r[tenstorrent.qwen38_p150x2.batch_performance_admission].
