@@ -882,8 +882,9 @@ stdenvNoCC.mkDerivation {
     cmp batch-admission-profile-first.json batch-admission-profile-second.json
     cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
     grep -F '"candidate_width": 4' batch-admission-profile-first.json
-    grep -F '"physically_admitted": false' batch-admission-profile-first.json
-    grep -F '"receipt_blake3": "not-measured"' batch-admission-profile-first.json
+    grep -F '"physically_admitted": true' batch-admission-profile-first.json
+    grep -F '"receipt_blake3": "972a5cc8405b5aec1443ff72e86a2d62b8a68e703d2462991d73ff54b665e382"' \
+      batch-admission-profile-first.json
 
     # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
     # Positive: the B=8 admission profile exports deterministically and stays unadmitted.
