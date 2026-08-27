@@ -81,6 +81,9 @@ stdenv.mkDerivation (
       # Drop harvested/nonexistent eth dispatch cores so a 4x p150a mesh can open
       # (the eth dispatch YAML lists cores that don't exist on harvested Blackhole).
       ./bh-eth-dispatch-harvesting.patch
+      # Fuse the fp32 single-token gated-delta recurrence into one device program.
+      # The public path stays opt-in at the Qwen model layer until physical admission.
+      ./gdn-decode-fp32.patch
     ];
 
     postUnpack = ''

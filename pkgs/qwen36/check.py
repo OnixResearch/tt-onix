@@ -4992,6 +4992,84 @@ def probe_gdn_decode_layout_candidate():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_decode_fusion]
+def probe_gdn_decode_fusion_candidate():
+    """Test the closed, default-off GDN decode fusion policy."""
+    import pathlib
+
+    qwen36 = pathlib.Path(
+        __import__("models.demos.blackhole.qwen36", fromlist=["__path__"]).__path__[0]
+    )
+    from models.demos.blackhole.qwen36.tt.gdn import (
+        decode_fusion_candidate as candidate,
+    )
+
+    require(candidate.selected_mode({}) == candidate.MODE_OFF, "missing fusion gate did not select off")
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: "unknown"}) == candidate.MODE_OFF,
+        "unknown fusion mode did not fail closed",
+    )
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: object()}) == candidate.MODE_OFF,
+        "non-string fusion mode did not fail closed",
+    )
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: " FULL "}) == candidate.MODE_FULL,
+        "closed full mode was not normalized",
+    )
+    require(candidate.uses_fused_norm(candidate.MODE_NORM), "norm mode did not enable norm fusion")
+    require(
+        not candidate.uses_fused_state_update(candidate.MODE_NORM),
+        "norm mode enabled state fusion",
+    )
+    require(
+        candidate.uses_fused_state_update(candidate.MODE_STATE),
+        "state mode did not enable state fusion",
+    )
+    require(not candidate.uses_fused_norm(candidate.MODE_STATE), "state mode enabled norm fusion")
+    require(
+        candidate.uses_fused_norm(candidate.MODE_FULL)
+        and not candidate.uses_fused_state_update(candidate.MODE_FULL)
+        and candidate.uses_fused_recurrence(candidate.MODE_FULL),
+        "full mode did not select the custom recurrence",
+    )
+    require(
+        not candidate.uses_fused_norm(candidate.MODE_OFF)
+        and not candidate.uses_fused_state_update(candidate.MODE_OFF)
+        and not candidate.uses_fused_recurrence(candidate.MODE_OFF),
+        "off mode changed the production path",
+    )
+
+    policy_source = (qwen36 / "tt" / "gdn" / "decode_fusion_candidate.py").read_text()
+    require("import ttnn" not in policy_source, "fusion policy imports ttnn")
+    require(candidate.ENV_GATE in policy_source, "fusion policy lost its gate name")
+
+    tp_source = (qwen36 / "tt" / "gdn" / "tp.py").read_text()
+    delta_source = (
+        qwen36.parents[2]
+        / "experimental"
+        / "gated_attention_gated_deltanet"
+        / "tt"
+        / "ttnn_delta_rule_ops.py"
+    ).read_text()
+    require("decode_fusion_candidate.selected_mode" in tp_source, "GDN runtime does not consume fusion policy")
+    require("q_norm_weight=" in tp_source and "k_norm_weight=" in tp_source, "GDN runtime lost norm fusion inputs")
+    require("fuse_state_update=" in tp_source, "GDN runtime lost state fusion selection")
+    require("fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection")
+    require("state_output=" in tp_source, "GDN runtime lost trace-stable state output")
+    require("ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel")
+    import ttnn
+
+    require(
+        hasattr(ttnn.transformer, "gated_delta_decode"),
+        "packaged TTNN runtime lost gated_delta_decode",
+    )
+    require(
+        "q_norm_weight and k_norm_weight must be provided together" in delta_source,
+        "norm fusion lost its paired-input failure",
+    )
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5005,6 +5083,7 @@ def main():
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)
     probe("checkpoint layer-type authority", probe_layer_type_authority)
     probe("GDN decode layout candidate gate", probe_gdn_decode_layout_candidate)
+    probe("GDN decode fusion candidate", probe_gdn_decode_fusion_candidate)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)

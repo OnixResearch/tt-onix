@@ -56,6 +56,7 @@ let
     ./layer-type-authority.patch
     ./gdn-decode-layout-candidate.patch
     ./prefill-device-staging.patch
+    ./gdn-decode-fusion-candidate.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   executionIdentityLocalInputs = [
@@ -78,6 +79,8 @@ let
     (stableIdentityPath "qwen36-trace-reuse-policy-validated.ncl" ./trace-reuse-policy-validated.ncl)
     (stableIdentityPath "qwen36-trace-reuse-contracts.ncl" ./trace-reuse-contracts.ncl)
     (stableIdentityPath "qwen36-trace-reuse-profile.ncl" ./trace-reuse-profile.ncl)
+    (stableIdentityPath "qwen36-gdn-decode-fusion-contracts.ncl" ./gdn-decode-fusion-contracts.ncl)
+    (stableIdentityPath "qwen36-gdn-decode-fusion-profile.ncl" ./gdn-decode-fusion-profile.ncl)
   ];
   executionIdentityPatchInputs = map (
     patch: stableIdentityPath "qwen36-${builtins.baseNameOf (toString patch)}" patch
@@ -195,6 +198,8 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-rollback-contracts.ncl} "$out/share/qwen36/mtp-rollback-contracts.ncl"
     cp ${./decode-component-profile.ncl} "$out/share/qwen36/decode-component-profile.ncl"
     cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
+    cp ${./gdn-decode-fusion-profile.ncl} "$out/share/qwen36/gdn-decode-fusion-profile.ncl"
+    cp ${./gdn-decode-fusion-contracts.ncl} "$out/share/qwen36/gdn-decode-fusion-contracts.ncl"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -255,6 +260,11 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-component-contracts.ncl} decode-component-profile-export/decode-component-contracts.ncl
     nickel export --format json decode-component-profile-export/decode-component-profile.ncl \
       > "$out/share/qwen36/decode-component-profile.json"
+    mkdir -p gdn-decode-fusion-profile-export
+    cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-export/gdn-decode-fusion-profile.ncl
+    cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-export/gdn-decode-fusion-contracts.ncl
+    nickel export --format json gdn-decode-fusion-profile-export/gdn-decode-fusion-profile.ncl \
+      > "$out/share/qwen36/gdn-decode-fusion-profile.json"
     mkdir -p ttft-control-profile-export
     cp ${./ttft-control-profile.ncl} ttft-control-profile-export/ttft-control-profile.ncl
     cp ${./ttft-control-contracts.ncl} ttft-control-profile-export/ttft-control-contracts.ncl
@@ -293,6 +303,12 @@ stdenvNoCC.mkDerivation {
     ttcp_dst="$out/libexec/tt-metalium/ttnn/cpp"
     rm -rf "$ttcp_dst"
     cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
+    # `${tt-metal.src}` is pre-patch. Restore the package-added GDN decode
+    # program and kernels from the installed runtime after the full-tree copy.
+    gdn_decode_src=${tt-metal}/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode
+    gdn_decode_dst="$ttcp_dst/ttnn/operations/transformer/gated_delta_decode"
+    rm -rf "$gdn_decode_dst"
+    cp -r --no-preserve=mode "$gdn_decode_src" "$gdn_decode_dst"
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
     # Host-side Tracy CLI tools matching the packaged runtime. The packaged
     # `python -m tracy` module resolves them under
@@ -711,6 +727,7 @@ stdenvNoCC.mkDerivation {
     # all-gather-fused-matmul kernels for the qwen36 TP path).
     test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
     test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp"
+    test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp"
 
     runHook postInstall
   '';
@@ -724,6 +741,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/qwen36_vllm.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/tp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
@@ -796,6 +814,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/mtp-trace-profile.json"
     test -f "$out/share/qwen36/mtp-rollback-profile.json"
     test -f "$out/share/qwen36/decode-component-profile.json"
+    test -f "$out/share/qwen36/gdn-decode-fusion-profile.json"
     test -f "$out/share/qwen36/ttft-control-profile.json"
     test -x "$out/bin/qwen36-p150x2-serve"
     test -x "$out/bin/qwen36-p150x2-trace-candidate"
@@ -1153,6 +1172,32 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
     test -s invalid-decode-component-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.gdn_decode_fusion]
+    # Positive: fusion policy exports deterministically with fixed gates.
+    mkdir -p gdn-decode-fusion-profile-check
+    cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl
+    cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-contracts.ncl
+    nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-first.json
+    nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-second.json
+    cmp gdn-decode-fusion-profile-first.json gdn-decode-fusion-profile-second.json
+    cmp gdn-decode-fusion-profile-first.json "$out/share/qwen36/gdn-decode-fusion-profile.json"
+    grep -F '"diagnostic_only": true' gdn-decode-fusion-profile-first.json
+    grep -F '"maximum_gdn_median_ratio": 0.95' gdn-decode-fusion-profile-first.json
+    grep -F '"maximum_full_step_median_ratio": 0.97' gdn-decode-fusion-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" gdn-decode-fusion-profile-first.json
+
+    # Negative: production eligibility must fail the fusion profile contract.
+    mkdir -p gdn-decode-fusion-profile-negative
+    cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-profile.ncl
+    cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-contracts.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl
+    if nickel export --format json gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl \
+        > invalid-gdn-decode-fusion-profile.json 2> invalid-gdn-decode-fusion-profile.log; then
+      echo "invalid GDN decode fusion profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-gdn-decode-fusion-profile.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
     # Positive: the TTFT control profile exports deterministically and binds authority.
