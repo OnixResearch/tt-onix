@@ -1,0 +1,71 @@
+{
+  "schema": "qwen38-gdn-fusion-balanced.v1",
+  "date": "2026-08-27",
+  "physical": true,
+  "simulated": false,
+  "diagnostic_only": true,
+  "admission_eligible": false,
+  "package": "/nix/store/dkwhljanp15jb35jsfx12kbzc2l0j1r4-qwen36-0.1.0",
+  "runtime": "/nix/store/2n6r40bpg5a38aib9i8inxv5hrkyrf24-tt-metal-0.74.0",
+  "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "execution_order": ["control", "candidate", "candidate", "control"],
+  "roots": [
+    {
+      "root": 1,
+      "route": "control",
+      "mode": "off",
+      "representative_gdn_seconds": 0.0005741779459640384,
+      "full_step_median_seconds": 0.05420738703105599,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 2,
+      "route": "candidate",
+      "mode": "full",
+      "representative_gdn_seconds": 0.000504316994920373,
+      "full_step_median_seconds": 0.050911529920995235,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 3,
+      "route": "candidate",
+      "mode": "full",
+      "representative_gdn_seconds": 0.0005156180122867227,
+      "full_step_median_seconds": 0.05086740700062364,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 4,
+      "route": "control",
+      "mode": "off",
+      "representative_gdn_seconds": 0.0005770929856225848,
+      "full_step_median_seconds": 0.05419371195603162,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    }
+  ],
+  "summary": {
+    "control_gdn_median_seconds": 0.0005756354657933116,
+    "candidate_gdn_median_seconds": 0.0005099675036035478,
+    "gdn_ratio": 0.8859209237581226,
+    "control_gdn_duplicate_spread_ratio": 1.005076892414689,
+    "candidate_gdn_duplicate_spread_ratio": 1.0224085594579935,
+    "control_full_step_median_seconds": 0.054200549493543804,
+    "candidate_full_step_median_seconds": 0.05088946846080944,
+    "full_step_ratio": 0.9389105633859162,
+    "full_step_speedup": 1.0650641701098582,
+    "control_full_step_duplicate_spread_ratio": 1.0002523369322895,
+    "candidate_full_step_duplicate_spread_ratio": 1.0008674104495054,
+    "token_parity": true
+  },
+  "gates": {
+    "maximum_gdn_ratio": 0.95,
+    "maximum_full_step_ratio": 0.97,
+    "maximum_duplicate_spread_ratio": 1.25,
+    "require_token_parity": true
+  },
+  "verdict": "pass"
+}

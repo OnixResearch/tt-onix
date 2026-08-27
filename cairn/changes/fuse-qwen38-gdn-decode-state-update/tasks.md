@@ -21,7 +21,7 @@
 - [x] [parallel] V2 Add negative checks for missing, unknown, and invalid gate values. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.invalid]
 - [x] [serial] V3 Run package build and device-free checks. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
 - [x] [serial] V3a Run the bounded Blackhole kernel hazard audit. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
-- [ ] [serial] V4 Run matched physical component and full-step controls. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
+- [x] [serial] V4 Run matched physical component and full-step controls. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
 - [ ] [serial] V5 Verify exact tokens, text, state isolation, and clean reset. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
 - [ ] [serial] V6 Run fresh B=4 admission for any selected mode. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
 

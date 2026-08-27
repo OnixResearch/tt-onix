@@ -30,6 +30,16 @@ The isolated physical verdict is `pass`. This proves physical JIT execution and 
 
 By user direction, production remains inactive and runtime-masked while the remaining physical tests run.
 
+## Balanced component result
+
+The final package is `/nix/store/dkwhljanp15jb35jsfx12kbzc2l0j1r4-qwen36-0.1.0`. The physical order was `control,candidate,candidate,control` on devices `0` and `1`. All roots captured and replayed the full decode trace, cleaned up, and retained tokens `11751` and `13`.
+
+The candidate GDN median ratio was `0.8859209237581226`, below the fixed `0.95` maximum. The candidate full-step median ratio was `0.9389105633859162`, below the fixed `0.97` maximum. This is a `1.0650641701098582` full-step speedup.
+
+The largest duplicate-root spread was `1.0224085594579935`, below the fixed `1.25` maximum. The bounded component verdict is `pass`.
+
+Long output parity, state isolation, clean reset across requests, and fresh B=4 admission remain required.
+
 The fixed order is `control,candidate,candidate,control` on physical devices `0` and `1`.
 The fixed candidate modes are `norm`, `state`, and `full`.
 
