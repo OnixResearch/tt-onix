@@ -745,6 +745,15 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
 
+    gdn_delta_rule="$out/lib/python${python3.pythonVersion}/site-packages/models/experimental/gated_attention_gated_deltanet/tt/ttnn_delta_rule_ops.py"
+    test -f "$gdn_delta_rule"
+    grep -Fq 'q_head_major = ttnn.permute' "$gdn_delta_rule"
+    grep -Fq 'output = ttnn.permute(output_head_major' "$gdn_delta_rule"
+    if grep -Fq 'q_flat = ttnn.reshape(q,' "$gdn_delta_rule"; then
+      echo "GDN fused recurrence contains an unsafe metadata-only Q reshape" >&2
+      exit 1
+    fi
+
     runHook postInstall
   '';
 

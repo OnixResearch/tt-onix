@@ -5058,6 +5058,15 @@ def probe_gdn_decode_fusion_candidate():
     require("fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection")
     require("state_output=" in tp_source, "GDN runtime lost trace-stable state output")
     require("ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel")
+    require(
+        "q_head_major = ttnn.permute" in delta_source
+        and "output = ttnn.permute(output_head_major" in delta_source,
+        "fused recurrence lost its physical head-major layout conversion",
+    )
+    require(
+        "q_flat = ttnn.reshape(q," not in delta_source,
+        "fused recurrence restored the unsafe metadata-only Q reshape",
+    )
     import ttnn
 
     require(

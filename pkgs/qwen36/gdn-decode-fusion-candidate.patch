@@ -241,7 +241,7 @@
  
      # Reshape to matmul shapes; caller already TILE_LAYOUT.
      # Decode opt: q_row/k_row in L1 with L1-resident state h.
-@@ -431,6 +450,39 @@
+@@ -431,6 +450,50 @@
      elif high_precision and h.dtype != ttnn.float32:
          h = ttnn.typecast(h, ttnn.float32)
  
@@ -251,11 +251,19 @@
 +        if state_output is not None and state_output.shape != h.shape:
 +            raise ValueError("state_output shape must match initial_state")
 +        flat_heads = B * H
-+        q_flat = ttnn.reshape(q, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
-+        k_flat = ttnn.reshape(k, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
-+        v_flat = ttnn.reshape(v, [flat_heads, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG)
-+        beta_flat = ttnn.reshape(beta, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
-+        g_flat = ttnn.reshape(g, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        # The custom reader assigns one full tile row to each core and head.
++        # A metadata-only reshape keeps H packed inside tile rows and violates that ABI.
++        head_major_order = (0, 2, 1, 3)
++        q_head_major = ttnn.permute(q, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        k_head_major = ttnn.permute(k, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        v_head_major = ttnn.permute(v, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        beta_head_major = ttnn.permute(beta, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        g_head_major = ttnn.permute(g, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        q_flat = ttnn.reshape(q_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
++        k_flat = ttnn.reshape(k_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
++        v_flat = ttnn.reshape(v_head_major, [flat_heads, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG)
++        beta_flat = ttnn.reshape(beta_head_major, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        g_flat = ttnn.reshape(g_head_major, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
 +        state_flat = ttnn.reshape(h, [flat_heads, K, V])
 +        state_output_flat = ttnn.reshape(state_output, [flat_heads, K, V]) if state_output is not None else None
 +        output_flat, new_state_flat = ttnn.transformer.gated_delta_decode(
@@ -274,7 +282,10 @@
 +                packer_l1_acc=False,
 +            ),
 +        )
-+        output = ttnn.reshape(output_flat, [B, 1, H, V], memory_config=ttnn.L1_MEMORY_CONFIG)
++        output_head_major = ttnn.reshape(
++            output_flat, [B, H, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG
++        )
++        output = ttnn.permute(output_head_major, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
 +        new_state = state_output if state_output is not None else ttnn.reshape(new_state_flat, [B, H, K, V])
 +        return output, new_state
 +
