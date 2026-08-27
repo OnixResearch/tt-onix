@@ -1,5 +1,5 @@
 # Mutable receipt binding. This record cannot change execution behavior.
 {
   physically_admitted = true,
-  receipt_blake3 = "972a5cc8405b5aec1443ff72e86a2d62b8a68e703d2462991d73ff54b665e382",
+  receipt_blake3 = "489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028",
 }

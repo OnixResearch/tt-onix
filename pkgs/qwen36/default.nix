@@ -883,7 +883,7 @@ stdenvNoCC.mkDerivation {
     cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
     grep -F '"candidate_width": 4' batch-admission-profile-first.json
     grep -F '"physically_admitted": true' batch-admission-profile-first.json
-    grep -F '"receipt_blake3": "972a5cc8405b5aec1443ff72e86a2d62b8a68e703d2462991d73ff54b665e382"' \
+    grep -F '"receipt_blake3": "489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028"' \
       batch-admission-profile-first.json
 
     # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
