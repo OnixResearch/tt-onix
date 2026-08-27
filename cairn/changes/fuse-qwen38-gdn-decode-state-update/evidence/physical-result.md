@@ -16,9 +16,19 @@ The second 2026-08-27 attempt used package `/nix/store/2vgfnik9hfvjsp43w3iqlwigr
 
 The invalid-shape check passed again. The valid case failed during TRISC JIT compilation for two source-packaging reasons. Three init names were not part of the package-matched API: `mul_bcast_scalar_init`, `sub_init`, and `add_init`. The new-file patch hunk also declared 207 lines for a 208-line source, so the installed file lost its closing brace.
 
-The corrected source uses `mul_tiles_bcast_scalar_init_short`, `sub_tiles_init`, and `add_tiles_init`. It starts with the reverse source mapping required by `matmul_init`, and the patch hunk now includes all 208 lines. The final package `/nix/store/acw86r5sd0yi20p55saa1sy1kik7s2h4-qwen36-0.1.0` passed all device-free checks and its new installed-source guard. Exact installed-source compilation passed for unpack, math, and pack TRISCs. A physical retry remains required.
+The corrected source uses `mul_tiles_bcast_scalar_init_short`, `sub_tiles_init`, and `add_tiles_init`. It starts with the reverse source mapping required by `matmul_init`, and the patch hunk now includes all 208 lines. The final package `/nix/store/acw86r5sd0yi20p55saa1sy1kik7s2h4-qwen36-0.1.0` passed all device-free checks and its new installed-source guard. Exact installed-source compilation passed for unpack, math, and pack TRISCs.
 
 Production was restored after attempt 2, and `/healthz` returned ready. No numerical or performance result exists from either failed attempt.
+
+## Isolated custom-operation attempt 3
+
+The third 2026-08-27 attempt used the final package on physical Blackhole hardware. Topology discovery found devices `0` and `1`, firmware `19.11.0`, and KMD `2.10.0`. The bounded smoke opened a `1x1` mesh.
+
+The invalid 96-wide key input was rejected with the required diagnostic. The valid 24-head, 128-by-128 FP32 recurrence then completed two state-carry steps. The minimum output PCC was `0.9999610781669617`, and the minimum state PCC was `0.9999649524688721`. Maximum absolute errors were `0.00012158090248703957` for output and `0.0004848763346672058` for state. The returned state kept the same L1 buffer address.
+
+The isolated physical verdict is `pass`. This proves physical JIT execution and bounded two-step numerical correctness. It does not prove full-model performance, exact generated output, long-decode stability, reset behavior, or production admission.
+
+By user direction, production remains inactive and runtime-masked while the remaining physical tests run.
 
 The fixed order is `control,candidate,candidate,control` on physical devices `0` and `1`.
 The fixed candidate modes are `norm`, `state`, and `full`.
