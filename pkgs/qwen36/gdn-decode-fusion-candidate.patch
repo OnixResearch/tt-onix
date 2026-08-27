@@ -241,7 +241,7 @@
  
      # Reshape to matmul shapes; caller already TILE_LAYOUT.
      # Decode opt: q_row/k_row in L1 with L1-resident state h.
-@@ -431,6 +450,50 @@
+@@ -431,6 +450,52 @@
      elif high_precision and h.dtype != ttnn.float32:
          h = ttnn.typecast(h, ttnn.float32)
  
@@ -257,8 +257,10 @@
 +        q_head_major = ttnn.permute(q, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
 +        k_head_major = ttnn.permute(k, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
 +        v_head_major = ttnn.permute(v, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
-+        beta_head_major = ttnn.permute(beta, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
-+        g_head_major = ttnn.permute(g, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        beta_vector = ttnn.unsqueeze(beta, -1)
++        g_vector = ttnn.unsqueeze(g, -1)
++        beta_head_major = ttnn.permute(beta_vector, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        g_head_major = ttnn.permute(g_vector, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
 +        q_flat = ttnn.reshape(q_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
 +        k_flat = ttnn.reshape(k_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
 +        v_flat = ttnn.reshape(v_head_major, [flat_heads, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG)

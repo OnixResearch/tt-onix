@@ -24,8 +24,8 @@ The passes below are serial and correlated because subagent consent was not gran
 | Family | Mechanism | Claim | Artifact | Next check | State |
 |---|---|---|---|---|---|
 | Arithmetic equivalence | Compare the fused kernel with the actual TTNN composite from identical inputs and independent state buffers. | Distinguishes semantic or rounding drift from model integration. | One-chip two-step A/B receipts before and after explicit layout conversion. | Rebuild and repeat the full P150x2 screen. | validated |
-| TP2 mapping | Exercise the repaired conversion through the model's two-device tensor distribution. | Finds local-head indexing or multi-device alias defects hidden by the one-chip smoke. | P150x2 full-model screen. | Require control token parity after rebuild. | active |
-| Trace lifecycle | Compare eager state progression with captured replay from the same initialized state. | Finds trace-time alias or update-order drift. | Second-token control/candidate comparison. | Run if direct recurrence parity is close. | independent |
+| TP2 mapping | Exercise the repaired conversion through the model's two-device tensor distribution. | Finds local-head indexing or multi-device alias defects hidden by the one-chip smoke. | P150x2 full-model screen. | Continue with balanced roots. | validated |
+| Trace lifecycle | Compare eager state progression with captured replay from the same initialized state. | Finds trace-time alias or update-order drift. | Captured full-decode replay retained token `13` across five samples. | Extend to long-decode and reset checks. | active |
 | Identity contamination | Separate processes and receipts bind the same package, runtime, checkpoint, tokenizer, mesh, and CPUs. | A stale execution identity did not cause the token change. | Four-mode screen receipts. | Recheck only if another mechanism is falsified. | falsified |
 | Margin sensitivity | Small recurrence drift accumulates through 48 GDN layers and crosses the second-token argmax margin. | Explains a token change despite high isolated PCC. | Layer/state error growth and final logit margin. | Inspect only after direct A/B error size is known. | active |
 
@@ -41,4 +41,12 @@ A one-chip A/B test reproduced the defect. The fused state reached magnitudes up
 
 Materializing `[B,H,1,D]` with `ttnn.permute` before flattening removed the corruption. After two steps, state PCC was `0.9999659061431885`, output PCC was `0.9999662041664124`, and the maximum state error was `0.0004925858229398727`. The output requires the inverse permutation for the same reason.
 
-The package patch now includes explicit head-major input conversion and packed-head output restoration. A rebuild and a new P150x2 screen remain required. Exact element equality is not claimed by the one-chip A/B result.
+The package patch now includes explicit head-major input conversion and packed-head output restoration. Exact element equality is not claimed by the one-chip A/B result.
+
+## Discriminating result 2: P150x2 model integration
+
+The first rebuilt route reached trace capture but rejected beta and decay because the model supplies rank-three `[B,1,H]` tensors. The final route lifts both tensors to rank four before the same materialized permutation.
+
+Package `/nix/store/dkwhljanp15jb35jsfx12kbzc2l0j1r4-qwen36-0.1.0` passed all device-free checks. Its P150x2 screen retained control tokens `11751` and `13`. The GDN ratio was `0.9106139348381834`, and the full-step ratio was `0.9384588001106107`. Both fixed speed gates passed.
+
+The root cause is validated for the bounded screen. Balanced duplicate roots, exact text, long decode, isolation, reset, and admission remain open.

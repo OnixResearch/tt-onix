@@ -5060,6 +5060,7 @@ def probe_gdn_decode_fusion_candidate():
     require("ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel")
     require(
         "q_head_major = ttnn.permute" in delta_source
+        and "beta_vector = ttnn.unsqueeze(beta, -1)" in delta_source
         and "output = ttnn.permute(output_head_major" in delta_source,
         "fused recurrence lost its physical head-major layout conversion",
     )
