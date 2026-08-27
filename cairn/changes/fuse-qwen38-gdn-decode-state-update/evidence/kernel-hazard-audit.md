@@ -17,7 +17,17 @@ The dedicated TT ISA and Confluence MCP servers were unavailable. Confluence is 
 
 **Resolved build blocker.** The first source used `matmul_reconfig_and_init`, which TT-Metal 0.74 does not provide. Host compilation did not detect this JIT-only symbol.
 
-The kernel now uses package-matched `matmul_init` at all three matrix operations. It also uses `transpose_init` and `transpose_tile` instead of deprecated aliases. The rebuilt Qwen package passed its device-free checks.
+The kernel uses package-matched `matmul_init` at all three matrix operations. It also uses `transpose_init` and `transpose_tile` instead of deprecated aliases.
+
+The first physical JIT attempt exposed a second source-only defect. The compute kernel had only the umbrella header, so TRISC-specific APIs were not declared. The repair uses the same explicit API headers as the package-matched chunk GDN kernel.
+
+That review also found a missing mandatory `compute_kernel_hw_startup` call. The kernel now calls it exactly once, before every other compute API call.
+
+The second physical JIT attempt found three remaining newer init names. The package-matched replacements are `mul_tiles_bcast_scalar_init_short`, `sub_tiles_init`, and `add_tiles_init`. The startup call now uses `SrcOrder::Reverse`, as required by `matmul_init`.
+
+An exact compiler replay passed for all three TRISCs against the corrected source-tree file. A replay against the rebuilt installed source then found that the new-file patch hunk still declared 207 lines. Nix therefore omitted the 208th line, which was the closing brace.
+
+The hunk count is now corrected. Package `/nix/store/acw86r5sd0yi20p55saa1sy1kik7s2h4-qwen36-0.1.0` passed the device-free checks and a new installed-source line, terminator, and API-name guard. Exact compilation of its installed source passed for unpack, math, and pack TRISCs.
 
 ## Raw audit reports
 
@@ -25,13 +35,17 @@ The kernel now uses package-matched `matmul_init` at all three matrix operations
 
 Candidate count: 0.
 
-The changed kernels contain no raw CONFIG, GPR, MOP, or register-file writes. They use the package compute API. Verdict: **not applicable in the declared source scope**.
+The changed kernels contain no raw CONFIG, GPR, MOP, or register-file writes. `compute_kernel_hw_startup` performs API-owned initial configuration before execution starts. Verdict: **no custom MMIO race found**.
 
 ### 2. Reconfiguration stall
 
-Direct candidate count: 0.
+Direct candidate count: 1 initial API configuration.
 
-The kernel has no direct configuration writes. Operation changes use package-matched full init calls such as `matmul_init`, `mul_bcast_scalar_init`, `sub_init`, `transpose_init`, and `add_init`. Their internal LLK behavior is outside this bounded source scope. Verdict: **no direct custom reconfiguration escape found**.
+The kernel calls `compute_kernel_hw_startup<SrcOrder::Reverse>(cb_k, cb_state_decay, cb_v_read)` exactly once. It is the first compute API call and establishes the source order required by matrix operations. The full `init_sfpu` call reconfigures the first unary operation. All involved CBs use the same FP32 tile geometry, so the documented asymmetric-tile gap does not apply.
+
+Operation changes use package-matched `matmul_init`, `mul_tiles_bcast_scalar_init_short`, `sub_tiles_init`, `transpose_init`, and `add_tiles_init` calls.
+
+Verdict: **safe after repair** for the package API paths in scope. Both failed physical attempts stopped during JIT and did not execute the kernel.
 
 ### 3. Configuration-word overlap
 
@@ -105,4 +119,4 @@ Moving beta multiplication before the outer-product matrix operation would remov
 
 ## Audit verdict
 
-The source is ready for physical JIT compilation and numerical testing after the package-version fix. This audit does not replace device compilation, output comparison, trace replay, or production admission.
+The repaired source passed a fresh package build and exact installed-source TRISC compilation. It still needs physical execution and numerical comparison. This audit does not replace device execution, trace replay, or production admission.

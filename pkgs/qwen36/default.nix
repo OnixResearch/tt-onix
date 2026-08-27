@@ -727,7 +727,23 @@ stdenvNoCC.mkDerivation {
     # all-gather-fused-matmul kernels for the qwen36 TP path).
     test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
     test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp"
-    test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp"
+    gdn_decode_compute="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp"
+    gdn_decode_compute_expected_lines=208
+    test -f "$gdn_decode_compute"
+    test "$(wc -l < "$gdn_decode_compute")" -eq "$gdn_decode_compute_expected_lines"
+    test "$(tail -n 1 "$gdn_decode_compute")" = '}'
+    grep -Fq 'compute_kernel_hw_startup<SrcOrder::Reverse>' "$gdn_decode_compute"
+    grep -Fq 'mul_tiles_bcast_scalar_init_short' "$gdn_decode_compute"
+    grep -Fq 'sub_tiles_init' "$gdn_decode_compute"
+    grep -Fq 'add_tiles_init' "$gdn_decode_compute"
+
+    # Negative: reject newer API names that package-matched TRISC headers do not declare.
+    if grep -Fq 'mul_bcast_scalar_init(' "$gdn_decode_compute" || \
+       grep -Fq 'sub_init(' "$gdn_decode_compute" || \
+       grep -Fq 'add_init(' "$gdn_decode_compute"; then
+      echo "GDN decode compute source contains an unsupported TT-Metal init name" >&2
+      exit 1
+    fi
 
     runHook postInstall
   '';
