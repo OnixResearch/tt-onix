@@ -59,8 +59,19 @@ let
     ./gdn-decode-fusion-candidate.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
+  # The service source must never carry interpreter bytecode: local path:
+  # builds copy __pycache__ verbatim while git flakes filter it, which made
+  # locally screened identities diverge from deployed ones.
+  stableServiceSource = lib.sources.cleanSourceWith {
+    src = ./service/qwen36_service;
+    name = "qwen36-service-source";
+    filter =
+      path: _type:
+      !lib.hasInfix "__pycache__" (toString path)
+      && !lib.hasSuffix ".pyc" (toString path);
+  };
   executionIdentityLocalInputs = [
-    (stableIdentityPath "qwen36-service" ./service/qwen36_service)
+    (stableIdentityPath "qwen36-service" stableServiceSource)
     (stableIdentityPath "qwen36-execution-wrapper-contract.ncl" ./execution-wrapper-contract.ncl)
     (stableIdentityPath "qwen36-authority.ncl" ./authority.ncl)
     (stableIdentityPath "qwen36-authority-contract.ncl" ./authority-contract.ncl)

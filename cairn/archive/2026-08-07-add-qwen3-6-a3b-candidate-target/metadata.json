@@ -1,5 +1,0 @@
-{
-  "depends_on": [
-    "generate-model-target-consumer-identities"
-  ]
-}

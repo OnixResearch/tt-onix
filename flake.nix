@@ -4,7 +4,7 @@
     systems.url = "github:nix-systems/default-linux";
     flake-parts.url = "github:hercules-ci/flake-parts";
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    cairn.url = "github:OnixResearch/cairn/837d730799faffe6a088cfd6dc49e08c7e0f1822";
+    cairn.url = "github:OnixResearch/cairn/15f00875562025e7ea7e0d1f4af24d1a2e2ac06f";
   };
 
   outputs =
