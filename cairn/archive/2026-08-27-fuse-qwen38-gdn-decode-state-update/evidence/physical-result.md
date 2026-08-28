@@ -1,6 +1,6 @@
 # Physical result
 
-Status: pending
+Status: rejected
 
 ## Isolated custom-operation attempt 1
 
@@ -38,7 +38,19 @@ The candidate GDN median ratio was `0.8859209237581226`, below the fixed `0.95` 
 
 The largest duplicate-root spread was `1.0224085594579935`, below the fixed `1.25` maximum. The bounded component verdict is `pass`.
 
-Long output parity, state isolation, clean reset across requests, and fresh B=4 admission remain required.
+## Long parity and B=4 admission
+
+The B=4 order was `single-off,batch-full,batch-full,single-off`. All measured responses used 64 generated tokens and the same package, runtime, checkpoint, tokenizer, mesh, and devices.
+
+State and lifecycle checks passed. Batch state slices were distinct and formed the active prefix. Every measured request reported clean reset. Aggregate decode reached `62.98632743556621` tokens per second, `3.734619848908698` speedup, and `0.9336549622271745` per-user retention.
+
+Exact output failed. Three prompts first diverged at generated token indices `47`, `32`, and `16`; one prompt stayed exact through all 64 tokens. The receipt rejected admission with `token-parity-failed` and `text-parity-failed`.
+
+Follow-up decay matching reduced isolated state error but did not restore long-output parity. Direct FP32 unpack was incompatible with this mixed matmul kernel and was removed. An alternating 24-layer fusion also changed long outputs. No candidate mode satisfied both the fixed speed gates and exact-output requirements.
+
+The final decision is **reject**. The custom recurrence remains default-off. No deployment or production admission is authorized.
+
+By user direction, production remains inactive and runtime-masked.
 
 The fixed order is `control,candidate,candidate,control` on physical devices `0` and `1`.
 The fixed candidate modes are `norm`, `state`, and `full`.
@@ -61,3 +73,4 @@ The fixed candidate modes are `norm`, `state`, and `full`.
 - Independent TT-Lang results do not transfer to TT-Metal 0.74.
 - A component win does not admit production.
 - No TT-Metal pin change is included.
+- The result does not admit or deploy the custom recurrence.

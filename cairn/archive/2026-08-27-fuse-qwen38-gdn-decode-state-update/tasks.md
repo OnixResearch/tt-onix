@@ -22,13 +22,13 @@
 - [x] [serial] V3 Run package build and device-free checks. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
 - [x] [serial] V3a Run the bounded Blackhole kernel hazard audit. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
 - [x] [serial] V4 Run matched physical component and full-step controls. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
-- [ ] [serial] V5 Verify exact tokens, text, state isolation, and clean reset. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
-- [ ] [serial] V6 Run fresh B=4 admission for any selected mode. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
+- [x] [serial] V5 Verify exact tokens, text, state isolation, and clean reset; reject on parity failure. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
+- [x] [serial] V6 Run fresh B=4 admission for the selected test mode; record rejection. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion.valid]
 
 ## Phase 4: Completion
 
-- [ ] [serial] D1 Record the physical result and all non-claims. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
-- [ ] [serial] G1 Sync the accepted specification, archive the change, and run lifecycle gates. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
+- [x] [serial] D1 Record the physical result and all non-claims. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
+- [x] [serial] G1 Archive the rejected change without syncing an accepted specification, and run lifecycle gates. The installed Cairn CLI could not parse the available policy version, so the package was archived manually after repository-owned gates passed. r[tenstorrent.qwen38_p150x2.gdn_decode_fusion]
 
 ## Verification Coverage
 
