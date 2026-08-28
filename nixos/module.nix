@@ -110,6 +110,16 @@ in
         description = "Qwen package that owns the P150x2 service executable.";
       };
 
+      sampledFusion = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Serve sampled requests (temperature above zero) through the
+          fused GDN decode path under the distributional admission gate.
+          Deterministic requests always keep the exact-parity path.
+        '';
+      };
+
       modelPath = mkOption {
         type = types.str;
         default = "";
@@ -244,6 +254,7 @@ in
           MPLCONFIGDIR = "/var/lib/${qwenStateDirectory}/matplotlib";
           PYTHONUNBUFFERED = "1";
           QWEN35_TEMP = "0";
+          QWEN36_SAMPLED_FUSION = if qwen38.sampledFusion then "1" else "0";
           TT_CACHE_PATH = qwen38.modelPath;
           XDG_CACHE_HOME = "/var/lib/${qwenStateDirectory}/cache";
         };
