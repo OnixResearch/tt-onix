@@ -62,7 +62,9 @@ def _parse_max_tokens(payload: dict[str, Any], maximum: int) -> int:
     return value
 
 
-def _validate_common_fields(payload: dict[str, Any], admitted_model: str) -> None:
+def _validate_common_fields(
+    payload: dict[str, Any], admitted_model: str, sampled_serving_enabled: bool
+) -> None:
     requested_model = payload.get("model", admitted_model)
     if requested_model != admitted_model:
         raise RequestValidationError(f"model must be {admitted_model!r}")
@@ -77,7 +79,7 @@ def _validate_common_fields(payload: dict[str, Any], admitted_model: str) -> Non
     temperature = payload.get("temperature", GREEDY_TEMPERATURE)
     if isinstance(temperature, bool) or not isinstance(temperature, int | float):
         raise RequestValidationError("temperature must be a number")
-    if float(temperature) != GREEDY_TEMPERATURE:
+    if float(temperature) != GREEDY_TEMPERATURE and not sampled_serving_enabled:
         raise RequestValidationError("only greedy temperature 0 is supported")
 
 
@@ -141,9 +143,10 @@ def parse_completion_request(
     endpoint: Endpoint,
     admitted_model: str,
     maximum_generation_tokens: int,
+    sampled_serving_enabled: bool = False,
 ) -> CompletionRequest:
     body = _require_object(payload)
-    _validate_common_fields(body, admitted_model)
+    _validate_common_fields(body, admitted_model, sampled_serving_enabled)
     max_tokens = _parse_max_tokens(body, maximum_generation_tokens)
 
     if endpoint is Endpoint.COMPLETIONS:

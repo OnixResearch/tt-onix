@@ -131,6 +131,7 @@ class QwenEngine:
         batch_admission_enabled: bool = False,
         trace_reuse_profile: TraceReuseProfile | None = None,
         trace_reuse_admission_enabled: bool = False,
+        sampled_serving_enabled: bool = False,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -138,6 +139,7 @@ class QwenEngine:
         self.max_sequence_length = max_sequence_length
         self.decode_mode = decode_mode
         self.decode_profile = decode_profile
+        self.sampled_serving_enabled = sampled_serving_enabled
         self.runtime_identity = runtime_identity
         self.package_identity = package_identity
         self.model_identity = model_identity
@@ -673,6 +675,7 @@ def make_handler(
                     endpoint=endpoint,
                     admitted_model=engine.model_alias,
                     maximum_generation_tokens=maximum_generation_tokens,
+                    sampled_serving_enabled=engine.sampled_serving_enabled,
                 )
                 self._write_json(HTTPStatus.OK, engine.generate(request))
             except RequestValidationError as error:
@@ -895,6 +898,7 @@ def main() -> None:
             batch_admission_enabled=args.batch_admission,
             trace_reuse_profile=trace_reuse_profile,
             trace_reuse_admission_enabled=args.trace_reuse_admission,
+            sampled_serving_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0") == "1",
         )
         engine.warm_up()
         server = ThreadingHTTPServer(

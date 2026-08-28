@@ -5538,6 +5538,184 @@ def probe_sampled_mode_router():
         raise AssertionError("an unknown mode was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+def probe_sampled_decode():
+    """Positive and negative tests for host-side sampled decode."""
+    from qwen36_service.core import (
+        CompletionRequest,
+        Endpoint,
+        RequestValidationError,
+        parse_completion_request,
+    )
+    from qwen36_service.sampled_decode_core import (
+        DEFAULT_TOP_K,
+        DEFAULT_TOP_P,
+        SampledDecodeError,
+        ShardCandidates,
+        apply_nucleus_cut,
+        merge_shard_candidates,
+        sample_candidates,
+        temperature_probabilities,
+    )
+
+    left = ShardCandidates(values=(4.0, 2.0, 1.0), token_ids=(10, 11, 12))
+    right = ShardCandidates(values=(3.0, 2.5, 0.5), token_ids=(110, 111, 112))
+    values, tokens = merge_shard_candidates((left, right), top_k=4)
+    require(tokens == (10, 110, 111, 11), f"merge order wrong: {tokens}")
+    require(
+        values == (4.0, 3.0, 2.5, 2.0),
+        f"merged values wrong: {values}",
+    )
+    cut_values, cut_tokens = merge_shard_candidates((left, right), top_k=2)
+    require(cut_tokens == (10, 110), "top_k cut kept the wrong tokens")
+
+    probabilities = temperature_probabilities((4.0, 3.0, 2.0), 1.0)
+    require(
+        abs(sum(probabilities) - 1.0) < 1e-9,
+        f"probabilities do not sum to one: {probabilities}",
+    )
+    require(
+        probabilities[0] > probabilities[1] > probabilities[2],
+        "probability ordering must follow logit ordering",
+    )
+
+    kept, positions = apply_nucleus_cut(probabilities, top_p=0.5)
+    require(kept == (probabilities[0],), "a 0.5 nucleus kept more than the top token")
+    require(positions == (0,), "nucleus positions must be a prefix")
+
+    # Deterministic draws: same draw and inputs always pick the same token,
+    # and every draw lands inside the candidate set.
+    draw_inputs = dict(
+        values=(4.0, 3.0, 2.0),
+        token_ids=(10, 11, 12),
+        temperature=0.6,
+        top_k=DEFAULT_TOP_K,
+        top_p=DEFAULT_TOP_P,
+    )
+    first = sample_candidates(draw=0.1, **draw_inputs)
+    second = sample_candidates(draw=0.1, **draw_inputs)
+    require(first == second, "identical draws produced different tokens")
+    seen = {
+        sample_candidates(draw=draw / 100.0, **draw_inputs)
+        for draw in range(100)
+    }
+    require(seen <= {10, 11, 12}, f"draws escaped the candidate set: {seen}")
+    require(
+        len(seen) > 1,
+        "a spread of draws never left the top candidate; sampling is broken",
+    )
+    greedy_cut = sample_candidates(draw=0.99, **dict(draw_inputs, top_p=0.1))
+    require(greedy_cut == 10, "a tiny nucleus must always pick the top token")
+
+    # Parse gate: sampled temperatures pass only when the service enables
+    # sampled serving.
+    sampled_payload = {
+        "model": "m",
+        "prompt": "hi",
+        "max_tokens": 4,
+        "temperature": 0.6,
+    }
+    request = parse_completion_request(
+        sampled_payload,
+        Endpoint.COMPLETIONS,
+        "m",
+        64,
+        sampled_serving_enabled=True,
+    )
+    require(
+        isinstance(request, CompletionRequest) and request.temperature == 0.6,
+        "sampled serving must accept a positive temperature",
+    )
+    try:
+        parse_completion_request(
+            sampled_payload,
+            Endpoint.COMPLETIONS,
+            "m",
+            64,
+            sampled_serving_enabled=False,
+        )
+    except RequestValidationError:
+        pass
+    else:
+        raise AssertionError("greedy-only mode accepted a sampled temperature")
+
+    def expect_error(label, **kwargs):
+        try:
+            sample_candidates(**kwargs)
+        except SampledDecodeError:
+            return
+        raise AssertionError(f"{label} was sampled")
+
+    base = dict(
+        temperature=0.6, top_k=DEFAULT_TOP_K, top_p=DEFAULT_TOP_P
+    )
+    expect_error(
+        "empty candidates",
+        values=(),
+        token_ids=(),
+        draw=0.1,
+        **base,
+    )
+    expect_error(
+        "count mismatch",
+        values=(1.0,),
+        token_ids=(1, 2),
+        draw=0.1,
+        **base,
+    )
+    expect_error(
+        "zero temperature",
+        values=(1.0,),
+        token_ids=(1,),
+        draw=0.1,
+        temperature=0.0,
+        top_k=DEFAULT_TOP_K,
+        top_p=DEFAULT_TOP_P,
+    )
+    expect_error(
+        "negative temperature",
+        values=(1.0,),
+        token_ids=(1,),
+        draw=0.1,
+        temperature=-0.5,
+        top_k=DEFAULT_TOP_K,
+        top_p=DEFAULT_TOP_P,
+    )
+    expect_error(
+        "draw at one",
+        values=(1.0,),
+        token_ids=(1,),
+        draw=1.0,
+        **base,
+    )
+    expect_error(
+        "invalid top_p",
+        values=(1.0,),
+        token_ids=(1,),
+        draw=0.1,
+        temperature=0.6,
+        top_k=DEFAULT_TOP_K,
+        top_p=1.5,
+    )
+    try:
+        merge_shard_candidates((), top_k=DEFAULT_TOP_K)
+    except SampledDecodeError:
+        pass
+    else:
+        raise AssertionError("an empty shard list was merged")
+    try:
+        merge_shard_candidates(
+            (
+                ShardCandidates(values=(1.0, 1.0), token_ids=(5, 5)),
+            ),
+            top_k=DEFAULT_TOP_K,
+        )
+    except SampledDecodeError:
+        pass
+    else:
+        raise AssertionError("duplicate tokens were merged")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5575,6 +5753,7 @@ def main():
     probe("kernel distribution admission", probe_kernel_distribution_admission)
     probe("kernel distribution probe builder", probe_kernel_distribution_probe)
     probe("sampled-mode router", probe_sampled_mode_router)
+    probe("sampled decode", probe_sampled_decode)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
