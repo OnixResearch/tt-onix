@@ -1,0 +1,232 @@
+{
+  "batch_step_count": 2,
+  "capacity": {
+    "id": "B4",
+    "memory_plan_bytes": {
+      "device_budget_bytes": 3221225472,
+      "recurrent_state_bytes": 9437184,
+      "safety_reserve_bytes": 268435456,
+      "temporary_tensor_bytes": 20971520,
+      "token_shift_bytes": 147456,
+      "total_required_bytes": 298991616
+    },
+    "per_card_slot_count": 4
+  },
+  "effective_batch_size": 4,
+  "elapsed_seconds": 0.011755168,
+  "execution": {
+    "artifact_writes_during_timing": false,
+    "control_replay_during_timing": false,
+    "dynamic_token_and_state_bindings_validated": true,
+    "fetch_queue_diagnostics_during_timing": false,
+    "hardware_counters_during_timing": false,
+    "inspector_during_timing": false,
+    "primary_thread_fifo_scheduling": true,
+    "primary_thread_only_affinity": true,
+    "production_physically_admitted": true,
+    "profiler_flush_during_timing": false,
+    "program_cache_stable": true,
+    "recurrent_state_residency": "device_fp32",
+    "replica_mode": "independent_card_replica",
+    "scheduler_mode": "deterministic_continuous_batching",
+    "scheduler_tie_break": "least_loaded_card_then_lowest_card_then_lowest_slot",
+    "state_readback_during_timing": false,
+    "synchronized_timed_start": true,
+    "timed_region": "decode_only",
+    "warmup_token_count": 4,
+    "wkv_execution_policy": "production"
+  },
+  "host_gap_accumulated_seconds": 0.0,
+  "logical_device_ids": [
+    0
+  ],
+  "persistent_decode": {
+    "admitted_decode_windows": [
+      2,
+      4
+    ],
+    "binding_identities": {
+      "checkpoint": "fe39d4602de2dc43ace6010120b1078b2b98a58f6ee2b8e051d8925fa68d99a6",
+      "output": "c800fee521d8c2a30b2ae996c6b46170310b4fee4c2b57b42257d7bbee5537a7",
+      "profile": "597600a558002a7f9cd088096e3adfcf99fb7e2f158466889f71a9b16699b6ae",
+      "program": "1430ac2e9282113ec1dc1720821355ad8c038dfedcf577f06b58d9cee995f56e",
+      "runtime": "9b1b9d66c7175d5afad9c6d5e1f4eed732bfbb447ae1537e2af57826dd231bc7",
+      "slot": "c6e99bb472e0d1d2b9f147541b3d2bb2e59e8b2b9f15a49f954bc2fa38e68055",
+      "state": "b9d8950b077bcbd3e57046726f5d60d77eb7f1a708e596db460d4f954c101720",
+      "token": "5ef37ed708b3ece2de1e7aa44c3ea0a36f259960d1f5bfca525fbf7059d16e86",
+      "weight": "4a74b838c4228a30fce47478fcd3cbea76174ec3a54773d35744a203400413df"
+    },
+    "bindings_validated": true,
+    "cancellation_poll_interval_steps": 2,
+    "candidate_requested": false,
+    "exact_fp32_recurrent_state_parity": true,
+    "exact_generated_token_parity": true,
+    "fallback_detail": "",
+    "fallback_reason": "none",
+    "final_state_blake3": "f4d8b7143e4b03075e4c6ed06c2d914035a3bbf4bd5a26ae2cb5aec3c26d0a2a",
+    "hash_algorithm": "blake3",
+    "lifecycle_receipts": [
+      {
+        "completed_steps": 2,
+        "failure_code": "",
+        "phase": "completed",
+        "receipt_blake3": "48c2470e7cc7a3bbb8c3e0fa4ea78fe8bc6f4088a9a0912d673aca82f6eacbb0",
+        "slot": 0,
+        "slot_releasable": true,
+        "terminal_reason": "completed"
+      },
+      {
+        "completed_steps": 2,
+        "failure_code": "",
+        "phase": "completed",
+        "receipt_blake3": "9cf3b35a15cca7d4bd7fb93ede601493988dbaa8c268644f84fdd7d2fcb32a67",
+        "slot": 1,
+        "slot_releasable": true,
+        "terminal_reason": "completed"
+      },
+      {
+        "completed_steps": 2,
+        "failure_code": "",
+        "phase": "completed",
+        "receipt_blake3": "6ae927cbc237d809f1badfe70ba4f76fb60c56f5dca13527d8552835f0848a64",
+        "slot": 2,
+        "slot_releasable": true,
+        "terminal_reason": "completed"
+      },
+      {
+        "completed_steps": 2,
+        "failure_code": "",
+        "phase": "completed",
+        "receipt_blake3": "317483c79b8045f90aae73bca539dd8439f986c9038192d77335e8e5ab5661b4",
+        "slot": 3,
+        "slot_releasable": true,
+        "terminal_reason": "completed"
+      }
+    ],
+    "mechanism": "bounded_metal_trace_chunk",
+    "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+    "output_readback_after_region": true,
+    "persistent_region_entered": true,
+    "physically_admitted": true,
+    "pre_replay_terminal_event": false,
+    "profile_blake3": "e41319204ddf36bda088afb8a4d55a367dc163951ea29c45738e3b11b815819a",
+    "profile_id": "rwkv7-p150x2-persistent-decode-v2",
+    "prompt_prefill_outside_timed_region": true,
+    "recurrent_state_dtype": "fp32",
+    "reference_state_blake3": "f4d8b7143e4b03075e4c6ed06c2d914035a3bbf4bd5a26ae2cb5aec3c26d0a2a",
+    "reference_state_zeroed": true,
+    "selected_decode_window_steps": 2,
+    "selected_mode": "persistent_trace",
+    "selected_token_device_resident_inside_region": true,
+    "selected_token_readback_inside_region": false,
+    "simulated": false,
+    "state_zeroed_before_slot_release": true,
+    "terminal_event_poll_step": null,
+    "terminal_probe": "none",
+    "timed_host_model_submissions": 1,
+    "trace_capture_outside_timed_region": true,
+    "trace_execution_seconds": 0.011725462,
+    "trace_region_bytes": 268435456,
+    "window_admitted": true,
+    "workload_eligible": true,
+    "zero_per_token_host_submissions_proven": true
+  },
+  "persistent_decode_telemetry": {
+    "cleanup_status": "complete",
+    "dispatch": {
+      "fallback_reason": "none",
+      "selected_mode": "persistent_trace",
+      "selected_window_steps": 2
+    },
+    "eligibility": {
+      "bindings_validated": true,
+      "candidate_requested": false,
+      "profile_physically_admitted": true,
+      "window_admitted": true,
+      "workload_eligible": true
+    },
+    "event_kind": "rwkv7_persistent_decode_worker",
+    "parity": {
+      "fp32_recurrent_state": "passed",
+      "generated_tokens": "passed"
+    },
+    "schema_version": 1,
+    "terminal_outcomes": {
+      "cancelled": 0,
+      "completed": 4,
+      "failed": 0,
+      "timed_out": 0
+    },
+    "timing": {
+      "cleanup_seconds": 0.001032266,
+      "clock": "steady_monotonic",
+      "trace_replay_seconds": 0.011725462,
+      "trace_setup_seconds": 0.066039897,
+      "unit": "seconds"
+    }
+  },
+  "physical_device_ids": [
+    0
+  ],
+  "physical_hardware": true,
+  "primary_thread_cpu_affinity": 2,
+  "primary_thread_fifo_priority": 1,
+  "profiler_attributed": false,
+  "profiler_trace_only": false,
+  "queue_occupancy_fraction": 1.0,
+  "requests": [
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        2,
+        2
+      ],
+      "latency_seconds": 0.017422418,
+      "request_id": "persistent-request-0",
+      "state_slot": 0,
+      "token_count": 4
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        2,
+        2
+      ],
+      "latency_seconds": 0.017422418,
+      "request_id": "persistent-request-1",
+      "state_slot": 1,
+      "token_count": 4
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        2,
+        2
+      ],
+      "latency_seconds": 0.017422418,
+      "request_id": "persistent-request-2",
+      "state_slot": 2,
+      "token_count": 4
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        2,
+        2
+      ],
+      "latency_seconds": 0.017422418,
+      "request_id": "persistent-request-3",
+      "state_slot": 3,
+      "token_count": 4
+    }
+  ],
+  "run_id": "persistent-direct-two-step",
+  "schema_version": 1,
+  "timed_end_monotonic_ns": 275781526240723,
+  "timed_end_unix_ns": 1786486792307583881,
+  "timed_start_monotonic_ns": 275781514485555,
+  "timed_start_unix_ns": 1786486792295828512,
+  "visible_physical_device_ids": [
+    0
+  ]
+}

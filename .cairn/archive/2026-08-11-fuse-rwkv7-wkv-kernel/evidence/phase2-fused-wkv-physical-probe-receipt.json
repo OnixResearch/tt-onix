@@ -1,0 +1,72 @@
+{
+  "architecture": "blackhole",
+  "batch_size": 16,
+  "candidate_dispatch": true,
+  "corrected_fixture_exact": true,
+  "fused_attention_boundary": {
+    "bf16_output": true,
+    "gate": true,
+    "group_normalization": true,
+    "output_projection": false,
+    "r_k_correction": true
+  },
+  "head_count": 12,
+  "head_size": 64,
+  "maximum_absolute_error": {
+    "first_output": 0.0,
+    "first_state": 0.0,
+    "second_output": 0.0,
+    "second_state": 0.0
+  },
+  "mesh_shape": [
+    1,
+    1
+  ],
+  "operation_counts": {
+    "add-scalar": 9,
+    "fused-wkv-probe-output-1": 1,
+    "fused-wkv-probe-output-2": 1,
+    "fused-wkv-probe-state-1": 1,
+    "fused-wkv-probe-state-2": 1,
+    "host-to-device-bf16": 10,
+    "host-to-device-fp32": 1,
+    "untilize-fused-wkv-probe": 2
+  },
+  "outcome": "fused_wkv_corrected_fixture_pass",
+  "output_dtype": "bfloat16",
+  "performance_claim": false,
+  "physical_hardware": true,
+  "production_physically_admitted": false,
+  "recurrent_steps": 2,
+  "schema_version": 1,
+  "selection_ordinal": 0,
+  "simulated": false,
+  "state_dtype": "float32",
+  "value_summary": {
+    "first_output": {
+      "first": -1.625,
+      "maximum": 1.875,
+      "minimum": -1.625,
+      "nonzero_count": 12288
+    },
+    "first_state": {
+      "first": -0.125,
+      "maximum": 0.125,
+      "minimum": -0.125,
+      "nonzero_count": 786432
+    },
+    "second_output": {
+      "first": -1.625,
+      "maximum": 1.875,
+      "minimum": -1.625,
+      "nonzero_count": 12288
+    },
+    "second_state": {
+      "first": -0.359375,
+      "maximum": 0.359375,
+      "minimum": -0.359375,
+      "nonzero_count": 786432
+    }
+  },
+  "vector_dtype": "bfloat16"
+}

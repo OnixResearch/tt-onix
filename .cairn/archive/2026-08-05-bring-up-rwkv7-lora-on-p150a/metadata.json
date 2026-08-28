@@ -1,0 +1,6 @@
+{
+  "depends_on": [
+    "add-rwkv7-lora-cpu-reference",
+    "establish-dual-p150a-tt-xla-training-platform"
+  ]
+}

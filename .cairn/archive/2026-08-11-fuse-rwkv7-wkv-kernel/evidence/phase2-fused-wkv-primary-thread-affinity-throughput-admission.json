@@ -1,0 +1,6 @@
+{
+  "production_physically_admitted": false,
+  "rejection": "p99_latency_regression_above_bound: p99 latency regression is 0.381053554753073, maximum is 0.1",
+  "status": "fused_candidate_scaling_rejected",
+  "wkv_execution_policy": "fused-candidate"
+}

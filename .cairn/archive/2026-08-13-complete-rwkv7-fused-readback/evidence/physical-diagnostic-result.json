@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "outcome": "fused_wkv_full_split_generic_parity",
+  "date": "2026-08-13",
+  "production": {
+    "profile_id": "rwkv7-p150x2-persistent-decode-v3",
+    "admitted_decode_windows": [2, 4, 8],
+    "admission_changed": false
+  },
+  "diagnostic_runtime": {
+    "package": "rwkv7-p150x2-window16-readout-diagnostic-runtime",
+    "store_path": "/nix/store/a4fmadbf5zrjlbn1f42v2ys4gavgk0jc-rwkv7-p150x2-window16-readout-diagnostic-runtime-0.1.0",
+    "store_path_blake3": "8d29fd2a0559b269b6c2c544a62354eb8a133ead17fe61a8a390b1eb7b1d04c0",
+    "bf16_readout_boundary": true,
+    "fp32_recurrence_vectors": true,
+    "new_immutable_admission_candidate_created": false
+  },
+  "physical_probe": {
+    "architecture": "blackhole",
+    "physical_device_ids": [0],
+    "bounded": true,
+    "exit_status": 0,
+    "receipt_written": true,
+    "receipt_blake3": "f53b9364e95295188ce1c48eec27014e8fa90d37c1c0bc813b83d578eaca7264",
+    "fixture": "asymmetric_indexed_values_v1",
+    "simulated": false,
+    "performance_claim": false,
+    "production_physically_admitted": false
+  },
+  "exact_parity": {
+    "full_path_generic": true,
+    "full_split_generic": true,
+    "full_split_generic_state": true,
+    "full_split_generic_bf16_readout": true,
+    "full_split_generic_corrected_row": true,
+    "maximum_absolute_error": {
+      "full_split_generic_final_state": 0.0,
+      "full_split_generic_bf16_readout": 0.0,
+      "full_split_generic_corrected_row": 0.0
+    }
+  },
+  "correction_ownership": {
+    "caller_owns_correction": true,
+    "split_output_correction_complete": false,
+    "correction_applied_exactly_once": true,
+    "raw_readout_reshaped_to_canonical_rows": true
+  },
+  "execution_order": {
+    "generic_device_operations_before_fused_launch": 0,
+    "generic_device_operations_after_fused_readback": true,
+    "terminal_stage": "receipt-written"
+  },
+  "jit_contracts": {
+    "recurrence": {
+      "math_fidelity": "HiFi4",
+      "fidelity_value": 4,
+      "approximation_mode": false,
+      "fp32_recurrence_define": true,
+      "split_readout_define": true,
+      "descriptor_blake3": "77b40a964b0e4033964f6f2f83a9e2bd1ced9f5f45db1998ba9ef24d54e5b5ba",
+      "defines_blake3": "4634154d95db3eceaa362ff94d04a90ab2083a20c65e6999c7f9ec7ae1844a7a"
+    },
+    "readout": {
+      "math_fidelity": "HiFi2",
+      "fidelity_value": 2,
+      "approximation_mode": false,
+      "fp32_destination_accumulation": false,
+      "descriptor_blake3": "141952f2347821b9476edef481c0f5e5bc7522e0a5685a57062cdf68edfaa4e3"
+    },
+    "reader_source_binding": {
+      "recurrence_kernel_includes_blake3": "6550734172adc4e7ec2e01373a3df37360bc6bac9789af4e3d9cc11641148841",
+      "readout_kernel_includes_blake3": "b5655dc1d51af25b3fadb7b1e7f3d4f26a0e9af7fe828ba2d9f4b02a86942d14"
+    }
+  },
+  "hazard_audit": {
+    "scope": "blackhole_package_matched",
+    "hazard_classes": 9,
+    "cross_class_join_completed": true,
+    "live_race_found": false,
+    "emergent_race_found": false,
+    "report": "evidence/llk-hazard-audit.md"
+  },
+  "cleanup": {
+    "device_0_unowned_before": true,
+    "device_0_unowned_after": true,
+    "device_1_unowned_before": true,
+    "device_1_unowned_after": true
+  },
+  "decision": {
+    "diagnostic_completion": "accepted",
+    "window16_admission": "not_started",
+    "later_admission_gates": "not_started",
+    "production_windows_retained": [2, 4, 8],
+    "reason": "the diagnostic path passed exact physical parity, but admission requires a new immutable candidate and every later gate"
+  }
+}

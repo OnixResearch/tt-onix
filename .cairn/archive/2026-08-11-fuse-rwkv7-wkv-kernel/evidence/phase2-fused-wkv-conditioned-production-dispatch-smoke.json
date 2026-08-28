@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_fused_wkv_conditioned_production_dispatch_smoke",
+  "status": "production_dispatch_confirmed",
+  "physical_hardware": true,
+  "exact_generated_token_parity": true,
+  "wkv_execution_policy": "production",
+  "production_physically_admitted": true,
+  "primary_thread_cpu_affinities": [
+    2,
+    6
+  ],
+  "primary_thread_fifo_priority": 1,
+  "one_card_tokens_per_second": 435.9285115897366,
+  "two_card_tokens_per_second": 781.7740926887835,
+  "dual_card_speedup": 1.7933538915310292,
+  "strict_admission_measurement": false,
+  "strict_admission_evidence": "phase2-fused-wkv-primary-thread-fifo-throughput-admission.json",
+  "custom_smoke_p99_regression_fraction": 0.4734259373499924,
+  "custom_smoke_p99_admitted": false,
+  "dual_card_worker_receipt_blake3": {
+    "card_0": "31771229ffc1281604e9f07e6f726f3a1923b6ab71a18cf0d82206fdac30cd7f",
+    "card_1": "e8352a377016a614bdaf1459da794bf4cced398e3dfc7552c5992555b2fd294f"
+  },
+  "profiler_attestation_blake3": "028713ce6ddb07d1b507ffa0f5b9d844ad283a71d42f67675ece35f09af64451",
+  "throughput_receipt_blake3": "d72a76a60f755836e51c8884a91eb7ebafa9aaa3a26ff37e339ca6987c24dc01",
+  "profiler_flush_during_timing": false,
+  "dropped_profiler_markers": false,
+  "raw_profiler_csv_retained": false,
+  "raw_capture_retained": false
+}

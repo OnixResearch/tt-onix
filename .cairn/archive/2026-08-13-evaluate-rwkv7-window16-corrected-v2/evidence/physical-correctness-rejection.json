@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_persistent_decode_window16_candidate_v2_evaluation",
+  "outcome": "rejected",
+  "reason": "cpu_generated_token_parity_mismatch",
+  "aggregate_only": true,
+  "production": {
+    "profile_id": "rwkv7-p150x2-persistent-decode-v3",
+    "profile_blake3": "c5bfa37d83c026bfdb9255da4810bc90af71c7a0e949f05c9c5bf3e709654568",
+    "admitted_decode_windows": [2, 4, 8],
+    "admission_changed": false
+  },
+  "candidate": {
+    "profile_id": "rwkv7-p150x2-persistent-decode-window16-candidate-v2",
+    "profile_blake3": "acd6d609397beee32b6dbe83bd00d042661ce1961c2353dbfd5794870839fee6",
+    "predecessor_profile_blake3": "0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a",
+    "diagnostic_receipt_blake3": "f53b9364e95295188ce1c48eec27014e8fa90d37c1c0bc813b83d578eaca7264",
+    "runtime_path_blake3": "c67d4ccc0a86e15402d8d1dff5ad723f7ced08187d192273e8c0de3653866737",
+    "evidence_path_blake3": "8f7b8b4a6aefaaf6b45a143f50fb4f89643cb6fd99c6018d9c60e56eee31cdba",
+    "physically_admitted": false,
+    "evaluated_decode_window": 16
+  },
+  "model": {
+    "profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+    "checkpoint_blake3": "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5"
+  },
+  "cpu_authority": {
+    "method": "pinned_fp32_full_sequence_greedy_argmax",
+    "receipt_blake3": "6995c6bdb32eadfac6cb85b77eb1d131cc9af6548a7fc6d6ae32e54145935cbe",
+    "generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47],
+    "fla_and_official_tokens_equal": true,
+    "maximum_state_abs_difference": 0.0000095367431640625,
+    "maximum_final_logit_abs_difference": 0.000019073486328125
+  },
+  "simulator": {
+    "status": "passed",
+    "aggregate_receipt_blake3": "b15d3d43a7683e886640837b1b490e5b3a9a023e2e52ef7df13572ac88e9a835",
+    "raw_receipt_blake3": "9a69dfb9ee07dae7d68c4c3f15a39befabb7ae5dfc205add8b01c3a7dc15f1a2",
+    "performance_claim": false,
+    "determinism_claim": false,
+    "physical_hardware": false
+  },
+  "physical_correctness_probe": {
+    "status": "failed",
+    "bounded_worker_pair": true,
+    "normal_dispatch": {
+      "physical_device_id": 0,
+      "receipt_blake3": "abcde0bb7c1539133a0a594c940e855bcd6641be2485d75956e67f7cb3648bf2",
+      "selected_mode": "normal_dispatch",
+      "request_count": 4
+    },
+    "persistent_trace": {
+      "physical_device_id": 1,
+      "receipt_blake3": "f0cd9446fdde594f306ce60f35f0185c61195228d6a44b4770827fef2359acda",
+      "selected_mode": "persistent_trace",
+      "request_count": 4,
+      "candidate_receipt_validation": "passed",
+      "telemetry_validation": "passed",
+      "final_state_blake3": "6bcab4d2b093ad2614cbbde6c3b7620479e6b975f8dd2425bff357727c72eeff",
+      "normal_dispatch_reference_state_blake3": "6bcab4d2b093ad2614cbbde6c3b7620479e6b975f8dd2425bff357727c72eeff",
+      "exact_normal_dispatch_fp32_recurrent_state_parity": true,
+      "completed_request_count": 4,
+      "state_zeroed_before_slot_release": true,
+      "all_slots_releasable": true
+    },
+    "normal_and_persistent_generated_tokens_equal": true,
+    "physical_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 64390, 32074, 64356, 32487, 32515, 56537],
+    "cpu_generated_tokens_equal": false,
+    "cpu_fp32_recurrent_state_gate": "not_accepted_after_token_mismatch",
+    "first_mismatch_zero_based_index": 10,
+    "mismatch_count": 6,
+    "first_expected_token_id": 46170,
+    "first_actual_token_id": 64390,
+    "service_initial_state": "inactive",
+    "service_final_state": "inactive",
+    "devices_unowned_after_probe": [0, 1]
+  },
+  "stopped_gates": {
+    "physical_terminal_probe_set": "not_run_after_correctness_failure",
+    "final_profiler_acceptance": "not_run_after_correctness_failure",
+    "five_sample_one_card_and_two_card_ab": "not_run_after_correctness_failure",
+    "bounded_canary": "not_run_after_correctness_failure",
+    "monitoring_retain_recommendation": "not_available",
+    "deployment": "not_run_after_correctness_failure",
+    "observation": "not_run_after_correctness_failure"
+  },
+  "admission": {
+    "window_16_admitted": false,
+    "retained_decode_windows": [2, 4, 8],
+    "next_action": "diagnose_the_remaining_full_model_cpu_parity_mismatch_before_any_new_candidate"
+  },
+  "non_claims": [
+    "Normal and persistent agreement does not establish CPU parity.",
+    "The exact recurrent-state hashes compare persistent trace with normal device dispatch, not the CPU authority.",
+    "The simulator result does not establish physical performance, determinism, or admission.",
+    "No throughput, canary, monitoring, deployment, observation, or production window-16 result is established."
+  ]
+}
