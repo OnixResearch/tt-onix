@@ -831,6 +831,8 @@ stdenvNoCC.mkDerivation {
     fi
     grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl))} \
       "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl))} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
     if grep -F 'trace-reuse-binding.ncl' \
         "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
       echo "mutable trace reuse binding entered execution identity" >&2

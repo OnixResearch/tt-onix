@@ -5243,6 +5243,156 @@ def probe_kernel_distribution_admission():
     require(not nonfinite.admitted, "non-finite probabilities were admitted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+def probe_kernel_distribution_probe():
+    """Positive and negative tests for the pure probe builder and receipt."""
+    import re
+
+    from qwen36_service.kernel_distribution_admission_core import TOP_K_CANDIDATES
+    from qwen36_service.kernel_distribution_probe_core import (
+        ProbeBuildError,
+        PositionReadback,
+        canonical_corpus_payload,
+        evaluate_probe,
+    )
+
+    vocab_size = 32
+    prompt_count = 5
+    position_count = 48
+    tokens = tuple(range(vocab_size))
+
+    def readback(index, side):
+        near_tie = index % 10 == 0
+        gap = 0.2 if near_tie else 1.0
+        logits = tuple(5.0 - gap * rank for rank in range(vocab_size))
+        if side == "candidate":
+            noise = 1e-3 if index % 2 == 0 else -1e-3
+            logits = tuple(
+                value + noise * ((-1) ** rank) for rank, value in enumerate(logits)
+            )
+        return PositionReadback(tokens=tokens, logits=logits)
+
+    def corpus(**overrides):
+        prompt_total = overrides.get("prompt_count", prompt_count)
+        position_total = overrides.get("position_count", position_count)
+        return tuple(
+            tuple(
+                (readback(index, "control"), readback(index, overrides.get("candidate_side", "candidate")))
+                for index in range(position_total)
+            )
+            for _prompt in range(prompt_total)
+        )
+
+    corpus_digest_hex = "a" * 64
+    receipt = evaluate_probe(
+        probe_mode="teacher_forced",
+        root_order=("control", "candidate", "candidate", "control"),
+        corpus=corpus(),
+        corpus_blake3=corpus_digest_hex,
+    )
+    require(receipt["admitted"], f"probe receipt rejected a close candidate: {receipt['rejection_reasons']}")
+    require(
+        receipt["eligible_modes"] == ["sampled"],
+        f"probe receipt modes must be sampled-only: {receipt['eligible_modes']}",
+    )
+    require(receipt["top_k"] == TOP_K_CANDIDATES, "receipt top-K drifted")
+    require(
+        receipt["corpus_blake3"] == corpus_digest_hex,
+        "receipt did not carry the shell-provided corpus digest",
+    )
+    for metric in ("mean_logit_pcc", "min_logit_pcc", "mean_topk_tv", "stable_agreement"):
+        require(
+            receipt["metrics"][metric] is not None,
+            f"receipt metric {metric} is missing",
+        )
+
+    # Determinism: same corpus, same canonical payload; one changed logit, a
+    # different payload (the shell hashes this payload with b3sum).
+    require(
+        canonical_corpus_payload(corpus()) == canonical_corpus_payload(corpus()),
+        "identical corpora produced different canonical payloads",
+    )
+    drifted = list(corpus())
+    first_prompt = list(drifted[0])
+    first_pair = first_prompt[0]
+    drifted_control = PositionReadback(
+        tokens=first_pair[0].tokens,
+        logits=first_pair[0].logits[:-1] + (first_pair[0].logits[-1] + 0.25,),
+    )
+    first_prompt[0] = (drifted_control, first_pair[1])
+    drifted[0] = tuple(first_prompt)
+    require(
+        canonical_corpus_payload(tuple(drifted)) != canonical_corpus_payload(corpus()),
+        "a changed corpus kept the canonical payload",
+    )
+    try:
+        evaluate_probe(
+            probe_mode="teacher_forced",
+            root_order=("control", "candidate", "candidate", "control"),
+            corpus=corpus(),
+            corpus_blake3="not-hex",
+        )
+    except ProbeBuildError:
+        pass
+    else:
+        raise AssertionError("an invalid corpus digest produced a receipt")
+
+    def expect_rejected(label, **kwargs):
+        try:
+            evaluate_probe(
+                probe_mode=kwargs.get("probe_mode", "teacher_forced"),
+                root_order=kwargs.get(
+                    "root_order", ("control", "candidate", "candidate", "control")
+                ),
+                corpus=kwargs["corpus"],
+                corpus_blake3=kwargs.get("corpus_blake3", corpus_digest_hex),
+            )
+        except ProbeBuildError:
+            return
+        raise AssertionError(f"{label} produced a receipt")
+
+    # Negative: duplicate tokens, short vocab, mismatched vocab, non-finite
+    # logits, short corpus, wrong root order, wrong probe mode. Malformed
+    # prompts stay full length so the corpus floors pass and the intended
+    # readback validation is what rejects them.
+    dup = corpus()
+    first_pair = tuple(dup[0][0])
+    dup_control = PositionReadback(
+        tokens=first_pair[0].tokens[:-1] + (first_pair[0].tokens[0],),
+        logits=first_pair[0].logits,
+    )
+    bad_pair = (dup_control, first_pair[1])
+    expect_rejected(
+        "duplicate token ids",
+        corpus=(tuple(bad_pair for _ in range(position_count)),) + dup[1:],
+    )
+    short_vocab = PositionReadback(tokens=tuple(range(TOP_K_CANDIDATES)), logits=tuple(1.0 for _ in range(TOP_K_CANDIDATES)))
+    short_pair = (short_vocab, short_vocab)
+    expect_rejected(
+        "top-K-sized readback",
+        corpus=(tuple(short_pair for _ in range(position_count)),) + dup[1:],
+    )
+    mismatched = PositionReadback(tokens=tokens[:-1], logits=tuple(1.0 for _ in range(vocab_size - 1)))
+    mismatch_pair = (first_pair[0], mismatched)
+    expect_rejected(
+        "mismatched vocab lengths",
+        corpus=(tuple(mismatch_pair for _ in range(position_count)),) + dup[1:],
+    )
+    nonfinite = PositionReadback(tokens=tokens, logits=(float("inf"),) + tuple(1.0 for _ in range(vocab_size - 1)))
+    nonfinite_pair = (nonfinite, first_pair[1])
+    expect_rejected(
+        "non-finite logit",
+        corpus=(tuple(nonfinite_pair for _ in range(position_count)),) + dup[1:],
+    )
+    expect_rejected("four-prompt corpus", corpus=corpus(prompt_count=4))
+    expect_rejected(
+        "wrong root order",
+        corpus=corpus(),
+        root_order=("candidate", "control", "control", "candidate"),
+    )
+    expect_rejected("eager probe mode", corpus=corpus(), probe_mode="eager")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5278,6 +5428,7 @@ def main():
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
     probe("kernel distribution admission", probe_kernel_distribution_admission)
+    probe("kernel distribution probe builder", probe_kernel_distribution_probe)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

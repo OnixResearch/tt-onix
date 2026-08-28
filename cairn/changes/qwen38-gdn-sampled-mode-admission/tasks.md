@@ -9,13 +9,13 @@
 
 ## Phase 2: Probe harness
 
-- [ ] [serial] P1 Add the teacher-forced top-K readback probe adapter for paired control and candidate roots. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] P1 Add the pure teacher-forced probe builder: full-vocab readbacks to top-K triples, canonical corpus payload, b3sum digest validation, and the deterministic receipt. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [ ] [serial] P2 Record probe receipts for the closed corpus and exact root order, with per-position metrics the pure core consumes. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
 
 ## Phase 3: Physical screen
 
-- [ ] [serial] S1 Rebuild the fused GDN candidate package from `gdn-decode-fusion-candidate.patch` and capture its execution identity. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
-- [ ] [serial] S2 Run the distributional screen on P150x2 under authorized qwen38 service control with the runtime mask discipline. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [x] [serial] S1 Rebuild the fused GDN candidate package from `gdn-decode-fusion-candidate.patch` and capture its execution identity. Package `lk1agynj...`, identity `dfdgl49i...`; see `evidence/drain-pass-20260827.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [ ] [serial] S2 Build the device top-K readback shell, then run the distributional screen on P150x2 under authorized qwen38 service control with the runtime mask discipline. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
 - [ ] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Phase 4: Admission and archive
