@@ -14,7 +14,8 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
 from models.tt_transformers.tt.common import copy_host_to_device
 
-from .sampled_mode_router_core import ROUTES
+from .sampled_mode_router_core import ROUTES, ROUTE_SAMPLED
+from .sampled_decode_core import ShardCandidates
 from .batch_decode_core import (
     MAXIMUM_ACTIVE_BATCH_WIDTH,
     MINIMUM_ACTIVE_BATCH_WIDTH,
@@ -70,6 +71,11 @@ class _BatchTrace:
     values: Any
     binding: tuple[str, ...]
     capture_seconds: float
+
+
+# Per-shard candidate depth of the sampled trace tail. Matches the model's
+# recommended sampling top_k; the host merge keeps the best of both shards.
+SAMPLED_CANDIDATE_COUNT = 20
 
 
 @dataclass(frozen=True)
@@ -265,7 +271,7 @@ class BatchedTracedDecodeAdapter:
         capture_started = time.monotonic()
         try:
             warm_logits = self._forward_sharded(device_inputs)
-            warm_indices, warm_values = self._reduce_shards(warm_logits, width)
+            warm_indices, warm_values = self._reduce_for_mode(warm_logits, width)
             ttnn.synchronize_device(self.mesh)
             ttnn.deallocate(warm_indices)
             ttnn.deallocate(warm_values)
@@ -278,7 +284,7 @@ class BatchedTracedDecodeAdapter:
                 cq_id=TRACE_COMMAND_QUEUE_ID,
             )
             logits = self._forward_sharded(device_inputs)
-            indices, values = self._reduce_shards(logits, width)
+            indices, values = self._reduce_for_mode(logits, width)
             ttnn.end_trace_capture(
                 self.mesh,
                 trace_id,
@@ -485,6 +491,129 @@ class BatchedTracedDecodeAdapter:
         )
         ttnn.synchronize_device(self.mesh)
         return self._read_global_winners(trace.indices, trace.values, width)
+
+    def _reduce_for_mode(self, sharded_logits: Any, width: int) -> tuple[Any, Any]:
+        """Reduce the traced tail for the resident fusion mode.
+
+        The exact-parity path keeps the argmax winner tail. The sampled
+        path replaces it with a per-shard top-K reduction so the host can
+        draw from a real candidate distribution; the two tails never mix
+        because every mode switch releases all traces first.
+        """
+        if self.fusion_mode == ROUTE_SAMPLED:
+            return self._reduce_shards_topk(sharded_logits, width)
+        return self._reduce_shards(sharded_logits, width)
+
+    def _reduce_shards_topk(self, sharded_logits: Any, width: int) -> tuple[Any, Any]:
+        """Per-shard top-K candidate reduction for the sampled trace tail.
+
+        topk requires tile layout (FillPad asserts on row-major input), so
+        this reduces the sharded logits directly; the readback reshapes the
+        concatenated per-device results afterwards.
+        """
+        topk_values, topk_indices = ttnn.topk(
+            sharded_logits,
+            SAMPLED_CANDIDATE_COUNT,
+            dim=-1,
+        )
+        return topk_indices, topk_values
+
+    def _read_global_candidates(
+        self,
+        indices: Any,
+        values: Any,
+        width: int,
+    ) -> tuple[tuple[ShardCandidates, ...], ...]:
+        """Read per-user per-shard candidates with global token ids."""
+        host_indices = ttnn.to_torch(
+            indices,
+            mesh_composer=self._mesh_reader,
+        ).reshape(self.device_count, width, SAMPLED_CANDIDATE_COUNT)
+        host_values = ttnn.to_torch(
+            values,
+            mesh_composer=self._mesh_reader,
+        ).reshape(self.device_count, width, SAMPLED_CANDIDATE_COUNT)
+        rows: list[tuple[ShardCandidates, ...]] = []
+        for user in range(width):
+            shards = []
+            for device in range(self.device_count):
+                shard_tokens = tuple(
+                    int(
+                        device * self.vocabulary_per_shard
+                        + int(host_indices[device, user, rank].item())
+                    )
+                    for rank in range(SAMPLED_CANDIDATE_COUNT)
+                )
+                shard_values = tuple(
+                    float(host_values[device, user, rank].item())
+                    for rank in range(SAMPLED_CANDIDATE_COUNT)
+                )
+                shards.append(
+                    ShardCandidates(values=shard_values, token_ids=shard_tokens)
+                )
+            rows.append(tuple(shards))
+        return tuple(rows)
+
+    def decode_traced_sampled(
+        self,
+        *,
+        token_ids: tuple[int, ...],
+        positions: tuple[int, ...],
+    ) -> tuple[tuple[ShardCandidates, ...], ...]:
+        """One traced decode step returning per-user sampling candidates.
+
+        Replays the sampled-tail trace and reads back each shard's top-K
+        candidates with global token ids. The coordinator owns the merge,
+        the distribution, and the seeded draw.
+        """
+        if self.fusion_mode != ROUTE_SAMPLED:
+            raise BatchDecodeAdapterError(
+                "sampled decode requires the sampled fusion mode"
+            )
+        width = len(token_ids)
+        self._require_width(width)
+        self._require_open()
+        if len(positions) != width:
+            raise BatchDecodeAdapterError("token and position widths differ")
+        trace = self._traces.get(width)
+        if trace is None:
+            raise BatchDecodeAdapterError("batch width has no prepared trace")
+        self._require_binding(trace)
+        if any(
+            isinstance(token, bool)
+            or not isinstance(token, int)
+            or not 0 <= token < self.vocabulary_size
+            for token in token_ids
+        ):
+            raise BatchDecodeAdapterError("batch token is outside the vocabulary")
+        if any(
+            isinstance(position, bool)
+            or not isinstance(position, int)
+            or not MINIMUM_POSITION <= position < self.profile.maximum_sequence_length
+            for position in positions
+        ):
+            raise BatchDecodeAdapterError("batch position is outside the profile bound")
+
+        host_inputs = self.model.prepare_decode_inputs_host(
+            torch.tensor(token_ids, dtype=torch.int32).reshape(
+                width,
+                MINIMUM_ACTIVE_BATCH_WIDTH,
+            ),
+            torch.tensor(positions, dtype=torch.int32),
+            page_table=None,
+        )
+        copy_host_to_device(
+            host_inputs[:MUTABLE_INPUT_COUNT],
+            device_tensors=trace.device_inputs[:MUTABLE_INPUT_COUNT],
+        )
+        ttnn.execute_trace(
+            self.mesh,
+            trace.trace_id,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
+            blocking=TRACE_BLOCKING_REPLAY,
+        )
+        ttnn.synchronize_device(self.mesh)
+        return self._read_global_candidates(trace.indices, trace.values, width)
 
     def switch_fusion_mode(self, mode: str) -> None:
         """Switch the batch decode path between fusion modes.

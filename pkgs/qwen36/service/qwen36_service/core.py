@@ -36,6 +36,7 @@ class CompletionRequest:
     prompt: str | None
     messages: tuple[ChatMessage, ...]
     temperature: float | None = None
+    seed: int | None = None
 
 
 def parse_endpoint(path: str) -> Endpoint:
@@ -138,6 +139,16 @@ def _parse_temperature(payload: dict[str, Any]) -> float | None:
     return temperature
 
 
+def _parse_seed(payload: dict[str, Any]) -> int | None:
+    """Parse an optional reproducible sampling seed."""
+    value = payload.get("seed")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RequestValidationError("seed must be a non-negative integer or null")
+    return value
+
+
 def parse_completion_request(
     payload: Any,
     endpoint: Endpoint,
@@ -163,6 +174,7 @@ def parse_completion_request(
         prompt=prompt,
         messages=messages,
         temperature=_parse_temperature(body),
+        seed=_parse_seed(body),
     )
 
 

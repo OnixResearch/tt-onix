@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import random
 import threading
 import time
 from collections import deque
@@ -18,7 +19,13 @@ from .batch_admission_core import (
     BatchAdmissionPolicyError,
     BatchAdmissionProfile,
 )
-from .sampled_mode_router_core import resolve_batch_route
+from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
+from .sampled_decode_core import (
+    DEFAULT_TOP_K,
+    DEFAULT_TOP_P,
+    merge_shard_candidates,
+    sample_candidates,
+)
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
@@ -378,6 +385,15 @@ class BatchGenerationCoordinator:
         )
         trace_prepare_seconds = time.monotonic() - trace_prepare_started
 
+        samplers = [
+            random.Random(
+                pending.request.seed
+                if pending.request.seed is not None
+                else random.SystemRandom().randrange(2**63)
+            )
+            for pending in pending_batch
+        ]
+
         decode_durations = []
         while len(generated[0]) < maximum_generation_tokens:
             if any(
@@ -399,10 +415,30 @@ class BatchGenerationCoordinator:
                 maximum_sequence_length=self.maximum_sequence_length,
             )
             decode_started = time.monotonic()
-            next_tokens = self.adapter.decode_traced(
-                token_ids=tuple(row.token_id for row in plan.rows),
-                positions=tuple(row.position for row in plan.rows),
-            )
+            if route_decision.route == ROUTE_SAMPLED:
+                candidate_rows = self.adapter.decode_traced_sampled(
+                    token_ids=tuple(row.token_id for row in plan.rows),
+                    positions=tuple(row.position for row in plan.rows),
+                )
+                next_tokens = tuple(
+                    sample_candidates(
+                        values=merged_values,
+                        token_ids=merged_tokens,
+                        temperature=pending_batch[user_index].request.temperature,
+                        top_k=DEFAULT_TOP_K,
+                        top_p=DEFAULT_TOP_P,
+                        draw=samplers[user_index].random(),
+                    )
+                    for user_index, (merged_values, merged_tokens) in enumerate(
+                        merge_shard_candidates(shards, top_k=DEFAULT_TOP_K)
+                        for shards in candidate_rows
+                    )
+                )
+            else:
+                next_tokens = self.adapter.decode_traced(
+                    token_ids=tuple(row.token_id for row in plan.rows),
+                    positions=tuple(row.position for row in plan.rows),
+                )
             decode_durations.append(time.monotonic() - decode_started)
             for row, next_token in zip(plan.rows, next_tokens, strict=True):
                 generated[row.row_index].append(next_token)
@@ -480,6 +516,7 @@ class BatchGenerationCoordinator:
                 "decode_tokens_per_second": per_user_decode_rate,
                 "fallback_reason": None,
                 "fusion_mode_switched": route_decision.switch_required,
+                "sampled_decode": route_decision.route == ROUTE_SAMPLED,
                 "serving_route": route_decision.route,
                 "first_token_readback_seconds": None,
                 "generated_token_ids": user_tokens,
