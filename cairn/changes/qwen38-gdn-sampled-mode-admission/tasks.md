@@ -29,7 +29,8 @@
 - [x] [serial] D1f Owner decision recorded: option 1, implement sampling in the service. Parse gate added (temperature above zero accepted only under `QWEN36_SAMPLED_FUSION`), pure sampled-decode core added (shard merge, temperature softmax, nucleus cut, seeded draw) with positive and negative probes. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [x] [serial] D1g Capture the sampled-mode decode trace with a per-shard `ttnn.topk` tail (k=20), read back per-user candidates, and sample each step in the coordinator loop through the pure core. FillPad layout bug found on device and fixed; tail reduces tile layout directly. See `evidence/d1g-d1h-sampled-serving.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [x] [serial] D1h Physical sampled-serving validation: greedy parity unchanged, seeded sampled requests reproduce token-for-token, sampled steps run the fused path with real sampled output. All checks pass; D1d is closed by this evidence. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
-- [ ] [serial] D1e Deploy the changed identity as a new service generation. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] D1e Deploy the changed identity as a new service generation. System `43sm969d`, package `cdvkpnr3`, identity `llvy8p6f`, greedy smoke exact, gate off. Deploy race with a parallel session resolved by committing the pin first (onix-core `0f8210f9`). See `evidence/d1e-deploy.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [ ] [serial] D1i Owner act: enable `QWEN36_SAMPLED_FUSION` on the deployed unit when sampled traffic is wanted. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [ ] [serial] D2 Record the physical result and all non-claims, then archive the change and run lifecycle gates. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Verification Coverage
