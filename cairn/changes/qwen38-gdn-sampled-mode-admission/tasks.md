@@ -23,7 +23,11 @@
 
 ## Phase 4: Admission and archive
 
-- [ ] [serial] D1 Select and implement the sampled-only request routing design (see the three options in `evidence/s3a-screens-and-b4-admission.md`), validate it, and deploy the changed identity. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] D1a Falsify or prove dual-resident decode traces and measure the mode-switch primitive on hardware. Dual residency falsified (second capture corrupts); release-then-recapture exact at 0.39-0.75 s per switch. See `evidence/routing-primitive.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] D1b Add the pure sampled-mode router core and the adapter `switch_fusion_mode` primitive with device-free probes. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [ ] [serial] D1c Thread request temperature through the server request path, route per request, and switch modes on change. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [ ] [serial] D1d Validate the wired router physically: greedy-after-sampled reproduces exact-parity tokens, sampled requests run the fused step time. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [ ] [serial] D1e Deploy the changed identity as a new service generation. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [ ] [serial] D2 Record the physical result and all non-claims, then archive the change and run lifecycle gates. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Verification Coverage

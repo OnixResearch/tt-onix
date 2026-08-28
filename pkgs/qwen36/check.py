@@ -5393,6 +5393,108 @@ def probe_kernel_distribution_probe():
     expect_rejected("eager probe mode", corpus=corpus(), probe_mode="eager")
 
 
+# r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+def probe_sampled_mode_router():
+    """Positive and negative tests for the pure sampled-mode router."""
+    from types import SimpleNamespace
+
+    from qwen36_service.decode_adapter import DecodeAdapterError, TracedDecodeAdapter
+    from qwen36_service.sampled_mode_router_core import (
+        ROUTE_DETERMINISTIC,
+        ROUTE_SAMPLED,
+        ROUTES,
+        RouterPolicyError,
+        classify_temperature,
+        eligible_routes_for_admitted_modes,
+        route_request,
+    )
+
+    # Classification: missing and zero temperatures stay deterministic.
+    require(
+        classify_temperature(None) == ROUTE_DETERMINISTIC,
+        "missing temperature must route deterministic",
+    )
+    require(
+        classify_temperature(0) == ROUTE_DETERMINISTIC,
+        "zero temperature must route deterministic",
+    )
+    require(
+        classify_temperature(0.0) == ROUTE_DETERMINISTIC,
+        "zero float temperature must route deterministic",
+    )
+    require(
+        classify_temperature(0.6) == ROUTE_SAMPLED,
+        "positive temperature must route sampled",
+    )
+    require(
+        classify_temperature(1) == ROUTE_SAMPLED,
+        "integer positive temperature must route sampled",
+    )
+
+    # Classification fails closed on invalid temperatures.
+    for bad in (-0.1, float("nan"), float("inf"), "0.6", True, []):
+        try:
+            classify_temperature(bad)
+        except RouterPolicyError:
+            continue
+        raise AssertionError(f"invalid temperature {bad!r} was classified")
+
+    # Switch decisions compare the route against the resident mode.
+    stay = route_request(0.6, current_mode=ROUTE_SAMPLED)
+    require(
+        stay.route == ROUTE_SAMPLED and not stay.switch_required,
+        "sampled request on sampled mode must not switch",
+    )
+    switch = route_request(0, current_mode=ROUTE_SAMPLED)
+    require(
+        switch.route == ROUTE_DETERMINISTIC and switch.switch_required,
+        "greedy request on sampled mode must switch",
+    )
+
+    # Only a sampled admission permits the sampled route.
+    require(
+        eligible_routes_for_admitted_modes(["sampled"]) == ROUTES,
+        "a sampled admission must permit both routes",
+    )
+    require(
+        eligible_routes_for_admitted_modes([]) == (ROUTE_DETERMINISTIC,),
+        "an empty admission must permit only the deterministic route",
+    )
+
+    # Adapter switch primitive against a stubbed adapter: release happens
+    # only with a resident trace, and every GDN layer flips.
+    def stub_adapter(trace_id, modes):
+        released = []
+        layers = tuple(SimpleNamespace(_decode_fusion_mode=mode) for mode in modes)
+        stub = SimpleNamespace(
+            _trace_id=trace_id,
+            _release_trace=lambda: released.append(True),
+            _tp_gdn_layers=lambda: layers,
+        )
+        return stub, released
+
+    stub, released = stub_adapter(None, ("off", "full", "off"))
+    TracedDecodeAdapter.switch_fusion_mode(stub, "full")
+    require(not released, "no resident trace must not release")
+    require(
+        all(layer._decode_fusion_mode == "full" for layer in stub._tp_gdn_layers()),
+        "switch must flip every GDN layer",
+    )
+
+    stub, released = stub_adapter(object(), ("full",))
+    TracedDecodeAdapter.switch_fusion_mode(stub, "off")
+    require(released == [True], "a resident trace must be released before flipping")
+    require(stub._tp_gdn_layers()[0]._decode_fusion_mode == "off", "mode flip failed")
+
+    stub, _ = stub_adapter(None, ("off",))
+    try:
+        TracedDecodeAdapter.switch_fusion_mode(stub, "state")
+    except DecodeAdapterError:
+        pass
+    else:
+        raise AssertionError("an unknown mode was accepted")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5429,6 +5531,7 @@ def main():
     probe("serialized service request contract", probe_service_contract)
     probe("kernel distribution admission", probe_kernel_distribution_admission)
     probe("kernel distribution probe builder", probe_kernel_distribution_probe)
+    probe("sampled-mode router", probe_sampled_mode_router)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

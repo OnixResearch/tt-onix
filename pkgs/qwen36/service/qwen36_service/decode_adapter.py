@@ -16,6 +16,7 @@ import torch
 import ttnn
 from models.tt_transformers.tt.common import copy_host_to_device
 
+from .sampled_mode_router_core import ROUTES
 from .decode_core import (
     DecodeProfile,
     ShardWinner,
@@ -225,6 +226,37 @@ class TracedDecodeAdapter:
         finally:
             self._restore_tp_gdn_state(saved_state)
             ttnn.synchronize_device(self.mesh)
+
+    def switch_fusion_mode(self, mode: str) -> None:
+        """Switch the resident decode path between fusion modes.
+
+        Releases the resident decode trace, then flips the per-layer fusion
+        attribute every GDN decode forward reads at call time. The next
+        ensure_trace call recaptures in the new mode. Physical evidence
+        (dual-trace probe, 2026-08-28): capturing a trace while another is
+        resident corrupts the new trace's outputs, so the release must
+        happen before any later capture; release-then-recapture is exact in
+        both directions at 0.39-0.75 seconds per switch.
+        """
+        if mode not in ROUTES:
+            raise DecodeAdapterError(
+                f"fusion mode must be one of {ROUTES}, got {mode!r}"
+            )
+        if self._trace_id is not None:
+            self._release_trace()
+        for layer in self._tp_gdn_layers():
+            layer._decode_fusion_mode = mode
+
+    @property
+    def fusion_mode(self) -> str:
+        """The fusion mode the GDN layers currently use at forward time."""
+        modes = {
+            getattr(layer, "_decode_fusion_mode", None)
+            for layer in self._tp_gdn_layers()
+        }
+        if len(modes) != 1 or None in modes:
+            raise DecodeAdapterError("GDN layers disagree on the fusion mode")
+        return next(iter(modes))
 
     def _tp_gdn_layers(self) -> tuple[Any, ...]:
         layers = tuple(

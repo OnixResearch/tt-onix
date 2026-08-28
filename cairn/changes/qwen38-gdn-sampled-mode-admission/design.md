@@ -45,6 +45,21 @@ State isolation, clean reset, the GDN ratio bound of 0.95, and the full-step rat
 
 **Rationale:** The pinned CLI (`837d7307`) reads only `cairn/` and drives the repository-quality nix gate, so removing the legacy tree now empties that gate. The installed CLI at `15f0087` and its policy read the native `.cairn` tree. `diff -rq` confirms the trees differ only by this change directory, so mirroring keeps them byte-identical.
 
+### Decision: D1 routing uses release-then-recapture switching (2026-08-28)
+
+**Choice:** Dual-resident decode traces are rejected by measurement: the
+second capture corrupts its own outputs. The router switches the resident
+mode by releasing the trace, flipping the per-layer fusion attribute, and
+recapturing on the next request (0.39-0.75 s per switch, exact in both
+directions). Greedy and deterministic requests route to `off`; positive
+temperature routes to `full`, gated on a sampled admission receipt.
+
+**Rationale:** The serialized service already owns recapture machinery, the
+switch cost amortizes over a request, and the alternative designs are
+either falsified (dual residency), a kernel-path change (per-forward
+selection under tracing still needs two traces), or operational only
+(time-slicing). See `evidence/routing-primitive.md`.
+
 ## Risks / Trade-offs
 
 - Threshold constants (0.995, 0.99, 0.10, 0.25, 0.50, 0.5, 0.95, 120) are engineering judgments anchored to field practice, not measured model data. Task S3 requires owner review of every constant before any admission.
