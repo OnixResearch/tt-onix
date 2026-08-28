@@ -5080,6 +5080,169 @@ def probe_gdn_decode_fusion_candidate():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+def probe_kernel_distribution_admission():
+    """Positive and negative tests for the sampled-mode distributional gate."""
+    import math
+
+    from qwen36_service.kernel_distribution_admission_core import (
+        ADMITTED_SERVING_MODE,
+        DistributionAdmissionEvidence,
+        PromptProbe,
+        PositionSample,
+        evaluate_distribution_admission,
+    )
+
+    prompt_count = 5
+    position_count = 48
+    token_base = 100
+
+    def softmax(values):
+        peak = max(values)
+        weights = [math.exp(value - peak) for value in values]
+        total = math.fsum(weights)
+        return [weight / total for weight in weights]
+
+    def build_position(index, *, flip_stable=False, break_tv=False, break_shared=False):
+        # Stable spacing of 1.0 keeps every non-near-tie margin above the
+        # 0.5 epsilon; every tenth position squeezes to a 0.2 near tie.
+        near_tie = index % 10 == 0
+        gap = 0.2 if near_tie else 1.0
+        control_logits = [5.0 - gap * rank for rank in range(20)]
+        noise = 1e-3 if index % 2 == 0 else -1e-3
+        candidate_logits = [
+            value + noise * ((-1) ** rank) for rank, value in enumerate(control_logits)
+        ]
+        if near_tie and flip_stable:
+            # Widen the near tie so the candidate keeps the control order.
+            candidate_logits = list(control_logits)
+        if not near_tie and flip_stable:
+            candidate_logits[0], candidate_logits[1] = (
+                candidate_logits[1],
+                candidate_logits[0],
+            )
+        control_tokens = [token_base + offset for offset in range(20)]
+        candidate_tokens = (
+            [token_base + 40 + offset for offset in range(20)]
+            if break_shared
+            else control_tokens
+        )
+        control_probabilities = softmax(control_logits)
+        candidate_probabilities = (
+            [0.05] * 20 if break_tv else softmax(candidate_logits)
+        )
+        control = tuple(
+            (token, probability, logit)
+            for token, probability, logit in zip(
+                control_tokens, control_probabilities, control_logits, strict=True
+            )
+        )
+        candidate = tuple(
+            (token, probability, logit)
+            for token, probability, logit in zip(
+                candidate_tokens, candidate_probabilities, candidate_logits, strict=True
+            )
+        )
+        return PositionSample(control=control, candidate=candidate)
+
+    def build_evidence(**kwargs):
+        position_kwargs = {
+            key: value for key, value in kwargs.items() if key in ("flip_stable", "break_tv", "break_shared")
+        }
+        prompt_total = kwargs.get("prompt_override", prompt_count)
+        prompts = tuple(
+            PromptProbe(
+                positions=tuple(
+                    build_position(prompt_index * position_count + index, **position_kwargs)
+                    for index in range(position_count)
+                )
+            )
+            for prompt_index in range(prompt_total)
+        )
+        return DistributionAdmissionEvidence(
+            probe_mode=kwargs.get("probe_mode", "teacher_forced"),
+            root_order=kwargs.get(
+                "root_order", ("control", "candidate", "candidate", "control")
+            ),
+            prompts=prompts,
+        )
+
+    # Positive: tiny logit noise keeps PCC and TV inside bounds; near-tie
+    # positions are stratified and reported without gating the verdict.
+    passing = evaluate_distribution_admission(build_evidence())
+    require(passing.admitted, f"close candidate rejected: {passing.rejection_reasons}")
+    require(
+        passing.eligible_modes == (ADMITTED_SERVING_MODE,),
+        f"admitted modes must be sampled-only, got {passing.eligible_modes}",
+    )
+    require(
+        passing.stable_positions >= 120,
+        f"stable position count too low: {passing.stable_positions}",
+    )
+    require(
+        passing.stable_agreement is not None and passing.stable_agreement >= 0.95,
+        "stable agreement fell below the floor for a passing candidate",
+    )
+    require(
+        passing.near_tie_positions > 0 and passing.near_tie_agreement is not None,
+        "near-tie positions were not stratified",
+    )
+
+    # Negative: flipping the argmax on stable positions trips the agreement
+    # floor even though PCC stays high.
+    stable_flip = evaluate_distribution_admission(build_evidence(flip_stable=True))
+    require(
+        not stable_flip.admitted,
+        "stable-position argmax flips were admitted",
+    )
+    require(
+        any("stable-position agreement" in reason for reason in stable_flip.rejection_reasons),
+        f"stable flip missed its bound: {stable_flip.rejection_reasons}",
+    )
+
+    # Negative: same argmax, different distribution trips the TV bound.
+    tv_break = evaluate_distribution_admission(build_evidence(break_tv=True))
+    require(not tv_break.admitted, "flattened top-K distribution was admitted")
+    require(
+        any("top-K TV" in reason for reason in tv_break.rejection_reasons),
+        f"TV break missed its bound: {tv_break.rejection_reasons}",
+    )
+
+    # Negative: disjoint top-K sets invalidate the probe.
+    shared_break = evaluate_distribution_admission(build_evidence(break_shared=True))
+    require(not shared_break.admitted, "disjoint top-K sets were admitted")
+
+    # Negative: corpus, root-order, and mode violations fail closed.
+    short_corpus = evaluate_distribution_admission(
+        build_evidence(prompt_override=4)
+    )
+    require(not short_corpus.admitted, "a four-prompt corpus was admitted")
+    wrong_order = evaluate_distribution_admission(
+        build_evidence(root_order=("candidate", "control", "control", "candidate"))
+    )
+    require(not wrong_order.admitted, "an unbalanced root order was admitted")
+    wrong_mode = evaluate_distribution_admission(build_evidence(probe_mode="eager"))
+    require(not wrong_mode.admitted, "a non-teacher-forced probe was admitted")
+
+    # Negative: non-finite evidence fails closed.
+    bad = build_position(1)
+    broken = PositionSample(
+        control=bad.control,
+        candidate=tuple(
+            (token, float("nan") if offset == 0 else probability, logit)
+            for offset, (token, probability, logit) in enumerate(bad.candidate)
+        ),
+    )
+    nonfinite = evaluate_distribution_admission(
+        DistributionAdmissionEvidence(
+            probe_mode="teacher_forced",
+            root_order=("control", "candidate", "candidate", "control"),
+            prompts=(PromptProbe(positions=(broken,)),),
+        )
+    )
+    require(not nonfinite.admitted, "non-finite probabilities were admitted")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5114,6 +5277,7 @@ def main():
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
+    probe("kernel distribution admission", probe_kernel_distribution_admission)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

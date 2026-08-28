@@ -81,6 +81,9 @@ let
     (stableIdentityPath "qwen36-trace-reuse-profile.ncl" ./trace-reuse-profile.ncl)
     (stableIdentityPath "qwen36-gdn-decode-fusion-contracts.ncl" ./gdn-decode-fusion-contracts.ncl)
     (stableIdentityPath "qwen36-gdn-decode-fusion-profile.ncl" ./gdn-decode-fusion-profile.ncl)
+    (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
+    (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
   ];
   executionIdentityPatchInputs = map (
     patch: stableIdentityPath "qwen36-${builtins.baseNameOf (toString patch)}" patch
@@ -173,6 +176,9 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-binding.ncl} "$out/share/qwen36/batch-admission-binding.ncl"
     cp ${./batch-admission-binding-validated.ncl} "$out/share/qwen36/batch-admission-binding-validated.ncl"
     cp ${./batch-admission-contracts.ncl} "$out/share/qwen36/batch-admission-contracts.ncl"
+    cp ${./kernel-distribution-admission-contracts.ncl} "$out/share/qwen36/kernel-distribution-admission-contracts.ncl"
+    cp ${./kernel-distribution-admission-policy.ncl} "$out/share/qwen36/kernel-distribution-admission-policy.ncl"
+    cp ${./kernel-distribution-admission-policy-validated.ncl} "$out/share/qwen36/kernel-distribution-admission-policy-validated.ncl"
     cp ${./batch-admission-b8-profile.ncl} "$out/share/qwen36/batch-admission-b8-profile.ncl"
     cp ${./batch-admission-b8-policy.ncl} "$out/share/qwen36/batch-admission-b8-policy.ncl"
     cp ${./batch-admission-b8-policy-validated.ncl} "$out/share/qwen36/batch-admission-b8-policy-validated.ncl"
