@@ -195,6 +195,10 @@ class QwenEngine:
                 emitter=emit,
                 batch_admission_profile=batch_admission_profile,
                 batch_admission_enabled=batch_admission_enabled,
+                sampled_admission_enabled=os.environ.get(
+                    "QWEN36_SAMPLED_FUSION", "0"
+                )
+                == "1",
                 trace_reuse_profile=trace_reuse_profile,
                 trace_reuse_admission_enabled=trace_reuse_admission_enabled,
             )

@@ -14,6 +14,7 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
 from models.tt_transformers.tt.common import copy_host_to_device
 
+from .sampled_mode_router_core import ROUTES
 from .batch_decode_core import (
     MAXIMUM_ACTIVE_BATCH_WIDTH,
     MINIMUM_ACTIVE_BATCH_WIDTH,
@@ -484,6 +485,39 @@ class BatchedTracedDecodeAdapter:
         )
         ttnn.synchronize_device(self.mesh)
         return self._read_global_winners(trace.indices, trace.values, width)
+
+    def switch_fusion_mode(self, mode: str) -> None:
+        """Switch the batch decode path between fusion modes.
+
+        Releases every resident batch trace, then flips the per-layer fusion
+        attribute the GDN decode forward reads at call time. The next
+        prepare_width call recaptures in the new mode. Physical evidence
+        (dual-trace probe, 2026-08-28): a capture while another trace is
+        resident corrupts the new trace, so releases must precede the next
+        capture; release-then-recapture is exact in both directions.
+        """
+        if mode not in ROUTES:
+            raise BatchDecodeAdapterError(
+                f"fusion mode must be one of {ROUTES}, got {mode!r}"
+            )
+        self._require_open()
+        self._release_traces()
+        for layer in self.model.layers:
+            if not layer.is_full_attention:
+                layer.attention._decode_fusion_mode = mode
+
+    @property
+    def fusion_mode(self) -> str:
+        """The fusion mode the GDN layers currently use at forward time."""
+        self._require_open()
+        modes = {
+            getattr(layer.attention, "_decode_fusion_mode", None)
+            for layer in self.model.layers
+            if not layer.is_full_attention
+        }
+        if len(modes) != 1 or None in modes:
+            raise BatchDecodeAdapterError("GDN layers disagree on the fusion mode")
+        return next(iter(modes))
 
     def reset_all(self) -> None:
         """Zero all persistent GDN rows without using the B=1 prefill scratch zeros."""

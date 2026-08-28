@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -34,6 +35,7 @@ class CompletionRequest:
     max_tokens: int
     prompt: str | None
     messages: tuple[ChatMessage, ...]
+    temperature: float | None = None
 
 
 def parse_endpoint(path: str) -> Endpoint:
@@ -114,6 +116,26 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
     return tuple(messages)
 
 
+def _parse_temperature(payload: dict[str, Any]) -> float | None:
+    """Parse the sampling temperature for serving-mode routing.
+
+    Missing temperature is deterministic. Valid temperatures are finite and
+    non-negative; classification into a serving route happens in the pure
+    router core, which fails closed on invalid values.
+    """
+    value = payload.get("temperature")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RequestValidationError("temperature must be a number or null")
+    temperature = float(value)
+    if not math.isfinite(temperature):
+        raise RequestValidationError("temperature must be finite")
+    if temperature < 0:
+        raise RequestValidationError("temperature must not be negative")
+    return temperature
+
+
 def parse_completion_request(
     payload: Any,
     endpoint: Endpoint,
@@ -137,6 +159,7 @@ def parse_completion_request(
         max_tokens=max_tokens,
         prompt=prompt,
         messages=messages,
+        temperature=_parse_temperature(body),
     )
 
 

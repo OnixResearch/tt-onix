@@ -86,6 +86,39 @@ def route_request(temperature, *, current_mode: str) -> RoutingDecision:
     return decision
 
 
+def resolve_batch_route(
+    temperatures,
+    *,
+    sampled_admitted: bool,
+    current_mode: str,
+) -> RoutingDecision:
+    """Resolve one batch's serving route from its request temperatures.
+
+    A batch runs one fusion mode per step, so any deterministic request
+    forces the whole batch onto the exact-parity path. Sampled users in a
+    mixed batch lose the speedup but keep correct output; deterministic
+    users never see the fused kernel. Without a sampled admission the only
+    permitted route is deterministic.
+    """
+    temperatures = tuple(temperatures)
+    if not temperatures:
+        raise RouterPolicyError("a batch needs at least one request")
+    routes = tuple(classify_temperature(temperature) for temperature in temperatures)
+    if not sampled_admitted or any(
+        route == ROUTE_DETERMINISTIC for route in routes
+    ):
+        batch_route = ROUTE_DETERMINISTIC
+    else:
+        batch_route = ROUTE_SAMPLED
+    decision = RoutingDecision(
+        route=batch_route,
+        current_mode=current_mode,
+        switch_required=batch_route != current_mode,
+    )
+    decision.validate()
+    return decision
+
+
 def eligible_routes_for_admitted_modes(admitted_modes) -> tuple[str, ...]:
     """Return the routes a receipt's admitted serving modes permit.
 

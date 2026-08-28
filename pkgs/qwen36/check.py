@@ -5406,6 +5406,7 @@ def probe_sampled_mode_router():
         RouterPolicyError,
         classify_temperature,
         eligible_routes_for_admitted_modes,
+        resolve_batch_route,
         route_request,
     )
 
@@ -5460,6 +5461,48 @@ def probe_sampled_mode_router():
         eligible_routes_for_admitted_modes([]) == (ROUTE_DETERMINISTIC,),
         "an empty admission must permit only the deterministic route",
     )
+
+    # Batch routing: any deterministic request forces the whole batch onto
+    # the exact-parity path, and a missing admission never routes sampled.
+    all_sampled = resolve_batch_route(
+        (0.6, 0.9, 1.2),
+        sampled_admitted=True,
+        current_mode=ROUTE_DETERMINISTIC,
+    )
+    require(
+        all_sampled.route == ROUTE_SAMPLED and all_sampled.switch_required,
+        "an all-sampled admitted batch must route sampled",
+    )
+    mixed = resolve_batch_route(
+        (0.6, 0.0),
+        sampled_admitted=True,
+        current_mode=ROUTE_SAMPLED,
+    )
+    require(
+        mixed.route == ROUTE_DETERMINISTIC and mixed.switch_required,
+        "a mixed batch must route deterministic and switch",
+    )
+    unadmitted = resolve_batch_route(
+        (0.6,),
+        sampled_admitted=False,
+        current_mode=ROUTE_SAMPLED,
+    )
+    require(
+        unadmitted.route == ROUTE_DETERMINISTIC,
+        "without a sampled admission every batch must route deterministic",
+    )
+    try:
+        resolve_batch_route((), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC)
+    except RouterPolicyError:
+        pass
+    else:
+        raise AssertionError("an empty batch was routed")
+    try:
+        resolve_batch_route((-1.0,), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC)
+    except RouterPolicyError:
+        pass
+    else:
+        raise AssertionError("an invalid batch temperature was routed")
 
     # Adapter switch primitive against a stubbed adapter: release happens
     # only with a resident trace, and every GDN layer flips.

@@ -18,6 +18,7 @@ from .batch_admission_core import (
     BatchAdmissionPolicyError,
     BatchAdmissionProfile,
 )
+from .sampled_mode_router_core import resolve_batch_route
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
@@ -81,6 +82,7 @@ class BatchGenerationCoordinator:
         batch_admission_enabled: bool = False,
         trace_reuse_profile: TraceReuseProfile | None = None,
         trace_reuse_admission_enabled: bool = False,
+        sampled_admission_enabled: bool = False,
     ) -> None:
         self.adapter = adapter
         self.tokenizer = tokenizer
@@ -94,6 +96,7 @@ class BatchGenerationCoordinator:
         self.physical_pcie_device_ids = physical_pcie_device_ids
         self.emitter = emitter
         self.batch_admission_profile = batch_admission_profile
+        self.sampled_admission_enabled = sampled_admission_enabled
         self.batch_admission_enabled = batch_admission_enabled
         self.trace_reuse_profile = trace_reuse_profile
         self.trace_reuse_admission_enabled = trace_reuse_admission_enabled
@@ -352,6 +355,13 @@ class BatchGenerationCoordinator:
             if trace_reuse_activation is not None
             else False
         )
+        route_decision = resolve_batch_route(
+            tuple(pending.request.temperature for pending in pending_batch),
+            sampled_admitted=self.sampled_admission_enabled,
+            current_mode=self.adapter.fusion_mode,
+        )
+        if route_decision.switch_required:
+            self.adapter.switch_fusion_mode(route_decision.route)
         prefill_started = time.monotonic()
         prefill_result = self.adapter.prefill_users(
             tuple(pending.token_ids for pending in pending_batch),
@@ -469,6 +479,8 @@ class BatchGenerationCoordinator:
                 "decode_path": "batched-traced",
                 "decode_tokens_per_second": per_user_decode_rate,
                 "fallback_reason": None,
+                "fusion_mode_switched": route_decision.switch_required,
+                "serving_route": route_decision.route,
                 "first_token_readback_seconds": None,
                 "generated_token_ids": user_tokens,
                 "measurement_mode": measurement_mode,
