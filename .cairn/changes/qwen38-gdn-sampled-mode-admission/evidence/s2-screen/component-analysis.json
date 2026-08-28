@@ -1,0 +1,50 @@
+{
+  "schema": "qwen38-gdn-dist-component-analysis.v1",
+  "physical": true,
+  "simulated": false,
+  "roots": [
+    {
+      "root": 5,
+      "route": "control",
+      "representative_gdn_seconds": 0.0005820830119773746,
+      "full_step_median_seconds": 0.054209310095757246,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 6,
+      "route": "candidate",
+      "representative_gdn_seconds": 0.0005033849738538265,
+      "full_step_median_seconds": 0.05097378499340266,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 7,
+      "route": "candidate",
+      "representative_gdn_seconds": 0.0004902409855276346,
+      "full_step_median_seconds": 0.050901990034617484,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 8,
+      "route": "control",
+      "representative_gdn_seconds": 0.0005585990147665143,
+      "full_step_median_seconds": 0.054217676050029695,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    }
+  ],
+  "gdn_ratio": 0.8710805781851375,
+  "full_step_ratio": 0.9395795147440668,
+  "full_step_speedup": 1.0643058775843908,
+  "duplicate_spread": 1.0651386323630427,
+  "bounds": {
+    "maximum_gdn_ratio": 0.95,
+    "maximum_full_step_ratio": 0.97,
+    "maximum_duplicate_spread": 1.25
+  },
+  "speed_gates_pass": true,
+  "rejection_reasons": []
+}

@@ -15,7 +15,8 @@
 ## Phase 3: Physical screen
 
 - [x] [serial] S1 Rebuild the fused GDN candidate package from `gdn-decode-fusion-candidate.patch` and capture its execution identity. Package `lk1agynj...`, identity `dfdgl49i...`; see `evidence/drain-pass-20260827.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
-- [ ] [serial] S2 Build the device top-K readback shell, then run the distributional screen on P150x2 under authorized qwen38 service control with the runtime mask discipline. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [x] [serial] S2 Build the device top-K readback shell, then run the distributional screen on P150x2 under authorized qwen38 service control with the runtime mask discipline. Eight roots completed 2026-08-27; receipt rejected on one bound (min per-position PCC 0.8028 vs 0.99). See `evidence/s2-screen-result.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [ ] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. The failing bound is the per-position minimum PCC floor; see the three options in `evidence/s2-screen-result.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [ ] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Phase 4: Admission and archive
