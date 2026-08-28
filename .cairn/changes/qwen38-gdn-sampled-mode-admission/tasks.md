@@ -16,12 +16,14 @@
 
 - [x] [serial] S1 Rebuild the fused GDN candidate package from `gdn-decode-fusion-candidate.patch` and capture its execution identity. Package `lk1agynj...`, identity `dfdgl49i...`; see `evidence/drain-pass-20260827.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [x] [serial] S2 Build the device top-K readback shell, then run the distributional screen on P150x2 under authorized qwen38 service control with the runtime mask discipline. Eight roots completed 2026-08-27; receipt rejected on one bound (min per-position PCC 0.8028 vs 0.99). See `evidence/s2-screen-result.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
-- [ ] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. The failing bound is the per-position minimum PCC floor; see the three options in `evidence/s2-screen-result.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. Decision recorded 2026-08-27: option 3, the per-position minimum PCC floor is removed as a gate and kept as a reported diagnostic; every other bound stands. See `evidence/s3-decision.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] S3a Rebuild the package under the revised policy identity and re-run both matched screens for a fresh receipt. Package `hn61wf5g...`, identity `yv113vpa...`; distributional receipt admitted for sampled mode, component gates pass. See `evidence/s3a-screens-and-b4-admission.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [x] [serial] S3b Run fresh B=4 admission for the changed execution identity with the fused path enabled. Admitted: exact within-path parity, speedup 3.5293, retention 0.8823, TTFT ratio 4.0062, tail 1.1306. See `evidence/s3a-screens-and-b4-admission.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
 - [ ] [serial] S3 Owner review of every threshold constant against the measured screen before any admission decision. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Phase 4: Admission and archive
 
-- [ ] [serial] D1 If and only if every bound passes and the owner confirms the thresholds: run fresh B=4 admission for the changed execution identity and wire sampled-only request routing. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
+- [ ] [serial] D1 Select and implement the sampled-only request routing design (see the three options in `evidence/s3a-screens-and-b4-admission.md`), validate it, and deploy the changed identity. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [ ] [serial] D2 Record the physical result and all non-claims, then archive the change and run lifecycle gates. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Verification Coverage

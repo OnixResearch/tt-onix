@@ -33,6 +33,12 @@ State isolation, clean reset, the GDN ratio bound of 0.95, and the full-step rat
 
 **Rationale:** Tuning a gate to pass an existing candidate would reproduce the failure mode this repository exists to prevent. If the candidate fails the stable-agreement bound, the follow-up is the staged precision-preserving kernel design the root-cause search named, not a weaker gate.
 
+### Decision: S3 owner review selected option 3 (2026-08-27)
+
+**Choice:** The per-position minimum logit PCC floor is removed. The mean PCC floor, the TV caps, the residual-mass cap, and the margin-stratified stable agreement remain the gating bounds, and the per-position minimum PCC stays in the receipt as a reported diagnostic.
+
+**Rationale:** The measured screen rejected only on the minimum PCC floor: 9 of 240 positions below 0.99, five of them at near-tie margins where tail ordering destabilizes Pearson correlation, while every TV and all 220 stable argmaxes passed. The owner reviewed the measured table and selected the revision. Total variation is the direct distributional bound; the minimum-PCC floor was the heuristic the near-tie tails made noisy. The revision changes the execution identity, so the package rebuilds and the screens re-run under the new identity before any admission.
+
 ### Decision: Keep both Cairn trees in lockstep until the pin uplift
 
 **Choice:** Mirror this change into both `cairn/changes/` and `.cairn/changes/`. Retire the legacy tree only after the flake pin moves to a Cairn revision that reads the native `.cairn` layout.

@@ -82,7 +82,6 @@ let AdmissionC = {
   maximum_mean_topk_residual_mass | PositiveNumberC,
   maximum_mean_topk_tv | PositiveNumberC,
   minimum_mean_logit_pcc | UnitProbabilityC,
-  minimum_min_logit_pcc | UnitProbabilityC,
   minimum_paired_logit_samples | PositiveIntC,
   minimum_stable_agreement | UnitProbabilityC,
   minimum_stable_position_count | PositiveIntC,
@@ -99,7 +98,6 @@ let AdmissionClosedC = ClosedRecordC [
   "maximum_mean_topk_residual_mass",
   "maximum_mean_topk_tv",
   "minimum_mean_logit_pcc",
-  "minimum_min_logit_pcc",
   "minimum_paired_logit_samples",
   "minimum_stable_agreement",
   "minimum_stable_position_count",
@@ -109,8 +107,7 @@ let AdmissionClosedC = ClosedRecordC [
   "require_state_isolation",
 ] in
 let AdmissionSemanticC = std.contract.from_predicate (fun value =>
-  value.minimum_min_logit_pcc <= value.minimum_mean_logit_pcc
-  && value.maximum_mean_topk_tv <= value.maximum_max_topk_tv
+  value.maximum_mean_topk_tv <= value.maximum_max_topk_tv
 ) in
 
 let PolicyC = {
@@ -129,7 +126,6 @@ let PolicyClosedC = ClosedRecordC [
 ] in
 let PolicySemanticC = std.contract.from_predicate (fun value =>
   std.array.length value.probe.prompts >= value.probe.minimum_prompt_count
-  && value.admission.minimum_min_logit_pcc <= value.admission.minimum_mean_logit_pcc
   && value.admission.maximum_mean_topk_tv <= value.admission.maximum_max_topk_tv
   && value.admission.minimum_stable_position_count
     <= value.probe.minimum_prompt_count * value.probe.minimum_position_count
@@ -166,7 +162,6 @@ let ProfileClosedC = ClosedRecordC [
 let ProfileSemanticC = std.contract.from_predicate (fun value =>
   (!value.physically_admitted || value.identities.receipt_blake3 != "not-measured")
   && std.array.length value.probe.prompts >= value.probe.minimum_prompt_count
-  && value.admission.minimum_min_logit_pcc <= value.admission.minimum_mean_logit_pcc
   && value.admission.maximum_mean_topk_tv <= value.admission.maximum_max_topk_tv
   && value.admission.minimum_stable_position_count
     <= value.probe.minimum_prompt_count * value.probe.minimum_position_count

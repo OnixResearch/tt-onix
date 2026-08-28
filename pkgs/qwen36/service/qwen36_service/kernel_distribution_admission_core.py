@@ -39,8 +39,11 @@ TOP_K_CANDIDATES = 20
 # Teacher-forced logit closeness over the shared tokens of both top-K
 # sets. Fewer shared tokens than this floor means the distributions are too
 # far apart for correlation to be meaningful, so the probe is invalid.
+# The mean PCC is gated; the per-position minimum is reported as a
+# diagnostic only, because near-tie tail ordering destabilizes Pearson
+# correlation at exactly the positions the margin stratification already
+# handles (owner decision 2026-08-27, option 3).
 MINIMUM_MEAN_LOGIT_PCC = 0.995
-MINIMUM_MIN_LOGIT_PCC = 0.99
 MINIMUM_PAIRED_LOGIT_SAMPLES = 8
 
 # Truncated top-K total-variation bounds. TV is 0.5 * sum |p_control - p_cand|
@@ -286,10 +289,6 @@ def evaluate_distribution_admission(
     if mean_pcc < MINIMUM_MEAN_LOGIT_PCC:
         reasons.append(
             f"mean union logit PCC {mean_pcc:.6f} < {MINIMUM_MEAN_LOGIT_PCC}"
-        )
-    if min_pcc < MINIMUM_MIN_LOGIT_PCC:
-        reasons.append(
-            f"min union logit PCC {min_pcc:.6f} < {MINIMUM_MIN_LOGIT_PCC}"
         )
     if mean_tv > MAXIMUM_MEAN_TOPK_TV:
         reasons.append(f"mean top-K TV {mean_tv:.6f} > {MAXIMUM_MEAN_TOPK_TV}")
