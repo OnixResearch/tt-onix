@@ -257,6 +257,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-export/mtp-drafter-contracts.ncl
     nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile.ncl \
       > "$out/share/qwen36/mtp-drafter-profile.json"
+    cp ${./mtp-drafter-profile-k4.ncl} mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl
+    nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl \
+      > "$out/share/qwen36/mtp-drafter-profile-k4.json"
     mkdir -p mtp-selection-profile-export
     cp ${./mtp-selection-profile.ncl} mtp-selection-profile-export/mtp-selection-profile.ncl
     cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-export/mtp-selection-contracts.ncl

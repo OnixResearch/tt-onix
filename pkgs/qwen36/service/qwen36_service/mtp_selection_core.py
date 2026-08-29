@@ -12,7 +12,6 @@ from typing import Any
 
 from .mtp_drafter_core import (
     BLAKE3_HEX_LENGTH,
-    EXPECTED_DRAFT_TOKEN_COUNT,
     EXPECTED_MINIMUM_PROMPT_COUNT,
     EXPECTED_PCIE_DEVICE_IDS,
     FIRST_PROMPT_INDEX,
@@ -24,6 +23,8 @@ from .mtp_drafter_core import (
 )
 
 PROFILE_SCHEMA_VERSION = 1
+# Selection control stays pinned to the validated default draft width.
+EXPECTED_SELECTION_DRAFT_COUNT = 3
 FULL_LOGIT_READBACK = "full-logit-readback"
 SHARD_LOCAL_TOP1 = "shard-local-top1"
 EXPECTED_ROUTE_SCHEDULE = (
@@ -145,7 +146,7 @@ class MtpSelectionProfile:
             raise MtpSelectionPolicyError("MTP selection must be diagnostic-only")
         if profile.expected_pcie_device_ids != EXPECTED_PCIE_DEVICE_IDS:
             raise MtpSelectionPolicyError("MTP selection requires devices 0 and 1")
-        if profile.draft_token_count != EXPECTED_DRAFT_TOKEN_COUNT:
+        if profile.draft_token_count != EXPECTED_SELECTION_DRAFT_COUNT:
             raise MtpSelectionPolicyError("MTP selection requires three drafts")
         if profile.minimum_prompt_count != EXPECTED_MINIMUM_PROMPT_COUNT:
             raise MtpSelectionPolicyError("MTP selection requires five prompts")

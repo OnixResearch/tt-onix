@@ -12,7 +12,8 @@ from typing import Any
 
 PROFILE_SCHEMA_VERSION = 1
 EXPECTED_PCIE_DEVICE_IDS = (0, 1)
-EXPECTED_DRAFT_TOKEN_COUNT = 3
+MINIMUM_DRAFT_TOKEN_COUNT = 2
+MAXIMUM_DRAFT_TOKEN_COUNT = 6
 EXPECTED_MINIMUM_PROMPT_COUNT = 5
 MINIMUM_RATIO = 1.0
 MINIMUM_TOKEN_ID = 0
@@ -167,8 +168,15 @@ class MtpDrafterProfile:
             raise MtpDrafterPolicyError("MTP drafter probing must be diagnostic-only")
         if profile.expected_pcie_device_ids != EXPECTED_PCIE_DEVICE_IDS:
             raise MtpDrafterPolicyError("MTP drafter probing requires devices 0 and 1")
-        if profile.draft_token_count != EXPECTED_DRAFT_TOKEN_COUNT:
-            raise MtpDrafterPolicyError("MTP drafter probing requires three drafts")
+        if not (
+            MINIMUM_DRAFT_TOKEN_COUNT
+            <= profile.draft_token_count
+            <= MAXIMUM_DRAFT_TOKEN_COUNT
+        ):
+            raise MtpDrafterPolicyError(
+                "MTP draft count must lie between "
+                f"{MINIMUM_DRAFT_TOKEN_COUNT} and {MAXIMUM_DRAFT_TOKEN_COUNT}"
+            )
         if profile.minimum_prompt_count != EXPECTED_MINIMUM_PROMPT_COUNT:
             raise MtpDrafterPolicyError("MTP drafter probing requires five prompts")
         if len(profile.prompts) != profile.minimum_prompt_count:
@@ -249,16 +257,16 @@ def validate_mtp_weight_shapes(
 
 def accepted_prefix_length(drafts: Sequence[int], target_tokens: Sequence[int]) -> int:
     """Return the exact greedy accepted draft prefix."""
-    if len(drafts) != EXPECTED_DRAFT_TOKEN_COUNT:
-        raise MtpDrafterPolicyError("draft token count is not three")
-    if len(target_tokens) != EXPECTED_DRAFT_TOKEN_COUNT:
-        raise MtpDrafterPolicyError("target token count is not three")
+    if not MINIMUM_DRAFT_TOKEN_COUNT <= len(drafts) <= MAXIMUM_DRAFT_TOKEN_COUNT:
+        raise MtpDrafterPolicyError("draft token count is outside the policy range")
+    if len(drafts) != len(target_tokens):
+        raise MtpDrafterPolicyError("target token count differs from draft count")
     for index, (draft, target) in enumerate(zip(drafts, target_tokens, strict=True)):
         if not _valid_token(draft) or not _valid_token(target):
             raise MtpDrafterPolicyError("draft or target token is invalid")
         if draft != target:
             return index
-    return EXPECTED_DRAFT_TOKEN_COUNT
+    return len(drafts)
 
 
 def evaluate_mtp_drafter(

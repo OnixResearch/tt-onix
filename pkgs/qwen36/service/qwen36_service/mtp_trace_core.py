@@ -12,7 +12,6 @@ from typing import Any
 
 from .mtp_drafter_core import (
     BLAKE3_HEX_LENGTH,
-    EXPECTED_DRAFT_TOKEN_COUNT,
     EXPECTED_MINIMUM_PROMPT_COUNT,
     EXPECTED_PCIE_DEVICE_IDS,
     FIRST_PROMPT_INDEX,
@@ -24,6 +23,8 @@ from .mtp_drafter_core import (
 )
 
 PROFILE_SCHEMA_VERSION = 1
+# Trace control stays pinned to the validated default draft width.
+EXPECTED_TRACE_DRAFT_COUNT = 3
 EAGER_DRAFT = "eager"
 TRACED_DRAFT = "traced"
 ROUTE_BLOCK = (EAGER_DRAFT, TRACED_DRAFT, TRACED_DRAFT, EAGER_DRAFT)
@@ -162,7 +163,7 @@ class MtpTraceProfile:
             raise MtpTracePolicyError("MTP trace control must be diagnostic-only")
         if profile.expected_pcie_device_ids != EXPECTED_PCIE_DEVICE_IDS:
             raise MtpTracePolicyError("MTP trace control requires devices 0 and 1")
-        if profile.draft_token_count != EXPECTED_DRAFT_TOKEN_COUNT:
+        if profile.draft_token_count != EXPECTED_TRACE_DRAFT_COUNT:
             raise MtpTracePolicyError("MTP trace control requires three drafts")
         if profile.minimum_prompt_count != EXPECTED_MINIMUM_PROMPT_COUNT:
             raise MtpTracePolicyError("MTP trace control requires five prompts")

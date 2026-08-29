@@ -23,7 +23,9 @@ TRACE_COMMAND_QUEUE_ID = 0
 TRACE_BLOCKING_REPLAY = True
 EXPECTED_DEVICE_INPUT_COUNT = 4
 MUTABLE_DEVICE_INPUT_COUNT = 3
-EXPECTED_DECODE_STEP_COUNT = 2
+DEFAULT_DECODE_STEP_COUNT = 2
+MINIMUM_DRAFT_STEP_COUNT = 1
+MAXIMUM_DRAFT_STEP_COUNT = 5
 MAXIMUM_CONTROLLED_STEP_COUNT = 4
 MINIMUM_TOKEN_ID = 0
 MINIMUM_POSITION = 0
@@ -99,14 +101,21 @@ class TracedMtpDraftAdapter:
         initial_token: int,
         initial_feedback: Any,
         start_position: int,
-        step_count: int = EXPECTED_DECODE_STEP_COUNT,
+        step_count: int = DEFAULT_DECODE_STEP_COUNT,
         rollback_context: Any | None = None,
         progress: Callable[[str], None] | None = None,
     ) -> MtpTraceReplayResult:
         """Capture once, replay each draft step, and return bounded winners."""
         self._require_open()
-        if step_count != EXPECTED_DECODE_STEP_COUNT:
-            raise MtpTraceAdapterError("MTP trace requires exactly two decode steps")
+        if not (
+            MINIMUM_DRAFT_STEP_COUNT
+            <= step_count
+            <= MAXIMUM_DRAFT_STEP_COUNT
+        ):
+            raise MtpTraceAdapterError(
+                "MTP trace step count must lie between "
+                f"{MINIMUM_DRAFT_STEP_COUNT} and {MAXIMUM_DRAFT_STEP_COUNT}"
+            )
         self._validate_token(initial_token)
         if start_position < MINIMUM_POSITION:
             raise MtpTraceAdapterError("MTP trace start position is negative")

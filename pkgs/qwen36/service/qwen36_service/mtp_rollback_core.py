@@ -13,7 +13,6 @@ from typing import Any
 
 from .mtp_drafter_core import (
     BLAKE3_HEX_LENGTH,
-    EXPECTED_DRAFT_TOKEN_COUNT,
     EXPECTED_MINIMUM_PROMPT_COUNT,
     EXPECTED_PCIE_DEVICE_IDS,
     FIRST_PROMPT_INDEX,
@@ -25,6 +24,8 @@ from .mtp_drafter_core import (
 )
 
 PROFILE_SCHEMA_VERSION = 2
+# Rollback control stays pinned to the validated default draft width.
+EXPECTED_ROLLBACK_DRAFT_COUNT = 3
 REPREFILL_RECOVERY = "reprefill"
 SNAPSHOT_RECOVERY = "snapshot"
 PERSISTENT_TRACED_RECOVERY = "persistent-traced"
@@ -40,9 +41,9 @@ EXPECTED_ROUTE_SCHEDULE = ROUTE_BLOCK * EXPECTED_ROUTE_BLOCK_COUNT
 EXPECTED_ROOTS_PER_PROMPT = len(EXPECTED_ROUTE_SCHEDULE)
 EXPECTED_ROOTS_PER_ROUTE = EXPECTED_ROOTS_PER_PROMPT // 2
 MINIMUM_SAMPLES_PER_ROUTE = 5
-EXPECTED_SNAPSHOT_ROW_COUNT = EXPECTED_DRAFT_TOKEN_COUNT - 1
+EXPECTED_SNAPSHOT_ROW_COUNT = EXPECTED_ROLLBACK_DRAFT_COUNT - 1
 EXPECTED_COMMITTED_ADVANCE_COUNT = 1
-REQUIRED_ACCEPTANCE_LENGTHS = (0, EXPECTED_DRAFT_TOKEN_COUNT)
+REQUIRED_ACCEPTANCE_LENGTHS = (0, EXPECTED_ROLLBACK_DRAFT_COUNT)
 FIRST_ROOT_INDEX = 1
 MINIMUM_TOKEN_ID = 0
 ZERO_DURATION_SECONDS = 0.0
@@ -198,7 +199,7 @@ class MtpRollbackProfile:
             != EXPECTED_PROCESS_TRACE_CAPTURE_COUNT
         ):
             raise MtpRollbackPolicyError("MTP recovery must capture one process trace")
-        if profile.draft_token_count != EXPECTED_DRAFT_TOKEN_COUNT:
+        if profile.draft_token_count != EXPECTED_ROLLBACK_DRAFT_COUNT:
             raise MtpRollbackPolicyError("MTP rollback control requires three drafts")
         if profile.minimum_prompt_count != EXPECTED_MINIMUM_PROMPT_COUNT:
             raise MtpRollbackPolicyError("MTP rollback control requires five prompts")

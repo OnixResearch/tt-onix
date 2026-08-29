@@ -2388,13 +2388,46 @@ def probe_mtp_drafter():
         "negative rollback duration was accepted",
     )
 
-    invalid_profile = {**profile_source, "draft_token_count": 2}
+    below_range_profile = {**profile_source, "draft_token_count": 1}
     try:
-        MtpDrafterProfile.from_mapping(invalid_profile)
+        MtpDrafterProfile.from_mapping(below_range_profile)
     except MtpDrafterPolicyError as error:
-        require("three drafts" in str(error), "wrong draft-count diagnostic")
+        require("between 2 and 6" in str(error), "wrong below-range draft diagnostic")
     else:
-        require(False, "invalid MTP drafter profile was accepted")
+        require(False, "below-range MTP drafter profile was accepted")
+
+    above_range_profile = {**profile_source, "draft_token_count": 7}
+    try:
+        MtpDrafterProfile.from_mapping(above_range_profile)
+    except MtpDrafterPolicyError as error:
+        require("between 2 and 6" in str(error), "wrong above-range draft diagnostic")
+    else:
+        require(False, "above-range MTP drafter profile was accepted")
+
+    mismatched_counts = ([1, 2], [1, 2, 3])
+    try:
+        accepted_prefix_length(*mismatched_counts)
+    except MtpDrafterPolicyError as error:
+        require("differs from draft count" in str(error), "wrong count diagnostic")
+    else:
+        require(False, "mismatched draft/target counts were accepted")
+
+    for rejected_width in (1, 7):
+        try:
+            accepted_prefix_length(list(range(rejected_width)), list(range(rejected_width)))
+        except MtpDrafterPolicyError as error:
+            require(
+                "outside the policy range" in str(error),
+                "wrong prefix-length range diagnostic",
+            )
+        else:
+            require(False, f"prefix width {rejected_width} was accepted")
+
+    wide_draft_tokens = tuple(range(5))
+    require(
+        accepted_prefix_length(wide_draft_tokens, wide_draft_tokens) == 5,
+        "wide matching drafts lost acceptance",
+    )
 
     adapter_source = Path(
         __import__(
@@ -3919,9 +3952,9 @@ def probe_mtp_recovery_prewarmed_control():
         MtpDrafterCommandError,
         _MtpRecoveryControlProgressWriter,
     )
-    from qwen36_service.mtp_drafter_core import EXPECTED_DRAFT_TOKEN_COUNT
     from qwen36_service.mtp_rollback_core import (
         EXPECTED_ROUTE_SCHEDULE,
+        EXPECTED_ROLLBACK_DRAFT_COUNT,
         SNAPSHOT_RECOVERY,
     )
 
@@ -3933,7 +3966,7 @@ def probe_mtp_recovery_prewarmed_control():
     )
     token_start = recovery_core.MINIMUM_PROMPT_INDEX
     draft_token_ids = tuple(
-        range(token_start, token_start + EXPECTED_DRAFT_TOKEN_COUNT)
+        range(token_start, token_start + EXPECTED_ROLLBACK_DRAFT_COUNT)
     )
     target_token_ids = draft_token_ids
     target_verification_token_ids = (*target_token_ids, target_token_ids[-1])
