@@ -270,6 +270,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-export/mtp-trace-contracts.ncl
     nickel export --format json mtp-trace-profile-export/mtp-trace-profile.ncl \
       > "$out/share/qwen36/mtp-trace-profile.json"
+    cp ${./mtp-trace-profile-k4.ncl} mtp-trace-profile-export/mtp-trace-profile-k4.ncl
+    nickel export --format json mtp-trace-profile-export/mtp-trace-profile-k4.ncl \
+      > "$out/share/qwen36/mtp-trace-profile-k4.json"
     mkdir -p mtp-rollback-profile-export
     cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-export/mtp-rollback-profile.ncl
     cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-export/mtp-rollback-contracts.ncl

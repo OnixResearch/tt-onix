@@ -1,7 +1,8 @@
 # Typed fail-closed policy for matched MTP draft tracing.
 let expected_schema_version = 1 in
 let expected_pcie_device_ids = [0, 1] in
-let expected_draft_token_count = 3 in
+let minimum_draft_token_count = 2 in
+let maximum_draft_token_count = 6 in
 let expected_minimum_prompt_count = 5 in
 let expected_route_block_count = 3 in
 let expected_minimum_samples_per_route = 6 in
@@ -26,6 +27,13 @@ let RevisionC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.is_match "^[0-9a-f]{40}$" value
 ) in
 let ExactC = fun expected => std.contract.from_predicate (fun value => value == expected) in
+let DraftCountC = std.contract.from_predicate (fun value =>
+  std.is_number value
+  && std.number.is_integer value
+  && value > 0
+  && value >= minimum_draft_token_count
+  && value <= maximum_draft_token_count
+) in
 let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
   std.is_record value
   && std.array.length (std.record.fields value) == std.array.length allowed
@@ -60,7 +68,7 @@ let ProfileC = {
   diagnostic_only | ExactC true,
   identities | IdentityClosedC | IdentityC,
   expected_pcie_device_ids | DeviceArrayC,
-  draft_token_count | ExactC expected_draft_token_count,
+  draft_token_count | DraftCountC,
   minimum_prompt_count | ExactC expected_minimum_prompt_count,
   route_block_count | ExactC expected_route_block_count,
   minimum_samples_per_route | ExactC expected_minimum_samples_per_route,
