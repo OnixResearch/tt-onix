@@ -24,7 +24,9 @@ from safetensors import safe_open
 from . import mtp_stage_core as stage_core
 from .decode_adapter import TracedDecodeAdapter
 from .mtp_drafter_core import (
+    EXPECTED_MTP_SCALE_WEIGHT_SHAPES,
     EXPECTED_MTP_WEIGHT_SHAPES,
+    MTP_DEQUANT_BLOCK_SIZE,
     MtpDrafterProfile,
     accepted_prefix_length,
     validate_mtp_weight_shapes,
@@ -629,6 +631,7 @@ class MtpDrafterAdapter:
             weights = {
                 name: shard.get_tensor(name) for name in EXPECTED_MTP_WEIGHT_SHAPES
             }
+        weights = _dequantize_fp8_weights(weights)
         self._weight_shapes = observed
 
         cache_root = (
@@ -1210,6 +1213,49 @@ class MtpDrafterAdapter:
 def _report(progress: Callable[[str], None] | None, stage: str) -> None:
     if progress is not None:
         progress(stage)
+
+
+def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Return bf16 weights, dequantizing the fp8 block-scaled checkpoint form.
+
+    The served checkpoint stores linear weights as F8_E4M3 with BF16 inverse
+    scales over fixed 128-element blocks. A bf16 checkpoint carries no scale
+    keys and passes through untouched. Anything else fails closed: an fp8
+    weight without its scale, a bf16 weight next to a scale, or an unexpected
+    dtype would silently corrupt draft numerics.
+    """
+    scale_names = set(EXPECTED_MTP_SCALE_WEIGHT_SHAPES)
+    has_scales = scale_names.intersection(weights)
+    if not has_scales:
+        return weights
+    if has_scales != scale_names:
+        missing = sorted(scale_names - has_scales)
+        raise MtpDrafterAdapterError(
+            f"fp8 MTP checkpoint is missing block scales: {missing}"
+        )
+    block = MTP_DEQUANT_BLOCK_SIZE
+    dequantized = dict(weights)
+    for name, scale_name in (
+        (weight_name, f"{weight_name.removesuffix('.weight')}.weight_scale_inv")
+        for weight_name in EXPECTED_MTP_WEIGHT_SHAPES
+        if f"{weight_name.removesuffix('.weight')}.weight_scale_inv"
+        in scale_names
+    ):
+        raw = weights[name]
+        if raw.dtype != torch.float8_e4m3fn:
+            raise MtpDrafterAdapterError(
+                f"fp8 MTP weight {name} has unexpected dtype {raw.dtype}"
+            )
+        scale = weights[scale_name]
+        rows, columns = raw.shape
+        dequantized[name] = (
+            raw.to(torch.float32)
+            * scale.to(torch.float32)
+            .repeat_interleave(block, dim=0)[:rows, :]
+            .repeat_interleave(block, dim=1)[:, :columns]
+        ).to(torch.bfloat16)
+        del dequantized[scale_name]
+    return dequantized
 
 
 def _deallocate_tensors(tensors: Any) -> None:

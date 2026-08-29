@@ -2250,6 +2250,39 @@ def probe_mtp_drafter():
     else:
         require(False, "missing MTP weight was accepted")
 
+    from qwen36_service.mtp_drafter_core import (
+        EXPECTED_MTP_SCALE_WEIGHT_SHAPES,
+        EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION,
+    )
+
+    fp8_observed = {
+        **EXPECTED_MTP_WEIGHT_SHAPES,
+        **EXPECTED_MTP_SCALE_WEIGHT_SHAPES,
+    }
+    validate_mtp_weight_shapes(fp8_observed)
+    require(
+        set(EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION) == set(fp8_observed),
+        "fp8 scale union diverged from its parts",
+    )
+    for name, shape in EXPECTED_MTP_SCALE_WEIGHT_SHAPES.items():
+        base = name.removesuffix(".weight_scale_inv") + ".weight"
+        base_shape = EXPECTED_MTP_WEIGHT_SHAPES[base]
+        require(
+            shape == (base_shape[0] // 128, base_shape[1] // 128),
+            f"MTP scale grid {name} left the 128 block bound",
+        )
+
+    orphan_scale = {
+        **fp8_observed,
+        "mtp.layers.0.extra.weight_scale_inv": (1, 1),
+    }
+    try:
+        validate_mtp_weight_shapes(orphan_scale)
+    except MtpDrafterPolicyError as error:
+        require("extra=" in str(error), "wrong orphan-scale diagnostic")
+    else:
+        require(False, "orphan MTP scale key was accepted")
+
     shape_drift = dict(EXPECTED_MTP_WEIGHT_SHAPES)
     drift_name = "mtp.fc.weight"
     drift_shape = shape_drift[drift_name]

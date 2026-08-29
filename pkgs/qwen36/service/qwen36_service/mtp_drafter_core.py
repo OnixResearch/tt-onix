@@ -61,6 +61,22 @@ EXPECTED_MTP_WEIGHT_SHAPES: dict[str, tuple[int, ...]] = {
     "mtp.pre_fc_norm_hidden.weight": (MTP_HIDDEN_SIZE,),
 }
 
+# The served fp8 checkpoint stores per-linear inverse block scales beside the
+# F8_E4M3 weights. The scale grid is the weight shape cut by the quant block.
+MTP_DEQUANT_BLOCK_SIZE = 128
+EXPECTED_MTP_SCALE_WEIGHT_SHAPES: dict[str, tuple[int, ...]] = {
+    f"{name.removesuffix('.weight')}.weight_scale_inv": (
+        shape[0] // MTP_DEQUANT_BLOCK_SIZE,
+        shape[1] // MTP_DEQUANT_BLOCK_SIZE,
+    )
+    for name, shape in EXPECTED_MTP_WEIGHT_SHAPES.items()
+    if name.startswith("mtp.layers.0.") and len(shape) == 2
+}
+EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION: dict[str, tuple[int, ...]] = {
+    **EXPECTED_MTP_WEIGHT_SHAPES,
+    **EXPECTED_MTP_SCALE_WEIGHT_SHAPES,
+}
+
 
 class MtpDrafterPolicyError(ValueError):
     """The MTP drafter input does not satisfy its closed policy."""
@@ -239,15 +255,19 @@ def validate_mtp_weight_shapes(
     observed: Mapping[str, tuple[int, ...]],
 ) -> None:
     """Reject missing, extra, or shape-drifted MTP tensors."""
-    expected_keys = set(EXPECTED_MTP_WEIGHT_SHAPES)
-    observed_keys = set(observed)
-    if observed_keys != expected_keys:
+    if set(observed) == set(EXPECTED_MTP_WEIGHT_SHAPES):
+        expected = EXPECTED_MTP_WEIGHT_SHAPES
+    elif set(observed) == set(EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION):
+        expected = EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION
+    else:
+        expected_keys = set(EXPECTED_MTP_SCALE_WEIGHT_SHAPES_UNION)
+        observed_keys = set(observed)
         missing = sorted(expected_keys - observed_keys)
         extra = sorted(observed_keys - expected_keys)
         raise MtpDrafterPolicyError(
             f"MTP weight keys differ: missing={missing}, extra={extra}"
         )
-    for name, expected_shape in EXPECTED_MTP_WEIGHT_SHAPES.items():
+    for name, expected_shape in expected.items():
         if tuple(observed[name]) != expected_shape:
             raise MtpDrafterPolicyError(
                 f"MTP weight shape differs for {name}: "
