@@ -59,7 +59,9 @@ TOKEN_DIMENSION = 1
 LAST_DIMENSION = -1
 MTP_PREFILL_BUCKET = 128
 MTP_REFERENCE_FULL_ATTENTION_LAYER = 63
-TARGET_VERIFICATION_WIDTH = 4
+# The sequential control run and the verifier must cover draft_token_count + 1
+# rows (every draft plus the bonus token), so the width derives from the
+# profile instead of the k=3-era constant.
 EXPECTED_MTP_CACHE_TENSOR_COUNT = 4
 QK_STREAM_COUNT = 2
 RMS_NORM_EPSILON = 1.0e-6
@@ -174,7 +176,9 @@ class MtpDrafterAdapter:
         self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
-            maximum_width=TARGET_VERIFICATION_WIDTH,
+            maximum_width=(
+                self.profile.draft_token_count + PROBE_BATCH_SIZE
+            ),
             trace_capture_timeout_seconds=(
                 decode_adapter.profile.trace_capture_timeout_seconds
             ),
@@ -307,7 +311,9 @@ class MtpDrafterAdapter:
             )
         page_table = self.decode_adapter.prefill_page_table(
             prompt_tokens=prompt_length,
-            generation_tokens=TARGET_VERIFICATION_WIDTH,
+            generation_tokens=(
+                self.profile.draft_token_count + PROBE_BATCH_SIZE
+            ),
         )
         _report(progress, stage_core.TARGET_PREFILL_START)
         target_hidden, anchor = self._target_prefill_hidden(
@@ -357,7 +363,9 @@ class MtpDrafterAdapter:
         _report(progress, stage_core.TARGET_SEQUENTIAL_START)
         target_started = time.monotonic()
         try:
-            for offset in range(TARGET_VERIFICATION_WIDTH):
+            for offset in range(
+                self.profile.draft_token_count + PROBE_BATCH_SIZE
+            ):
                 sequential_inputs.append(current)
                 current = self.decode_adapter.decode_traced(
                     token=current,
