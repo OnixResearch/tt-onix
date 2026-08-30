@@ -17,6 +17,7 @@ pattern.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .mtp_drafter_core import (
@@ -29,6 +30,39 @@ ROUND_MODE_PLAIN = "plain"
 ROUND_MODES = (ROUND_MODE_SPECULATIVE, ROUND_MODE_PLAIN)
 
 MINIMUM_TOKEN_ID = 0
+
+# A speculative round must beat the plain decode path it replaces. The plain
+# step budget is the measured eager/traced step cost on P150x2 (~59-63 ms);
+# a round may cost up to twice its emitted-token budget before it counts as
+# a loss, and two consecutive losses disengage speculation for the request.
+PLAIN_STEP_SECONDS_BUDGET = 0.12
+ECONOMICS_SLACK = 2.0
+ECONOMICS_DISENGAGE_STREAK = 2
+
+
+def round_economics_disengaged(
+    *,
+    round_seconds: float,
+    emitted_tokens: int,
+    consecutive_losses: int,
+) -> bool:
+    """Return whether this round ends the request's speculative streak."""
+    if isinstance(round_seconds, bool) or not isinstance(round_seconds, (int, float)):
+        raise MtpServingPolicyError("round_seconds must be a number")
+    if not math.isfinite(round_seconds) or round_seconds <= 0.0:
+        raise MtpServingPolicyError("round_seconds must be positive and finite")
+    if isinstance(emitted_tokens, bool) or not isinstance(emitted_tokens, int):
+        raise MtpServingPolicyError("emitted_tokens must be an integer")
+    if emitted_tokens < 1:
+        raise MtpServingPolicyError("emitted_tokens must be at least one")
+    if isinstance(consecutive_losses, bool) or not isinstance(consecutive_losses, int):
+        raise MtpServingPolicyError("consecutive_losses must be an integer")
+    if consecutive_losses < 0:
+        raise MtpServingPolicyError("consecutive_losses must not be negative")
+    budget = PLAIN_STEP_SECONDS_BUDGET * emitted_tokens * ECONOMICS_SLACK
+    if round_seconds <= budget:
+        return False
+    return consecutive_losses + 1 >= ECONOMICS_DISENGAGE_STREAK
 
 
 class MtpServingPolicyError(ValueError):

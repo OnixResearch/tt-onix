@@ -38,6 +38,8 @@ from .core import (
     parse_endpoint,
 )
 from .decode_adapter import DecodeAdapterError, TracedDecodeAdapter
+from .mtp_drafter_core import MtpDrafterProfile
+from .mtp_trace_core import MtpTraceProfile
 from .decode_core import (
     DecodePolicyError,
     DecodeProfile,
@@ -120,6 +122,7 @@ class QwenEngine:
         model_alias: str,
         max_sequence_length: int,
         *,
+        model_path: str,
         decode_mode: str,
         decode_profile: DecodeProfile,
         runtime_identity: str,
@@ -132,14 +135,22 @@ class QwenEngine:
         trace_reuse_profile: TraceReuseProfile | None = None,
         trace_reuse_admission_enabled: bool = False,
         sampled_serving_enabled: bool = False,
+        mtp_serving_enabled: bool = False,
+        mtp_drafter_profile: Any | None = None,
+        mtp_trace_profile: Any | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.model_alias = model_alias
         self.max_sequence_length = max_sequence_length
+        self.model_path = model_path
         self.decode_mode = decode_mode
         self.decode_profile = decode_profile
         self.sampled_serving_enabled = sampled_serving_enabled
+        self.mtp_serving_enabled = mtp_serving_enabled
+        self._mtp_drafter: Any | None = None
+        self._mtp_drafter_profile = mtp_drafter_profile
+        self._mtp_trace_profile = mtp_trace_profile
         self.runtime_identity = runtime_identity
         self.package_identity = package_identity
         self.model_identity = model_identity
@@ -456,6 +467,57 @@ class QwenEngine:
         )
 
     @staticmethod
+    def _ensure_mtp_drafter(self) -> Any:
+        """Construct the MTP drafter once, gated and lazily, on first use."""
+        if self._mtp_drafter is None:
+            from .mtp_drafter_adapter import MtpDrafterAdapter
+
+            if self._decode_adapter is None:
+                raise RuntimeError(
+                    "MTP serving requires the traced decode adapter"
+                )
+            if self._mtp_drafter_profile is None or self._mtp_trace_profile is None:
+                raise RuntimeError(
+                    "MTP serving requires the drafter and trace profiles"
+                )
+            self._mtp_drafter = MtpDrafterAdapter(
+                model=self.model,
+                decode_adapter=self._decode_adapter,
+                model_path=self.model_path,
+                profile=self._mtp_drafter_profile,
+                trace_profile=self._mtp_trace_profile,
+            )
+        return self._mtp_drafter
+
+    def _run_mtp_generation(
+        self,
+        token_ids: torch.Tensor,
+        maximum_generation_tokens: int,
+        request_deadline: float,
+    ) -> tuple[list[int], dict[str, Any]]:
+        drafter = self._ensure_mtp_drafter()
+        result = drafter.run_speculative_completion(
+            prompt_tokens=token_ids,
+            maximum_generation_tokens=maximum_generation_tokens,
+            request_deadline=request_deadline,
+        )
+        generated_count = len(result["token_ids"])
+        decode_seconds = max(result["elapsed_seconds"], 1.0e-9)
+        perf = {
+            "decode_path": "mtp-speculative",
+            "decode_tok_s": (generated_count - 1) / decode_seconds,
+            "elapsed_seconds": result["elapsed_seconds"],
+            "fallback_reason": result["disengaged_reason"],
+            "measurement_mode": "gated-mtp-speculative-greedy",
+            "mtp_accepted_total": result["accepted_total"],
+            "mtp_disengaged_reason": result["disengaged_reason"],
+            "mtp_prefill_seconds": result["prefill_seconds"],
+            "mtp_rejected_rounds": result["rejected_rounds"],
+            "mtp_rounds": result["rounds"],
+            "profile_id": self.decode_profile.profile_id,
+        }
+        return list(result["token_ids"]), perf
+
     def _decode_metrics(
         decode_durations: list[float],
         prefill_metrics: dict[str, Any],
@@ -499,6 +561,53 @@ class QwenEngine:
         request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
+        if (
+            self.mtp_serving_enabled
+            and self._batch_coordinator is None
+            and request.temperature in (None, 0.0)
+        ):
+            generated, mtp_perf = self._run_mtp_generation(
+                token_ids,
+                request.max_tokens,
+                request_deadline,
+            )
+            generated_text = self.tokenizer.decode(
+                generated,
+                skip_special_tokens=True,
+            )
+            response = build_completion_response(
+                request=request,
+                request_id=request_id,
+                created=int(time.time()),
+                generated_text=generated_text,
+                prompt_token_count=prompt_token_count,
+                generated_token_count=len(generated),
+            )
+            response["x_onix_decode_evidence"] = {
+                "decode_path": mtp_perf["decode_path"],
+                "decode_tokens_per_second": mtp_perf["decode_tok_s"],
+                "elapsed_seconds": mtp_perf["elapsed_seconds"],
+                "fallback_reason": mtp_perf["fallback_reason"],
+                "generated_token_ids": generated,
+                "measurement_mode": mtp_perf["measurement_mode"],
+                "model_identity": self.model_identity,
+                "package_identity": self.package_identity,
+                "profile_id": self.decode_profile.profile_id,
+                "runtime_identity": self.runtime_identity,
+                "mtp_accepted_total": mtp_perf["mtp_accepted_total"],
+                "mtp_prefill_seconds": mtp_perf["mtp_prefill_seconds"],
+                "mtp_rejected_rounds": mtp_perf["mtp_rejected_rounds"],
+                "mtp_rounds": mtp_perf["mtp_rounds"],
+                "simulated": False,
+            }
+            emit(
+                "request-passed",
+                decode_path=mtp_perf["decode_path"],
+                generated_token_count=len(generated),
+                mtp_rounds=mtp_perf["mtp_rounds"],
+                request_id=request_id,
+            )
+            return response
         if self._batch_coordinator is not None:
             return self._batch_coordinator.generate(
                 request=request,
@@ -701,6 +810,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-admission", action="store_true")
     parser.add_argument("--trace-reuse-profile")
     parser.add_argument("--trace-reuse-admission", action="store_true")
+    parser.add_argument("--mtp-drafter-profile")
+    parser.add_argument("--mtp-trace-profile")
     parser.add_argument(
         "--decode-mode", choices=DECODE_MODES, default=DECODE_MODE_EAGER
     )
@@ -887,6 +998,7 @@ def main() -> None:
             tokenizer,
             args.model_alias,
             args.max_sequence_length,
+            model_path=args.model_path,
             decode_mode=args.decode_mode,
             decode_profile=decode_profile,
             runtime_identity=args.runtime_identity,
@@ -899,6 +1011,29 @@ def main() -> None:
             trace_reuse_profile=trace_reuse_profile,
             trace_reuse_admission_enabled=args.trace_reuse_admission,
             sampled_serving_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0") == "1",
+            mtp_serving_enabled=(
+                os.environ.get("QWEN36_MTP_SERVING", "0") == "1"
+                and args.mtp_drafter_profile is not None
+                and args.mtp_trace_profile is not None
+            ),
+            mtp_drafter_profile=(
+                MtpDrafterProfile.from_mapping(
+                    json.loads(
+                        Path(args.mtp_drafter_profile).read_text(encoding="utf-8")
+                    )
+                )
+                if args.mtp_drafter_profile is not None
+                else None
+            ),
+            mtp_trace_profile=(
+                MtpTraceProfile.from_mapping(
+                    json.loads(
+                        Path(args.mtp_trace_profile).read_text(encoding="utf-8")
+                    )
+                )
+                if args.mtp_trace_profile is not None
+                else None
+            ),
         )
         engine.warm_up()
         server = ThreadingHTTPServer(

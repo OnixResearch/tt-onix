@@ -50,6 +50,12 @@ from .mtp_rollback_core import (
     MtpRollbackProfile,
 )
 from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
+from .mtp_serving_core import (
+    ROUND_MODE_SPECULATIVE,
+    commit_verified_round,
+    plan_round,
+    round_economics_disengaged,
+)
 from .mtp_trace_adapter import TracedMtpDraftAdapter
 from .mtp_trace_core import EAGER_DRAFT, TRACED_DRAFT, MtpTraceProfile
 from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
@@ -173,6 +179,7 @@ class MtpDrafterAdapter:
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
         self._recovery_trace_adapter: TracedMtpDraftAdapter | None = None
+        self._serving_trace_adapter: TracedMtpDraftAdapter | None = None
         self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
@@ -187,6 +194,9 @@ class MtpDrafterAdapter:
 
     def close(self) -> None:
         """Release the process-owned MTP recovery trace and caches."""
+        if self._serving_trace_adapter is not None:
+            self._serving_trace_adapter.close()
+            self._serving_trace_adapter = None
         if self._recovery_trace_adapter is not None:
             self._recovery_trace_adapter.close()
             self._recovery_trace_adapter = None
@@ -605,6 +615,186 @@ class MtpDrafterAdapter:
             ),
             weight_shapes=dict(self._weight_shapes),
         )
+
+    def run_speculative_completion(
+        self,
+        *,
+        prompt_tokens: torch.Tensor,
+        maximum_generation_tokens: int,
+        request_deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Run one greedy completion through chained speculative rounds.
+
+        Exactness contract: the emitted stream equals sequential greedy
+        output for every acceptance pattern, because each round verifies
+        the draft chain teacher-forced and commits only verified tokens
+        plus the continuation bonus. The economics guard disengages
+        speculation for the rest of the request when consecutive rounds
+        cost more than their emitted tokens justify; disengaged requests
+        finish on eager decode steps, which are exact.
+        """
+        if (
+            prompt_tokens.ndim != QK_STREAM_COUNT
+            or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
+        ):
+            raise MtpDrafterAdapterError(
+                "MTP serving prompt must have shape [1, tokens]"
+            )
+        prompt_tokens = prompt_tokens.to(torch.int32)
+        prompt_length = int(prompt_tokens.shape[TOKEN_DIMENSION])
+        if not MINIMUM_TOKEN_ID < prompt_length < MTP_PREFILL_BUCKET:
+            raise MtpDrafterAdapterError(
+                "MTP serving prompt length is outside the bucket"
+            )
+        draft_width = self.profile.draft_token_count
+        page_table = self.decode_adapter.prefill_page_table(
+            prompt_tokens=prompt_length,
+            generation_tokens=maximum_generation_tokens + draft_width + 1,
+        )
+        prefill_started = time.monotonic()
+        target_hidden, anchor = self._target_prefill_hidden(
+            prompt_tokens,
+            page_table,
+            prompt_length,
+        )
+        prefill_seconds = time.monotonic() - prefill_started
+        generated = [anchor]
+        current = anchor
+        position = prompt_length
+        rounds = 0
+        accepted_total = 0
+        rejected_rounds = 0
+        consecutive_economic_losses = 0
+        disengaged_reason: str | None = None
+        try:
+            first_draft, feedback, _ = self._mtp_prefill(
+                prompt_tokens,
+                target_hidden,
+                anchor,
+                prompt_length,
+                selector_mode=SHARD_LOCAL_TOP1,
+            )
+        finally:
+            ttnn.deallocate(target_hidden)
+
+        placeholder = tuple(
+            anchor if index == 0 else MINIMUM_TOKEN_ID
+            for index in range(draft_width + 1)
+        )
+        self._native_verifier.capture_persistent(
+            placeholder,
+            start_position=prompt_length,
+            page_table=page_table,
+        )
+        try:
+            while len(generated) < maximum_generation_tokens:
+                if (
+                    request_deadline is not None
+                    and time.monotonic() > request_deadline
+                ):
+                    disengaged_reason = "request-deadline"
+                    break
+                plan = plan_round(
+                    tokens_generated=len(generated),
+                    maximum_generation_tokens=maximum_generation_tokens,
+                    draft_token_count=draft_width,
+                )
+                if plan.mode != ROUND_MODE_SPECULATIVE:
+                    break
+                assert self.trace_profile is not None
+                if self._serving_trace_adapter is None:
+                    self._serving_trace_adapter = TracedMtpDraftAdapter(
+                        owner=self,
+                        maximum_trace_capture_seconds=(
+                            self.trace_profile.maximum_trace_capture_seconds
+                        ),
+                        persistent=True,
+                    )
+                first_round = len(generated) <= 1
+                round_started = time.monotonic()
+                rollback_context = MtpRollbackContext.capture(
+                    owner=self,
+                    start_position=position,
+                    initial_feedback=feedback,
+                    row_count=(draft_width - 1) if first_round else draft_width,
+                )
+                try:
+                    if first_round:
+                        replay = self._serving_trace_adapter.run(
+                            initial_token=first_draft,
+                            initial_feedback=feedback,
+                            start_position=position,
+                            step_count=draft_width - 1,
+                        )
+                        drafts = tuple(
+                            [first_draft] + list(replay.token_ids)
+                        )
+                    else:
+                        replay = self._serving_trace_adapter.run(
+                            initial_token=current,
+                            initial_feedback=feedback,
+                            start_position=position,
+                            step_count=draft_width,
+                        )
+                        drafts = tuple(replay.token_ids)
+                    verification = self._native_verifier.replay_round(
+                        tuple([current] + list(drafts)),
+                        start_position=position,
+                    )
+                    commit = commit_verified_round(
+                        draft_token_ids=drafts,
+                        continuation_token_ids=verification.token_ids,
+                    )
+                except (
+                    AssertionError,
+                    OSError,
+                    RuntimeError,
+                    TypeError,
+                    ValueError,
+                ):
+                    rollback_context.close()
+                    raise
+                rounds += 1
+                round_seconds = time.monotonic() - round_started
+                generated.extend(commit.committed_token_ids)
+                accepted_total += commit.accepted
+                if commit.rejected:
+                    rejected_rounds += 1
+                    rollback_context.restore_rejected_rows(commit.accepted)
+                    feedback = rollback_context.feedback_for_prefix(
+                        commit.accepted
+                    )[0]
+                else:
+                    feedback = self._serving_trace_adapter._trace_feedback
+                rollback_context.close()
+                current = commit.committed_token_ids[-1]
+                position += len(commit.committed_token_ids)
+                if round_economics_disengaged(
+                    round_seconds=round_seconds,
+                    emitted_tokens=len(commit.committed_token_ids),
+                    consecutive_losses=consecutive_economic_losses,
+                ):
+                    consecutive_economic_losses += 1
+                    disengaged_reason = "round-economics"
+                    break
+                consecutive_economic_losses = 0
+            while len(generated) < maximum_generation_tokens:
+                token = self.decode_adapter.decode_eager(
+                    token=current,
+                    position=position,
+                )
+                generated.append(token)
+                current = token
+                position += 1
+        finally:
+            self._native_verifier.close_persistent()
+        return {
+            "token_ids": tuple(generated),
+            "rounds": rounds,
+            "accepted_total": accepted_total,
+            "rejected_rounds": rejected_rounds,
+            "disengaged_reason": disengaged_reason,
+        }
 
     def _load_mtp(self) -> None:
         index_path = self.model_path / "model.safetensors.index.json"

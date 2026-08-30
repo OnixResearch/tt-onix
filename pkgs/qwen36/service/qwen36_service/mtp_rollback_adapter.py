@@ -73,6 +73,7 @@ class MtpRollbackContext:
         cache_identity: tuple[tuple[int, ...], ...],
         row_snapshots: tuple[tuple[Any, ...], ...],
         prefix_feedback: tuple[Any, ...],
+        row_count: int,
     ) -> None:
         self.owner = owner
         self.mesh = owner.mesh
@@ -80,6 +81,7 @@ class MtpRollbackContext:
         self.cache_identity = cache_identity
         self.row_snapshots = row_snapshots
         self.prefix_feedback = prefix_feedback
+        self.row_count = row_count
         self._closed = False
 
     @classmethod
@@ -89,16 +91,19 @@ class MtpRollbackContext:
         owner: Any,
         start_position: int,
         initial_feedback: Any,
+        row_count: int = EXPECTED_SNAPSHOT_ROW_COUNT,
     ) -> MtpRollbackContext:
         """Allocate every rollback buffer before trace capture begins."""
         if start_position < MINIMUM_POSITION:
             raise MtpRollbackAdapterError("MTP rollback position is negative")
+        if row_count < 1:
+            raise MtpRollbackAdapterError("MTP rollback row count is invalid")
         caches = _mtp_caches(owner)
         cache_identity = tuple(_device_addresses(cache) for cache in caches)
         row_snapshots: list[tuple[Any, ...]] = []
         prefix_feedback: list[Any] = []
         try:
-            for offset in range(EXPECTED_SNAPSHOT_ROW_COUNT):
+            for offset in range(row_count):
                 position = start_position + offset
                 row_buffers = []
                 try:
@@ -117,7 +122,7 @@ class MtpRollbackContext:
                     raise
                 row_snapshots.append(tuple(row_buffers))
             prefix_feedback.append(ttnn.clone(initial_feedback))
-            for _index in range(EXPECTED_SNAPSHOT_ROW_COUNT):
+            for _index in range(row_count):
                 prefix_feedback.append(ttnn.clone(initial_feedback))
             return cls(
                 owner=owner,
@@ -125,6 +130,7 @@ class MtpRollbackContext:
                 cache_identity=cache_identity,
                 row_snapshots=tuple(row_snapshots),
                 prefix_feedback=tuple(prefix_feedback),
+                row_count=row_count,
             )
         except (AssertionError, OSError, RuntimeError, TypeError, ValueError) as error:
             _deallocate_nested(row_snapshots)
@@ -147,9 +153,9 @@ class MtpRollbackContext:
         caches = _mtp_caches(self.owner)
         first_rejected_row = min(
             accepted_prefix_length,
-            EXPECTED_SNAPSHOT_ROW_COUNT,
+            self.row_count,
         )
-        for offset in range(first_rejected_row, EXPECTED_SNAPSHOT_ROW_COUNT):
+        for offset in range(first_rejected_row, self.row_count):
             position = self.start_position + offset
             position_tensor = _position_tensor(self.owner, position)
             try:
@@ -171,7 +177,7 @@ class MtpRollbackContext:
         self._require_open()
         represented_prefix = min(
             accepted_prefix_length,
-            EXPECTED_SNAPSHOT_ROW_COUNT,
+            self.row_count,
         )
         return self.prefix_feedback[represented_prefix], represented_prefix
 

@@ -94,6 +94,273 @@ class NativeMtpVerifierAdapter:
         self.trace_capture_timeout_seconds = trace_capture_timeout_seconds
         # Single-resident capture state consumed by the trace-hygiene gate.
         self._hygiene_capture_resident = False
+        # Persistent serving mode: one captured trace, replayed per round.
+        self._persistent_trace_id: Any | None = None
+        self._persistent_width = 0
+        self._persistent_inputs: tuple[Any, ...] = ()
+        self._persistent_logits: Any | None = None
+        self._persistent_prefix_snapshots: tuple[tuple[_GdnPrefixSnapshot, ...], ...] = ()
+
+    def capture_persistent(
+        self,
+        input_token_ids: tuple[int, ...],
+        *,
+        start_position: int,
+        page_table: torch.Tensor,
+    ) -> float:
+        """Capture one reusable verification trace for a fixed row width.
+
+        The captured graph bakes every buffer address, so the caller keeps
+        this adapter alive for the request lifecycle and refreshes only the
+        mutable inputs per round via `replay_round`. Capture runs the warm
+        forward and the captured forward once and restores the model state
+        afterwards, leaving the device exactly as it was before capture.
+        """
+        if self._persistent_trace_id is not None:
+            raise NativeMtpVerifierError("persistent verifier is already captured")
+        width = len(input_token_ids)
+        if not MINIMUM_WIDTH <= width <= self.maximum_width:
+            raise NativeMtpVerifierError("native verifier width is outside policy")
+        self._validate_round_inputs(input_token_ids, start_position, page_table)
+        self._persistent_width = width
+
+        tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
+            width, MINIMUM_WIDTH
+        )
+        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        aliased_page_table = page_table.repeat(width, MINIMUM_WIDTH)
+        host_inputs = self.model.prepare_decode_inputs_host(
+            tokens,
+            positions,
+            page_table=aliased_page_table,
+        )
+        device_inputs = copy_host_to_device(
+            host_inputs,
+            mesh_device=self.model.mesh_device,
+        )
+        if len(device_inputs) != FOUR_DIMENSIONAL_TENSOR:
+            raise NativeMtpVerifierError("native verifier model inputs are incomplete")
+
+        snapshots = self._clone_gdn_state()
+        # Serving rounds reject often, so the per-row prefix state buffers are
+        # always captured. Each replay overwrites them with current states.
+        prefix_snapshots = self._clone_gdn_prefix_states(width)
+        trace_id = None
+        logits_device = None
+        try:
+            capture_started = time.monotonic()
+            warm_logits = self._forward_device(
+                device_inputs,
+                width,
+                prefix_snapshots=prefix_snapshots,
+            )
+            ttnn.synchronize_device(self.model.mesh_device)
+            ttnn.deallocate(warm_logits)
+            self._restore_gdn_state(snapshots)
+            ttnn.synchronize_device(self.model.mesh_device)
+
+            capture_input_identities = tuple(id(tensor) for tensor in device_inputs)
+            hygiene_reasons = validate_trace_capture_provenance(
+                TraceCaptureProvenance(
+                    resident_traces_before=1
+                    if self._hygiene_capture_resident
+                    else 0,
+                    warm_execution_completed=True,
+                    capture_from_zeroed_priming=False,
+                    trace_bound_addresses_stable=True,
+                )
+            )
+            if hygiene_reasons:
+                raise NativeMtpVerifierError(
+                    "persistent verifier trace capture hygiene failed: "
+                    + ", ".join(hygiene_reasons)
+                )
+            self._hygiene_capture_resident = True
+
+            trace_id = ttnn.begin_trace_capture(
+                self.model.mesh_device,
+                cq_id=TRACE_COMMAND_QUEUE_ID,
+            )
+            logits_device = self._forward_device(
+                device_inputs,
+                width,
+                prefix_snapshots=prefix_snapshots,
+            )
+            ttnn.end_trace_capture(
+                self.model.mesh_device,
+                trace_id,
+                cq_id=TRACE_COMMAND_QUEUE_ID,
+            )
+            ttnn.synchronize_device(self.model.mesh_device)
+            self._restore_gdn_state(snapshots)
+            ttnn.synchronize_device(self.model.mesh_device)
+            capture_seconds = time.monotonic() - capture_started
+            if (
+                not math.isfinite(capture_seconds)
+                or capture_seconds <= 0
+                or capture_seconds > self.trace_capture_timeout_seconds
+            ):
+                raise NativeMtpVerifierError(
+                    "persistent verifier trace capture exceeded its bound"
+                )
+            if tuple(id(tensor) for tensor in device_inputs) != capture_input_identities:
+                raise NativeMtpVerifierError(
+                    "persistent verifier trace-bound input addresses drifted"
+                )
+            self._deallocate_gdn_snapshots(snapshots)
+            self._persistent_trace_id = trace_id
+            self._persistent_inputs = tuple(device_inputs)
+            self._persistent_logits = logits_device
+            self._persistent_prefix_snapshots = prefix_snapshots
+            return capture_seconds
+        except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+            self._deallocate_gdn_snapshots(snapshots)
+            self._deallocate_gdn_prefix_states(prefix_snapshots)
+            if trace_id is not None:
+                try:
+                    ttnn.release_trace(self.model.mesh_device, trace_id)
+                except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
+                    pass
+            if logits_device is not None:
+                ttnn.deallocate(logits_device)
+            for tensor in device_inputs:
+                if tensor is not None:
+                    ttnn.deallocate(tensor)
+            self._persistent_trace_id = None
+            self._persistent_inputs = ()
+            self._persistent_logits = None
+            self._persistent_prefix_snapshots = ()
+            raise
+
+    def replay_round(
+        self,
+        input_token_ids: tuple[int, ...],
+        *,
+        start_position: int,
+        committed_width: int,
+    ) -> NativeVerificationResult:
+        """Replay the captured verification trace for one serving round.
+
+        Refreshes the mutable token, position, and RoPE inputs, replays the
+        captured graph (which writes the model's paged KV and GDN state for
+        every row), reads back the per-row argmax tokens, and restores the
+        prefix state snapshot when the round rejects drafts.
+        """
+        if self._persistent_trace_id is None:
+            raise NativeMtpVerifierError("persistent verifier is not captured")
+        width = self._persistent_width
+        if len(input_token_ids) != width:
+            raise NativeMtpVerifierError("persistent verifier width changed")
+        self._validate_round_inputs(input_token_ids, start_position, None)
+        if not MINIMUM_WIDTH <= committed_width <= width:
+            raise NativeMtpVerifierError(
+                "native verifier commit width is outside policy"
+            )
+
+        tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
+            width, MINIMUM_WIDTH
+        )
+        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        host_inputs = self.model.prepare_decode_inputs_host(
+            tokens,
+            positions,
+            page_table=None,
+        )
+        copy_host_to_device(
+            host_inputs[:MUTABLE_INPUT_COUNT],
+            device_tensors=list(self._persistent_inputs[:MUTABLE_INPUT_COUNT]),
+        )
+        device_started = time.monotonic()
+        ttnn.execute_trace(
+            self.model.mesh_device,
+            self._persistent_trace_id,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
+            blocking=TRACE_BLOCKING_REPLAY,
+        )
+        ttnn.synchronize_device(self.model.mesh_device)
+        device_seconds = time.monotonic() - device_started
+        if not math.isfinite(device_seconds) or device_seconds <= 0:
+            raise NativeMtpVerifierError("native verifier device duration is invalid")
+
+        readback_started = time.monotonic()
+        device_logits = ttnn.get_device_tensors(self._persistent_logits)
+        if not device_logits:
+            raise NativeMtpVerifierError("native verifier produced no logit replica")
+        logits = (
+            ttnn
+            .to_torch(device_logits[0])
+            .float()
+            .reshape(-1, self.model.args.vocab_size)[:width]
+            .clone()
+        )
+        readback_seconds = time.monotonic() - readback_started
+        if logits.shape != (width, self.model.args.vocab_size):
+            raise NativeMtpVerifierError("native verifier logits have the wrong shape")
+        if not torch.isfinite(logits).all():
+            raise NativeMtpVerifierError("native verifier logits are not finite")
+        token_ids = tuple(
+            int(torch.argmax(logits[row]).item()) for row in range(width)
+        )
+        rollback_seconds = ZERO_DURATION_SECONDS
+        if committed_width < width:
+            rollback_started = time.monotonic()
+            self._restore_gdn_prefix_state(
+                self._persistent_prefix_snapshots[committed_width - MINIMUM_WIDTH]
+            )
+            ttnn.synchronize_device(self.model.mesh_device)
+            rollback_seconds = time.monotonic() - rollback_started
+        return NativeVerificationResult(
+            token_ids=token_ids,
+            logits=logits,
+            trace_capture_seconds=ZERO_DURATION_SECONDS,
+            device_seconds=device_seconds,
+            readback_seconds=readback_seconds,
+            rollback_seconds=rollback_seconds,
+        )
+
+    def close_persistent(self) -> None:
+        """Release the persistent verification trace and its buffers."""
+        if self._persistent_trace_id is not None:
+            ttnn.release_trace(
+                self.model.mesh_device,
+                self._persistent_trace_id,
+            )
+            self._persistent_trace_id = None
+        self._persistent_width = 0
+        for tensor in self._persistent_inputs:
+            if tensor is not None:
+                ttnn.deallocate(tensor)
+        self._persistent_inputs = ()
+        if self._persistent_logits is not None:
+            ttnn.deallocate(self._persistent_logits)
+            self._persistent_logits = None
+        self._deallocate_gdn_prefix_states(self._persistent_prefix_snapshots)
+        self._persistent_prefix_snapshots = ()
+
+    def _validate_round_inputs(
+        self,
+        input_token_ids: tuple[int, ...],
+        start_position: int,
+        page_table: Any,
+    ) -> None:
+        if any(
+            isinstance(token, bool)
+            or not isinstance(token, int)
+            or not MINIMUM_TOKEN_ID <= token < self.model.args.vocab_size
+            for token in input_token_ids
+        ):
+            raise NativeMtpVerifierError("native verifier token is outside the vocabulary")
+        if start_position < MINIMUM_TOKEN_ID:
+            raise NativeMtpVerifierError("native verifier start position is negative")
+        if start_position + len(input_token_ids) > self.model.args.max_seq_len:
+            raise NativeMtpVerifierError(
+                "native verifier exceeds the model sequence bound"
+            )
+        if page_table is not None and (
+            page_table.ndim != QK_STREAM_COUNT
+            or page_table.shape[0] != MINIMUM_WIDTH
+        ):
+            raise NativeMtpVerifierError("native verifier page table must have one row")
 
     def run(
         self,
