@@ -5940,6 +5940,57 @@ def probe_mtp_serving_core():
     else:
         require(False, "list inputs were accepted")
 
+    # Watchdog: success passthrough, worker error re-raise, and hang
+    # detection fire the three outcomes the serving loop relies on.
+    import time as _time
+
+    from qwen36_service.mtp_serving_core import (
+        MtpServingRoundTimeout,
+        run_with_watchdog,
+    )
+
+    require(
+        run_with_watchdog(lambda: 5, seconds=1.0, stage="probe") == 5,
+        "watchdog dropped a completed value",
+    )
+
+    def _probe_boom():
+        raise RuntimeError("probe worker failure")
+
+    try:
+        run_with_watchdog(_probe_boom, seconds=1.0, stage="probe")
+    except RuntimeError as error:
+        require("probe worker failure" in str(error), "worker error wrapped")
+    else:
+        require(False, "worker error was swallowed")
+
+    def _probe_hang():
+        _time.sleep(2.0)
+
+    hang_started = _time.monotonic()
+    try:
+        run_with_watchdog(_probe_hang, seconds=0.2, stage="probe-hang")
+    except MtpServingRoundTimeout as error:
+        require("probe-hang" in str(error), "wrong hang diagnostic")
+        require(
+            _time.monotonic() - hang_started < 1.5,
+            "watchdog fired late",
+        )
+    else:
+        require(False, "hanging stage was accepted")
+
+    for args, kwargs, needle in (
+        ((lambda: None,), dict(seconds=0, stage="probe"), "positive"),
+        ((lambda: None,), dict(seconds=-1, stage="probe"), "positive"),
+        ((None,), dict(seconds=1.0, stage="probe"), "callable"),
+    ):
+        try:
+            run_with_watchdog(*args, **kwargs)
+        except MtpServingPolicyError as error:
+            require(needle in str(error), "wrong watchdog diagnostic")
+        else:
+            require(False, "invalid watchdog input was accepted")
+
 
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)

@@ -18,6 +18,7 @@ pattern.
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass
 
 from .mtp_drafter_core import (
@@ -67,6 +68,18 @@ def round_economics_disengaged(
 
 class MtpServingPolicyError(ValueError):
     """The serving round input does not satisfy its closed policy."""
+
+
+class MtpServingRoundTimeout(MtpServingPolicyError):
+    """A speculative stage exceeded its watchdog.
+
+    The device worker thread is abandoned; the process must exit so the
+    supervisor can reset the runtime. Device state after a watchdog timeout
+    is NOT exact for further decode.
+    """
+
+
+ROUND_WATCHDOG_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
@@ -195,3 +208,40 @@ def commit_verified_round(
         rejected=rejected,
         committed_token_ids=committed,
     )
+
+
+def run_with_watchdog(work, *, seconds: float, stage: str):
+    """Run `work` on a daemon thread; raise if it exceeds the watchdog.
+
+    A device call that hangs cannot be interrupted, so the watchdog abandons
+    the worker thread and raises `MtpServingRoundTimeout` with the stage
+    name. The abandoned thread keeps the device unusable, which is why a
+    watchdog timeout must end the process: the supervisor restarts the
+    runtime and the request fails closed instead of hanging forever.
+    """
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise MtpServingPolicyError("seconds must be a number")
+    if not math.isfinite(seconds) or seconds <= 0.0:
+        raise MtpServingPolicyError("seconds must be positive and finite")
+    if not callable(work):
+        raise MtpServingPolicyError("work must be callable")
+    outcome: dict = {}
+
+    def _runner() -> None:
+        try:
+            outcome["value"] = work()
+        except BaseException as error:  # re-raised on the calling thread
+            outcome["error"] = error
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    worker.join(timeout=seconds)
+    if worker.is_alive():
+        raise MtpServingRoundTimeout(
+            f"speculative stage '{stage}' exceeded the {seconds:.0f}s "
+            "watchdog; the device worker thread is abandoned and the "
+            "process must exit"
+        )
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")

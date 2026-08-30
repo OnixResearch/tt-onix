@@ -237,14 +237,14 @@ class NativeMtpVerifierAdapter:
         input_token_ids: tuple[int, ...],
         *,
         start_position: int,
-        committed_width: int,
     ) -> NativeVerificationResult:
         """Replay the captured verification trace for one serving round.
 
         Refreshes the mutable token, position, and RoPE inputs, replays the
         captured graph (which writes the model's paged KV and GDN state for
-        every row), reads back the per-row argmax tokens, and restores the
-        prefix state snapshot when the round rejects drafts.
+        every row), and reads back the per-row argmax tokens. The caller
+        commits from the argmax rows and calls `rollback_to_prefix` when
+        the round rejects drafts.
         """
         if self._persistent_trace_id is None:
             raise NativeMtpVerifierError("persistent verifier is not captured")
@@ -252,10 +252,6 @@ class NativeMtpVerifierAdapter:
         if len(input_token_ids) != width:
             raise NativeMtpVerifierError("persistent verifier width changed")
         self._validate_round_inputs(input_token_ids, start_position, None)
-        if not MINIMUM_WIDTH <= committed_width <= width:
-            raise NativeMtpVerifierError(
-                "native verifier commit width is outside policy"
-            )
 
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
@@ -302,13 +298,6 @@ class NativeMtpVerifierAdapter:
             int(torch.argmax(logits[row]).item()) for row in range(width)
         )
         rollback_seconds = ZERO_DURATION_SECONDS
-        if committed_width < width:
-            rollback_started = time.monotonic()
-            self._restore_gdn_prefix_state(
-                self._persistent_prefix_snapshots[committed_width - MINIMUM_WIDTH]
-            )
-            ttnn.synchronize_device(self.model.mesh_device)
-            rollback_seconds = time.monotonic() - rollback_started
         return NativeVerificationResult(
             token_ids=token_ids,
             logits=logits,
@@ -317,6 +306,19 @@ class NativeMtpVerifierAdapter:
             readback_seconds=readback_seconds,
             rollback_seconds=rollback_seconds,
         )
+
+    def rollback_to_prefix(self, accepted: int) -> None:
+        """Restore GDN state through the accepted prefix rows.
+
+        Prefix snapshot index `accepted` holds the state after consuming
+        rows `0..accepted` - the seed row plus the accepted drafts.
+        """
+        if self._persistent_trace_id is None:
+            raise NativeMtpVerifierError("persistent verifier is not captured")
+        self._restore_gdn_prefix_state(
+            self._persistent_prefix_snapshots[accepted]
+        )
+        ttnn.synchronize_device(self.model.mesh_device)
 
     def close_persistent(self) -> None:
         """Release the persistent verification trace and its buffers."""
