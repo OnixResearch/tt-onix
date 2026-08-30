@@ -466,7 +466,6 @@ class QwenEngine:
             trace_prepare_seconds=trace_prepare_seconds,
         )
 
-    @staticmethod
     def _ensure_mtp_drafter(self) -> Any:
         """Construct the MTP drafter once, gated and lazily, on first use."""
         if self._mtp_drafter is None:
