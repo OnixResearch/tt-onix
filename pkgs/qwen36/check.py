@@ -5782,6 +5782,165 @@ def probe_sampled_decode():
         raise AssertionError("duplicate tokens were merged")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+def probe_mtp_serving_core():
+    """Positive and negative tests for the gated serving round policy."""
+    from qwen36_service.mtp_drafter_core import (
+        MAXIMUM_DRAFT_TOKEN_COUNT,
+        MINIMUM_DRAFT_TOKEN_COUNT,
+    )
+    from qwen36_service.mtp_serving_core import (
+        MtpServingPolicyError,
+        ROUND_MODE_PLAIN,
+        ROUND_MODE_SPECULATIVE,
+        commit_verified_round,
+        plan_round,
+    )
+
+    # Scheduling: speculative strictly inside the generation tail.
+    plan = plan_round(
+        tokens_generated=0,
+        maximum_generation_tokens=64,
+        draft_token_count=3,
+    )
+    require(
+        plan.mode == ROUND_MODE_SPECULATIVE and plan.draft_token_count == 3,
+        "early round was not speculative",
+    )
+    boundary = plan_round(
+        tokens_generated=60,
+        maximum_generation_tokens=64,
+        draft_token_count=3,
+    )
+    require(
+        boundary.mode == ROUND_MODE_SPECULATIVE,
+        "remaining == k+1 was not speculative",
+    )
+    tail = plan_round(
+        tokens_generated=61,
+        maximum_generation_tokens=64,
+        draft_token_count=3,
+    )
+    require(
+        tail.mode == ROUND_MODE_PLAIN and tail.draft_token_count == 0,
+        "remaining == k was not plain",
+    )
+    done = plan_round(
+        tokens_generated=64,
+        maximum_generation_tokens=64,
+        draft_token_count=3,
+    )
+    require(done.mode == ROUND_MODE_PLAIN, "exhausted request was not plain")
+    for width in (MINIMUM_DRAFT_TOKEN_COUNT, MAXIMUM_DRAFT_TOKEN_COUNT):
+        edge = plan_round(
+            tokens_generated=0,
+            maximum_generation_tokens=width + 1,
+            draft_token_count=width,
+        )
+        require(
+            edge.mode == ROUND_MODE_SPECULATIVE,
+            f"width {width} boundary was not speculative",
+        )
+
+    # Scheduling negatives.
+    for kwargs, needle in (
+        (
+            dict(tokens_generated=-1, maximum_generation_tokens=64, draft_token_count=3),
+            "tokens_generated must not be negative",
+        ),
+        (
+            dict(tokens_generated=65, maximum_generation_tokens=64, draft_token_count=3),
+            "exceeds maximum_generation_tokens",
+        ),
+        (
+            dict(tokens_generated=0, maximum_generation_tokens=64, draft_token_count=1),
+            "between 2 and 6",
+        ),
+        (
+            dict(tokens_generated=0, maximum_generation_tokens=64, draft_token_count=7),
+            "between 2 and 6",
+        ),
+        (
+            dict(tokens_generated=True, maximum_generation_tokens=64, draft_token_count=3),
+            "must be an integer",
+        ),
+        (
+            dict(tokens_generated=0, maximum_generation_tokens=-5, draft_token_count=3),
+            "maximum_generation_tokens must not be negative",
+        ),
+    ):
+        try:
+            plan_round(**kwargs)
+        except MtpServingPolicyError as error:
+            require(needle in str(error), f"wrong schedule diagnostic: {error}")
+        else:
+            require(False, f"invalid schedule was accepted: {kwargs}")
+
+    # Exactness property: committed streams equal a reference sequential
+    # stream for every acceptance pattern and every round start. The
+    # continuation carries the window's sequential outputs plus one.
+    sequential = (101, 102, 103, 104, 105, 106, 107)
+    width = 3
+    for start in range(0, len(sequential) - width):
+        continuation = sequential[start : start + width + 1]
+        for corrupt in (None, 0, 1, 2):
+            drafts = list(continuation[:width])
+            if corrupt is not None:
+                drafts[corrupt] = 999999
+            commit = commit_verified_round(
+                draft_token_ids=tuple(drafts),
+                continuation_token_ids=continuation,
+            )
+            expected_accept = width if corrupt is None else corrupt
+            expected = (
+                sequential[start : start + expected_accept]
+                + (sequential[start + expected_accept],)
+            )
+            require(
+                commit.committed_token_ids == expected,
+                f"commit at start {start} corrupt {corrupt} diverged",
+            )
+            require(
+                commit.accepted == expected_accept,
+                "commit accepted count diverged",
+            )
+            require(
+                commit.rejected == (corrupt is not None),
+                "commit rejection flag diverged",
+            )
+
+    # Commit negatives.
+    for drafts, continuation, needle in (
+        ((11, 12), (11, 12, 13, 14), "differs from draft count plus one"),
+        ((11, 12, 13), (11, 12, 13), "differs from draft count plus one"),
+        ((11,), (11,), "outside the policy range"),
+        (
+            tuple(range(7)),
+            tuple(range(8)),
+            "outside the policy range",
+        ),
+        ((11, -2), (11, -2, 13), "negative token"),
+        ((11, True), (11, 12, 13), "non-integer token"),
+    ):
+        try:
+            commit_verified_round(
+                draft_token_ids=drafts, continuation_token_ids=continuation
+            )
+        except MtpServingPolicyError as error:
+            require(needle in str(error), f"wrong commit diagnostic: {error}")
+        else:
+            require(False, f"invalid commit was accepted: {drafts}")
+
+    try:
+        commit_verified_round(
+            draft_token_ids=[11, 12], continuation_token_ids=[11, 12, 13]
+        )
+    except MtpServingPolicyError as error:
+        require("must be a tuple" in str(error), "wrong tuple diagnostic")
+    else:
+        require(False, "list inputs were accepted")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -5820,6 +5979,7 @@ def main():
     probe("kernel distribution probe builder", probe_kernel_distribution_probe)
     probe("sampled-mode router", probe_sampled_mode_router)
     probe("sampled decode", probe_sampled_decode)
+    probe("MTP serving round policy", probe_mtp_serving_core)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
