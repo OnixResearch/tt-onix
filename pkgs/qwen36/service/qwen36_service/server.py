@@ -569,7 +569,6 @@ class QwenEngine:
         request_deadline = started + self.decode_profile.request_timeout_seconds
         if (
             self.mtp_serving_enabled
-            and self._batch_coordinator is None
             and request.temperature in (None, 0.0)
         ):
             generated, mtp_perf = self._run_mtp_generation(
