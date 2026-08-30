@@ -472,13 +472,19 @@ class QwenEngine:
         if self._mtp_drafter is None:
             from .mtp_drafter_adapter import MtpDrafterAdapter
 
-            if self._decode_adapter is None:
-                raise RuntimeError(
-                    "MTP serving requires the traced decode adapter"
-                )
             if self._mtp_drafter_profile is None or self._mtp_trace_profile is None:
                 raise RuntimeError(
                     "MTP serving requires the drafter and trace profiles"
+                )
+            if self._decode_adapter is None:
+                self._decode_adapter = TracedDecodeAdapter(
+                    model=self.model,
+                    profile=self.decode_profile,
+                    runtime_identity=self.runtime_identity,
+                    package_identity=self.package_identity,
+                    model_identity=self.model_identity,
+                    slot_id="mtp-serving-slot",
+                    buffer_generation=1,
                 )
             self._mtp_drafter = MtpDrafterAdapter(
                 model=self.model,
