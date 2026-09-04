@@ -1,0 +1,163 @@
+{
+  "actions": [
+    {
+      "destination": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml",
+      "destination_hash": null,
+      "source": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml",
+      "source_hash": "7e692578894f17c66f01777b3c266279267815db3363551a6c82a8ef05ebfe79"
+    },
+    {
+      "destination": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/design.md",
+      "destination_hash": null,
+      "source": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/design.md",
+      "source_hash": "7d3ee813ac54fbe3e2ef8092c6954b3ae7c68962cf18b5f4e9a2803b45989412"
+    },
+    {
+      "destination": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/proposal.md",
+      "destination_hash": null,
+      "source": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/proposal.md",
+      "source_hash": "07ce85258e645354ac402fc227363acae20645f195008320d8a40a084d544e2c"
+    },
+    {
+      "destination": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md",
+      "destination_hash": null,
+      "source": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md",
+      "source_hash": "675315e90554b7d20fe1499bb31a8154a1a4b2edef7db99b1045259f1a616245"
+    },
+    {
+      "destination": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/tasks.md",
+      "destination_hash": null,
+      "source": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/tasks.md",
+      "source_hash": "a5938189eee0f2cc900c381cab36c8edd9e4c7a967594e8b00ee1844d70d9943"
+    }
+  ],
+  "blocked": false,
+  "command": "migrate_openspec",
+  "conflicts": [],
+  "destination_layout": "cairn",
+  "destination_manifest_hash": "388ac6c2cf9aed8f83dc4fc55870467fb2cb0a6fe1e1b7247aa0ab0d6fc72b30",
+  "dry_run": false,
+  "manifest_hash": "8020911033b6535ffa780d1513f3e39396a4f0be40f55c530d5640a338700925",
+  "mutated": true,
+  "mutation_manifest": {
+    "after": {
+      "entries": [
+        {
+          "content_hash": "7e692578894f17c66f01777b3c266279267815db3363551a6c82a8ef05ebfe79",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml"
+        },
+        {
+          "content_hash": "7d3ee813ac54fbe3e2ef8092c6954b3ae7c68962cf18b5f4e9a2803b45989412",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/design.md"
+        },
+        {
+          "content_hash": "07ce85258e645354ac402fc227363acae20645f195008320d8a40a084d544e2c",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/proposal.md"
+        },
+        {
+          "content_hash": "675315e90554b7d20fe1499bb31a8154a1a4b2edef7db99b1045259f1a616245",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md"
+        },
+        {
+          "content_hash": "a5938189eee0f2cc900c381cab36c8edd9e4c7a967594e8b00ee1844d70d9943",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/tasks.md"
+        },
+        {
+          "content_hash": "7e692578894f17c66f01777b3c266279267815db3363551a6c82a8ef05ebfe79",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml"
+        },
+        {
+          "content_hash": "7d3ee813ac54fbe3e2ef8092c6954b3ae7c68962cf18b5f4e9a2803b45989412",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/design.md"
+        },
+        {
+          "content_hash": "07ce85258e645354ac402fc227363acae20645f195008320d8a40a084d544e2c",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/proposal.md"
+        },
+        {
+          "content_hash": "675315e90554b7d20fe1499bb31a8154a1a4b2edef7db99b1045259f1a616245",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md"
+        },
+        {
+          "content_hash": "a5938189eee0f2cc900c381cab36c8edd9e4c7a967594e8b00ee1844d70d9943",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/tasks.md"
+        }
+      ],
+      "manifest_hash": "e42f8948d4be6c57d39a6872d936cbe47b4d7cc606c06bb49859a95b61a2c4dc"
+    },
+    "before": {
+      "entries": [
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml"
+        },
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/design.md"
+        },
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/proposal.md"
+        },
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md"
+        },
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/tasks.md"
+        },
+        {
+          "content_hash": "7e692578894f17c66f01777b3c266279267815db3363551a6c82a8ef05ebfe79",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/.openspec.yaml"
+        },
+        {
+          "content_hash": "7d3ee813ac54fbe3e2ef8092c6954b3ae7c68962cf18b5f4e9a2803b45989412",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/design.md"
+        },
+        {
+          "content_hash": "07ce85258e645354ac402fc227363acae20645f195008320d8a40a084d544e2c",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/proposal.md"
+        },
+        {
+          "content_hash": "675315e90554b7d20fe1499bb31a8154a1a4b2edef7db99b1045259f1a616245",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md"
+        },
+        {
+          "content_hash": "a5938189eee0f2cc900c381cab36c8edd9e4c7a967594e8b00ee1844d70d9943",
+          "exists": true,
+          "path": "./openspec/changes/qwen38-orcarouter-checkpoint-switch/tasks.md"
+        }
+      ],
+      "manifest_hash": "339323342ce603ce79ab3777cc687c58f951e5d838fe8d1d471ade1176c1ec09"
+    },
+    "kind": "migration",
+    "manifest_hash": "830f6290185a74821e23f1bce5e702166c6383f539edb7feaae4d12bc69e833c"
+  },
+  "plan_hash": "fbfa775d4ea7b8688988a6c4f8d96d1747b25824da8f6edbd7c3bcefb399ce68",
+  "policy": "cairn-default",
+  "policy_hash": "8280151b7a53822eed460149ecb600bf11418d7463c935e0742009b334f4e7dd",
+  "receipt_hash": "e56035a8e5ed7ef06f8c1d4f95efc9de1d1eb33ad57b888246447513fe53acd2",
+  "root": ".",
+  "source_layout": "openspec",
+  "source_manifest_hash": "f4593c661507297c5f587aae9702ca567495a803644c51d9a9a016747a93e22a"
+}

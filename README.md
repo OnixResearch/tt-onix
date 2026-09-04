@@ -65,8 +65,12 @@ See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
 P150x2 path and serialized NixOS inference service.
 
 See [Qwen3.8 optimization research](docs/research/qwen38-p150x2-2026-09-04.md)
-for the current source review, historical evidence limits, and nine active Cairn packages.
+for the source review, historical evidence limits, and the original nine Cairn packages.
 The research does not claim a new hardware result or deployment.
+
+See [the OrcaRouter checkpoint-switch plan](docs/research/qwen38-orcarouter-switch-2026-09-04.md)
+for the proposed native-weight route to Qwen3.8-27B-Uncensored on P150x2.
+The linked GGUF release is not a direct input for the current TT-NN service.
 
 Build a stable result link when you need to inspect or run several commands:
 
@@ -173,3 +177,8 @@ boundary and non-claims.
 - [Adartras Qwen3.6-A3B bundle](https://huggingface.co/Adartras/qwen3.6-a3b-blackhole/tree/42a71032659a9d0e3b860b6104c59cfa6ca82149) — independent MoE reference for speculative sampling, recurrent-state commit, and paged-cache constraints. Its measurements are not local dense-model evidence.
 - [TT-Metal 0.77 candidate](https://github.com/tenstorrent/tt-metal/tree/9f9cd4fd590f4b606bd0981a4fe0b6403eb38ec9) — immutable runtime candidate for fused GDN prefill. The local package pin remains unchanged.
 - [Accelerating Large Language Model Decoding with Speculative Sampling](https://arxiv.org/abs/2302.01318) — algorithm reference for target-distribution preservation, not a local performance claim.
+
+### OrcaRouter checkpoint references
+
+- [Qwen3.8-27B-Uncensored-GGUF](https://huggingface.co/orcarouter/Qwen3.8-27B-Uncensored-GGUF/tree/a855f377abf5cbda99a278414466743f427e97c8) — requested model release. GGUF frontend support does not establish Tenstorrent placement.
+- [Qwen3.8-27B-Uncensored BF16](https://huggingface.co/orcarouter/Qwen3.8-27B-Uncensored/tree/404ea47aaa5d8a8b00049c9e9750089aca011ab2) — recommended safetensors candidate for the existing TT-NN path. File access and local compatibility remain unverified.

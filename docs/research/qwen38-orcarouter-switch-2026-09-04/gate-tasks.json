@@ -1,0 +1,287 @@
+{
+  "change": "qwen38-orcarouter-checkpoint-switch",
+  "evidence_summary": {
+    "docs_only": 0,
+    "fixture": 0,
+    "formal": 0,
+    "mode": "advisory",
+    "model": 0,
+    "probe": 0,
+    "property": 0
+  },
+  "input_hash": "56d77458a93eca829deafbf07df23779cddc3b76634bd90b627881924a162c96",
+  "issues": [],
+  "layout": "cairn",
+  "policy": "cairn-default",
+  "policy_hash": "8280151b7a53822eed460149ecb600bf11418d7463c935e0742009b334f4e7dd",
+  "probe_evidence": {
+    "declarations_present": false,
+    "probes": []
+  },
+  "receipt_hash": "0824149cbf7a5ce09391785db22ba49a1570edd62e5ae71c47c8b17fc45d95a5",
+  "stage": "tasks",
+  "substance": [
+    {
+      "checkbox_tasks": 0,
+      "kind": "design",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/design.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 45,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "proposal",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/proposal.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 13,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "delta_spec",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/specs/qwen38-p150x2-runtime/spec.md",
+      "requirement_blocks": 7,
+      "scenario_blocks": 14,
+      "substantive_lines": 49,
+      "substantive_requirement_blocks": 7,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 10,
+      "kind": "tasks",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/tasks.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 20,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 10,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 10
+    }
+  ],
+  "task_ordering": {
+    "active": true,
+    "edges": [
+      {
+        "predecessor": "o9",
+        "task": "o10"
+      },
+      {
+        "predecessor": "o1",
+        "task": "o2"
+      },
+      {
+        "predecessor": "o2",
+        "task": "o3"
+      },
+      {
+        "predecessor": "o3",
+        "task": "o4"
+      },
+      {
+        "predecessor": "o4",
+        "task": "o5"
+      },
+      {
+        "predecessor": "o5",
+        "task": "o6"
+      },
+      {
+        "predecessor": "o6",
+        "task": "o7"
+      },
+      {
+        "predecessor": "o7",
+        "task": "o8"
+      },
+      {
+        "predecessor": "o8",
+        "task": "o9"
+      }
+    ],
+    "issues": [],
+    "nodes": [
+      {
+        "blocked_by": [],
+        "blocks": [
+          "o2"
+        ],
+        "id": "o1",
+        "line": 5,
+        "predecessors": [],
+        "ready": true,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o9"
+        ],
+        "blocks": [],
+        "id": "o10",
+        "line": 14,
+        "predecessors": [
+          "o9"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o1"
+        ],
+        "blocks": [
+          "o3"
+        ],
+        "id": "o2",
+        "line": 6,
+        "predecessors": [
+          "o1"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o2"
+        ],
+        "blocks": [
+          "o4"
+        ],
+        "id": "o3",
+        "line": 7,
+        "predecessors": [
+          "o2"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o3"
+        ],
+        "blocks": [
+          "o5"
+        ],
+        "id": "o4",
+        "line": 8,
+        "predecessors": [
+          "o3"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o4"
+        ],
+        "blocks": [
+          "o6"
+        ],
+        "id": "o5",
+        "line": 9,
+        "predecessors": [
+          "o4"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o5"
+        ],
+        "blocks": [
+          "o7"
+        ],
+        "id": "o6",
+        "line": 10,
+        "predecessors": [
+          "o5"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o6"
+        ],
+        "blocks": [
+          "o8"
+        ],
+        "id": "o7",
+        "line": 11,
+        "predecessors": [
+          "o6"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o7"
+        ],
+        "blocks": [
+          "o9"
+        ],
+        "id": "o8",
+        "line": 12,
+        "predecessors": [
+          "o7"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "o8"
+        ],
+        "blocks": [
+          "o10"
+        ],
+        "id": "o9",
+        "line": 13,
+        "predecessors": [
+          "o8"
+        ],
+        "ready": false,
+        "state": "todo"
+      }
+    ],
+    "order": [
+      "o1",
+      "o2",
+      "o3",
+      "o4",
+      "o5",
+      "o6",
+      "o7",
+      "o8",
+      "o9",
+      "o10"
+    ],
+    "ready_tasks": [
+      "o1"
+    ],
+    "valid": true
+  },
+  "valid": true,
+  "verdict": "PASS"
+}
