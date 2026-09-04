@@ -49,6 +49,8 @@ The first draft omitted a concurrency marker on each initial task. Cairn rejecte
 
 Saved raw receipts are in `gates/`, `validate.json`, and `change-graph.json`. The retained Ruff output is `ruff-mtp-baseline.txt`.
 
+`BLAKE3SUMS` binds the research report, README, change artifacts, and saved validation evidence. Run `b3sum --check docs/research/qwen38-p150x2-2026-09-04/BLAKE3SUMS` from the repository root. The digest check establishes file identity, not runtime correctness.
+
 ## Reproduction
 
 Use the recorded Cairn package and the policy with the recorded BLAKE3 identity.
