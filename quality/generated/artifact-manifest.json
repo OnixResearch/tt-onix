@@ -1660,8 +1660,8 @@
     {
       "path": "quality/generated/repository-quality.json",
       "class": "generated_source",
-      "byte_count": 2753,
-      "blake3": "318c260a2700c50ac32bae3d9ad978c61e26ce3cb6bc23d59a1f2c024f48218d"
+      "byte_count": 2755,
+      "blake3": "67fcf367fff3f21def836b4a2dabf818f4efcabae7d759c652fca82beef3cb82"
     },
     {
       "path": "quality/generated/required-checks.json",

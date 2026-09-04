@@ -64,7 +64,7 @@ let external_object_max_bytes = 16 * gibibyte in
     {
       class = "source",
       max_bytes = source_max_bytes,
-      allowed_roots = [".", "cairn", "checks", "crates", "docs", "flake-modules", "model-targets", "nixos", "pkgs", "quality"],
+      allowed_roots = [".", ".cairn", "checks", "crates", "docs", "flake-modules", "model-targets", "nixos", "pkgs", "quality"],
       git_allowed = true,
       blake3_required = false,
       private_content_allowed = false,
@@ -80,7 +80,7 @@ let external_object_max_bytes = 16 * gibibyte in
     {
       class = "portable_evidence",
       max_bytes = portable_evidence_max_bytes,
-      allowed_roots = ["cairn", "pkgs"],
+      allowed_roots = [".cairn", "pkgs"],
       git_allowed = true,
       blake3_required = true,
       private_content_allowed = false,
