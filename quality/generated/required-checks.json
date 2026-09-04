@@ -1,0 +1,12 @@
+{
+  "required": [
+    "migration-boundary",
+    "model-target-profile-factory",
+    "rwkv-layer-framework-parity",
+    "training-platform",
+    "qwen36",
+    "qwen36-authority-negative",
+    "qwen36-nixos-service"
+  ],
+  "schema_version": 1
+}

@@ -256,6 +256,8 @@ let
         cd "$src"
         nickel export --format json quality/policy.ncl > "$TMPDIR/repository-quality.json"
         cmp "$TMPDIR/repository-quality.json" quality/generated/repository-quality.json
+        nickel export --format json quality/required-checks.ncl > "$TMPDIR/required-checks.json"
+        cmp "$TMPDIR/required-checks.json" quality/generated/required-checks.json
         touch "$out"
       '';
 

@@ -729,22 +729,42 @@
           MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3 = rwkvArtifacts.tokenizer_vocabulary.blake3;
         };
       };
+      requiredPackageCatalog = builtins.fromJSON (
+        builtins.readFile ../quality/generated/required-checks.json
+      );
+      requiredPackageChecks = (import ../checks/required-package-checks.nix { inherit lib; }) {
+        catalog = requiredPackageCatalog;
+        available = {
+          migration-boundary = migrationBoundaryCheck;
+          model-target-profile-factory = modelTargetFactoryCheck;
+          rwkv-layer-framework-parity = rwkvLayerHarness.passthru.frameworkParityCheck;
+          training-platform = trainingPlatform;
+          qwen36 = qwen36;
+          qwen36-authority-negative = qwen36AuthorityNegativeCheck;
+          qwen36-nixos-service = qwenServiceCheck;
+        };
+      };
+      requiredPackageInventoryValid = import ../checks/required-package-checks-test.nix {
+        inherit lib;
+        catalog = requiredPackageCatalog;
+      };
       repositoryQualityAggregate =
         pkgs.runCommand "tenstorrent-repository-quality"
           {
-            qualityInputs = repositoryQuality.cargoChecks ++ [
-              repositoryQuality.artifactQuality
-              repositoryQuality.cairnQuality
-              repositoryQuality.negativeLanguageQuality
-              repositoryQuality.nixQuality
-              repositoryQuality.policyQuality
-              repositoryQuality.pythonQuality
-              repositoryQuality.shellQuality
-              migrationBoundaryCheck
-              modelTargetFactoryCheck
-              rwkvLayerHarness.passthru.frameworkParityCheck
-              trainingPlatform
-            ];
+            passthru.requiredPackageCheckNames = requiredPackageCatalog.required;
+            qualityInputs =
+              assert requiredPackageInventoryValid;
+              repositoryQuality.cargoChecks
+              ++ [
+                repositoryQuality.artifactQuality
+                repositoryQuality.cairnQuality
+                repositoryQuality.negativeLanguageQuality
+                repositoryQuality.nixQuality
+                repositoryQuality.policyQuality
+                repositoryQuality.pythonQuality
+                repositoryQuality.shellQuality
+              ]
+              ++ requiredPackageChecks;
           }
           ''
             set -euo pipefail
