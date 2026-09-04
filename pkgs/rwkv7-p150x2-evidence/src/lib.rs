@@ -2321,6 +2321,38 @@ mod tests {
     }
 
     #[test]
+    fn saved_yaml_seed_and_repaired_document_use_the_inspector_parser() {
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/truncated.yaml");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/valid.yaml");
+        let error = yaml_sequence(invalid, "saved Inspector seed").unwrap_err();
+        assert!(
+            error.contains("invalid saved Inspector seed YAML:"),
+            "{error}"
+        );
+        let rows = yaml_sequence(valid, "repaired Inspector seed").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0]["root"]["child"][0]["incomplete"][0],
+            YamlValue::Bool(true)
+        );
+    }
+
+    #[test]
+    fn saved_csv_seed_and_valid_row_use_the_profiler_parser() {
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/no-data.csv");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/profiler.csv");
+        assert_eq!(
+            parse_profiler(invalid).unwrap_err(),
+            "device profiler CSV contains no data rows"
+        );
+        let rows = parse_profiler(valid).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].runtime_id, TEST_PROFILER_RUNTIME_ID);
+        assert_eq!(rows[0].card, PRIMARY_OWNER_INDEX);
+        assert_eq!(rows[0].zone, "KERNEL");
+    }
+
+    #[test]
     fn profiler_parser_accepts_complete_rows_and_rejects_empty_input() {
         let csv = b"ARCH: blackhole, CHIP_FREQ[MHz]: 1000\nPCIe slot,core_x,core_y,RISC processor type,timer_id,time[cycles since reset],data,run host ID,trace id,trace id counter,zone name,type,source line,source file,meta data\n0,1,1,BRISC,1,100,0,7,0,0,KERNEL,begin,1,kernel.cpp,\n0,1,1,BRISC,1,200,0,7,0,0,KERNEL,end,1,kernel.cpp,\n";
         let rows = parse_profiler(csv).expect("complete profiler rows must parse");

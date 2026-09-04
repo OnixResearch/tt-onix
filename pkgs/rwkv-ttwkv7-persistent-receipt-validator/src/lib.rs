@@ -263,6 +263,29 @@ mod tests {
     }
 
     #[test]
+    fn saved_non_finite_receipt_and_repaired_bytes_use_the_public_validator() {
+        let saved_expectations = PersistentReceiptExpectations {
+            call_count: 1,
+            continuity_count: 0,
+        };
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/non-finite.json");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/valid.json");
+        let error = validate_persistent_receipt(invalid, saved_expectations).unwrap_err();
+        assert!(
+            error.contains("persistent receipt JSON is invalid:"),
+            "{error}"
+        );
+        let repaired = std::str::from_utf8(invalid).unwrap().replace("NaN", "0");
+        assert_eq!(repaired.as_bytes(), valid);
+        let summary = validate_persistent_receipt(valid, saved_expectations).unwrap();
+        assert_eq!(summary.call_count, saved_expectations.call_count);
+        assert_eq!(
+            summary.continuity_count,
+            saved_expectations.continuity_count
+        );
+    }
+
+    #[test]
     fn accepts_nested_persistent_receipt() {
         let summary = validate_value(&valid_receipt()).expect("valid receipt must pass");
         assert_eq!(summary.call_count, EXPECTED_CALL_COUNT);

@@ -477,61 +477,6 @@ mod tests {
     }
 
     #[test]
-    fn saved_fuzz_seeds_are_nonempty_and_rejected() {
-        let policy = load_policy().expect("checked policy must load");
-        let seeds = [
-            (
-                "json",
-                include_bytes!("../../../quality/fuzz-seeds/json/duplicate-key.json").as_slice(),
-                "duplicate",
-            ),
-            (
-                "yaml",
-                include_bytes!("../../../quality/fuzz-seeds/yaml/truncated.yaml").as_slice(),
-                "truncated",
-            ),
-            (
-                "csv",
-                include_bytes!("../../../quality/fuzz-seeds/csv/over-field.csv").as_slice(),
-                "malformed",
-            ),
-            (
-                "binary_frame",
-                include_bytes!("../../../quality/fuzz-seeds/binary-frame/truncated.hex").as_slice(),
-                "truncated",
-            ),
-            (
-                "vocabulary",
-                include_bytes!("../../../quality/fuzz-seeds/vocabulary/duplicate-row.txt")
-                    .as_slice(),
-                "duplicate",
-            ),
-            (
-                "receipt",
-                include_bytes!("../../../quality/fuzz-seeds/receipt/non-finite.json").as_slice(),
-                "non-finite",
-            ),
-        ];
-        for (family, bytes, mutation) in seeds {
-            assert!(!bytes.is_empty(), "saved {family} seed must not be empty");
-            let mut observation = valid_parser_observation(family);
-            observation.byte_count = bytes.len();
-            match mutation {
-                "malformed" => observation.malformed = true,
-                "truncated" => observation.truncated = true,
-                "duplicate" => observation.duplicate = true,
-                "non-finite" => observation.non_finite = true,
-                _ => unreachable!("saved seed mutation is closed"),
-            }
-            assert_eq!(
-                validate_parser_observation(&policy, &observation)
-                    .expect_err("saved fuzz seed must fail"),
-                format!("{family} input is {mutation}")
-            );
-        }
-    }
-
-    #[test]
     fn every_artifact_class_has_an_approved_case() {
         let policy = load_policy().expect("checked policy must load");
         let source_limit = artifact_rule(&policy, SOURCE_CLASS)

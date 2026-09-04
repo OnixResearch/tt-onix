@@ -30,6 +30,10 @@ The aggregate gate runs these device-free groups:
 4. Nickel policy export and generated-data freshness checks.
 5. Artifact policy, model-target freshness, focused package checks, and Cairn validation.
 
+`quality/required-checks.ncl` owns the required package inventory. The aggregate includes `qwen36`, `qwen36-authority-negative`, and `qwen36-nixos-service`. Its Nix selector rejects missing checks, unregistered checks, duplicates, and non-derivation entries. Negative controls remove each required check from the available set.
+
+Cairn output passes through `repository-quality cairn-verdict RECEIPT`. The verifier requires a true top-level verdict, valid root resolution, and empty issue lists. It rejects duplicate keys, missing fields, wrong types, unsupported fields, malformed JSON, and excessive input. The JSON adapter enforces named byte, item, depth, and field limits. The core owns the acceptance decision. The CLI owns bounded file reads and the exit status.
+
 The gate runs in a Nix sandbox. The sandbox must not expose `/dev/tenstorrent`.
 
 Hardware checks remain separate. The quality gate does not stop device owners, change firmware, or run a hardware workload.
@@ -47,9 +51,11 @@ The limits originate in `quality/policy.ncl`. The checked JSON projection is `qu
 | Binary frame | `pkgs/rwkv-layer-harness` | Persistent process transport | 16 MiB |
 | Vocabulary | RWKV tokenizer parsers | Pinned external model artifact | 16 MiB, 100000 items |
 
-The parser cores reject malformed, truncated, duplicate, non-finite, oversized, and over-count observations. Fixed seeds cover each parser family.
+The central observation tests verify policy for supplied counts and error flags. Actual byte-level tests run in the parser-owner crates. They cover all six families with accepted counterparts and rejected seeds.
 
-The saved seeds are under `quality/fuzz-seeds/`. Add a minimized seed after a fuzz run finds a new failure.
+The [seed index](../quality/fuzz-seeds/README.md) lists the parser entry points and fixture paths.
+
+After a fuzz run finds an error, add a minimized seed to its parser's fixture directory.
 
 Do not add runtime entropy to the default gate. The normal gate replays only checked seeds and deterministic properties.
 

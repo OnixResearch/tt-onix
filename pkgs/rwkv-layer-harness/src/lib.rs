@@ -4501,6 +4501,9 @@ fn fingerprint_f32(values: &[f32]) -> String {
 }
 
 #[cfg(test)]
+mod seed_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

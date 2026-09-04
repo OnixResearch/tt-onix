@@ -1216,6 +1216,34 @@ mod tests {
     }
 
     #[test]
+    fn saved_frame_seeds_reach_the_wire_decoder() {
+        const HEX_DIGITS_PER_BYTE: usize = 2;
+        const HEX_RADIX: u32 = 16;
+        let text = include_str!("../fixtures/fuzz-seeds/bad-magic.hex").trim();
+        assert_eq!(text.len() % HEX_DIGITS_PER_BYTE, 0);
+        let bytes = text
+            .as_bytes()
+            .chunks_exact(HEX_DIGITS_PER_BYTE)
+            .map(|digits| {
+                u8::from_str_radix(std::str::from_utf8(digits).unwrap(), HEX_RADIX).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            decode_request(&bytes).unwrap_err(),
+            "request magic mismatch"
+        );
+
+        let prefix = include_bytes!("../fixtures/fuzz-seeds/truncated.frame");
+        assert!(decode_request(prefix).unwrap_err().contains("truncated"));
+        let frame = encode_request(&first_request()).unwrap();
+        assert!(frame.starts_with(prefix));
+        assert!(decode_request(&frame).is_ok());
+        for end in 0..prefix.len() {
+            assert!(decode_request(&frame[..end]).is_err());
+        }
+    }
+
+    #[test]
     fn dispatch_frames_round_trip_and_bind_response() {
         let request = first_request();
         let request_frame = encode_request(&request).expect("request encoding must succeed");

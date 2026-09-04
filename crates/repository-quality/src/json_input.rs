@@ -152,10 +152,8 @@ mod tests {
                 .unwrap_err()
                 .contains("duplicate JSON key")
         );
-        assert_eq!(
-            parse_json(br#"{"identity":"first"}"#, &limit()).unwrap()["identity"],
-            "first"
-        );
+        let valid = include_bytes!("../../../quality/fuzz-seeds/json/valid.json");
+        assert_eq!(parse_json(valid, &limit()).unwrap()["identity"], "first");
     }
 
     #[test]
