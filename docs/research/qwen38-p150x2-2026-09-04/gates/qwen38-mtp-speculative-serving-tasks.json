@@ -1,0 +1,321 @@
+{
+  "change": "qwen38-mtp-speculative-serving",
+  "evidence_summary": {
+    "docs_only": 0,
+    "fixture": 0,
+    "formal": 0,
+    "mode": "advisory",
+    "model": 0,
+    "probe": 0,
+    "property": 0
+  },
+  "input_hash": "34df90d63507b8e7420c7393cdf509f8829f10d4bdee0e198a3c10ee421aa560",
+  "issues": [],
+  "layout": "cairn",
+  "policy": "cairn-default",
+  "policy_hash": "8280151b7a53822eed460149ecb600bf11418d7463c935e0742009b334f4e7dd",
+  "probe_evidence": {
+    "declarations_present": false,
+    "probes": []
+  },
+  "receipt_hash": "e04cd9e617966acf2d2b81eaa7f4eb5c32d6c5175c56dd5b7b49efab19f372d6",
+  "stage": "tasks",
+  "substance": [
+    {
+      "checkbox_tasks": 0,
+      "kind": "design",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-mtp-speculative-serving/design.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 23,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "proposal",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-mtp-speculative-serving/proposal.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 10,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "delta_spec",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-mtp-speculative-serving/specs/qwen38-p150x2-runtime/spec.md",
+      "requirement_blocks": 6,
+      "scenario_blocks": 12,
+      "substantive_lines": 42,
+      "substantive_requirement_blocks": 6,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 12,
+      "kind": "tasks",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-mtp-speculative-serving/tasks.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 13,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 12,
+      "task_done": 3,
+      "task_in_progress": 0,
+      "task_todo": 9
+    }
+  ],
+  "task_ordering": {
+    "active": true,
+    "edges": [
+      {
+        "predecessor": "m9",
+        "task": "m10"
+      },
+      {
+        "predecessor": "m10",
+        "task": "m11"
+      },
+      {
+        "predecessor": "m11",
+        "task": "m12"
+      },
+      {
+        "predecessor": "m1",
+        "task": "m2"
+      },
+      {
+        "predecessor": "m2",
+        "task": "m3"
+      },
+      {
+        "predecessor": "m3",
+        "task": "m4"
+      },
+      {
+        "predecessor": "m4",
+        "task": "m5"
+      },
+      {
+        "predecessor": "m5",
+        "task": "m6"
+      },
+      {
+        "predecessor": "m6",
+        "task": "m7"
+      },
+      {
+        "predecessor": "m7",
+        "task": "m8"
+      },
+      {
+        "predecessor": "m8",
+        "task": "m9"
+      }
+    ],
+    "issues": [],
+    "nodes": [
+      {
+        "blocked_by": [],
+        "blocks": [
+          "m2"
+        ],
+        "id": "m1",
+        "line": 5,
+        "predecessors": [],
+        "ready": false,
+        "state": "done"
+      },
+      {
+        "blocked_by": [
+          "m9"
+        ],
+        "blocks": [
+          "m11"
+        ],
+        "id": "m10",
+        "line": 17,
+        "predecessors": [
+          "m9"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m10"
+        ],
+        "blocks": [
+          "m12"
+        ],
+        "id": "m11",
+        "line": 18,
+        "predecessors": [
+          "m10"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m11"
+        ],
+        "blocks": [],
+        "id": "m12",
+        "line": 19,
+        "predecessors": [
+          "m11"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [],
+        "blocks": [
+          "m3"
+        ],
+        "id": "m2",
+        "line": 6,
+        "predecessors": [
+          "m1"
+        ],
+        "ready": false,
+        "state": "done"
+      },
+      {
+        "blocked_by": [],
+        "blocks": [
+          "m4"
+        ],
+        "id": "m3",
+        "line": 7,
+        "predecessors": [
+          "m2"
+        ],
+        "ready": false,
+        "state": "done"
+      },
+      {
+        "blocked_by": [],
+        "blocks": [
+          "m5"
+        ],
+        "id": "m4",
+        "line": 11,
+        "predecessors": [
+          "m3"
+        ],
+        "ready": true,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m4"
+        ],
+        "blocks": [
+          "m6"
+        ],
+        "id": "m5",
+        "line": 12,
+        "predecessors": [
+          "m4"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m5"
+        ],
+        "blocks": [
+          "m7"
+        ],
+        "id": "m6",
+        "line": 13,
+        "predecessors": [
+          "m5"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m6"
+        ],
+        "blocks": [
+          "m8"
+        ],
+        "id": "m7",
+        "line": 14,
+        "predecessors": [
+          "m6"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m7"
+        ],
+        "blocks": [
+          "m9"
+        ],
+        "id": "m8",
+        "line": 15,
+        "predecessors": [
+          "m7"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "m8"
+        ],
+        "blocks": [
+          "m10"
+        ],
+        "id": "m9",
+        "line": 16,
+        "predecessors": [
+          "m8"
+        ],
+        "ready": false,
+        "state": "todo"
+      }
+    ],
+    "order": [
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5",
+      "m6",
+      "m7",
+      "m8",
+      "m9",
+      "m10",
+      "m11",
+      "m12"
+    ],
+    "ready_tasks": [
+      "m4"
+    ],
+    "valid": true
+  },
+  "valid": true,
+  "verdict": "PASS"
+}

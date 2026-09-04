@@ -1,0 +1,221 @@
+{
+  "acceptance_ids": [],
+  "change": "qwen38-runtime-077-prefill-candidate",
+  "evidence_summary": {
+    "docs_only": 0,
+    "fixture": 0,
+    "formal": 0,
+    "mode": "advisory",
+    "model": 0,
+    "probe": 0,
+    "property": 0
+  },
+  "input_hash": "76cdff5602c3a099f9f015d2dba4017c24930c51a82e9e8fae15bf7b7aa5fdcd",
+  "issues": [],
+  "layout": "cairn",
+  "non_claims": [
+    "workflow state proves only the selected policy graph and observed structural artifact facts",
+    "workflow instructions do not prove artifact truth, review quality, or implementation correctness",
+    "workflow state does not satisfy proposal, design, tasks, sync, archive, evidence, or release gates",
+    "workflow commands are read-only and do not create, edit, delete, or approve lifecycle artifacts"
+  ],
+  "policy": "cairn-default",
+  "policy_hash": "8280151b7a53822eed460149ecb600bf11418d7463c935e0742009b334f4e7dd",
+  "probe_evidence": {
+    "declarations_present": false,
+    "probes": []
+  },
+  "profile_identity_hash": "fc0c69df1f8bd2646b3fe115ea293d3332f2cd692174e5d89caa8a72820c3f89",
+  "receipt_hash": "30ab6fce0e8ed04fb0cd06b869a2c31372ca8f63dc36f583a515dfedb124dfdf",
+  "review_receipt_hashes": [],
+  "spec_effect": "delta",
+  "stage": "tasks",
+  "substance": [
+    {
+      "checkbox_tasks": 0,
+      "kind": "design",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-runtime-077-prefill-candidate/design.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 10,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "proposal",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-runtime-077-prefill-candidate/proposal.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 8,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 0,
+      "kind": "delta_spec",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-runtime-077-prefill-candidate/specs/qwen38-runtime/spec.md",
+      "requirement_blocks": 3,
+      "scenario_blocks": 6,
+      "substantive_lines": 21,
+      "substantive_requirement_blocks": 3,
+      "substantive_tasks": 0,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 0
+    },
+    {
+      "checkbox_tasks": 6,
+      "kind": "tasks",
+      "malformed_dependency_markers": 0,
+      "path": "./.cairn/changes/qwen38-runtime-077-prefill-candidate/tasks.md",
+      "requirement_blocks": 0,
+      "scenario_blocks": 0,
+      "substantive_lines": 6,
+      "substantive_requirement_blocks": 0,
+      "substantive_tasks": 6,
+      "task_done": 0,
+      "task_in_progress": 0,
+      "task_todo": 6
+    }
+  ],
+  "task_ordering": {
+    "active": true,
+    "edges": [
+      {
+        "predecessor": "r1",
+        "task": "r2"
+      },
+      {
+        "predecessor": "r2",
+        "task": "r3"
+      },
+      {
+        "predecessor": "r3",
+        "task": "r4"
+      },
+      {
+        "predecessor": "r4",
+        "task": "r5"
+      },
+      {
+        "predecessor": "r5",
+        "task": "r6"
+      }
+    ],
+    "issues": [],
+    "nodes": [
+      {
+        "blocked_by": [],
+        "blocks": [
+          "r2"
+        ],
+        "id": "r1",
+        "line": 3,
+        "predecessors": [],
+        "ready": true,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "r1"
+        ],
+        "blocks": [
+          "r3"
+        ],
+        "id": "r2",
+        "line": 4,
+        "predecessors": [
+          "r1"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "r2"
+        ],
+        "blocks": [
+          "r4"
+        ],
+        "id": "r3",
+        "line": 5,
+        "predecessors": [
+          "r2"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "r3"
+        ],
+        "blocks": [
+          "r5"
+        ],
+        "id": "r4",
+        "line": 6,
+        "predecessors": [
+          "r3"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "r4"
+        ],
+        "blocks": [
+          "r6"
+        ],
+        "id": "r5",
+        "line": 7,
+        "predecessors": [
+          "r4"
+        ],
+        "ready": false,
+        "state": "todo"
+      },
+      {
+        "blocked_by": [
+          "r5"
+        ],
+        "blocks": [],
+        "id": "r6",
+        "line": 8,
+        "predecessors": [
+          "r5"
+        ],
+        "ready": false,
+        "state": "todo"
+      }
+    ],
+    "order": [
+      "r1",
+      "r2",
+      "r3",
+      "r4",
+      "r5",
+      "r6"
+    ],
+    "ready_tasks": [
+      "r1"
+    ],
+    "valid": true
+  },
+  "valid": true,
+  "verdict": "PASS",
+  "workflow_profile": "spec-driven",
+  "workflow_profile_compatibility_fallback": false,
+  "workflow_profile_source": "change_create",
+  "workflow_profile_version": 1
+}

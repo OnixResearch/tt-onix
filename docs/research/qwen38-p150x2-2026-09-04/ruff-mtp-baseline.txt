@@ -1,0 +1,11 @@
+undefined-name: Undefined name `started`
+   --> pkgs/qwen36/service/qwen36_service/mtp_drafter_adapter.py:832:51
+    |
+830 |             "disengaged_reason": disengaged_reason,
+831 |             "prefill_seconds": prefill_seconds,
+832 |             "elapsed_seconds": time.monotonic() - started,
+    |                                                   ^^^^^^^
+833 |         }
+    |
+
+Found 1 error.

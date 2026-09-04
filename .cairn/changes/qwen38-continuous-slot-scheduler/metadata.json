@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "qwen38-grouped-prefill-b8-rescreen",
+    "qwen38-optimization-evidence-contract"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}

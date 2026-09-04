@@ -1,0 +1,274 @@
+{
+  "active_change_count": 9,
+  "archived_changes": [
+    "accelerate-qwen38-p150x2-decode",
+    "add-harness-device-utilization",
+    "add-harness-perf-measurement",
+    "add-harness-regression-gates",
+    "add-harness-stability-training-value",
+    "add-qwen3-6-a3b-candidate-target",
+    "add-qwen38-continuous-batching",
+    "add-repository-quality-gates",
+    "add-rwkv7-lora-cpu-reference",
+    "add-rwkv7-persistent-decode-canary",
+    "add-rwkv7-persistent-decode-monitoring",
+    "add-rwkv7-persistent-decode-telemetry",
+    "admit-qwen38-p150x2-b4-with-stable-execution-identity",
+    "admit-qwen38-p150x2-b8-batched-throughput",
+    "admit-qwen38-p150x2-batched-throughput",
+    "adopt-exact-mtp-rejection-sampling",
+    "bind-qwen38-layer-type-authority",
+    "bring-up-rwkv7-lora-on-p150a",
+    "complete-rwkv7-fused-readback",
+    "complete-ttsim-runtime-bundle",
+    "diagnose-rwkv7-fp32-recurrent-parity",
+    "diagnose-rwkv7-window16-v3",
+    "enable-model-target-selection",
+    "enable-rwkv7-p150x2-full-device",
+    "establish-dual-p150a-tt-xla-training-platform",
+    "evaluate-qwen38-low-precision",
+    "evaluate-qwen38-mtp-drafter",
+    "evaluate-qwen38-native-mtp-verifier",
+    "evaluate-qwen38-p150x4-capacity",
+    "evaluate-qwen38-runtime-uplift",
+    "evaluate-rwkv7-persistent-window-16",
+    "evaluate-rwkv7-persistent-window-8",
+    "evaluate-rwkv7-window16-corrected-v2",
+    "extend-rwkv7-persistent-decode-window",
+    "fuse-qwen38-gdn-decode-state-update",
+    "fuse-rwkv7-wkv-kernel",
+    "gate-mtp-trace-capture-hygiene",
+    "generate-model-target-consumer-identities",
+    "harden-training-platform-boundary",
+    "isolate-qwen38-mtp-recovery-jitter",
+    "isolate-qwen38-traced-ttft",
+    "optimize-qwen38-mtp-draft-selection",
+    "optimize-rwkv7-p150x2-inference-throughput",
+    "persist-rwkv7-device-decode",
+    "prewarm-qwen38-mtp-target-validation",
+    "probe-qwen38-mtp-verification",
+    "profile-qwen38-decode-components",
+    "profile-qwen38-host-prefill-scheduling",
+    "profile-qwen38-host-prefill-signposts",
+    "profile-qwen38-p150x2-prefill",
+    "qwen38-gdn-sampled-mode-admission",
+    "readmit-b16-capacity",
+    "reduce-qwen38-mtp-rollback-cost",
+    "reduce-qwen38-traced-decode-ttft",
+    "resolve-rwkv7-window16-parity",
+    "reuse-qwen38-p150x2-same-width-trace",
+    "scale-rwkv7-card-local-batching",
+    "scale-rwkv7-lora-to-dual-p150a",
+    "serve-qwen38-p150x2-batched-concurrency",
+    "stabilize-qwen38-host-attribution",
+    "stabilize-qwen38-mtp-drafting",
+    "stage-qwen38-mtp-recovery-replay",
+    "stage-qwen38-prefill-device-side",
+    "tune-gdn-decode-projection-layout",
+    "tune-qwen38-tp2-kernels",
+    "unblock-rwkv7-window16-parity",
+    "validate-qwen38-mtp-recovery-after-prewarm",
+    "warm-qwen38-p150x2-before-readiness",
+    "withhold-qwen38-p150x2-b4-admission-on-package-drift"
+  ],
+  "command": "change graph",
+  "drain_order": [
+    "qwen38-optimization-evidence-contract",
+    "qwen38-hybrid-prefix-cache",
+    "qwen38-layerwise-precision-frontier",
+    "qwen38-mtp-speculative-serving",
+    "qwen38-compact-token-selection",
+    "qwen38-runtime-077-prefill-candidate",
+    "qwen38-grouped-prefill-b8-rescreen",
+    "qwen38-continuous-slot-scheduler",
+    "qwen38-tp2-collective-shape-tuning"
+  ],
+  "edges": [
+    {
+      "dependency": "qwen38-mtp-speculative-serving",
+      "dependent": "qwen38-compact-token-selection",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-compact-token-selection",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-grouped-prefill-b8-rescreen",
+      "dependent": "qwen38-continuous-slot-scheduler",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-continuous-slot-scheduler",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-grouped-prefill-b8-rescreen",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-runtime-077-prefill-candidate",
+      "dependent": "qwen38-grouped-prefill-b8-rescreen",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-hybrid-prefix-cache",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-layerwise-precision-frontier",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-mtp-speculative-serving",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-runtime-077-prefill-candidate",
+      "satisfied": false
+    },
+    {
+      "dependency": "qwen38-optimization-evidence-contract",
+      "dependent": "qwen38-tp2-collective-shape-tuning",
+      "satisfied": false
+    }
+  ],
+  "issues": [],
+  "layout": "cairn",
+  "nodes": [
+    {
+      "blocked_by": [
+        "qwen38-mtp-speculative-serving",
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [],
+      "dependencies": [
+        "qwen38-mtp-speculative-serving",
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-compact-token-selection",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-grouped-prefill-b8-rescreen",
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [],
+      "dependencies": [
+        "qwen38-grouped-prefill-b8-rescreen",
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-continuous-slot-scheduler",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract",
+        "qwen38-runtime-077-prefill-candidate"
+      ],
+      "blocks": [
+        "qwen38-continuous-slot-scheduler"
+      ],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract",
+        "qwen38-runtime-077-prefill-candidate"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-grouped-prefill-b8-rescreen",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-hybrid-prefix-cache",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-layerwise-precision-frontier",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [
+        "qwen38-compact-token-selection"
+      ],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-mtp-speculative-serving",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [],
+      "blocks": [
+        "qwen38-compact-token-selection",
+        "qwen38-continuous-slot-scheduler",
+        "qwen38-grouped-prefill-b8-rescreen",
+        "qwen38-hybrid-prefix-cache",
+        "qwen38-layerwise-precision-frontier",
+        "qwen38-mtp-speculative-serving",
+        "qwen38-runtime-077-prefill-candidate",
+        "qwen38-tp2-collective-shape-tuning"
+      ],
+      "dependencies": [],
+      "dependency_ready": true,
+      "name": "qwen38-optimization-evidence-contract",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [
+        "qwen38-grouped-prefill-b8-rescreen"
+      ],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-runtime-077-prefill-candidate",
+      "satisfied_dependencies": []
+    },
+    {
+      "blocked_by": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "blocks": [],
+      "dependencies": [
+        "qwen38-optimization-evidence-contract"
+      ],
+      "dependency_ready": false,
+      "name": "qwen38-tp2-collective-shape-tuning",
+      "satisfied_dependencies": []
+    }
+  ],
+  "root": ".",
+  "valid": true
+}

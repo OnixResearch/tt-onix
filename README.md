@@ -64,6 +64,10 @@ metadata-only profile, bounded simulator verdict, and explicit non-claims.
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
 P150x2 path and serialized NixOS inference service.
 
+See [Qwen3.8 optimization research](docs/research/qwen38-p150x2-2026-09-04.md)
+for the current source review, historical evidence limits, and nine active Cairn packages.
+The research does not claim a new hardware result or deployment.
+
 Build a stable result link when you need to inspect or run several commands:
 
 ```sh
@@ -163,3 +167,9 @@ boundary and non-claims.
 - [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) — desktop runner, model manager, and OpenAI-compatible RWKV service.
 - [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) — parameter-efficient fine-tuning reference for RWKV models.
 - [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) — Rust and Vulkan RWKV inference server with an OpenAI-compatible API.
+
+### Qwen3.8 optimization research references
+
+- [Adartras Qwen3.6-A3B bundle](https://huggingface.co/Adartras/qwen3.6-a3b-blackhole/tree/42a71032659a9d0e3b860b6104c59cfa6ca82149) — independent MoE reference for speculative sampling, recurrent-state commit, and paged-cache constraints. Its measurements are not local dense-model evidence.
+- [TT-Metal 0.77 candidate](https://github.com/tenstorrent/tt-metal/tree/9f9cd4fd590f4b606bd0981a4fe0b6403eb38ec9) — immutable runtime candidate for fused GDN prefill. The local package pin remains unchanged.
+- [Accelerating Large Language Model Decoding with Speculative Sampling](https://arxiv.org/abs/2302.01318) — algorithm reference for target-distribution preservation, not a local performance claim.

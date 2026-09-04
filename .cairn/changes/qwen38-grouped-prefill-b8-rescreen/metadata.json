@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "qwen38-optimization-evidence-contract",
+    "qwen38-runtime-077-prefill-candidate"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "depends_on": [
+    "qwen38-optimization-evidence-contract"
+  ]
+}
