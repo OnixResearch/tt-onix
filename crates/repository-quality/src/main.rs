@@ -1,10 +1,12 @@
 use repository_quality::{
-    ArtifactManifest, ArtifactManifestEntry, ArtifactObservation, classify_artifact,
-    contains_private_content, load_policy, manifest_map, validate_artifact, validate_manifest,
+    ArtifactManifest, ArtifactManifestEntry, ArtifactObservation,
+    cairn_verdict::{admit_validation, parse_validation},
+    classify_artifact, contains_private_content, load_policy, manifest_map, validate_artifact,
+    validate_manifest,
 };
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -13,6 +15,7 @@ const GENERATE_ARGUMENT_COUNT: usize = 2;
 const CHECK_ARGUMENT_COUNT: usize = 3;
 const GENERATE_COMMAND: &str = "manifest";
 const CHECK_COMMAND: &str = "check";
+const CAIRN_COMMAND: &str = "cairn-verdict";
 const ARTIFACT_MANIFEST_PATH: &str = "quality/generated/artifact-manifest.json";
 const PORTABLE_EVIDENCE_CLASS: &str = "portable_evidence";
 const IGNORED_DIRECTORY_NAMES: [&str; 8] = [
@@ -39,6 +42,11 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let arguments = env::args().skip(PROGRAM_ARGUMENT_COUNT).collect::<Vec<_>>();
     match arguments.as_slice() {
+        [command, receipt] if command == CAIRN_COMMAND => {
+            check_cairn_receipt(Path::new(receipt))?;
+            println!("repository quality Cairn verdict: PASS");
+            Ok(())
+        }
         [command, root] if command == GENERATE_COMMAND => {
             let manifest = build_manifest(Path::new(root))?;
             write_json(&manifest)
@@ -49,9 +57,36 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         _ => Err(format!(
-            "usage: repository-quality {GENERATE_COMMAND} ROOT | {CHECK_COMMAND} ROOT MANIFEST; expected {GENERATE_ARGUMENT_COUNT} or {CHECK_ARGUMENT_COUNT} arguments"
+            "usage: repository-quality {GENERATE_COMMAND} ROOT | {CHECK_COMMAND} ROOT MANIFEST | {CAIRN_COMMAND} RECEIPT; expected {GENERATE_ARGUMENT_COUNT} or {CHECK_ARGUMENT_COUNT} arguments"
         )),
     }
+}
+
+fn check_cairn_receipt(path: &Path) -> Result<(), String> {
+    let policy = load_policy()?;
+    let limit = policy
+        .parser_limits
+        .iter()
+        .find(|limit| limit.family == "receipt")
+        .ok_or("quality policy lacks the receipt limit")?;
+    let max_bytes = u64::try_from(limit.max_bytes).map_err(|error| error.to_string())?;
+    let read_limit = max_bytes
+        .checked_add(1)
+        .ok_or("receipt byte limit overflow")?;
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("failed to inspect receipt: {error}"))?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(
+            "Cairn receipt must be a regular file within the receipt byte limit".to_owned(),
+        );
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .map_err(|error| format!("failed to open receipt: {error}"))?
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("failed to read receipt: {error}"))?;
+    admit_validation(&parse_validation(&policy, &bytes)?)
 }
 
 fn check_tree(root: &Path, manifest_path: &Path) -> Result<(), String> {

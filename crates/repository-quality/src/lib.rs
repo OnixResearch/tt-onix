@@ -1,3 +1,6 @@
+pub mod cairn_verdict;
+pub mod json_input;
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

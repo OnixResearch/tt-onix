@@ -274,13 +274,16 @@ let
   cairnQuality =
     pkgs.runCommand "tenstorrent-cairn-quality"
       {
-        nativeBuildInputs = [ cairn ];
+        nativeBuildInputs = [
+          cairn
+          repositoryQualityPackage
+        ];
         src = repositorySource;
       }
       ''
         set -euo pipefail
         cairn validate --root "$src" --policy ${lib.escapeShellArg cairnPolicy} > "$TMPDIR/cairn.json"
-        grep -F '"valid": true' "$TMPDIR/cairn.json"
+        repository-quality cairn-verdict "$TMPDIR/cairn.json"
         touch "$out"
       '';
 in

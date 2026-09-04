@@ -1,0 +1,19 @@
+{
+  "valid": true,
+  "resolution": {"valid": true, "diagnostics": []},
+  "issues": [],
+  "findings": [],
+  "change_issues": [],
+  "cross_repo_evidence_issues": [],
+  "spec_issues": [],
+  "spec_findings": [],
+  "substance_issues": [],
+  "substance_findings": [],
+  "cross_repo_dependencies": [],
+  "spec_substance": [],
+  "substance": [],
+  "changes": 0,
+  "specs_validated": 0,
+  "policy": "cairn-default",
+  "layout": "cairn"
+}
