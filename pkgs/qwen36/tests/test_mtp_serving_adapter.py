@@ -37,10 +37,12 @@ class MtpServingAdapterTests(unittest.TestCase):
     def setUp(self):
         self.clock = FakeClock()
         self.decode_error = None
+        self.feedback = object()
         self.prompt = torch.tensor([[ANCHOR_TOKEN]], dtype=torch.int32)
         self.adapter = adapter_module.MtpDrafterAdapter.__new__(
             adapter_module.MtpDrafterAdapter
         )
+        self.adapter._serving_quarantine = None
         self.adapter.profile = SimpleNamespace(
             draft_token_count=MINIMUM_DRAFT_TOKEN_COUNT
         )
@@ -74,7 +76,7 @@ class MtpServingAdapterTests(unittest.TestCase):
 
     def seed_head(self, *_args, **_kwargs):
         self.clock.effect("head-seed")
-        return DRAFT_TOKEN, object(), EFFECT_SECONDS
+        return DRAFT_TOKEN, self.feedback, EFFECT_SECONDS
 
     def capture(self, *_args, **_kwargs):
         self.clock.effect("verifier-capture")
@@ -82,8 +84,10 @@ class MtpServingAdapterTests(unittest.TestCase):
     def close_verifier(self):
         self.clock.effect("verifier-close")
 
-    def deallocate(self, _tensor):
-        self.clock.effect("hidden-release")
+    def deallocate(self, tensor):
+        self.clock.effect(
+            "feedback-release" if tensor is self.feedback else "hidden-release"
+        )
 
     def recorder(self, _feedback, _width):
         self.clock.effect("recorder-allocate")
@@ -115,7 +119,7 @@ class MtpServingAdapterTests(unittest.TestCase):
                 )
                 self.assertGreater(result["elapsed_seconds"], result["prefill_seconds"])
                 self.assertEqual(self.clock.events[0], "page-table")
-                self.assertEqual(self.clock.events[-1], "recorder-close")
+                self.assertEqual(self.clock.events[-1], "feedback-release")
 
     def test_invalid_prompt_has_no_backend_effects(self):
         invalid_prompts = (
@@ -135,7 +139,7 @@ class MtpServingAdapterTests(unittest.TestCase):
             self.complete()
         self.assertIs(raised.exception, self.decode_error)
         self.assertIn("verifier-close", self.clock.events)
-        self.assertEqual(self.clock.events[-1], "recorder-close")
+        self.assertEqual(self.clock.events[-1], "feedback-release")
 
 
 if __name__ == "__main__":

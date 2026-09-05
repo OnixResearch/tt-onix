@@ -5994,7 +5994,11 @@ def probe_mtp_host_adapters():
     import unittest
 
     test_root = Path(__file__).with_name("tests")
-    required_suites = ("test_mtp_serving_adapter.py", "test_mtp_watchdog.py")
+    required_suites = (
+        "test_mtp_serving_adapter.py",
+        "test_mtp_watchdog.py",
+        "test_mtp_serving_lifecycle.py",
+    )
     for pattern in required_suites:
         suite = unittest.TestLoader().discover(str(test_root), pattern=pattern)
         require(suite.countTestCases() > 0, f"required suite is empty: {pattern}")

@@ -2,17 +2,14 @@
 
 r[impl tenstorrent.qwen38_p150x2.mtp_serving_rounds]
 
-The core owns two decisions and nothing else: whether a request position
-runs a speculative round or plain steps, and which tokens a verified round
-commits. Both are device-free and total: every input either yields a
-closed result or a specific policy error.
+The core owns round scheduling, token commitment, the feedback-pool bound,
+and the economic-loss transition. Each decision uses explicit inputs and
+returns a closed result or a specific policy error.
 
-The exactness contract for greedy requests lives in
-`commit_verified_round`. The verification argmaxes ARE the sequential
-greedy outputs for the round's rows, so appending the argmax at the
-rejection position (or the final argmax on full acceptance) makes the
-committed stream equal sequential greedy output for every acceptance
-pattern.
+`commit_verified_round` defines greedy commitment for supplied target rows.
+The rows must match the sequential target for each accepted prefix. The
+adapter and its device evidence must establish that precondition. This
+core does not prove tensor parity, cache alignment, or device recovery.
 """
 
 from __future__ import annotations
@@ -40,13 +37,21 @@ ECONOMICS_SLACK = 2.0
 ECONOMICS_DISENGAGE_STREAK = 2
 
 
-def round_economics_disengaged(
+@dataclass(frozen=True)
+class RoundEconomics:
+    """The next loss count and its speculation decision."""
+
+    consecutive_losses: int
+    disengaged: bool
+
+
+def assess_round_economics(
     *,
     round_seconds: float,
     emitted_tokens: int,
     consecutive_losses: int,
-) -> bool:
-    """Return whether this round ends the request's speculative streak."""
+) -> RoundEconomics:
+    """Advance the loss count, or reset it after a round within budget."""
     if isinstance(round_seconds, bool) or not isinstance(round_seconds, (int, float)):
         raise MtpServingPolicyError("round_seconds must be a number")
     if not math.isfinite(round_seconds) or round_seconds <= 0.0:
@@ -60,9 +65,25 @@ def round_economics_disengaged(
     if consecutive_losses < 0:
         raise MtpServingPolicyError("consecutive_losses must not be negative")
     budget = PLAIN_STEP_SECONDS_BUDGET * emitted_tokens * ECONOMICS_SLACK
-    if round_seconds <= budget:
-        return False
-    return consecutive_losses + 1 >= ECONOMICS_DISENGAGE_STREAK
+    losses = consecutive_losses + 1 if round_seconds > budget else 0
+    return RoundEconomics(
+        consecutive_losses=losses,
+        disengaged=losses >= ECONOMICS_DISENGAGE_STREAK,
+    )
+
+
+def round_economics_disengaged(
+    *,
+    round_seconds: float,
+    emitted_tokens: int,
+    consecutive_losses: int,
+) -> bool:
+    """Return the decision without discarding the historical public API."""
+    return assess_round_economics(
+        round_seconds=round_seconds,
+        emitted_tokens=emitted_tokens,
+        consecutive_losses=consecutive_losses,
+    ).disengaged
 
 
 class MtpServingPolicyError(ValueError):
@@ -130,6 +151,19 @@ def plan_round(
     if remaining >= width + 1:
         return RoundPlan(mode=ROUND_MODE_SPECULATIVE, draft_token_count=width)
     return RoundPlan(mode=ROUND_MODE_PLAIN, draft_token_count=0)
+
+
+def feedback_pool_capacity(
+    *, maximum_generation_tokens: int, draft_token_count: int
+) -> int:
+    """Bound rounds after one anchor, including rejection at every first draft."""
+    plan_round(
+        tokens_generated=1,
+        maximum_generation_tokens=maximum_generation_tokens,
+        draft_token_count=draft_token_count,
+    )
+    # A round needs width + 1 remaining slots and commits at least one token.
+    return max(0, maximum_generation_tokens - draft_token_count - 1)
 
 
 def commit_verified_round(

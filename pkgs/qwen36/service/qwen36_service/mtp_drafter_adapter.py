@@ -52,13 +52,19 @@ from .mtp_rollback_core import (
 from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
 from .mtp_serving_core import (
     ROUND_MODE_SPECULATIVE,
+    assess_round_economics,
     commit_verified_round,
+    feedback_pool_capacity,
     plan_round,
-    round_economics_disengaged,
 )
 from .mtp_trace_adapter import TracedMtpDraftAdapter
 from .mtp_trace_core import EAGER_DRAFT, TRACED_DRAFT, MtpTraceProfile
-from .mtp_watchdog_adapter import ROUND_WATCHDOG_SECONDS, run_with_watchdog
+from .mtp_watchdog_adapter import (
+    ROUND_WATCHDOG_SECONDS,
+    MtpServingRoundTimeout,
+    pending_mtp_work,
+    run_with_watchdog,
+)
 from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
 
 PROBE_BATCH_SIZE = 1
@@ -154,8 +160,16 @@ class MtpDrafterPilotResult:
     weight_shapes: dict[str, tuple[int, ...]]
 
 
+@dataclass(frozen=True)
+class _ServingQuarantine:
+    """Retain pending work and request resources until process recovery."""
+
+    error: BaseException
+    resources: tuple[Any, ...]
+
+
 class MtpDrafterAdapter:
-    """Load the pinned MTP layer and run one aligned three-draft smoke."""
+    """Load the pinned MTP layer for diagnostic and gated serving paths."""
 
     def __init__(
         self,
@@ -181,6 +195,7 @@ class MtpDrafterAdapter:
         self._weight_shapes: dict[str, tuple[int, ...]] = {}
         self._recovery_trace_adapter: TracedMtpDraftAdapter | None = None
         self._serving_trace_adapter: TracedMtpDraftAdapter | None = None
+        self._serving_quarantine: _ServingQuarantine | None = None
         self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
@@ -191,8 +206,15 @@ class MtpDrafterAdapter:
         )
         self._load_mtp()
 
+    def _require_serving_ready(self) -> None:
+        if self._serving_quarantine is not None:
+            raise MtpDrafterAdapterError(
+                "MTP adapter requires process recovery after an incomplete watchdog stage"
+            )
+
     def close(self) -> None:
-        """Release the process-owned MTP recovery trace and caches."""
+        """Release resources only while this adapter has no pending worker."""
+        self._require_serving_ready()
         if self._serving_trace_adapter is not None:
             self._serving_trace_adapter.close()
             self._serving_trace_adapter = None
@@ -213,6 +235,7 @@ class MtpDrafterAdapter:
         *,
         selector_mode: str = FULL_LOGIT_READBACK,
     ) -> MtpDrafterSmokeResult:
+        self._require_serving_ready()
         if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
             raise MtpDrafterAdapterError("MTP selector mode is unsupported")
         if (
@@ -286,6 +309,7 @@ class MtpDrafterAdapter:
         progress: Callable[[str], None] | None = None,
     ) -> MtpDrafterPilotResult:
         """Measure one complete draft and native target-verification round."""
+        self._require_serving_ready()
         if selector_mode not in (FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1):
             raise MtpDrafterAdapterError("MTP selector mode is unsupported")
         if draft_execution_mode not in (EAGER_DRAFT, TRACED_DRAFT):
@@ -627,7 +651,24 @@ class MtpDrafterAdapter:
         Elapsed time includes host preparation and cleanup. This duration is
         not a device-profiler measurement or a serving-admission verdict.
         """
+        self._require_serving_ready()
         started = time.monotonic()
+        planned_rounds = feedback_pool_capacity(
+            maximum_generation_tokens=maximum_generation_tokens,
+            draft_token_count=self.profile.draft_token_count,
+        )
+        if request_deadline is not None:
+            if (
+                isinstance(request_deadline, bool)
+                or not isinstance(request_deadline, (int, float))
+                or (
+                    isinstance(request_deadline, float)
+                    and not math.isfinite(request_deadline)
+                )
+            ):
+                raise MtpDrafterAdapterError("MTP request deadline must be finite")
+            if started >= request_deadline:
+                raise MtpDrafterAdapterError("MTP request deadline expired")
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -646,26 +687,30 @@ class MtpDrafterAdapter:
             prompt_tokens=prompt_length,
             generation_tokens=maximum_generation_tokens + draft_width + 1,
         )
-        prefill_started = time.monotonic()
-        target_hidden, anchor = run_with_watchdog(
-            lambda: self._target_prefill_hidden(
-                prompt_tokens,
-                page_table,
-                prompt_length,
-            ),
-            seconds=ROUND_WATCHDOG_SECONDS,
-            stage="prefill",
-        )
-        prefill_seconds = time.monotonic() - prefill_started
-        generated = [anchor]
-        current = anchor
-        position = prompt_length
-        rounds = 0
-        accepted_total = 0
-        rejected_rounds = 0
-        consecutive_economic_losses = 0
-        disengaged_reason: str | None = None
+        target_hidden = None
+        seed_feedback = None
+        feedback = None
+        pool: list[_FeedbackRecorder] = []
         try:
+            prefill_started = time.monotonic()
+            target_hidden, anchor = run_with_watchdog(
+                lambda: self._target_prefill_hidden(
+                    prompt_tokens,
+                    page_table,
+                    prompt_length,
+                ),
+                seconds=ROUND_WATCHDOG_SECONDS,
+                stage="prefill",
+            )
+            prefill_seconds = time.monotonic() - prefill_started
+            generated = [anchor]
+            current = anchor
+            position = prompt_length
+            rounds = 0
+            accepted_total = 0
+            rejected_rounds = 0
+            consecutive_economic_losses = 0
+            disengaged_reason: str | None = None
             first_draft, feedback, _ = run_with_watchdog(
                 lambda: self._mtp_prefill(
                     prompt_tokens,
@@ -677,32 +722,32 @@ class MtpDrafterAdapter:
                 seconds=ROUND_WATCHDOG_SECONDS,
                 stage="head-seed",
             )
-        finally:
+            seed_feedback = feedback
             ttnn.deallocate(target_hidden)
+            target_hidden = None
 
-        # Rollback pool: one pre-allocated feedback-buffer set per planned
-        # round, allocated while no trace is resident. Planned rounds bound
-        # the worst case of one emitted token per round.
-        planned_rounds = (
-            maximum_generation_tokens + draft_width - 1
-        ) // draft_width + 1
-        pool = [_FeedbackRecorder(feedback, draft_width) for _ in range(planned_rounds)]
-        run_with_watchdog(
-            lambda: self._native_verifier.capture_persistent(
-                tuple(
-                    anchor if index == 0 else MINIMUM_TOKEN_ID
-                    for index in range(draft_width + 1)
+            # Allocate each owned recorder before capture. The core bound
+            # includes rejection at every first draft, not average acceptance.
+            for _ in range(planned_rounds):
+                pool.append(_FeedbackRecorder(feedback, draft_width))
+            run_with_watchdog(
+                lambda: self._native_verifier.capture_persistent(
+                    tuple(
+                        anchor if index == 0 else MINIMUM_TOKEN_ID
+                        for index in range(draft_width + 1)
+                    ),
+                    start_position=prompt_length,
+                    page_table=page_table,
                 ),
-                start_position=prompt_length,
-                page_table=page_table,
-            ),
-            seconds=self._native_verifier.trace_capture_timeout_seconds,
-            stage="verify-capture",
-        )
-        try:
+                seconds=self._native_verifier.trace_capture_timeout_seconds,
+                stage="verify-capture",
+            )
             round_index = 0
             while len(generated) < maximum_generation_tokens:
-                if request_deadline is not None and time.monotonic() > request_deadline:
+                if (
+                    request_deadline is not None
+                    and time.monotonic() >= request_deadline
+                ):
                     disengaged_reason = "request-deadline"
                     break
                 plan = plan_round(
@@ -727,6 +772,7 @@ class MtpDrafterAdapter:
                 recorder = pool[round_index]
                 first_round = round_index == 0
                 round_started = time.monotonic()
+                recorder.start_round(feedback)
                 if first_round:
                     replay = run_with_watchdog(
                         lambda: self._serving_trace_adapter.run(
@@ -766,28 +812,39 @@ class MtpDrafterAdapter:
                     continuation_token_ids=verification.token_ids,
                 )
                 rounds += 1
-                round_seconds = time.monotonic() - round_started
                 generated.extend(commit.committed_token_ids)
                 accepted_total += commit.accepted
                 if commit.rejected:
                     rejected_rounds += 1
-                    self._native_verifier.rollback_to_prefix(commit.accepted)
+                    run_with_watchdog(
+                        lambda: self._native_verifier.rollback_to_prefix(
+                            commit.accepted
+                        ),
+                        seconds=ROUND_WATCHDOG_SECONDS,
+                        stage=f"round-{round_index}-rollback",
+                    )
                     feedback = recorder.feedback_for_prefix(commit.accepted)
                 else:
                     feedback = self._serving_trace_adapter._trace_feedback
                 current = commit.committed_token_ids[-1]
                 position += len(commit.committed_token_ids)
-                if round_economics_disengaged(
-                    round_seconds=round_seconds,
+                economics = assess_round_economics(
+                    round_seconds=time.monotonic() - round_started,
                     emitted_tokens=len(commit.committed_token_ids),
                     consecutive_losses=consecutive_economic_losses,
-                ):
-                    consecutive_economic_losses += 1
+                )
+                consecutive_economic_losses = economics.consecutive_losses
+                if economics.disengaged:
                     disengaged_reason = "round-economics"
                     break
-                consecutive_economic_losses = 0
                 round_index += 1
             while len(generated) < maximum_generation_tokens:
+                if (
+                    request_deadline is not None
+                    and time.monotonic() >= request_deadline
+                ):
+                    disengaged_reason = "request-deadline"
+                    break
                 token = run_with_watchdog(
                     lambda: self.decode_adapter.decode_eager(
                         token=current,
@@ -799,10 +856,32 @@ class MtpDrafterAdapter:
                 generated.append(token)
                 current = token
                 position += 1
+        except BaseException as error:
+            # Incomplete waits leave request resources owned by this adapter.
+            if (
+                isinstance(error, MtpServingRoundTimeout)
+                or pending_mtp_work(error) is not None
+            ):
+                self._serving_quarantine = _ServingQuarantine(
+                    error=error,
+                    resources=(
+                        page_table,
+                        target_hidden,
+                        seed_feedback,
+                        feedback,
+                        tuple(pool),
+                    ),
+                )
+            raise
         finally:
-            self._native_verifier.close_persistent()
-            for recorder in pool:
-                recorder.close()
+            if self._serving_quarantine is None:
+                self._native_verifier.close_persistent()
+                for recorder in pool:
+                    recorder.close()
+                if target_hidden is not None:
+                    ttnn.deallocate(target_hidden)
+                if seed_feedback is not None:
+                    ttnn.deallocate(seed_feedback)
         return {
             "token_ids": tuple(generated),
             "rounds": rounds,
@@ -1428,14 +1507,34 @@ class MtpDrafterAdapter:
 class _FeedbackRecorder:
     """Pre-allocated per-round feedback buffers for the serving round loop.
 
-    All buffers are allocated eagerly while no trace is resident. The draft
-    trace records its post-step feedback into them via ttnn.copy, so a
-    rejected round can select the head context of the accepted prefix
-    without any device allocation.
+    The caller allocates these buffers before verifier capture. The draft
+    trace copies supplied feedback into them without new recorder buffers.
+    Trace lifetimes across requests and numerical cache alignment still
+    require device evidence.
     """
 
     def __init__(self, feedback: Any, draft_width: int) -> None:
-        self._buffers = [ttnn.clone(feedback) for _ in range(draft_width + 1)]
+        if (
+            isinstance(draft_width, bool)
+            or not isinstance(draft_width, int)
+            or draft_width < 1
+        ):
+            raise MtpDrafterAdapterError(
+                "feedback recorder width must be a positive integer"
+            )
+        self._buffers: list[Any] = []
+        buffer_count = draft_width + 1
+        try:
+            for _ in range(buffer_count):
+                self._buffers.append(ttnn.clone(feedback))
+        finally:
+            if len(self._buffers) != buffer_count:
+                self.close()
+
+    def start_round(self, feedback: Any) -> None:
+        if not self._buffers:
+            raise MtpDrafterAdapterError("feedback recorder is closed")
+        ttnn.copy(feedback, self._buffers[0])
 
     def record_prefix_feedback(self, prefix_length: int, feedback: Any) -> None:
         if not 0 < prefix_length < len(self._buffers):
