@@ -90,3 +90,7 @@ The existing Nix contract requires those SHA-256 hashes. This work does not repl
 Local evidence is under `.pi/verifier-continue/`: `new-tests-baseline.log`, `behavior-final.log`, `late-timer-control.log`, `qwen-nix-final.log`, `nix-format-final.log`, and `aggregate-final.log`. The framework check reused its existing local RWKV checkpoint. No model download, simulator run, device access, service change, or deployment occurred.
 
 The watchdog timeout test explicitly proves that timeout does not cancel work. Caller recovery, shared device ownership, speculative-round state, and physical MTP admission remain open. Import-time TTNN nanobind diagnostics also remain. The tests do not claim to repair these boundaries.
+
+## Later follow-up
+
+The [verifier boundary follow-up](research/verifier-boundary-follow-up.md) records the pinned patch recovery, research-evidence registry, and MTP host lifecycle repairs. It also records the remaining stale training-receipt blocker. The earlier results above retain their original scope.
