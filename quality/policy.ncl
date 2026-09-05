@@ -80,7 +80,7 @@ let external_object_max_bytes = 16 * gibibyte in
     {
       class = "portable_evidence",
       max_bytes = portable_evidence_max_bytes,
-      allowed_roots = [".cairn", "pkgs"],
+      allowed_roots = [".cairn", "pkgs", "docs/research"],
       git_allowed = true,
       blake3_required = true,
       private_content_allowed = false,
@@ -110,6 +110,7 @@ let external_object_max_bytes = 16 * gibibyte in
       private_content_allowed = false,
     },
   ],
+  evidence_roots = ["docs/research"],
   forbidden_device_paths = ["/dev/tenstorrent", "/dev/hugepages-1G"],
   forbidden_device_commands = ["tt-smi", "tt-flash", "tt-burnin", "ttwkv7-owner-control"],
 } | Contract.Policy

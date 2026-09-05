@@ -1,3 +1,4 @@
+mod artifact_registry;
 pub mod cairn_verdict;
 pub mod json_input;
 
@@ -25,6 +26,7 @@ pub struct Policy {
     pub schema_version: u32,
     pub parser_limits: Vec<ParserLimit>,
     pub artifact_rules: Vec<ArtifactRule>,
+    pub evidence_roots: Vec<String>,
     pub forbidden_device_paths: Vec<String>,
     pub forbidden_device_commands: Vec<String>,
 }
@@ -128,7 +130,7 @@ pub fn validate_policy(policy: &Policy) -> Result<(), String> {
             return Err(format!("repository quality policy lacks class {required}"));
         }
     }
-    Ok(())
+    artifact_registry::validate(policy)
 }
 
 pub fn validate_parser_observation(
@@ -194,14 +196,16 @@ pub fn classify_artifact(
     {
         return Ok(GENERATED_SOURCE_CLASS);
     }
+    if normalized.contains(EVIDENCE_SEGMENT)
+        || path_has_allowed_root(normalized, &policy.evidence_roots)
+    {
+        return Ok(PORTABLE_EVIDENCE_CLASS);
+    }
     if normalized.contains(FIXTURE_SEGMENT) {
         let source_limit = artifact_rule(policy, SOURCE_CLASS)?.max_bytes;
         if byte_count > source_limit {
             return Ok(LARGE_FIXTURE_CLASS);
         }
-    }
-    if normalized.contains(EVIDENCE_SEGMENT) {
-        return Ok(PORTABLE_EVIDENCE_CLASS);
     }
     Ok(SOURCE_CLASS)
 }
@@ -298,10 +302,10 @@ pub fn validate_device_free_actions(policy: &Policy, actions: &[&str]) -> Result
 }
 
 pub fn contains_private_content(bytes: &[u8]) -> bool {
-    std::str::from_utf8(bytes).is_ok_and(|text| {
-        PRIVATE_CONTENT_MARKERS
-            .iter()
-            .any(|marker| text.contains(marker))
+    PRIVATE_CONTENT_MARKERS.iter().any(|marker| {
+        bytes
+            .windows(marker.len())
+            .any(|window| window == marker.as_bytes())
     })
 }
 
@@ -322,13 +326,16 @@ fn artifact_rule<'a>(policy: &'a Policy, class: &str) -> Result<&'a ArtifactRule
 
 fn path_has_allowed_root(path: &str, roots: &[String]) -> bool {
     let normalized = path.trim_start_matches("./");
-    roots.iter().any(|root| {
-        root == "."
-            || normalized == root
-            || normalized
-                .strip_prefix(root)
-                .is_some_and(|suffix| suffix.starts_with('/'))
-    })
+    roots
+        .iter()
+        .any(|root| root == "." || root_contains(root, normalized))
+}
+
+fn root_contains(root: &str, path: &str) -> bool {
+    path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 #[cfg(test)]

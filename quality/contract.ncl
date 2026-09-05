@@ -45,6 +45,7 @@ let RepositoryQualityPolicy = {
   schema_version | Positive,
   parser_limits | Array ParserLimit,
   artifact_rules | Array ArtifactRule,
+  evidence_roots | Array NonEmpty,
   forbidden_device_paths | Array NonEmpty,
   forbidden_device_commands | Array NonEmpty,
 } in

@@ -63,6 +63,12 @@ Do not add runtime entropy to the default gate. The normal gate replays only che
 
 The typed artifact classes are source, generated source, portable evidence, private log, large fixture, and external large object.
 
+`quality/policy.ncl` owns the explicit `evidence_roots` registry. It currently registers all files under `docs/research`. These files require BLAKE3 manifest entries and private-marker checks, regardless of filename, extension, size class, or nested build-directory names. Similar names such as `docs/research-more` do not match this root. The legacy `/evidence/` classification remains.
+
+The pure registry validator rejects missing, empty, noncanonical, overlapping, reserved, and unowned roots. Registered evidence cannot disable BLAKE3 or permit private content. The filesystem adapter rejects symbolic links in evidence scopes without following their targets. Private-marker checks inspect bytes, so invalid UTF-8 does not hide a marker.
+
+This registry defines repository evidence ownership. It does not identify every receipt by content or prove mutable-filesystem confinement. Moving a receipt outside registered scopes invalidates its existing manifest. Deliberate policy changes still require review.
+
 Run this command after an approved generated or evidence artifact changes:
 
 ```sh

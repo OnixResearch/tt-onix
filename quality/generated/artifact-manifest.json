@@ -1160,6 +1160,282 @@
       "blake3": "ecd9a7123a999fc4c85fe0b2e69db44e6d9c314ab4067afb58192323610cebfe"
     },
     {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04.md",
+      "class": "portable_evidence",
+      "byte_count": 7090,
+      "blake3": "1fd08030a76d6d179449af4c672f4108dfba82dd1e18e58194018c8487f4fb15"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/BLAKE3SUMS",
+      "class": "portable_evidence",
+      "byte_count": 2341,
+      "blake3": "7841b6357fd39188d7a4a1dc4aa14bfb7c1574512d3a95e84f1c6cc64d30e9c3"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/change-graph.json",
+      "class": "portable_evidence",
+      "byte_count": 9124,
+      "blake3": "c472de2124e49e6bad1ab70a7e35649acaaa5dc0420162928b4733788b6f626a"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/dependency.json",
+      "class": "portable_evidence",
+      "byte_count": 1460,
+      "blake3": "e1e3cec5a4a0143f6797c78f01dbfffeb05a21f546c37051c50e2f6aeb695b2c"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/gate-design.json",
+      "class": "portable_evidence",
+      "byte_count": 1959,
+      "blake3": "e6a4922084ef39995080d3a5d7e6a9bdaa3a1b53fa73e6a1a7e80c08d2b6afec"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/gate-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1090,
+      "blake3": "6a34f657fb87276d211f839ab12cb34a79d1db1c0c693e8c6c666977c3daa734"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/gate-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5770,
+      "blake3": "da254ad8e4ff2156c86f72122cc470c8c575a575863509298d3e6ebd0e603c26"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/migration.json",
+      "class": "portable_evidence",
+      "byte_count": 7104,
+      "blake3": "b886dabdcb0cac8d4c83905dfa29bb6ee20ea4acb7e885d1e4d7fe85d5e1e6c9"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/openspec-input-validation.json",
+      "class": "portable_evidence",
+      "byte_count": 515,
+      "blake3": "e97dfada23319b95b66c377285f8ede426a91531809dab351216c549085e0308"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/sources/bf16-api.json",
+      "class": "portable_evidence",
+      "byte_count": 21641,
+      "blake3": "021377dcf6bfa828ff609b14af18ddc12b84283360138c02491e5ca06ae80f2a"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/sources/gguf-api.json",
+      "class": "portable_evidence",
+      "byte_count": 11928,
+      "blake3": "52836bc53b765dc7cbc43bff59717b90975917ab96b15aa1ca38365be3161f24"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/validate.json",
+      "class": "portable_evidence",
+      "byte_count": 29392,
+      "blake3": "87b2db887f8ed301b53ed2a236515e82f8d34b2bc723ab2189f31ba1ffe5d677"
+    },
+    {
+      "path": "docs/research/qwen38-orcarouter-switch-2026-09-04/validation.md",
+      "class": "portable_evidence",
+      "byte_count": 3332,
+      "blake3": "2b9cca85a3b93a3f348cbb72afa04f2a0c2a87bc5e4ab4a242b3bcab9d15e029"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04.md",
+      "class": "portable_evidence",
+      "byte_count": 27900,
+      "blake3": "a6b745e5b13787eb9ad6dc4c3b418ed7d719e441b71212007d0f5d015b40f22e"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/BLAKE3SUMS",
+      "class": "portable_evidence",
+      "byte_count": 10793,
+      "blake3": "b57658a7bd2d5b14753d14e2fad5fc18e1138fe559eb3faf39d55df93cbf7511"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/change-graph.json",
+      "class": "portable_evidence",
+      "byte_count": 8562,
+      "blake3": "244a4ac31ebb2e8eb96ee0e8f64d7b995a3b4c83468100ab507cd1ebea5f2203"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-compact-token-selection-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2715,
+      "blake3": "42e98cdc3ddb2460d767644fe859f8558f237566138d5c6a7601114412e4d0ad"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-compact-token-selection-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1857,
+      "blake3": "251913490de91bcb87e8991790bea0a241a93b0f07c619ed8313568494aed591"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-compact-token-selection-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5184,
+      "blake3": "4aadda655b314c880f7f614a62cab6cd35c4420ca33f42f1c5679e67a00c3a5e"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-continuous-slot-scheduler-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2723,
+      "blake3": "b1550179b95ce4255cfdd7d18a4140b92649b919585d31449d4e654b95129632"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-continuous-slot-scheduler-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1861,
+      "blake3": "d8d4952dbe8217fc2c2b81e85c840dd246bccf66e5e7f6ef578f5d765ae0749b"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-continuous-slot-scheduler-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5194,
+      "blake3": "f416017c68cd5d27b7ad88091b0d0d857380b193003d8cb77e95e752a09267a4"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-grouped-prefill-b8-rescreen-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2731,
+      "blake3": "47f5d2a6505e1dc14785fcd8a6cf51cd78aa226ba0c74353fa838b6d44ef62de"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-grouped-prefill-b8-rescreen-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1865,
+      "blake3": "2d95cac9d610915f20ca2101267138969d1c348eb37cfe3843923d94e209b94b"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-grouped-prefill-b8-rescreen-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5204,
+      "blake3": "873f90c57454a5525b3ec023baa8c62f47b9111157f640c762e27b170b61585c"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-hybrid-prefix-cache-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2699,
+      "blake3": "727b5b7cb8d26de23d86b8731b65ee112957edac7cc9f5259f0f586a94acae38"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-hybrid-prefix-cache-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1849,
+      "blake3": "5e277233e114e22b91da545938ccd3a4b73771407d11a599385b0e0b6905d4fb"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-hybrid-prefix-cache-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5164,
+      "blake3": "cfc3f983b7a14b00f8d9123ebcaa19a6f25ec4ca5338d2efb33c9c54e4cf5d15"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-layerwise-precision-frontier-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2735,
+      "blake3": "c5eb832623e0e60a34a91ae456bf9a7502a01d606e4a0d907a86ba57960c5f45"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-layerwise-precision-frontier-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1867,
+      "blake3": "f2e29e1d8aa599cb28e6a435700594aff116c47787b2d70bc0858e6b378c3f54"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-layerwise-precision-frontier-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5209,
+      "blake3": "d7e092e6659bd185a0483b36d3fc64ae1dc52ca2de1595b94f392e705fa84b34"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-mtp-speculative-serving-design.json",
+      "class": "portable_evidence",
+      "byte_count": 1939,
+      "blake3": "6c9707d81a73c03961d455cbf45a1ca4b7f2125a7b75cd8df3901dd2fe092663"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-mtp-speculative-serving-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1080,
+      "blake3": "6786f1fc6423832b3b99c5299a700389d2adfdb8d59ba06794a8070274cfd267"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-mtp-speculative-serving-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 6352,
+      "blake3": "061df6ac5cbf35ed3086483280568cb57701f06a013e4d8d166611b7c04cd398"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-optimization-evidence-contract-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2743,
+      "blake3": "71b4d79ce6063c8c792ba5dd683bb0505bea97dc6662560282c28ad42c516fba"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-optimization-evidence-contract-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1871,
+      "blake3": "0f058b34988a86528abb5bff1e55d9b2a0eb930b2ec21a71349443334968c930"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-optimization-evidence-contract-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5219,
+      "blake3": "c96bc6192e803b1f7c82b917b958705622490ec3265ced601998112b98c581c8"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-runtime-077-prefill-candidate-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2732,
+      "blake3": "30837f6f352bdc86f5330ccbca6a4d22183d17f25bc62376933947b5aaee25a9"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-runtime-077-prefill-candidate-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1869,
+      "blake3": "39c6db2bae8c9803233d9a3c68e55e6afe7be6c9915c077b5a2d8070fc51ce00"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-runtime-077-prefill-candidate-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5207,
+      "blake3": "d605812f02e56198c067276e428d47d567b5d1e0afd47ffbffafc068bb0547ce"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-tp2-collective-shape-tuning-design.json",
+      "class": "portable_evidence",
+      "byte_count": 2731,
+      "blake3": "8607fe1526b0161c73c5b02aa47c281a73c02281c03eb35d1a5ca1fb25831c57"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-tp2-collective-shape-tuning-proposal.json",
+      "class": "portable_evidence",
+      "byte_count": 1865,
+      "blake3": "79b344e200f6c57fecf85f2ab0b077cd6ea83681a4cd979b63ba6b5fd677efdb"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/gates/qwen38-tp2-collective-shape-tuning-tasks.json",
+      "class": "portable_evidence",
+      "byte_count": 5204,
+      "blake3": "79f035d647c1d09cf9e2b25eb98549847953293f17098cd20ca3fabc2fde9d0e"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/ruff-mtp-baseline.txt",
+      "class": "portable_evidence",
+      "byte_count": 398,
+      "blake3": "f6b7fb6a7cf2b1d430e44ca0eed707dedc545c2b3ed371fa1421b78717506989"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/validate.json",
+      "class": "portable_evidence",
+      "byte_count": 27454,
+      "blake3": "ae12657a92d84e935be481f1e569ab9091a3c2e74a8551c329e0d28ff12c93cd"
+    },
+    {
+      "path": "docs/research/qwen38-p150x2-2026-09-04/validation.md",
+      "class": "portable_evidence",
+      "byte_count": 3746,
+      "blake3": "f0d9a1e72dfdb1722fe3c4fc8e36dd6fead1a3d7a3cf90a20e686233f28689af"
+    },
+    {
       "path": "model-targets/generated/consumer-identities.h",
       "class": "generated_source",
       "byte_count": 14013,
@@ -1660,8 +1936,8 @@
     {
       "path": "quality/generated/repository-quality.json",
       "class": "generated_source",
-      "byte_count": 2755,
-      "blake3": "67fcf367fff3f21def836b4a2dabf818f4efcabae7d759c652fca82beef3cb82"
+      "byte_count": 2827,
+      "blake3": "a4d01a49630f748bd2d8828e620ab7f71168f06d35fa308ea9c2bb85ee270d12"
     },
     {
       "path": "quality/generated/required-checks.json",

@@ -1,5 +1,5 @@
 use repository_quality::{
-    ArtifactManifest, ArtifactManifestEntry, ArtifactObservation,
+    ArtifactManifest, ArtifactManifestEntry, ArtifactObservation, Policy,
     cairn_verdict::{admit_validation, parse_validation},
     classify_artifact, contains_private_content, load_policy, manifest_map, validate_artifact,
     validate_manifest,
@@ -114,7 +114,7 @@ fn check_tree(root: &Path, manifest_path: &Path) -> Result<(), String> {
             return Err(format!("artifact manifest entry is stale: {path}"));
         }
     }
-    for path in collect_files(root)? {
+    for path in collect_files(root, &policy)? {
         let bytes = fs::read(&path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
         let relative = relative_path(root, &path)?;
@@ -143,7 +143,7 @@ fn check_tree(root: &Path, manifest_path: &Path) -> Result<(), String> {
 fn build_manifest(root: &Path) -> Result<ArtifactManifest, String> {
     let policy = load_policy()?;
     let mut entries = Vec::new();
-    for path in collect_files(root)? {
+    for path in collect_files(root, &policy)? {
         let bytes = fs::read(&path)
             .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
         let relative = relative_path(root, &path)?;
@@ -174,7 +174,7 @@ fn build_manifest(root: &Path) -> Result<ArtifactManifest, String> {
     Ok(manifest)
 }
 
-fn collect_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+fn collect_files(root: &Path, policy: &Policy) -> Result<Vec<PathBuf>, String> {
     let metadata = fs::metadata(root)
         .map_err(|error| format!("failed to inspect {}: {error}", root.display()))?;
     if !metadata.is_dir() {
@@ -196,11 +196,18 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>, String> {
             let file_type = entry
                 .file_type()
                 .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+            let relative = relative_path(root, &path)?;
+            let evidence = classify_artifact(policy, &relative, 0)? == PORTABLE_EVIDENCE_CLASS;
             if file_type.is_symlink() {
+                if evidence {
+                    return Err(format!(
+                        "portable evidence must not be a symbolic link: {relative}"
+                    ));
+                }
                 continue;
             }
             if file_type.is_dir() {
-                if !is_ignored_directory(&path) {
+                if evidence || !is_ignored_directory(&path) {
                     pending.push(path);
                 }
             } else if file_type.is_file() && path.file_name().is_none_or(|name| name != ".git") {
