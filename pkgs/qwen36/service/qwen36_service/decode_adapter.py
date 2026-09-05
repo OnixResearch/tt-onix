@@ -16,7 +16,6 @@ import torch
 import ttnn
 from models.tt_transformers.tt.common import copy_host_to_device
 
-from .sampled_mode_router_core import ROUTES
 from .decode_core import (
     DecodeProfile,
     ShardWinner,
@@ -25,6 +24,7 @@ from .decode_core import (
     select_global_winner,
     validate_trace_binding,
 )
+from .sampled_mode_router_core import ROUTES
 
 TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS = 32
 MAX_REDUCTION_COLUMNS = 32

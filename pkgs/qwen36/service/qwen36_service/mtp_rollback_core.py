@@ -366,7 +366,9 @@ def evaluate_mtp_rollback(
             _append_once(reasons, f"{label}-target-rollback")
 
     binding_identities = {
-        sample.trace_binding_identity for sample in ordered if sample.trace_binding_identity
+        sample.trace_binding_identity
+        for sample in ordered
+        if sample.trace_binding_identity
     }
     if len(binding_identities) != 1:
         _append_once(reasons, "process-trace-binding-parity")

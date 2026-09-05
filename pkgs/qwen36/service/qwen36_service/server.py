@@ -38,13 +38,13 @@ from .core import (
     parse_endpoint,
 )
 from .decode_adapter import DecodeAdapterError, TracedDecodeAdapter
-from .mtp_drafter_core import MtpDrafterProfile
-from .mtp_trace_core import MtpTraceProfile
 from .decode_core import (
     DecodePolicyError,
     DecodeProfile,
     request_deadline_expired,
 )
+from .mtp_drafter_core import MtpDrafterProfile
+from .mtp_trace_core import MtpTraceProfile
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
 from .readiness_core import (
@@ -208,9 +208,7 @@ class QwenEngine:
                 emitter=emit,
                 batch_admission_profile=batch_admission_profile,
                 batch_admission_enabled=batch_admission_enabled,
-                sampled_admission_enabled=os.environ.get(
-                    "QWEN36_SAMPLED_FUSION", "0"
-                )
+                sampled_admission_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0")
                 == "1",
                 trace_reuse_profile=trace_reuse_profile,
                 trace_reuse_admission_enabled=trace_reuse_admission_enabled,
@@ -566,10 +564,7 @@ class QwenEngine:
         request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
-        if (
-            self.mtp_serving_enabled
-            and request.temperature in (None, 0.0)
-        ):
+        if self.mtp_serving_enabled and request.temperature in (None, 0.0):
             generated, mtp_perf = self._run_mtp_generation(
                 token_ids,
                 request.max_tokens,
@@ -1031,9 +1026,7 @@ def main() -> None:
             ),
             mtp_trace_profile=(
                 MtpTraceProfile.from_mapping(
-                    json.loads(
-                        Path(args.mtp_trace_profile).read_text(encoding="utf-8")
-                    )
+                    json.loads(Path(args.mtp_trace_profile).read_text(encoding="utf-8"))
                 )
                 if args.mtp_trace_profile is not None
                 else None

@@ -66,9 +66,7 @@ def plan_startup_warmup(
         or not isinstance(generation_tokens, int)
         or generation_tokens < MINIMUM_WARMUP_GENERATION_TOKENS
     ):
-        raise StartupReadinessError(
-            "startup warm-up must generate at least two tokens"
-        )
+        raise StartupReadinessError("startup warm-up must generate at least two tokens")
     return StartupWarmupPlan(
         widths=widths,
         prompt=prompt,

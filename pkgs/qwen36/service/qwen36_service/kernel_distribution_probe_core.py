@@ -27,13 +27,13 @@ from .kernel_distribution_admission_core import (
     ADMITTED_SERVING_MODE,
     MINIMUM_POSITION_COUNT,
     MINIMUM_PROMPT_COUNT,
+    REQUIRED_PROBE_MODE,
+    REQUIRED_ROOT_ORDER,
     TOP_K_CANDIDATES,
     AdmissionVerdict,
     DistributionAdmissionEvidence,
     PositionSample,
     PromptProbe,
-    REQUIRED_PROBE_MODE,
-    REQUIRED_ROOT_ORDER,
     evaluate_distribution_admission,
 )
 
@@ -118,8 +118,10 @@ def build_prompt_probe(
     if not positions:
         raise ProbeBuildError("a prompt probe needs at least one position")
     return PromptProbe(
-        positions=tuple(build_position_sample(control, candidate)
-                        for control, candidate in positions)
+        positions=tuple(
+            build_position_sample(control, candidate)
+            for control, candidate in positions
+        )
     )
 
 

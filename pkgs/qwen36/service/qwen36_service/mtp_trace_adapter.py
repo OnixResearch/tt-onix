@@ -107,11 +107,7 @@ class TracedMtpDraftAdapter:
     ) -> MtpTraceReplayResult:
         """Capture once, replay each draft step, and return bounded winners."""
         self._require_open()
-        if not (
-            MINIMUM_DRAFT_STEP_COUNT
-            <= step_count
-            <= MAXIMUM_DRAFT_STEP_COUNT
-        ):
+        if not (MINIMUM_DRAFT_STEP_COUNT <= step_count <= MAXIMUM_DRAFT_STEP_COUNT):
             raise MtpTraceAdapterError(
                 "MTP trace step count must lie between "
                 f"{MINIMUM_DRAFT_STEP_COUNT} and {MAXIMUM_DRAFT_STEP_COUNT}"

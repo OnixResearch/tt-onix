@@ -322,7 +322,9 @@ def resolve_speculative_round(
     if len(candidate_values_per_row) != gamma + 1:
         raise MtpSamplerPolicyError("verify row count must equal draft count plus one")
     if len(candidate_token_ids_per_row) != gamma + 1:
-        raise MtpSamplerPolicyError("verify id row count must equal draft count plus one")
+        raise MtpSamplerPolicyError(
+            "verify id row count must equal draft count plus one"
+        )
 
     emitted: list[int] = []
     seen: list[int] = [*generated_token_ids]

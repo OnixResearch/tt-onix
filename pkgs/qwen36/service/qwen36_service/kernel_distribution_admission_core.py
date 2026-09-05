@@ -123,8 +123,7 @@ class DistributionAdmissionEvidence:
     def validate(self) -> None:
         if self.probe_mode != REQUIRED_PROBE_MODE:
             raise KernelAdmissionPolicyError(
-                f"probe mode must be {REQUIRED_PROBE_MODE!r}, "
-                f"got {self.probe_mode!r}"
+                f"probe mode must be {REQUIRED_PROBE_MODE!r}, got {self.probe_mode!r}"
             )
         if tuple(self.root_order) != REQUIRED_ROOT_ORDER:
             raise KernelAdmissionPolicyError(
@@ -305,9 +304,7 @@ def evaluate_distribution_admission(
         )
 
     stable_agreement = stable_matches / stable_total if stable_total else None
-    near_tie_agreement = (
-        near_tie_matches / near_tie_total if near_tie_total else None
-    )
+    near_tie_agreement = near_tie_matches / near_tie_total if near_tie_total else None
     if stable_agreement is not None and stable_agreement < MINIMUM_STABLE_AGREEMENT:
         reasons.append(
             f"stable-position agreement {stable_agreement:.6f} < "

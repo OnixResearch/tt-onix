@@ -31,9 +31,7 @@ class MtpTargetValidationSignature:
         return {
             "draft_token_ids": list(self.draft_token_ids),
             "target_token_ids": list(self.target_token_ids),
-            "target_verification_token_ids": list(
-                self.target_verification_token_ids
-            ),
+            "target_verification_token_ids": list(self.target_verification_token_ids),
             "accepted_prefix_length": self.accepted_prefix_length,
             "committed_width": self.committed_width,
             "rollback_applied": self.rollback_applied,
@@ -59,11 +57,10 @@ def make_target_validation_signature(
     expected_verification_count = len(draft_token_ids) + CONTINUATION_TOKEN_COUNT
     if len(target_verification_token_ids) != expected_verification_count:
         raise MtpTargetPrewarmError("target prewarm verification count changed")
-    if (
-        isinstance(accepted_prefix_length, bool)
-        or not MINIMUM_ACCEPTED_PREFIX_LENGTH
-        <= accepted_prefix_length
-        <= len(draft_token_ids)
+    if isinstance(
+        accepted_prefix_length, bool
+    ) or not MINIMUM_ACCEPTED_PREFIX_LENGTH <= accepted_prefix_length <= len(
+        draft_token_ids
     ):
         raise MtpTargetPrewarmError("target prewarm accepted prefix is invalid")
     if not isinstance(rollback_applied, bool):

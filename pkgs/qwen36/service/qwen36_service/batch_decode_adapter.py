@@ -14,8 +14,6 @@ import ttnn
 from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
 from models.tt_transformers.tt.common import copy_host_to_device
 
-from .sampled_mode_router_core import ROUTES, ROUTE_SAMPLED
-from .sampled_decode_core import ShardCandidates
 from .batch_decode_core import (
     MAXIMUM_ACTIVE_BATCH_WIDTH,
     MINIMUM_ACTIVE_BATCH_WIDTH,
@@ -25,6 +23,8 @@ from .batch_decode_core import (
 )
 from .decode_adapter import TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
 from .decode_core import DecodeProfile, required_page_table_blocks
+from .sampled_decode_core import ShardCandidates
+from .sampled_mode_router_core import ROUTE_SAMPLED, ROUTES
 
 MAX_REDUCTION_COLUMNS = 32
 TILE_EDGE_ELEMENTS = 32

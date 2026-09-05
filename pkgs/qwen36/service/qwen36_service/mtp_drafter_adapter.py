@@ -52,14 +52,13 @@ from .mtp_rollback_core import (
 from .mtp_selection_core import FULL_LOGIT_READBACK, SHARD_LOCAL_TOP1
 from .mtp_serving_core import (
     ROUND_MODE_SPECULATIVE,
-    ROUND_WATCHDOG_SECONDS,
     commit_verified_round,
     plan_round,
     round_economics_disengaged,
-    run_with_watchdog,
 )
 from .mtp_trace_adapter import TracedMtpDraftAdapter
 from .mtp_trace_core import EAGER_DRAFT, TRACED_DRAFT, MtpTraceProfile
+from .mtp_watchdog_adapter import ROUND_WATCHDOG_SECONDS, run_with_watchdog
 from .native_mtp_verifier_adapter import NativeMtpVerifierAdapter
 
 PROBE_BATCH_SIZE = 1
@@ -185,9 +184,7 @@ class MtpDrafterAdapter:
         self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
-            maximum_width=(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ),
+            maximum_width=(self.profile.draft_token_count + PROBE_BATCH_SIZE),
             trace_capture_timeout_seconds=(
                 decode_adapter.profile.trace_capture_timeout_seconds
             ),
@@ -323,9 +320,7 @@ class MtpDrafterAdapter:
             )
         page_table = self.decode_adapter.prefill_page_table(
             prompt_tokens=prompt_length,
-            generation_tokens=(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ),
+            generation_tokens=(self.profile.draft_token_count + PROBE_BATCH_SIZE),
         )
         _report(progress, stage_core.TARGET_PREFILL_START)
         target_hidden, anchor = self._target_prefill_hidden(
@@ -375,9 +370,7 @@ class MtpDrafterAdapter:
         _report(progress, stage_core.TARGET_SEQUENTIAL_START)
         target_started = time.monotonic()
         try:
-            for offset in range(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ):
+            for offset in range(self.profile.draft_token_count + PROBE_BATCH_SIZE):
                 sequential_inputs.append(current)
                 current = self.decode_adapter.decode_traced(
                     token=current,
@@ -627,18 +620,14 @@ class MtpDrafterAdapter:
     ) -> dict[str, Any]:
         """Run one greedy completion through chained speculative rounds.
 
-        Exactness contract: the emitted stream equals sequential greedy
-        output for every acceptance pattern, because each round verifies
-        the draft chain teacher-forced and commits only verified tokens
-        plus the continuation bonus. The economics guard disengages
-        speculation for the rest of the request when consecutive rounds
-        cost more than their emitted tokens justify; disengaged requests
-        finish on eager decode steps, which are exact.
+        The core defines greedy token commitment. Physical equivalence still
+        requires evidence for trace lifetimes, recurrent-state recovery, and
+        device ownership. A watchdog timeout does not cancel its worker.
 
-        Every rollback buffer for all planned rounds is allocated eagerly
-        BEFORE any trace capture: allocating device buffers while a trace
-        is resident is forbidden on runtime 0.74.
+        Elapsed time includes host preparation and cleanup. This duration is
+        not a device-profiler measurement or a serving-admission verdict.
         """
+        started = time.monotonic()
         if (
             prompt_tokens.ndim != QK_STREAM_COUNT
             or prompt_tokens.shape[0] != PROBE_BATCH_SIZE
@@ -695,12 +684,9 @@ class MtpDrafterAdapter:
         # round, allocated while no trace is resident. Planned rounds bound
         # the worst case of one emitted token per round.
         planned_rounds = (
-            (maximum_generation_tokens + draft_width - 1) // draft_width + 1
-        )
-        pool = [
-            _FeedbackRecorder(feedback, draft_width)
-            for _ in range(planned_rounds)
-        ]
+            maximum_generation_tokens + draft_width - 1
+        ) // draft_width + 1
+        pool = [_FeedbackRecorder(feedback, draft_width) for _ in range(planned_rounds)]
         run_with_watchdog(
             lambda: self._native_verifier.capture_persistent(
                 tuple(
@@ -716,10 +702,7 @@ class MtpDrafterAdapter:
         try:
             round_index = 0
             while len(generated) < maximum_generation_tokens:
-                if (
-                    request_deadline is not None
-                    and time.monotonic() > request_deadline
-                ):
+                if request_deadline is not None and time.monotonic() > request_deadline:
                     disengaged_reason = "request-deadline"
                     break
                 plan = plan_round(
@@ -756,9 +739,7 @@ class MtpDrafterAdapter:
                         seconds=ROUND_WATCHDOG_SECONDS,
                         stage=f"round-{round_index}-draft",
                     )
-                    drafts = tuple(
-                        [first_draft] + list(replay.token_ids)
-                    )
+                    drafts = tuple([first_draft] + list(replay.token_ids))
                 else:
                     replay = run_with_watchdog(
                         lambda: self._serving_trace_adapter.run(
@@ -1458,16 +1439,12 @@ class _FeedbackRecorder:
 
     def record_prefix_feedback(self, prefix_length: int, feedback: Any) -> None:
         if not 0 < prefix_length < len(self._buffers):
-            raise MtpDrafterAdapterError(
-                "feedback recorder prefix is outside the pool"
-            )
+            raise MtpDrafterAdapterError("feedback recorder prefix is outside the pool")
         ttnn.copy(feedback, self._buffers[prefix_length])
 
     def feedback_for_prefix(self, accepted_prefix_length: int) -> Any:
         if not 0 <= accepted_prefix_length < len(self._buffers):
-            raise MtpDrafterAdapterError(
-                "feedback recorder prefix is outside the pool"
-            )
+            raise MtpDrafterAdapterError("feedback recorder prefix is outside the pool")
         return self._buffers[accepted_prefix_length]
 
     def close(self) -> None:
@@ -1480,7 +1457,9 @@ def _report(progress: Callable[[str], None] | None, stage: str) -> None:
         progress(stage)
 
 
-def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+def _dequantize_fp8_weights(
+    weights: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
     """Return bf16 weights, dequantizing the fp8 block-scaled checkpoint form.
 
     The served checkpoint stores linear weights as F8_E4M3 with BF16 inverse
@@ -1503,8 +1482,7 @@ def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch
     for name, scale_name in (
         (weight_name, f"{weight_name.removesuffix('.weight')}.weight_scale_inv")
         for weight_name in EXPECTED_MTP_WEIGHT_SHAPES
-        if f"{weight_name.removesuffix('.weight')}.weight_scale_inv"
-        in scale_names
+        if f"{weight_name.removesuffix('.weight')}.weight_scale_inv" in scale_names
     ):
         raw = weights[name]
         if raw.dtype != torch.float8_e4m3fn:
@@ -1515,7 +1493,8 @@ def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch
         rows, columns = raw.shape
         dequantized[name] = (
             raw.to(torch.float32)
-            * scale.to(torch.float32)
+            * scale
+            .to(torch.float32)
             .repeat_interleave(block, dim=0)[:rows, :]
             .repeat_interleave(block, dim=1)[:, :columns]
         ).to(torch.bfloat16)

@@ -19,13 +19,6 @@ from .batch_admission_core import (
     BatchAdmissionPolicyError,
     BatchAdmissionProfile,
 )
-from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
-from .sampled_decode_core import (
-    DEFAULT_TOP_K,
-    DEFAULT_TOP_P,
-    merge_shard_candidates,
-    sample_candidates,
-)
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
@@ -35,6 +28,13 @@ from .core import CompletionRequest, build_completion_response
 from .decode_adapter import DecodeAdapterError
 from .decode_core import DecodeProfile, request_deadline_expired
 from .readiness_core import StartupWarmupPlan
+from .sampled_decode_core import (
+    DEFAULT_TOP_K,
+    DEFAULT_TOP_P,
+    merge_shard_candidates,
+    sample_candidates,
+)
+from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
 from .trace_reuse_core import TraceReuseProfile
 
 MAXIMUM_BATCH_WIDTH = 16

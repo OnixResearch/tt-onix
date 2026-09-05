@@ -2447,7 +2447,9 @@ def probe_mtp_drafter():
 
     for rejected_width in (1, 7):
         try:
-            accepted_prefix_length(list(range(rejected_width)), list(range(rejected_width)))
+            accepted_prefix_length(
+                list(range(rejected_width)), list(range(rejected_width))
+            )
         except MtpDrafterPolicyError as error:
             require(
                 "outside the policy range" in str(error),
@@ -3986,8 +3988,8 @@ def probe_mtp_recovery_prewarmed_control():
         _MtpRecoveryControlProgressWriter,
     )
     from qwen36_service.mtp_rollback_core import (
-        EXPECTED_ROUTE_SCHEDULE,
         EXPECTED_ROLLBACK_DRAFT_COUNT,
+        EXPECTED_ROUTE_SCHEDULE,
         SNAPSHOT_RECOVERY,
     )
 
@@ -5070,7 +5072,10 @@ def probe_gdn_decode_fusion_candidate():
         decode_fusion_candidate as candidate,
     )
 
-    require(candidate.selected_mode({}) == candidate.MODE_OFF, "missing fusion gate did not select off")
+    require(
+        candidate.selected_mode({}) == candidate.MODE_OFF,
+        "missing fusion gate did not select off",
+    )
     require(
         candidate.selected_mode({candidate.ENV_GATE: "unknown"}) == candidate.MODE_OFF,
         "unknown fusion mode did not fail closed",
@@ -5083,7 +5088,10 @@ def probe_gdn_decode_fusion_candidate():
         candidate.selected_mode({candidate.ENV_GATE: " FULL "}) == candidate.MODE_FULL,
         "closed full mode was not normalized",
     )
-    require(candidate.uses_fused_norm(candidate.MODE_NORM), "norm mode did not enable norm fusion")
+    require(
+        candidate.uses_fused_norm(candidate.MODE_NORM),
+        "norm mode did not enable norm fusion",
+    )
     require(
         not candidate.uses_fused_state_update(candidate.MODE_NORM),
         "norm mode enabled state fusion",
@@ -5092,7 +5100,10 @@ def probe_gdn_decode_fusion_candidate():
         candidate.uses_fused_state_update(candidate.MODE_STATE),
         "state mode did not enable state fusion",
     )
-    require(not candidate.uses_fused_norm(candidate.MODE_STATE), "state mode enabled norm fusion")
+    require(
+        not candidate.uses_fused_norm(candidate.MODE_STATE),
+        "state mode enabled norm fusion",
+    )
     require(
         candidate.uses_fused_norm(candidate.MODE_FULL)
         and not candidate.uses_fused_state_update(candidate.MODE_FULL)
@@ -5118,12 +5129,24 @@ def probe_gdn_decode_fusion_candidate():
         / "tt"
         / "ttnn_delta_rule_ops.py"
     ).read_text()
-    require("decode_fusion_candidate.selected_mode" in tp_source, "GDN runtime does not consume fusion policy")
-    require("q_norm_weight=" in tp_source and "k_norm_weight=" in tp_source, "GDN runtime lost norm fusion inputs")
-    require("fuse_state_update=" in tp_source, "GDN runtime lost state fusion selection")
-    require("fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection")
+    require(
+        "decode_fusion_candidate.selected_mode" in tp_source,
+        "GDN runtime does not consume fusion policy",
+    )
+    require(
+        "q_norm_weight=" in tp_source and "k_norm_weight=" in tp_source,
+        "GDN runtime lost norm fusion inputs",
+    )
+    require(
+        "fuse_state_update=" in tp_source, "GDN runtime lost state fusion selection"
+    )
+    require(
+        "fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection"
+    )
     require("state_output=" in tp_source, "GDN runtime lost trace-stable state output")
-    require("ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel")
+    require(
+        "ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel"
+    )
     require(
         "q_head_major = ttnn.permute" in delta_source
         and "beta_vector = ttnn.unsqueeze(beta, -1)" in delta_source
@@ -5154,8 +5177,8 @@ def probe_kernel_distribution_admission():
     from qwen36_service.kernel_distribution_admission_core import (
         ADMITTED_SERVING_MODE,
         DistributionAdmissionEvidence,
-        PromptProbe,
         PositionSample,
+        PromptProbe,
         evaluate_distribution_admission,
     )
 
@@ -5194,9 +5217,7 @@ def probe_kernel_distribution_admission():
             else control_tokens
         )
         control_probabilities = softmax(control_logits)
-        candidate_probabilities = (
-            [0.05] * 20 if break_tv else softmax(candidate_logits)
-        )
+        candidate_probabilities = [0.05] * 20 if break_tv else softmax(candidate_logits)
         control = tuple(
             (token, probability, logit)
             for token, probability, logit in zip(
@@ -5213,13 +5234,17 @@ def probe_kernel_distribution_admission():
 
     def build_evidence(**kwargs):
         position_kwargs = {
-            key: value for key, value in kwargs.items() if key in ("flip_stable", "break_tv", "break_shared")
+            key: value
+            for key, value in kwargs.items()
+            if key in ("flip_stable", "break_tv", "break_shared")
         }
         prompt_total = kwargs.get("prompt_override", prompt_count)
         prompts = tuple(
             PromptProbe(
                 positions=tuple(
-                    build_position(prompt_index * position_count + index, **position_kwargs)
+                    build_position(
+                        prompt_index * position_count + index, **position_kwargs
+                    )
                     for index in range(position_count)
                 )
             )
@@ -5262,7 +5287,10 @@ def probe_kernel_distribution_admission():
         "stable-position argmax flips were admitted",
     )
     require(
-        any("stable-position agreement" in reason for reason in stable_flip.rejection_reasons),
+        any(
+            "stable-position agreement" in reason
+            for reason in stable_flip.rejection_reasons
+        ),
         f"stable flip missed its bound: {stable_flip.rejection_reasons}",
     )
 
@@ -5279,9 +5307,7 @@ def probe_kernel_distribution_admission():
     require(not shared_break.admitted, "disjoint top-K sets were admitted")
 
     # Negative: corpus, root-order, and mode violations fail closed.
-    short_corpus = evaluate_distribution_admission(
-        build_evidence(prompt_override=4)
-    )
+    short_corpus = evaluate_distribution_admission(build_evidence(prompt_override=4))
     require(not short_corpus.admitted, "a four-prompt corpus was admitted")
     wrong_order = evaluate_distribution_admission(
         build_evidence(root_order=("candidate", "control", "control", "candidate"))
@@ -5312,12 +5338,11 @@ def probe_kernel_distribution_admission():
 # r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 def probe_kernel_distribution_probe():
     """Positive and negative tests for the pure probe builder and receipt."""
-    import re
 
     from qwen36_service.kernel_distribution_admission_core import TOP_K_CANDIDATES
     from qwen36_service.kernel_distribution_probe_core import (
-        ProbeBuildError,
         PositionReadback,
+        ProbeBuildError,
         canonical_corpus_payload,
         evaluate_probe,
     )
@@ -5343,7 +5368,10 @@ def probe_kernel_distribution_probe():
         position_total = overrides.get("position_count", position_count)
         return tuple(
             tuple(
-                (readback(index, "control"), readback(index, overrides.get("candidate_side", "candidate")))
+                (
+                    readback(index, "control"),
+                    readback(index, overrides.get("candidate_side", "candidate")),
+                )
                 for index in range(position_total)
             )
             for _prompt in range(prompt_total)
@@ -5356,7 +5384,10 @@ def probe_kernel_distribution_probe():
         corpus=corpus(),
         corpus_blake3=corpus_digest_hex,
     )
-    require(receipt["admitted"], f"probe receipt rejected a close candidate: {receipt['rejection_reasons']}")
+    require(
+        receipt["admitted"],
+        f"probe receipt rejected a close candidate: {receipt['rejection_reasons']}",
+    )
     require(
         receipt["eligible_modes"] == ["sampled"],
         f"probe receipt modes must be sampled-only: {receipt['eligible_modes']}",
@@ -5366,7 +5397,12 @@ def probe_kernel_distribution_probe():
         receipt["corpus_blake3"] == corpus_digest_hex,
         "receipt did not carry the shell-provided corpus digest",
     )
-    for metric in ("mean_logit_pcc", "min_logit_pcc", "mean_topk_tv", "stable_agreement"):
+    for metric in (
+        "mean_logit_pcc",
+        "min_logit_pcc",
+        "mean_topk_tv",
+        "stable_agreement",
+    ):
         require(
             receipt["metrics"][metric] is not None,
             f"receipt metric {metric} is missing",
@@ -5432,19 +5468,27 @@ def probe_kernel_distribution_probe():
         "duplicate token ids",
         corpus=(tuple(bad_pair for _ in range(position_count)),) + dup[1:],
     )
-    short_vocab = PositionReadback(tokens=tuple(range(TOP_K_CANDIDATES)), logits=tuple(1.0 for _ in range(TOP_K_CANDIDATES)))
+    short_vocab = PositionReadback(
+        tokens=tuple(range(TOP_K_CANDIDATES)),
+        logits=tuple(1.0 for _ in range(TOP_K_CANDIDATES)),
+    )
     short_pair = (short_vocab, short_vocab)
     expect_rejected(
         "top-K-sized readback",
         corpus=(tuple(short_pair for _ in range(position_count)),) + dup[1:],
     )
-    mismatched = PositionReadback(tokens=tokens[:-1], logits=tuple(1.0 for _ in range(vocab_size - 1)))
+    mismatched = PositionReadback(
+        tokens=tokens[:-1], logits=tuple(1.0 for _ in range(vocab_size - 1))
+    )
     mismatch_pair = (first_pair[0], mismatched)
     expect_rejected(
         "mismatched vocab lengths",
         corpus=(tuple(mismatch_pair for _ in range(position_count)),) + dup[1:],
     )
-    nonfinite = PositionReadback(tokens=tokens, logits=(float("inf"),) + tuple(1.0 for _ in range(vocab_size - 1)))
+    nonfinite = PositionReadback(
+        tokens=tokens,
+        logits=(float("inf"),) + tuple(1.0 for _ in range(vocab_size - 1)),
+    )
     nonfinite_pair = (nonfinite, first_pair[1])
     expect_rejected(
         "non-finite logit",
@@ -5564,7 +5608,9 @@ def probe_sampled_mode_router():
     else:
         raise AssertionError("an empty batch was routed")
     try:
-        resolve_batch_route((-1.0,), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC)
+        resolve_batch_route(
+            (-1.0,), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC
+        )
     except RouterPolicyError:
         pass
     else:
@@ -5634,6 +5680,10 @@ def probe_sampled_decode():
     )
     cut_values, cut_tokens = merge_shard_candidates((left, right), top_k=2)
     require(cut_tokens == (10, 110), "top_k cut kept the wrong tokens")
+    require(
+        cut_values == values[: len(cut_tokens)],
+        "top_k cut kept values that differ from the selected tokens",
+    )
 
     probabilities = temperature_probabilities((4.0, 3.0, 2.0), 1.0)
     require(
@@ -5661,10 +5711,7 @@ def probe_sampled_decode():
     first = sample_candidates(draw=0.1, **draw_inputs)
     second = sample_candidates(draw=0.1, **draw_inputs)
     require(first == second, "identical draws produced different tokens")
-    seen = {
-        sample_candidates(draw=draw / 100.0, **draw_inputs)
-        for draw in range(100)
-    }
+    seen = {sample_candidates(draw=draw / 100.0, **draw_inputs) for draw in range(100)}
     require(seen <= {10, 11, 12}, f"draws escaped the candidate set: {seen}")
     require(
         len(seen) > 1,
@@ -5712,9 +5759,7 @@ def probe_sampled_decode():
             return
         raise AssertionError(f"{label} was sampled")
 
-    base = dict(
-        temperature=0.6, top_k=DEFAULT_TOP_K, top_p=DEFAULT_TOP_P
-    )
+    base = dict(temperature=0.6, top_k=DEFAULT_TOP_K, top_p=DEFAULT_TOP_P)
     expect_error(
         "empty candidates",
         values=(),
@@ -5771,9 +5816,7 @@ def probe_sampled_decode():
         raise AssertionError("an empty shard list was merged")
     try:
         merge_shard_candidates(
-            (
-                ShardCandidates(values=(1.0, 1.0), token_ids=(5, 5)),
-            ),
+            (ShardCandidates(values=(1.0, 1.0), token_ids=(5, 5)),),
             top_k=DEFAULT_TOP_K,
         )
     except SampledDecodeError:
@@ -5790,9 +5833,9 @@ def probe_mtp_serving_core():
         MINIMUM_DRAFT_TOKEN_COUNT,
     )
     from qwen36_service.mtp_serving_core import (
-        MtpServingPolicyError,
         ROUND_MODE_PLAIN,
         ROUND_MODE_SPECULATIVE,
+        MtpServingPolicyError,
         commit_verified_round,
         plan_round,
     )
@@ -5845,11 +5888,15 @@ def probe_mtp_serving_core():
     # Scheduling negatives.
     for kwargs, needle in (
         (
-            dict(tokens_generated=-1, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=-1, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "tokens_generated must not be negative",
         ),
         (
-            dict(tokens_generated=65, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=65, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "exceeds maximum_generation_tokens",
         ),
         (
@@ -5861,7 +5908,9 @@ def probe_mtp_serving_core():
             "between 2 and 6",
         ),
         (
-            dict(tokens_generated=True, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=True, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "must be an integer",
         ),
         (
@@ -5892,9 +5941,8 @@ def probe_mtp_serving_core():
                 continuation_token_ids=continuation,
             )
             expected_accept = width if corrupt is None else corrupt
-            expected = (
-                sequential[start : start + expected_accept]
-                + (sequential[start + expected_accept],)
+            expected = sequential[start : start + expected_accept] + (
+                sequential[start + expected_accept],
             )
             require(
                 commit.committed_token_ids == expected,
@@ -5940,56 +5988,18 @@ def probe_mtp_serving_core():
     else:
         require(False, "list inputs were accepted")
 
-    # Watchdog: success passthrough, worker error re-raise, and hang
-    # detection fire the three outcomes the serving loop relies on.
-    import time as _time
 
-    from qwen36_service.mtp_serving_core import (
-        MtpServingRoundTimeout,
-        run_with_watchdog,
-    )
+def probe_mtp_host_adapters():
+    """Require each host-adapter suite and propagate its test verdict."""
+    import unittest
 
-    require(
-        run_with_watchdog(lambda: 5, seconds=1.0, stage="probe") == 5,
-        "watchdog dropped a completed value",
-    )
-
-    def _probe_boom():
-        raise RuntimeError("probe worker failure")
-
-    try:
-        run_with_watchdog(_probe_boom, seconds=1.0, stage="probe")
-    except RuntimeError as error:
-        require("probe worker failure" in str(error), "worker error wrapped")
-    else:
-        require(False, "worker error was swallowed")
-
-    def _probe_hang():
-        _time.sleep(2.0)
-
-    hang_started = _time.monotonic()
-    try:
-        run_with_watchdog(_probe_hang, seconds=0.2, stage="probe-hang")
-    except MtpServingRoundTimeout as error:
-        require("probe-hang" in str(error), "wrong hang diagnostic")
-        require(
-            _time.monotonic() - hang_started < 1.5,
-            "watchdog fired late",
-        )
-    else:
-        require(False, "hanging stage was accepted")
-
-    for args, kwargs, needle in (
-        ((lambda: None,), dict(seconds=0, stage="probe"), "positive"),
-        ((lambda: None,), dict(seconds=-1, stage="probe"), "positive"),
-        ((None,), dict(seconds=1.0, stage="probe"), "callable"),
-    ):
-        try:
-            run_with_watchdog(*args, **kwargs)
-        except MtpServingPolicyError as error:
-            require(needle in str(error), "wrong watchdog diagnostic")
-        else:
-            require(False, "invalid watchdog input was accepted")
+    test_root = Path(__file__).with_name("tests")
+    required_suites = ("test_mtp_serving_adapter.py", "test_mtp_watchdog.py")
+    for pattern in required_suites:
+        suite = unittest.TestLoader().discover(str(test_root), pattern=pattern)
+        require(suite.countTestCases() > 0, f"required suite is empty: {pattern}")
+        result = unittest.TextTestRunner().run(suite)
+        require(result.wasSuccessful(), f"host-adapter suite failed: {pattern}")
 
 
 def main():
@@ -6031,6 +6041,7 @@ def main():
     probe("sampled-mode router", probe_sampled_mode_router)
     probe("sampled decode", probe_sampled_decode)
     probe("MTP serving round policy", probe_mtp_serving_core)
+    probe("MTP host adapters", probe_mtp_host_adapters)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

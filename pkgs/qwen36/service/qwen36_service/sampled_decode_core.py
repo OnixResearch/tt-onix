@@ -44,7 +44,9 @@ def _require_candidates(candidates: ShardCandidates, shard: int) -> None:
         raise SampledDecodeError(f"shard {shard} value and token counts differ")
     for token in candidates.token_ids:
         if isinstance(token, bool) or not isinstance(token, int) or token < 0:
-            raise SampledDecodeError(f"shard {shard} token ids must be non-negative integers")
+            raise SampledDecodeError(
+                f"shard {shard} token ids must be non-negative integers"
+            )
     for value in candidates.values:
         if not math.isfinite(value):
             raise SampledDecodeError(f"shard {shard} candidate values must be finite")

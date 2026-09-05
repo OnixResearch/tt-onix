@@ -238,8 +238,7 @@ _PREWARM_SOURCE_STAGES = (
 )
 _PREWARM_SOURCE_STAGE_SET = frozenset(_PREWARM_SOURCE_STAGES)
 _PREWARM_STAGE_ORDER = tuple(
-    TARGET_VALIDATION_PREWARM_STAGE_PREFIX + stage
-    for stage in _PREWARM_SOURCE_STAGES
+    TARGET_VALIDATION_PREWARM_STAGE_PREFIX + stage for stage in _PREWARM_SOURCE_STAGES
 )
 _PILOT_ORDER_BY_ROUTE = {
     REPREFILL_RECOVERY: _REPREFILL_PILOT_ORDER,
@@ -356,13 +355,16 @@ def advance_mtp_stage_progress(
     """Return progress advanced to one later known boundary."""
     if progress.complete:
         raise MtpStageProgressError("MTP stage progress is already complete")
-    stage_indices = _STAGE_INDEX_BY_ROUTE_AND_PREWARM.get(
-        (progress.route, progress.prewarm_target_validation)
-    )
+    stage_indices = _STAGE_INDEX_BY_ROUTE_AND_PREWARM.get((
+        progress.route,
+        progress.prewarm_target_validation,
+    ))
     if stage_indices is None:
         raise MtpStageProgressError("MTP stage recovery route is unsupported")
     if stage not in stage_indices:
-        raise MtpStageProgressError("MTP stage boundary is unknown or route-incompatible")
+        raise MtpStageProgressError(
+            "MTP stage boundary is unknown or route-incompatible"
+        )
     if (
         isinstance(elapsed_seconds, bool)
         or not math.isfinite(elapsed_seconds)
@@ -383,7 +385,9 @@ def advance_mtp_stage_progress(
             raise MtpStageProgressError("MTP stage boundary repeated or regressed")
         if previous.program_cache_entries is not None:
             if program_cache_entries is None:
-                raise MtpStageProgressError("MTP stage program-cache observation disappeared")
+                raise MtpStageProgressError(
+                    "MTP stage program-cache observation disappeared"
+                )
             if program_cache_entries < previous.program_cache_entries:
                 raise MtpStageProgressError("MTP stage program-cache count regressed")
     if stage == COMPLETE and progress.last_stage != RECEIPT_WRITE_START:

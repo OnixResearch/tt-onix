@@ -99,7 +99,9 @@ class NativeMtpVerifierAdapter:
         self._persistent_width = 0
         self._persistent_inputs: tuple[Any, ...] = ()
         self._persistent_logits: Any | None = None
-        self._persistent_prefix_snapshots: tuple[tuple[_GdnPrefixSnapshot, ...], ...] = ()
+        self._persistent_prefix_snapshots: tuple[
+            tuple[_GdnPrefixSnapshot, ...], ...
+        ] = ()
 
     def capture_persistent(
         self,
@@ -127,7 +129,9 @@ class NativeMtpVerifierAdapter:
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
         )
-        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        positions = torch.arange(
+            start_position, start_position + width, dtype=torch.int32
+        )
         aliased_page_table = page_table.repeat(width, MINIMUM_WIDTH)
         host_inputs = self.model.prepare_decode_inputs_host(
             tokens,
@@ -162,9 +166,7 @@ class NativeMtpVerifierAdapter:
             capture_input_identities = tuple(id(tensor) for tensor in device_inputs)
             hygiene_reasons = validate_trace_capture_provenance(
                 TraceCaptureProvenance(
-                    resident_traces_before=1
-                    if self._hygiene_capture_resident
-                    else 0,
+                    resident_traces_before=1 if self._hygiene_capture_resident else 0,
                     warm_execution_completed=True,
                     capture_from_zeroed_priming=False,
                     trace_bound_addresses_stable=True,
@@ -203,7 +205,10 @@ class NativeMtpVerifierAdapter:
                 raise NativeMtpVerifierError(
                     "persistent verifier trace capture exceeded its bound"
                 )
-            if tuple(id(tensor) for tensor in device_inputs) != capture_input_identities:
+            if (
+                tuple(id(tensor) for tensor in device_inputs)
+                != capture_input_identities
+            ):
                 raise NativeMtpVerifierError(
                     "persistent verifier trace-bound input addresses drifted"
                 )
@@ -256,7 +261,9 @@ class NativeMtpVerifierAdapter:
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
         )
-        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        positions = torch.arange(
+            start_position, start_position + width, dtype=torch.int32
+        )
         host_inputs = self.model.prepare_decode_inputs_host(
             tokens,
             positions,
@@ -294,9 +301,7 @@ class NativeMtpVerifierAdapter:
             raise NativeMtpVerifierError("native verifier logits have the wrong shape")
         if not torch.isfinite(logits).all():
             raise NativeMtpVerifierError("native verifier logits are not finite")
-        token_ids = tuple(
-            int(torch.argmax(logits[row]).item()) for row in range(width)
-        )
+        token_ids = tuple(int(torch.argmax(logits[row]).item()) for row in range(width))
         rollback_seconds = ZERO_DURATION_SECONDS
         return NativeVerificationResult(
             token_ids=token_ids,
@@ -315,9 +320,7 @@ class NativeMtpVerifierAdapter:
         """
         if self._persistent_trace_id is None:
             raise NativeMtpVerifierError("persistent verifier is not captured")
-        self._restore_gdn_prefix_state(
-            self._persistent_prefix_snapshots[accepted]
-        )
+        self._restore_gdn_prefix_state(self._persistent_prefix_snapshots[accepted])
         ttnn.synchronize_device(self.model.mesh_device)
 
     def close_persistent(self) -> None:
@@ -351,7 +354,9 @@ class NativeMtpVerifierAdapter:
             or not MINIMUM_TOKEN_ID <= token < self.model.args.vocab_size
             for token in input_token_ids
         ):
-            raise NativeMtpVerifierError("native verifier token is outside the vocabulary")
+            raise NativeMtpVerifierError(
+                "native verifier token is outside the vocabulary"
+            )
         if start_position < MINIMUM_TOKEN_ID:
             raise NativeMtpVerifierError("native verifier start position is negative")
         if start_position + len(input_token_ids) > self.model.args.max_seq_len:
@@ -359,8 +364,7 @@ class NativeMtpVerifierAdapter:
                 "native verifier exceeds the model sequence bound"
             )
         if page_table is not None and (
-            page_table.ndim != QK_STREAM_COUNT
-            or page_table.shape[0] != MINIMUM_WIDTH
+            page_table.ndim != QK_STREAM_COUNT or page_table.shape[0] != MINIMUM_WIDTH
         ):
             raise NativeMtpVerifierError("native verifier page table must have one row")
 
@@ -438,14 +442,10 @@ class NativeMtpVerifierAdapter:
             # (never zeroed buffers), no other trace may be resident, and the
             # trace-bound input tensors must keep stable identities across
             # capture and replay because the captured graph bakes them.
-            capture_input_identities = tuple(
-                id(tensor) for tensor in device_inputs
-            )
+            capture_input_identities = tuple(id(tensor) for tensor in device_inputs)
             hygiene_reasons = validate_trace_capture_provenance(
                 TraceCaptureProvenance(
-                    resident_traces_before=1
-                    if self._hygiene_capture_resident
-                    else 0,
+                    resident_traces_before=1 if self._hygiene_capture_resident else 0,
                     warm_execution_completed=True,
                     capture_from_zeroed_priming=False,
                     trace_bound_addresses_stable=True,

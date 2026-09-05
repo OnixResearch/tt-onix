@@ -104,9 +104,7 @@ def resolve_batch_route(
     if not temperatures:
         raise RouterPolicyError("a batch needs at least one request")
     routes = tuple(classify_temperature(temperature) for temperature in temperatures)
-    if not sampled_admitted or any(
-        route == ROUTE_DETERMINISTIC for route in routes
-    ):
+    if not sampled_admitted or any(route == ROUTE_DETERMINISTIC for route in routes):
         batch_route = ROUTE_DETERMINISTIC
     else:
         batch_route = ROUTE_SAMPLED
@@ -126,8 +124,6 @@ def eligible_routes_for_admitted_modes(admitted_modes) -> tuple[str, ...]:
     route, so an unadmitted or rejected candidate can never serve sampled
     traffic through this router.
     """
-    if any(
-        mode in (ROUTE_SAMPLED, ADMITTED_SAMPLED_MODE) for mode in admitted_modes
-    ):
+    if any(mode in (ROUTE_SAMPLED, ADMITTED_SAMPLED_MODE) for mode in admitted_modes):
         return ROUTES
     return (ROUTE_DETERMINISTIC,)
