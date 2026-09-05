@@ -32,6 +32,8 @@ validate-terminal-receipt: stale_identity: receipt launch_plan_identity does not
 
 The receipt and its admission check remain unchanged. This work does not relabel old physical evidence as current evidence. The remaining blocker needs a separate authority decision and matching evidence, not a replacement digest.
 
+The later [training-platform identity review](training-platform-identity-review.md) reproduces this mismatch and adds tests that protect launch-plan validation. It does not remove the physical-evidence requirement.
+
 ## Research-evidence coverage
 
 `quality/policy.ncl` now registers `docs/research` through the required `evidence_roots` field. Every file in that scope requires a BLAKE3 manifest entry and private-marker checks.

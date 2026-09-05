@@ -1480,6 +1480,8 @@ fn reject_unsafe_fields(value: &Value, path: &str) -> Result<(), Rejection> {
 mod tests {
     use super::*;
 
+    mod runtime_identity;
+
     fn valid_manifest() -> Value {
         json!({
             "schema_version": 1,

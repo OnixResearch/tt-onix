@@ -1436,10 +1436,16 @@
       "blake3": "f0d9a1e72dfdb1722fe3c4fc8e36dd6fead1a3d7a3cf90a20e686233f28689af"
     },
     {
+      "path": "docs/research/training-platform-identity-review.md",
+      "class": "portable_evidence",
+      "byte_count": 5914,
+      "blake3": "dc028d40d2d547bc970ee503729db585017f58b6ad781243dd15c5a3ecacde65"
+    },
+    {
       "path": "docs/research/verifier-boundary-follow-up.md",
       "class": "portable_evidence",
-      "byte_count": 8141,
-      "blake3": "3364ba1ef60e86e96ddb3d7d5b80d6ef0316c6c94066d5fe0a0570baf0be1a3d"
+      "byte_count": 8357,
+      "blake3": "8fb47b2c6b18f9d3afd4bb3637b529b75c338d75f3d61b7952d1a17da3d3fbb3"
     },
     {
       "path": "model-targets/generated/consumer-identities.h",
