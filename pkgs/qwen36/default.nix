@@ -66,9 +66,7 @@ let
     src = ./service/qwen36_service;
     name = "qwen36-service-source";
     filter =
-      path: _type:
-      !lib.hasInfix "__pycache__" (toString path)
-      && !lib.hasSuffix ".pyc" (toString path);
+      path: _type: !lib.hasInfix "__pycache__" (toString path) && !lib.hasSuffix ".pyc" (toString path);
   };
   executionIdentityLocalInputs = [
     (stableIdentityPath "qwen36-service" stableServiceSource)
