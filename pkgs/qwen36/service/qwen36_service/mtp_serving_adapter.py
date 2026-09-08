@@ -196,10 +196,20 @@ def run_rounds(
             capture_seconds += replay.trace_capture_seconds
             round_durations.append(duration)
             round_stage_seconds.append({
-                "draft": round(draft_seconds, 6),
-                "verify": round(verify_seconds, 6),
-                "rollback": round(rollback_seconds, 6),
-                "head_commit": round(head_commit_seconds, 6),
+                "draft": draft_seconds,
+                "draft_capture": replay.trace_capture_seconds,
+                "draft_excluding_capture": draft_seconds - replay.trace_capture_seconds,
+                "verify": verify_seconds,
+                "verify_device": verification.device_seconds,
+                "verify_readback": verification.readback_seconds,
+                # Includes input preparation, host reductions, and watchdog overhead.
+                "verify_other": (
+                    verify_seconds
+                    - verification.device_seconds
+                    - verification.readback_seconds
+                ),
+                "rollback": rollback_seconds,
+                "head_commit": head_commit_seconds,
                 "emitted": len(commit.committed_token_ids),
                 "accepted": commit.accepted,
             })

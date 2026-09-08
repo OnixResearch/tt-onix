@@ -59,28 +59,33 @@ The pure core's continuation contract is exactly these `k+1` rows.
 
 The draft chain continues ACROSS rounds without reprefill:
 
-- On full acceptance the head's own cache and feedback chain are already
-  advanced through `d(k-1)`; the next round's first draft consumes the
-  bonus token `a_k` with the recorded feedback. No target reprefill and
-  no head rebuild happen.
+- On full acceptance, draft generation has not consumed `d(k-1)`.
+  Head continuation consumes that last draft and then the bonus `a_k`.
+  No target reprefill happens.
 - On partial acceptance the serving adapter rebuilds the head prefix by
   replaying accepted inputs plus the bonus from the round-entry feedback.
-- The target paged KV rows written by the verify pass are exact for the
-  accepted prefix and must be restored for rejected rows; the next round
-  (or plain step) resumes from position `p + accepted + 1` with seed
-  token `a_accepted`.
+- The candidate restores GDN prefix state but leaves speculative KV rows.
+  It relies on position masks and rewrite-before-read for the rejected tail.
+  The next round (or plain step) resumes at `p + accepted + 1` with seed
+  token `a_accepted`. Bounded token parity does not prove this invariant
+  for arbitrary contexts.
 
 ## Measured round anatomy (0.77 runtime, 2026-09-08 screen)
 
-Steady-state per round, from the five-prompt screen stage table:
-verify replay 127-175 ms (dominant), draft 12-24 ms, rollback 18-106 ms,
-head-commit 6-24 ms, against a 57-71 ms plain step. Break-even needs
-about 3.3 accepted drafts per round at this verify cost; the healthy
-cache state delivers 2.4 on the same prompts. The rollback path also
-shows allocator jitter (one 759 ms outlier): `_synchronize_convolution_
-carry` concatenates per-layer rows on every rollback. Both the verify
-replay cost and the carry-sync allocation belong to a device-level
-campaign; the serving-side structure is complete and exact.
+The five-prompt receipt compared 320 tokens with exact parity. It recorded
+22 accepted drafts across 15 rounds, not a 2.4-draft serving average.
+The capture-excluded round-only ratio is 0.543 against measured per-prompt
+plain-step costs. This is not an end-to-end speedup.
+
+Verification totals range from 126.6 to 201.5 ms. They include host work
+and readback, so they do not establish a device bottleneck. Rollback
+reached 759.2 ms once. Per-layer concat calls exist in the source, but
+allocator causality remains unproven. Draft stage time includes capture.
+
+The continuation separates device execution, readback, residual verifier
+time, and draft capture. It leaves precision, defaults, and thresholds
+unchanged. See `docs/qwen38-mtp-serving-progress.md` for corrected counts
+and claim limits.
 
 Round cost (measured pieces, k=3): draft replay ~10-14 ms + verify replay
 ~60-90 ms + restore ~12 ms on rejection, against 3.4 emitted tokens -

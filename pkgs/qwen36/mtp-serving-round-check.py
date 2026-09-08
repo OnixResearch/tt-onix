@@ -169,6 +169,8 @@ class RoundFixture:
         return SimpleNamespace(
             token_ids=token_ids,
             minimum_top_two_margin=1.0,
+            device_seconds=CLOCK_STEP / DRAFT_WIDTH,
+            readback_seconds=CLOCK_STEP / DRAFT_WIDTH,
         )
 
     def rollback(self, accepted):
@@ -294,6 +296,44 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(result["disengaged_reason"], "round-economics")
         self.assertEqual(fixture.events.count("plain-capture"), 1)
         self.assertEqual(result["token_ids"], self.EXPECTED)
+
+    def test_verification_timing_partition_matches_total(self):
+        result = RoundFixture(None).run()
+        for stage in result["round_stage_seconds"]:
+            self.assertEqual(stage["verify_device"], CLOCK_STEP / DRAFT_WIDTH)
+            self.assertEqual(stage["verify_readback"], CLOCK_STEP / DRAFT_WIDTH)
+            self.assertGreaterEqual(stage["verify_other"], 0)
+            self.assertAlmostEqual(
+                stage["verify"],
+                stage["verify_device"]
+                + stage["verify_readback"]
+                + stage["verify_other"],
+            )
+
+    def test_capture_time_is_not_reported_as_warm_draft_time(self):
+        fixture = RoundFixture(None)
+        make_trace = fixture.make_trace
+        capture_seconds = SLOW_PLAIN_SECONDS
+
+        def capture_trace(**kwargs):
+            trace = make_trace(**kwargs)
+            original = trace.run
+
+            def run(**inputs):
+                result = original(**inputs)
+                fixture.clock += capture_seconds
+                result.trace_capture_seconds = capture_seconds
+                return result
+
+            trace.run = run
+            return trace
+
+        fixture.namespace["TracedMtpDraftAdapter"] = capture_trace
+        result = fixture.run()
+        for stage in result["round_stage_seconds"]:
+            self.assertEqual(stage["draft_capture"], capture_seconds)
+            self.assertAlmostEqual(stage["draft_excluding_capture"], CLOCK_STEP)
+            self.assertGreater(stage["draft"], stage["draft_excluding_capture"])
 
     def test_capture_failure_releases_trace(self):
         fixture = RoundFixture(None, failed_capture=True)

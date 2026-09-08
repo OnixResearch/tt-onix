@@ -2,70 +2,65 @@
 
 ## Status
 
-Speculative serving is not ready for production. The default remains off. The physical exactness screen passed; the economics screen failed, so speculation must stay disabled at this operating point.
+Speculation remains off by default. The five-prompt screen passed bounded token parity but lost against plain decode. This result does not establish general exactness, production safety, or a speedup.
 
-The dedicated worktree is `../tenstorrent.nix-mtp-serving-20260908`, on `work/qwen38-mtp-serving-20260908`. It starts from fetched `origin/main` at `51e07b8`, then includes the earlier local fixes through `e205476`. The new changes remain uncommitted because the command runner is now blocked.
+Local commits reside on `work/qwen38-mtp-serving-20260908` in `../tenstorrent.nix-mtp-serving-20260908`. No push or main-branch integration ran. Owner review remains open.
 
 ## Implemented candidate
 
-- Move the thread watchdog out of the pure policy core. A device-stage timeout requests process termination before cleanup can touch the abandoned worker.
-- Replace the ineffective loss counter with an explicit, sticky economics state. Compare round time against supplied plain-step measurements.
-- Reject invalid generation limits and expired requests before device effects. Correct the undefined request timer.
-- Give one request ownership of its speculative traces and snapshots. Remove the feedback-pool limit from the round loop.
-- Restore complete target KV and recurrent state on rejection. Replay only committed target inputs and compare their outputs with the verification result.
-- Correct draft-head continuation positions. Consume the final accepted draft before the bonus token on full acceptance.
-- Serialize greedy MTP requests. Calibrate against plain traced decode and close the drafter with the engine.
-- Add a diagnostic `serving-screen` mode that compares two prompts for 64 tokens through the real serving route.
+- A device-free core owns commit decisions, request bounds, and the sticky economics guard.
+- The serving adapter owns request-scoped traces, state snapshots, deadlines, and cleanup.
+- The watchdog adapter terminates the process after an abandoned device-worker timeout.
+- Rejection restores the GDN prefix and replays the head continuation. Target KV relies on position masks and rewrite-before-read, not complete tail restoration.
+- Runtime-scoped head caches prevent CLI and server paths from reusing legacy caches across runtime identities.
+- The diagnostic screen compares greedy MTP output with plain traced decode. It does not admit production use.
 
-The screen mode and its CLI changes came after the successful package check. They remain unbuilt and unverified.
+The cache-regeneration experiment restored 12/15 pilot draft acceptances and reproduced the historical token golden. This isolates a cache-dependent regression. It does not identify a corrupt tensor or prove that 0.77 misreads every 0.74 cache.
 
-## Observed validation
+The pilot measures one initial window per prompt. Its acceptance average does not predict the acceptance distribution across complete serving requests.
 
-The baseline package and repository Cairn check passed. The baseline stage gates exposed malformed requirement headings and task markers. The corrected proposal, design, and tasks gates report `PASS`.
+## Five-prompt physical screen (2026-09-08)
 
-Two device-free suites passed six tests each. They execute the candidate source with controlled device adapters. The cases cover all draft acceptance positions, exact target-state recovery, repeated zero acceptance, and sticky fallback. Negative cases cover invalid inputs, expired requests, capture errors, head errors, and changed tensor bindings.
+Package: `/nix/store/r5rc59ayv38sqmgr1dhl3qpm5jkzcncn-qwen38-0.1.0`.
+Runtime: `/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0`.
+Checkpoint: `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`. Mesh: physical P150x2, `1x2`.
 
-The first candidate package check passed; build rounds r2 and r3 then passed the package, package check, NixOS service gate, and repository Cairn quality. The NixOS gate verifies that the default ExecStart is unchanged, that the speculative option adds `--decode-mode eager` plus the packaged profiles, and that combining speculation with sampled fusion fails the module assertion. A fresh single-chip simulator smoke passed before hardware (`ttsim-smoke.log`). Focused Ruff checks pass on every touched file; the six remaining `check.py` findings are pre-existing at `51e07b8` and were left untouched. Two read-only workers reached their eight-minute limits without reports, so the source review has no independent worker review.
+Private evidence: `.pi/logs/qwen38-mtp-serving/hw6-preserved/serving-screen.json` in the primary repository. The copy preserves the receipt from 18:25:32. The shared `screen/` path is not an immutable run identifier.
 
-## Physical screen result (2026-09-08, P150x2)
+| Prompt | Compared tokens | Accepted drafts | Rounds | Rejected rounds | Speculative tokens emitted | Round time | Plain-equivalent / round time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Deterministic rollback | 64 | 4 | 3 | 2 | 7 | 0.812 s | 0.533 |
+| Compiler correctness | 64 | 1 | 2 | 2 | 3 | 0.449 s | 0.393 |
+| Capital of France | 64 | 4 | 2 | 1 | 6 | 1.412 s | 0.302 |
+| Reliable cache | 64 | 3 | 3 | 2 | 6 | 0.575 s | 0.645 |
+| Counting | 64 | 10 | 5 | 2 | 15 | 0.985 s | 0.906 |
 
-Receipt: private log `screen/serving-screen.json` (the repository artifact gate stays blocked, so this evidence is not registered in `docs/evidence`). Package `wj3rbz1rkw362wgx6nv2lvn56arr446g`, runtime `dr9bj8qwflylq39zl5ajcx42cdrb1bv9`, checkpoint `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`, mesh 1x2, two prompts, 64 tokens each, greedy, bwrap-sandboxed, 900 s bound.
+All 320 compared tokens matched. Across 15 rounds, the candidate accepted 22 drafts and emitted 37 tokens in 4.232 s. Nine rounds rejected a draft. The mean was 1.467 accepted drafts per round, not 2.4.
 
-- Exact token parity: PASS on both prompts against the plain traced control. No divergence occurred, so no near-tie classification was needed.
-- Acceptance: 0 of 6 drafted tokens accepted across both requests. Every round rejected at the first draft and emitted only the continuation token.
-- Round cost: 0.445 s and 0.430 s (prompt 1), 0.538 s and 0.643 s (prompt 2), against measured plain steps of 0.0565 s and 0.0578 s. The sticky economics guard disengaged after two losing rounds per request (`fallback_reason: round-economics`).
-- Trace capture: 13.1 s on the first request lifecycle, 1.9 s on the second. Minimum verification top-two margin: 0.0625 and 0.125.
-- Cleanup: `cleanup_complete: true`, cluster destructor completed, both device nodes free afterward. The service was inactive before and after; restoration was not required.
+The aggregate round-only ratio is 0.543. Its numerator sums each prompt's measured plain-step median times its speculative emitted count. Its denominator sums capture-excluded round durations. This ratio excludes request capture, prefill, fallback capture, and the remaining plain tokens. It is not an end-to-end serving speedup.
 
-Interpretation: the exactness contract held on hardware. Even with zero acceptance, rollback plus the continuation commit produced the identical stream, and the economics guard contained the losses exactly as designed. Speculation gave no speedup at this operating point, so it must stay disabled.
+The earlier 185-token, 0.50×, and 3.3-draft break-even claims were incorrect. The earlier 20× claim compared an outlier with a later typical duration, not matched distributions.
 
-Open anomaly, resolved and fixed: the diagnostic pilot re-run showed `accepted_prefix_length: 0` on all five prompts because the 0.77 runtime misreads head weight caches written by 0.74. The fix scopes the head cache directory by runtime identity (`mtp_drafter_probe-runtime-<identity>`), so each runtime regenerates once. After regeneration the pilot reports 12/15 accepted drafts with the exact 0.74 golden tokens (prompt 1: `89454, 4384, 58377`), and the only remaining blocker is `production-admission-missing`.
+## Cost attribution
 
-A second hardware screen with the healthy head confirmed exact parity again and cut round costs from up to 3.5 s to a steady 0.17 s by replacing per-round whole-state snapshots with the verifier's per-row prefix rollback. Economics remain near break-even on acceptance-heavy prompts and negative on rejection-heavy ones; the sticky guard still protects every request. Committed as `a611242`.
+The five-prompt receipt reports verification totals from 126.6 to 201.5 ms. These totals include device execution, readback, host reductions, input preparation, and watchdog overhead. They do not isolate a device bottleneck.
 
-Remaining levers, in order: fold the bonus-token head advance into the verify replay (removes a replay per round), reduce verification readback latency, and widen the screen prompt set before any enablement reconsideration.
+Rollback ranges from 34.6 to 759.2 ms in that receipt. The source performs per-layer concat and copy operations. The receipt does not prove that allocator behavior caused the outlier.
 
-## Five-prompt operating point (final measurement, 2026-09-08)
+The old draft stage includes trace capture, although round time excludes it. The continuation adds separate capture and warm-draft fields. It also reports the verifier's existing device and readback durations, plus the residual time.
 
-Package `r5rc59ayv38sqmgr1dhl3qpm5jkzcncn` added per-stage round timing and widened the screen to all five profile prompts, 64 tokens each. Receipt: `screen/serving-screen.json` (private, artifact gate still blocked).
+The exact 0.77 source documents `concat(output_tensor=...)` but rejects that argument in `concat.cpp`. A preallocated concat output is therefore not an available fix on this pin.
 
-- Exact token parity on all five prompts (185 tokens) against plain traced decode.
-- Acceptance: 22 drafts, 4 rejected across 15 rounds; the counting prompt reached 10/15.
-- Stage table: verification replay dominates at 124-130 ms per round; draft 10-49 ms; rollback 18-25 ms; head-commit 6-14 ms; plain step 57-71 ms.
-- Aggregate speedup 0.50x; the best prompt (counting, 10/15 accepted) reached 0.91x.
-- Break-even needs about 3.3 accepted drafts per round at the measured verify cost, against the 2.4 average. Two prompts also showed one stalled round each (up to 1.4 s), which the stage table now isolates.
+## Validation and limits
 
-The remaining lever is device-level: make the width-k backbone replay cheaper (the design assumed 60-90 ms; the runtime delivers 108-130 ms), and chase the stalled rounds. Serving integration itself is complete, exact, and safe; only the operating point is short of break-even.
+The timing continuation passed the six policy tests and nine adapter tests. The latter include timing partition and capture-exclusion checks. Its package build passed the existing device-free checks. The next physical screen uses a unique evidence directory.
 
-## Upstream reference consulted
+Earlier package, NixOS off/on/conflict, and pinned Cairn checks passed. The basic simulator check resolves successfully but does not establish a fresh numerical recurrence run. Full GDN simulation remains blocked by the documented unsupported instruction behavior.
 
-The `sjettTT/tt-qwen-3.8-flash-next` Blackhole MTP serving reference (a different 51.2B checkpoint) was reviewed mid-task and cited in the README. Its pinned numerics show width-k verify rows breaking near-ties differently from 1-row decode on 4 of 12 prompts. That motivated the margin capture in the verifier result and the screen's divergence classification. It also independently validates the local architecture choices: exact acceptance, default-off gating, and measured economics with sticky disengage.
+Two earlier review workers timed out without reports. No independent review resulted. Host fixtures do not prove arbitrary target-cache rollback correctness.
 
-## Remaining work
+The repository artifact gate remains blocked by inherited manifest and evidence-root errors. Private MTP receipts remain unregistered. The change stays active, without spec sync or archive.
 
-- Owner review (task 7) records: do not enable speculation on this runtime. Revisit after the 0.77 draft-target agreement is repaired; the serving integration itself passed its exactness screen.
-- Keep the Cairn change active. Do not enable production. Do not sync or archive.
+## Upstream reference
 
-The inherited artifact-policy and manifest failures also remain outside this change's acceptance evidence. No push or main-branch integration ran.
-
-Private logs and the search registry remain in the primary worktree at `.pi/logs/qwen38-mtp-serving/`.
+The README cites `sjettTT/tt-qwen-3.8-flash-next`, a different model and topology. Its near-tie observations are external claims, not local validation. The earlier review did not record an immutable source revision. The reference does not prove the local trace order or rollback contract.
