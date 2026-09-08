@@ -244,17 +244,26 @@
         assert lib.assertMsg (
           qwenServiceUnit.conflicts == qwenServiceConflictingUnits
         ) "the Qwen service must preserve device-owner conflicts";
-        assert lib.assertMsg (lib.hasInfix "qwen36-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
-          "the Qwen service must use the serialized package entry point";
+        assert lib.assertMsg (lib.hasInfix "qwen38-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
+          "the Qwen service must use the canonical serialized package entry point";
+        assert lib.assertMsg (
+          qwen38.pname == "qwen38" && qwen38.meta.mainProgram == "qwen38-check"
+        ) "the Qwen package identity must match the checkpoint version";
+        assert lib.assertMsg (
+          pkgs.qwen36.drvPath == pkgs.qwen38.drvPath
+        ) "the legacy Qwen package must alias the canonical derivation";
+        assert lib.assertMsg (
+          !(lib.hasInfix "/bin/qwen36-" qwenServiceUnit.serviceConfig.ExecStart)
+        ) "the default Qwen service must not select a legacy command";
         assert lib.assertMsg (
           qwenServiceUnit.serviceConfig.Type == "notify"
         ) "the Qwen service must remain activating until startup warm-up completes";
         assert lib.assertMsg (
           qwenServiceUnit.serviceConfig.NotifyAccess == "main"
         ) "the Qwen service must accept readiness only from its main process";
-        pkgs.runCommand "qwen36-nixos-service" { } ''
+        pkgs.runCommand "qwen38-nixos-service" { } ''
           set -euo pipefail
-          test -x ${qwen36}/bin/qwen36-p150x2-serve
+          test -x ${qwen38}/bin/qwen38-p150x2-serve
           exec_start=${pkgs.writeText "qwen-service-exec-start" qwenServiceUnit.serviceConfig.ExecStart}
           grep -F -- '--model-path ${qwenServiceModelPath}' "$exec_start"
           grep -F -- '--max-sequence-length ${toString qwenServiceMaximumSequenceLength}' "$exec_start"
@@ -678,7 +687,7 @@
       };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       # r[impl tenstorrent.qwen36.deployable]
-      qwen36 = pkgs.callPackage ../pkgs/qwen36 {
+      qwen38 = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
       };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
@@ -687,8 +696,8 @@
       # the check fails to evaluate.
       qwen36AuthorityNegativeCheck =
         let
-          qwen36Validator = qwen36.passthru.authorityValidator;
-          qwen36Canonical = qwen36.passthru.canonicalAuthority;
+          qwen36Validator = qwen38.passthru.authorityValidator;
+          qwen36Canonical = qwen38.passthru.canonicalAuthority;
           driftedAuthority = qwen36Canonical // {
             upstream = qwen36Canonical.upstream // {
               commit = "0000000000000000000000000000000000000000";
@@ -697,11 +706,11 @@
           driftAdmission = builtins.tryEval (qwen36Validator.admit driftedAuthority);
         in
         if driftAdmission.success then
-          throw "qwen36 authority negative check: drifted adoption was admitted"
+          throw "qwen38 authority negative check: drifted adoption was admitted"
         else
-          pkgs.runCommand "qwen36-authority-negative" { } ''
+          pkgs.runCommand "qwen38-authority-negative" { } ''
             mkdir -p "$out"
-            printf '%s\n' "qwen36 authority negative check: PASS" > "$out/result"
+            printf '%s\n' "qwen38 authority negative check: PASS" > "$out/result"
           '';
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
       rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
@@ -968,7 +977,8 @@
         ttwkv7-owner-control = ttwkv7OwnerControl;
         tt-metal-tracy-tools = ttMetalTracyTools;
         repository-quality = repositoryQuality.repositoryQualityPackage;
-        qwen36 = qwen36;
+        inherit qwen38;
+        qwen36 = qwen38; # Compatibility alias.
       };
 
       checks = lib.optionalAttrs isSupportedSystem {
@@ -1028,7 +1038,10 @@
         repository-quality = repositoryQualityAggregate;
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;
-        qwen36 = qwen36;
+        inherit qwen38;
+        qwen38-authority-negative = qwen36AuthorityNegativeCheck;
+        qwen38-nixos-service = qwenServiceCheck;
+        qwen36 = qwen38; # Compatibility aliases for existing check callers.
         qwen36-authority-negative = qwen36AuthorityNegativeCheck;
         qwen36-nixos-service = qwenServiceCheck;
         repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;

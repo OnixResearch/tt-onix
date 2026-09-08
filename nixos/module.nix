@@ -105,8 +105,8 @@ in
 
       package = mkOption {
         type = types.package;
-        default = pkgs.qwen36;
-        defaultText = lib.literalExpression "pkgs.qwen36";
+        default = pkgs.qwen38;
+        defaultText = lib.literalExpression "pkgs.qwen38";
         description = "Qwen package that owns the P150x2 service executable.";
       };
 
@@ -267,7 +267,7 @@ in
 
         serviceConfig = {
           ExecStart = lib.escapeShellArgs [
-            "${qwen38.package}/bin/qwen36-p150x2-serve"
+            "${qwen38.package}/bin/qwen38-p150x2-serve"
             "--host"
             qwen38.listenAddress
             "--port"

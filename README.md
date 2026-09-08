@@ -11,7 +11,7 @@ nixpkgs.overlays = [ tenstorrent.overlays.default ];
 ```
 
 Provides top-level `tt-umd`, `tt-logger`, `tt-metal`, `tt-smi`, `tt-burnin`,
-`tt-topology`, `tt-system-tools`, `luwen`, and `qwen36`. It extends every Python
+`tt-topology`, `tt-system-tools`, `luwen`, and `qwen38`. It extends every Python
 package set with `pyluwen`, `tt-flash`, and `tt-tools-common`. It also extends
 kernel package sets with `tt-kmd`.
 
@@ -63,6 +63,12 @@ metadata-only profile, bounded simulator verdict, and explicit non-claims.
 
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
 P150x2 path and serialized NixOS inference service.
+
+Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
+`qwen38` prefix, including `qwen38-check` and `qwen38-p150x2-serve`.
+The `qwen36` package and command names remain compatibility aliases.
+The implementation directory `pkgs/qwen36`, upstream Python imports, cache
+paths, and historical receipt schemas retain their existing names.
 
 See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.

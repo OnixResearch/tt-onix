@@ -3,12 +3,13 @@
   runCommand,
   makeWrapper,
   nickel,
-  qwen36,
+  qwen38,
 }:
 let
-  program = "qwen36-p150x2-trace-reuse-host1-admission";
+  program = "qwen38-p150x2-trace-reuse-host1-admission";
+  legacyProgram = "qwen36-p150x2-trace-reuse-host1-admission";
 in
-runCommand "qwen36-trace-reuse-host1"
+runCommand "qwen38-trace-reuse-host1"
   {
     nativeBuildInputs = [
       makeWrapper
@@ -27,13 +28,17 @@ runCommand "qwen36-trace-reuse-host1"
       > "$out/share/qwen36-trace-reuse-host1/profile.json"
     hostThreads=$(nickel export --format json --field host_threads ${./profile.ncl})
     test "$hostThreads" = 1
-    makeWrapper ${qwen36}/bin/qwen36-p150x2-trace-reuse-admission "$out/bin/${program}" \
+    makeWrapper ${qwen38}/bin/qwen38-p150x2-trace-reuse-admission "$out/bin/${program}" \
       --set OMP_NUM_THREADS "$hostThreads" \
       --set MKL_NUM_THREADS "$hostThreads" \
       --set OPENBLAS_NUM_THREADS "$hostThreads" \
       --set TT_METAL_DISABLE_SFPLOADMACRO "1" \
       --unset TT_METAL_SLOW_DISPATCH_MODE \
       --unset TT_METAL_SIMULATOR_SOC_DESC
+
+    ln -s ${program} "$out/bin/${legacyProgram}"
+    test "$(readlink "$out/bin/${legacyProgram}")" = ${program}
+    test -x "$out/bin/${legacyProgram}"
 
     # Both checks stop at argument parsing, before a device opens.
     OMP_NUM_THREADS=invalid MKL_NUM_THREADS=invalid OPENBLAS_NUM_THREADS=invalid \

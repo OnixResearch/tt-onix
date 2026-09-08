@@ -144,7 +144,7 @@ assert lib.assertMsg (
   toString executionIdentity != toString executionIdentityWithDrift
 ) "an execution input failed to change the Qwen execution identity";
 stdenvNoCC.mkDerivation {
-  pname = "qwen36";
+  pname = "qwen38";
   # Adopted upstream state: tt-metal PR 53543 head (Qwen3.8-27B on qwen36).
   version = "0.1.0";
 
@@ -744,6 +744,14 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "vllm.entrypoints.openai.api_server"
 
+    # Public commands use the checkpoint version. Preserve old consumers with
+    # relative aliases, without renaming upstream modules or receipt schemas.
+    for legacy_command in "$out"/bin/qwen36*; do
+      canonical_name="qwen38''${legacy_command##*/qwen36}"
+      mv "$legacy_command" "$out/bin/$canonical_name"
+      ln -s "$canonical_name" "$legacy_command"
+    done
+
     # Positive: the overlay provides the JIT headers and kernel sources the
     # packaged runtime omits (matmul_custom.h for SDPA; the experimental CCL
     # all-gather-fused-matmul kernels for the qwen36 TP path).
@@ -783,6 +791,30 @@ stdenvNoCC.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
+
+    # Positive: each legacy command resolves to one executable canonical command.
+    test -x "$out/bin/qwen38-check"
+    test -x "$out/bin/qwen38-p150x2-serve"
+    for legacy_command in "$out"/bin/qwen36*; do
+      canonical_name="qwen38''${legacy_command##*/qwen36}"
+      test -L "$legacy_command"
+      test "$(readlink "$legacy_command")" = "$canonical_name"
+      test -x "$out/bin/$canonical_name"
+      test ! -L "$out/bin/$canonical_name"
+    done
+    "$out/bin/qwen38-p150x2-serve" --help > canonical-help.log
+    "$out/bin/qwen36-p150x2-serve" --help > legacy-help.log
+    cmp canonical-help.log legacy-help.log
+
+    # Negative: both command names reject malformed arguments before device I/O.
+    for command_name in qwen38-p150x2-serve qwen36-p150x2-serve; do
+      if "$out/bin/$command_name" --model-path /nonexistent-qwen-model \
+          --unknown-package-option > "$command_name-invalid.log" 2>&1; then
+        echo "$command_name accepted an unknown option" >&2
+        exit 1
+      fi
+      grep -F 'unrecognized arguments: --unknown-package-option' "$command_name-invalid.log"
+    done
 
     # Positive: installed layout is complete and hash-consistent.
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/model.py"
@@ -1333,7 +1365,7 @@ stdenvNoCC.mkDerivation {
     description = "Qwen3.8-27B on the qwen36 Blackhole path (tt-metal PR 53543, adopted)";
     homepage = "https://github.com/tenstorrent/tt-metal/pull/53543";
     license = lib.licenses.asl20;
-    mainProgram = "qwen36-check";
+    mainProgram = "qwen38-check";
     platforms = lib.platforms.linux;
   };
 }
