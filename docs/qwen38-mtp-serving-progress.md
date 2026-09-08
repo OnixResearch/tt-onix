@@ -53,13 +53,40 @@ The exact 0.77 source documents `concat(output_tensor=...)` but rejects that arg
 
 ## Validation and limits
 
-The timing continuation passed the six policy tests and nine adapter tests. The latter include timing partition and capture-exclusion checks. Its package build passed the existing device-free checks. The next physical screen uses a unique evidence directory.
+The timing continuation passed the six policy tests and nine adapter tests. The latter include timing partition and capture-exclusion checks. Its package build passed the existing device-free checks. The continuation screens use unique evidence directories.
 
 Earlier package, NixOS off/on/conflict, and pinned Cairn checks passed. The basic simulator check resolves successfully but does not establish a fresh numerical recurrence run. Full GDN simulation remains blocked by the documented unsupported instruction behavior.
 
 Two earlier review workers timed out without reports. No independent review resulted. Host fixtures do not prove arbitrary target-cache rollback correctness.
 
 The repository artifact gate remains blocked by inherited manifest and evidence-root errors. Private MTP receipts remain unregistered. The change stays active, without spec sync or archive.
+
+## Convolution-window comparison (2026-09-08 continuation)
+
+The candidate replaces per-token convolution-state shifts with ordered row references. It copies the final window once and keeps the same arithmetic order. Prefix snapshots retain each row window. Shape and dtype checks reject incompatible rows before a commit.
+
+The baseline and candidate each ran all five prompts with the same checkpoint, runtime, precision, and three-draft profile. Both compared 320 tokens against plain decode. All tokens matched within and across runs. Both recorded the same acceptance pattern across 18 rounds: 25 accepted drafts and 43 emitted tokens. Both receipts report complete cleanup.
+
+| Metric | Instrumented baseline | Row-window candidate |
+|---|---:|---:|
+| Mean verifier device time | 113.664 ms | 110.303 ms |
+| Device-time range | 113.615–113.720 ms | 110.261–110.341 ms |
+| Total capture-excluded round time | 2.970 s | 2.884 s |
+| Plain-equivalent / round time | 0.825 | 0.849 |
+| Counting-prompt round-only ratio | 1.063 | 1.115 |
+
+This pair shows a 2.96% decrease in verifier device time and a 2.89% decrease in total round time. It is one ordered comparison, not a repeated ABBA benchmark or end-to-end serving acceptance. The aggregate remains slower than plain decode. The earlier 759 ms rollback outlier did not recur in either run, so these results do not establish its cause.
+
+Private evidence directories in the primary repository:
+
+- `cost-partition-hw7/`: baseline package `98qhq24b6d5jdqbq1nvyznv5ixdm9pgv`.
+- `convolution-window-hw8/`: candidate package `ibbyiqg5h1vi2nfxcpsqsl8y5fy1l5cf`.
+
+Both reside under `.pi/logs/qwen38-mtp-serving/`. Each contains a separate log, receipt, ownership precheck, and scratch-path record. No shared receipt was overwritten.
+
+Validation: five new convolution-window tests, six policy tests, nine serving-adapter tests, package checks, scoped Ruff, Nix formatting, and pinned Cairn validation passed. Negative cases cover wrong widths, missing rows, dtype changes, and partial-commit prevention. These host tests do not model device timing or prove arbitrary-context parity.
+
+The bounded continuation used two physical screens. It keeps the measured row-window reduction and leaves further verifier work open. About 110 ms of device time remains per verification pass. Readback was a smaller term in the instrumented baseline, approximately 6–13 ms.
 
 ## Upstream reference
 

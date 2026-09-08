@@ -546,9 +546,7 @@ class NativeMtpVerifierAdapter:
                 int(torch.argmax(logits[row]).item()) for row in range(width)
             )
             top_two = torch.topk(logits, 2, dim=-1).values
-            minimum_top_two_margin = float(
-                (top_two[:, 0] - top_two[:, 1]).min().item()
-            )
+            minimum_top_two_margin = float((top_two[:, 0] - top_two[:, 1]).min().item())
             rollback_seconds = ZERO_DURATION_SECONDS
             if committed_width < width:
                 ttnn.release_trace(self.model.mesh_device, trace_id)
@@ -822,6 +820,50 @@ def _verify_layer(
     return output
 
 
+def _verification_convolution_windows(layer: Any, qkv: Any, width: int):
+    """Yield ordered row references without rewriting persistent state per token.
+
+    The caller keeps qkv alive until the final window is committed. Initial
+    state rows remain unchanged while every prefix snapshot consumes its window.
+    """
+    states = tuple(layer.conv_states)
+    row_shape = (MINIMUM_WIDTH, MINIMUM_WIDTH, layer.qkv_dim_tp)
+    if width < MINIMUM_WIDTH or qkv.shape != (MINIMUM_WIDTH, width, layer.qkv_dim_tp):
+        raise NativeMtpVerifierError("native verifier convolution width is invalid")
+    if not states or len(states) != layer.K:
+        raise NativeMtpVerifierError("native verifier convolution state count changed")
+    if any(state.shape != row_shape or state.dtype != qkv.dtype for state in states):
+        raise NativeMtpVerifierError("native verifier convolution row contract changed")
+    for offset in range(width):
+        row = ttnn.slice(
+            qkv,
+            (0, offset, 0),
+            (MINIMUM_WIDTH, offset + MINIMUM_WIDTH, layer.qkv_dim_tp),
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+        states = (*states[MINIMUM_WIDTH:], row)
+        yield states
+
+
+def _commit_convolution_window(layer: Any, states: tuple[Any, ...]) -> None:
+    """Commit a forward-shifted suffix before its qkv source can be released.
+
+    Copy oldest to newest. Any retained persistent source is to the right of
+    its destination, so an earlier copy cannot destroy a later source.
+    """
+    if len(states) != layer.K or len(layer.conv_states) != layer.K:
+        raise NativeMtpVerifierError("native verifier convolution commit count changed")
+    if any(
+        source.shape != target.shape or source.dtype != target.dtype
+        for source, target in zip(states, layer.conv_states, strict=True)
+    ):
+        raise NativeMtpVerifierError(
+            "native verifier convolution commit contract changed"
+        )
+    for source, target in zip(states, layer.conv_states, strict=True):
+        ttnn.copy(source, target)
+
+
 def _verify_gdn(
     layer: Any,
     x: Any,
@@ -868,23 +910,10 @@ def _verify_gdn(
     decay = ttnn.reshape(decay, (MINIMUM_WIDTH, width, value_heads))
 
     output_rows = []
-    convolution_states = layer.conv_states
-    for offset in range(width):
-        for state_index in range(layer.K - MINIMUM_WIDTH):
-            ttnn.copy(
-                convolution_states[state_index + MINIMUM_WIDTH],
-                convolution_states[state_index],
-            )
-        qkv_row = ttnn.slice(
-            qkv,
-            (0, offset, 0),
-            (MINIMUM_WIDTH, offset + MINIMUM_WIDTH, qkv_width),
-            memory_config=ttnn.L1_MEMORY_CONFIG,
-        )
-        ttnn.copy(qkv_row, convolution_states[layer.K - MINIMUM_WIDTH])
-        # A full-width slice can alias qkv on TT-Metal 0.74. Do not force-free
-        # the view before later verifier positions consume the parent.
-
+    convolution_states = ()
+    for offset, convolution_states in enumerate(
+        _verification_convolution_windows(layer, qkv, width)
+    ):
         convolution = ttnn.multiply(
             convolution_states[0],
             tw["conv_taps"][0],
@@ -979,7 +1008,7 @@ def _verify_gdn(
                 )
             ttnn.copy(layer.rec_state, prefix_snapshot.recurrent)
             for source, target in zip(
-                layer.conv_states,
+                convolution_states,
                 prefix_snapshot.convolution,
                 strict=True,
             ):
@@ -988,6 +1017,8 @@ def _verify_gdn(
             ttnn.reshape(output_row, (MINIMUM_WIDTH, value_heads, value_width))
         )
 
+    _commit_convolution_window(layer, convolution_states)
+    # A full-width slice can alias qkv. Release it only after the final copies.
     ttnn.deallocate(qkv)
     ttnn.deallocate(beta)
     ttnn.deallocate(decay)
