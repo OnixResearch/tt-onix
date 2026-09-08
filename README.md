@@ -68,6 +68,8 @@ See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.
 The later [binding-identity optimization](docs/qwen-binding-identity-optimization.md)
 reduces accessor overhead without skipping binding checks.
+The [readback evaluation](docs/qwen-readback-evaluation.md) retains a rejected
+candidate and the bounded B=1 component measurements.
 
 Build a stable result link when you need to inspect or run several commands:
 
