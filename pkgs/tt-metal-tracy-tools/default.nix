@@ -38,7 +38,7 @@ let
 in
 stdenv.mkDerivation {
   pname = "tt-metal-tracy-tools";
-  version = "0.74.0";
+  version = tt-metal.version;
 
   src = ./.;
 
