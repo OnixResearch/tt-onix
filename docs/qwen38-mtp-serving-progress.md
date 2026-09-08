@@ -45,6 +45,18 @@ A second hardware screen with the healthy head confirmed exact parity again and 
 
 Remaining levers, in order: fold the bonus-token head advance into the verify replay (removes a replay per round), reduce verification readback latency, and widen the screen prompt set before any enablement reconsideration.
 
+## Five-prompt operating point (final measurement, 2026-09-08)
+
+Package `r5rc59ayv38sqmgr1dhl3qpm5jkzcncn` added per-stage round timing and widened the screen to all five profile prompts, 64 tokens each. Receipt: `screen/serving-screen.json` (private, artifact gate still blocked).
+
+- Exact token parity on all five prompts (185 tokens) against plain traced decode.
+- Acceptance: 22 drafts, 4 rejected across 15 rounds; the counting prompt reached 10/15.
+- Stage table: verification replay dominates at 124-130 ms per round; draft 10-49 ms; rollback 18-25 ms; head-commit 6-14 ms; plain step 57-71 ms.
+- Aggregate speedup 0.50x; the best prompt (counting, 10/15 accepted) reached 0.91x.
+- Break-even needs about 3.3 accepted drafts per round at the measured verify cost, against the 2.4 average. Two prompts also showed one stalled round each (up to 1.4 s), which the stage table now isolates.
+
+The remaining lever is device-level: make the width-k backbone replay cheaper (the design assumed 60-90 ms; the runtime delivers 108-130 ms), and chase the stalled rounds. Serving integration itself is complete, exact, and safe; only the operating point is short of break-even.
+
 ## Upstream reference consulted
 
 The `sjettTT/tt-qwen-3.8-flash-next` Blackhole MTP serving reference (a different 51.2B checkpoint) was reviewed mid-task and cited in the README. Its pinned numerics show width-k verify rows breaking near-ties differently from 1-row decode on 4 of 12 prompts. That motivated the margin capture in the verifier result and the screen's divergence classification. It also independently validates the local architecture choices: exact acceptance, default-off gating, and measured economics with sticky disengage.
