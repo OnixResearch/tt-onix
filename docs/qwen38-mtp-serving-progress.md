@@ -2,7 +2,7 @@
 
 ## Status
 
-Speculation remains off by default. The five-prompt screen passed bounded token parity but lost against plain decode. This result does not establish general exactness, production safety, or a speedup.
+Speculation remains off by default. The latest two-draft candidate reached a 0.992 round-only ratio. The three-draft control reached 0.797. Both passed bounded token parity, but neither establishes a serving speedup. General exactness and production safety remain unproven.
 
 Local commits reside on `work/qwen38-mtp-serving-20260908` in `../tenstorrent.nix-mtp-serving-20260908`. No push or main-branch integration ran. Owner review remains open.
 
@@ -87,6 +87,40 @@ Both reside under `.pi/logs/qwen38-mtp-serving/`. Each contains a separate log, 
 Validation: five new convolution-window tests, six policy tests, nine serving-adapter tests, package checks, scoped Ruff, Nix formatting, and pinned Cairn validation passed. Negative cases cover wrong widths, missing rows, dtype changes, and partial-commit prevention. These host tests do not model device timing or prove arbitrary-context parity.
 
 The bounded continuation used two physical screens. It keeps the measured row-window reduction and leaves further verifier work open. About 110 ms of device time remains per verification pass. Readback was a smaller term in the instrumented baseline, approximately 6–13 ms.
+
+## Draft width and prefix traces (2026-09-08 continuation)
+
+The two-draft diagnostic profiles change only width and profile ID. The production defaults still select three drafts, with speculation off.
+
+The prefix-trace candidate records the existing GDN restoration operations once per prefix. Each replay reads the current prefix contents through fixed bindings. The adapter rejects changed bindings and invalid indices before device effects. It releases prefix traces before their borrowed buffers and restores original GDN state after capture failure.
+
+All three new physical screens compared 320 tokens against plain controls. All tokens matched. Cross-run token comparisons also passed. The runtime, checkpoint, precision, and admission thresholds stayed unchanged.
+
+| Screen | Drafts | Prefix traces | Rounds | Accepted drafts | Emitted tokens | Mean verifier device time | Mean rejection rollback | Round-only ratio |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| hw8, earlier control | 3 | No | 18 | 25 | 43 | 110.303 ms | 21.568 ms | 0.849 |
+| hw9, width screen | 2 | No | 18 | 23 | 41 | 94.493 ms | 81.683 ms | 0.770 |
+| hw10, prefix candidate | 2 | Yes | 20 | 24 | 44 | 94.465 ms | 8.836 ms | 0.992 |
+| hw11, width control | 3 | Yes | 18 | 25 | 43 | 110.336 ms | 10.030 ms | 0.797 |
+
+The hw9 rollback mean includes a 489 ms outlier. In hw10, rollback ranged from 8.69 to 9.09 ms. These runs executed different round counts, so their aggregate change is not a matched-round speedup.
+
+The three-draft pair retained the same acceptance sequence across all 18 rounds. Mean rejection rollback decreased from 21.568 to 10.030 ms. However, total round time increased from 2.884 to 3.263 s.
+
+Verifier device time stayed near 110.3 ms. Host-side stage times increased. In hw11, verifier readback ranged from 8.31 to 41.85 ms. The cause of that variation remains unknown.
+
+The candidate therefore reduces the measured rollback stage, but does not establish a consistent aggregate improvement. The best round-only ratio, 0.992, still excludes capture and remains below break-even. No end-to-end gain is claimed. Repeated matched controls remain necessary.
+
+Private evidence under `.pi/logs/qwen38-mtp-serving/` in the primary repository:
+
+- `width-k2-hw9/`: package `ibbyiqg5h1vi2nfxcpsqsl8y5fy1l5cf`.
+- `prefix-trace-k2-hw10/` and `prefix-trace-k3-hw11/`: package `hs3i1w8xk02gh6w05qmnhcr3q4m0qkwk`.
+- `width-prefix-comparison.json`: aggregate metrics and comparison limits.
+- `width-sweep-scope.md`: the bounded experiment and its extension.
+
+Each receipt reports complete cleanup. The build passed package checks and 33 scoped host tests: six policy, ten serving-round, five convolution-window, nine prefix-trace, and three profile tests. Ruff, Nix formatting, diff checks, and pinned Cairn validation passed. Host negative cases include capture failure, stale bindings, incomplete capture, invalid widths, and invalid replay indices.
+
+The simulator limitation, missing independent review, and artifact-registration blocker remain. Task 4 is open again because the target path still relies on masking instead of full recovery of rejected KV rows. The delta specification requires rejected-KV restoration. Task 7 remains open for owner review. Neither these measurements nor the host tests authorize spec sync, archive, or production admission.
 
 ## Upstream reference
 

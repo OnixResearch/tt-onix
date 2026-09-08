@@ -2,103 +2,53 @@
 
 ## Round shape
 
-One speculative round replaces `draft_token_count` plain decode steps:
+A round drafts `k` tokens and verifies `k+1` input rows. The seed row is the last committed token. The other rows are the drafts.
 
-1. Draft: the MTP head chains `draft_token_count` drafts from the target
-   hidden state (captured draft trace, 9-14 ms total).
-2. Verify: the target backbone runs the draft chain teacher-forced at
-   width `draft_token_count` (native verifier trace; exact, PCC 1.0).
-3. Commit: the longest accepted draft prefix plus the verification bonus
-   token. For greedy requests the committed stream is provably identical
-   to sequential greedy decode - the verification argmaxes ARE the
-   sequential outputs for the accepted prefix, and the bonus token is the
-   sequential output at the rejection (or final) position.
-4. Recover: on rejection, restore rejected KV/GDN rows via the snapshot
-   rollback path (~12 ms measured) before the next round.
+1. The MTP head produces the draft chain from its request-owned feedback.
+2. The target verifier consumes `[last_committed, d0..d(k-1)]` at positions `[p..p+k]`.
+3. The core commits the accepted prefix and one target continuation token.
+4. After rejection, the adapter restores the GDN prefix and rebuilds the head continuation.
+
+The verifier returns rows `a0..ak`, where row `a_i` predicts position `p+i+1`. On rejection at `i`, the commit is `drafts[:i] + (a_i,)`. On full acceptance, it is `drafts + (a_k,)`.
+
+If verifier rows agree with sequential evaluation and state recovery is correct, this rule preserves sequential greedy output. Bounded token comparisons establish neither condition for arbitrary contexts.
 
 ## Trace residency
 
-Runtime 0.74 falsified capture-while-resident. The serving adapter
-captures three traces once per request lifecycle in hygiene order - no
-other trace resident, verify first (largest), then draft, then the
-existing width-1 decode trace - and afterwards only replays them. No
-per-round recapture is permitted; a forced recapture disengages
-speculation for the request and records the reason.
+The large verifier trace captures first, with no other trace resident. The prefix-restoration candidate then captures one small trace per prefix buffer. The draft trace captures after those traces. Each speculative round only replays existing traces.
 
-## Exactness contract
+Before plain fallback captures its width-1 trace, the adapter releases the draft, prefix, and verifier traces. Prefix traces release before their borrowed state buffers. No request reuses these traces across request boundaries.
 
-The core owns the commit rule. `commit_verified_round` accepts the draft
-tokens (length k) and the verification argmaxes (length k+1). It returns
-`drafts[:accepted] + (argmaxes[accepted],)` on rejection at `accepted < k`,
-or `drafts + (argmaxes[k],)` on full acceptance. The
-emitted stream equals sequential greedy output for any acceptance pattern;
-the device-free probe asserts this property against a reference stream.
+The [Adartras bundle](https://huggingface.co/Adartras/qwen3.6-a3b-blackhole) describes small commit traces after verifier capture. The inspected revision is `42a71032659a9d0e3b860b6104c59cfa6ca82149`. It is an implementation lead, not local acceptance. The physical screen must validate this candidate capture order.
 
-## Economics guard
+## Prefix-restoration traces
 
-Speculation only pays when `emitted_tokens / round_seconds` beats the
-measured plain step rate. The adapter records plain-rate calibration from
-startup warmup and per-round emitted counts; the pure core owns the
-sticky disengage decision (a configurable number of consecutive losing
-windows, so one bad window does not flip mode). Re-engagement within one
-request is forbidden; a disengaged request finishes on plain steps.
+Each restoration trace records the existing per-layer recurrent copy, convolution copies, and carry synchronization. It borrows fixed prefix and destination buffers. The verifier replay updates prefix contents before any restoration replay.
 
-## Gate
+The adapter compares Python tensor-object identities before replay. It does not inspect device addresses. The owner must keep the borrowed allocations live. Invalid indices, incomplete capture, or changed identities reject the replay before device effects. Capture failure ends the active capture and releases all created prefix traces. The parent restores its original GDN snapshot after prefix capture, including the failure path.
 
-`QWEN36_MTP_SERVING` defaults off. Off means the serving loop is
-byte-identical to today: no MTP weights load, no traces capture, no
-rounds run. The module option mirrors the sampled-fusion gate shape.
+Capture time includes these additional traces. Round timing includes their replay and synchronization. Faster recovery does not imply faster end-to-end requests because capture also has a cost.
 
-## Round-loop state model (derived from the proven components)
+## State and exactness boundary
 
-Semantics: the verify pass feeds `[last_committed, d0..d(k-1)]` at
-positions `[p..p+k]` and produces argmax rows `a0..ak`, where `a_i`
-predicts position `p+i+1`. Acceptance: first `i` with `d_i != a_i`;
-committed = `d0..d(i-1)` plus `a_i` (bonus on full acceptance: `a_k`).
-The pure core's continuation contract is exactly these `k+1` rows.
+On full acceptance, draft generation has not consumed `d(k-1)`. Head continuation consumes that last draft and then the bonus `a_k`. On partial acceptance, it consumes accepted inputs and the correction from round-entry feedback.
 
-The draft chain continues ACROSS rounds without reprefill:
+The current target adapter restores GDN state but leaves speculative KV rows. It relies on position masks and rewrite-before-read for that tail. This remains a gap against the delta specification's requirement to restore rejected KV state. Bounded token parity does not close that requirement. Production admission, spec sync, and archive remain blocked.
 
-- On full acceptance, draft generation has not consumed `d(k-1)`.
-  Head continuation consumes that last draft and then the bonus `a_k`.
-  No target reprefill happens.
-- On partial acceptance the serving adapter rebuilds the head prefix by
-  replaying accepted inputs plus the bonus from the round-entry feedback.
-- The candidate restores GDN prefix state but leaves speculative KV rows.
-  It relies on position masks and rewrite-before-read for the rejected tail.
-  The next round (or plain step) resumes at `p + accepted + 1` with seed
-  token `a_accepted`. Bounded token parity does not prove this invariant
-  for arbitrary contexts.
+The next round resumes at `p + accepted + 1` with seed `a_accepted`.
 
-## Measured round anatomy (0.77 runtime, 2026-09-08 screen)
+## Economics guard and defaults
 
-The five-prompt receipt compared 320 tokens with exact parity. It recorded
-22 accepted drafts across 15 rounds, not a 2.4-draft serving average.
-The capture-excluded round-only ratio is 0.543 against measured per-prompt
-plain-step costs. This is not an end-to-end speedup.
+The pure core compares emitted tokens and measured round time with the supplied plain-step rate. Consecutive losing rounds disengage speculation for the request. Re-engagement is forbidden. Neither the two-draft profile nor the prefix-trace candidate changes this threshold.
 
-Verification totals range from 126.6 to 201.5 ms. They include host work
-and readback, so they do not establish a device bottleneck. Rollback
-reached 759.2 ms once. Per-layer concat calls exist in the source, but
-allocator causality remains unproven. Draft stage time includes capture.
+Production speculation remains off by default. The two-draft profiles are explicit diagnostic alternatives to the unchanged three-draft defaults. Checkpoint, precision, sampled behavior, and batch behavior stay unchanged.
 
-The continuation separates device execution, readback, residual verifier
-time, and draft capture. It leaves precision, defaults, and thresholds
-unchanged. See `docs/qwen38-mtp-serving-progress.md` for corrected counts
-and claim limits.
+## Evidence boundary
 
-Round cost (measured pieces, k=3): draft replay ~10-14 ms + verify replay
-~60-90 ms + restore ~12 ms on rejection, against 3.4 emitted tokens -
-the 1.382x single-round measurement, sustained across rounds.
+The five-prompt hw6 receipt compared 320 tokens, not 185. It accepted 22 drafts across 15 rounds. Its measured round-only ratio was 0.543, not an end-to-end speedup.
 
-## Persistent verifier requirement
+The later row-window pair preserved 320 tokens and the same 18-round acceptance pattern. Mean verifier device time fell from 113.664 to 110.303 ms. The candidate round-only ratio was 0.849, still slower than plain decode.
 
-The diagnostic verifier captures and releases a trace per call (~1 s).
-Serving requires a persistent capture-once/replay mode: the op sequence
-and every baked buffer (inputs, prefix-snapshot state buffers, logits)
-are allocated once at capture; each round refreshes the mutable inputs,
-replays, reads back the k+1 argmax rows, and copies the prefix snapshot
-at the committed width over the live GDN state on rejection. Per-round
-fresh allocations are limited to the safety full-state clones. Capture
-order per request lifecycle: release everything, capture verify (largest),
-capture draft, then the width-1 decode trace; only replays afterwards.
+The two-draft hw9 screen preserved all 320 tokens and reduced verifier device time to about 94.5 ms. Its round-only ratio was 0.770. A 489 ms rollback outlier motivated the prefix-trace candidate. The outlier does not prove allocator causality.
+
+See `docs/qwen38-mtp-serving-progress.md` and the immutable private run directories for measurements. Historical pilot averages and design estimates are not serving-loop acceptance evidence.

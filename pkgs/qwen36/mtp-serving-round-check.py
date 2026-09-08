@@ -16,6 +16,7 @@ core = importlib.import_module("qwen36_service.mtp_serving_core")
 
 SOURCE_ROOT = Path(core.__file__).parent
 DRAFT_WIDTH = 3
+TWO_DRAFT_WIDTH = 2
 PROMPT_LENGTH = 5
 GENERATION_LIMIT = 24
 ANCHOR_TOKEN = 10
@@ -61,7 +62,14 @@ class RoundFixture:
     committed value.
     """
 
-    def __init__(self, accepted, *, failed_capture=False, failed_head=False):
+    def __init__(
+        self,
+        accepted,
+        *,
+        failed_capture=False,
+        failed_head=False,
+        draft_width=DRAFT_WIDTH,
+    ):
         self.accepted = accepted
         self.failed_capture = failed_capture
         self.failed_head = failed_head
@@ -105,7 +113,7 @@ class RoundFixture:
         self.owner = SimpleNamespace(
             model=object(),
             mesh=object(),
-            profile=SimpleNamespace(draft_token_count=DRAFT_WIDTH),
+            profile=SimpleNamespace(draft_token_count=draft_width),
             trace_profile=SimpleNamespace(
                 maximum_trace_capture_seconds=SLOW_PLAIN_SECONDS
             ),
@@ -288,6 +296,15 @@ class RoundTests(unittest.TestCase):
                 self.assertFalse(fixture.verify_resident)
                 self.assertTrue(fixture.trace.closed)
                 self.assertEqual(fixture.events.count("verify-capture"), 1)
+
+    def test_two_draft_window_preserves_tokens_at_every_acceptance_length(self):
+        for accepted in (None, *range(TWO_DRAFT_WIDTH)):
+            with self.subTest(accepted=accepted):
+                fixture = RoundFixture(accepted, draft_width=TWO_DRAFT_WIDTH)
+                result = fixture.run()
+                self.assert_exact_stream(fixture, result)
+                self.assertTrue(fixture.trace.closed)
+                self.assertFalse(fixture.verify_resident)
 
     def test_slow_rounds_switch_once_and_preserve_exact_output(self):
         fixture = RoundFixture(0)

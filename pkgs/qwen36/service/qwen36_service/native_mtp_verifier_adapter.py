@@ -21,6 +21,7 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
 from models.tt_transformers.tt.ccl import tt_all_reduce
 from models.tt_transformers.tt.common import Mode, copy_host_to_device
 
+from qwen36_service.mtp_prefix_trace_adapter import MtpPrefixTraces
 from qwen36_service.mtp_trace_hygiene_core import (
     TraceCaptureProvenance,
     validate_trace_capture_provenance,
@@ -100,6 +101,7 @@ class NativeMtpVerifierAdapter:
         self._persistent_width = 0
         self._persistent_inputs: tuple[Any, ...] = ()
         self._persistent_logits: Any | None = None
+        self._persistent_prefix_traces: MtpPrefixTraces | None = None
         self._persistent_prefix_snapshots: tuple[
             tuple[_GdnPrefixSnapshot, ...], ...
         ] = ()
@@ -152,6 +154,7 @@ class NativeMtpVerifierAdapter:
         prefix_snapshots = self._clone_gdn_prefix_states(width)
         trace_id = None
         logits_device = None
+        prefix_traces = None
         try:
             capture_started = time.monotonic()
             warm_logits = self._forward_device(
@@ -195,8 +198,17 @@ class NativeMtpVerifierAdapter:
                 cq_id=TRACE_COMMAND_QUEUE_ID,
             )
             ttnn.synchronize_device(self.model.mesh_device)
-            self._restore_gdn_state(snapshots)
-            ttnn.synchronize_device(self.model.mesh_device)
+            prefix_traces = MtpPrefixTraces(
+                mesh=self.model.mesh_device,
+                prefixes=prefix_snapshots,
+                restore_prefix=self._restore_gdn_prefix_state,
+                binding_ids=lambda: self._prefix_trace_binding_ids(prefix_snapshots),
+            )
+            try:
+                prefix_traces.capture()
+            finally:
+                self._restore_gdn_state(snapshots)
+                ttnn.synchronize_device(self.model.mesh_device)
             capture_seconds = time.monotonic() - capture_started
             if (
                 not math.isfinite(capture_seconds)
@@ -218,15 +230,18 @@ class NativeMtpVerifierAdapter:
             self._persistent_inputs = tuple(device_inputs)
             self._persistent_logits = logits_device
             self._persistent_prefix_snapshots = prefix_snapshots
+            self._persistent_prefix_traces = prefix_traces
             return capture_seconds
         except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
-            self._deallocate_gdn_snapshots(snapshots)
-            self._deallocate_gdn_prefix_states(prefix_snapshots)
+            if prefix_traces is not None:
+                prefix_traces.close()
             if trace_id is not None:
                 try:
                     ttnn.release_trace(self.model.mesh_device, trace_id)
                 except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
                     pass
+            self._deallocate_gdn_snapshots(snapshots)
+            self._deallocate_gdn_prefix_states(prefix_snapshots)
             if logits_device is not None:
                 ttnn.deallocate(logits_device)
             for tensor in device_inputs:
@@ -236,6 +251,9 @@ class NativeMtpVerifierAdapter:
             self._persistent_inputs = ()
             self._persistent_logits = None
             self._persistent_prefix_snapshots = ()
+            self._persistent_prefix_traces = None
+            self._persistent_width = 0
+            self._hygiene_capture_resident = False
             raise
 
     def replay_round(
@@ -327,11 +345,15 @@ class NativeMtpVerifierAdapter:
         """
         if self._persistent_trace_id is None:
             raise NativeMtpVerifierError("persistent verifier is not captured")
-        self._restore_gdn_prefix_state(self._persistent_prefix_snapshots[accepted])
-        ttnn.synchronize_device(self.model.mesh_device)
+        if self._persistent_prefix_traces is None:
+            raise NativeMtpVerifierError("persistent prefix traces are not captured")
+        self._persistent_prefix_traces.replay(accepted)
 
     def close_persistent(self) -> None:
-        """Release the persistent verification trace and its buffers."""
+        """Release dependent prefix traces before the verifier and its buffers."""
+        if self._persistent_prefix_traces is not None:
+            self._persistent_prefix_traces.close()
+            self._persistent_prefix_traces = None
         if self._persistent_trace_id is not None:
             ttnn.release_trace(
                 self.model.mesh_device,
@@ -696,6 +718,23 @@ class NativeMtpVerifierAdapter:
             ):
                 ttnn.copy(source, target)
             ttnn.copy(snapshot.convolution_carry, snapshot.layer.conv_carry)
+
+    @staticmethod
+    def _prefix_trace_binding_ids(
+        prefixes: tuple[tuple[_GdnPrefixSnapshot, ...], ...],
+    ) -> tuple[int, ...]:
+        return tuple(
+            id(tensor)
+            for prefix in prefixes
+            for snapshot in prefix
+            for tensor in (
+                snapshot.recurrent,
+                *snapshot.convolution,
+                snapshot.layer.rec_state,
+                *snapshot.layer.conv_states,
+                snapshot.layer.conv_carry,
+            )
+        )
 
     @staticmethod
     def _restore_gdn_prefix_state(
