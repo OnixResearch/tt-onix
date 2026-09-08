@@ -63,13 +63,24 @@ The draft chain continues ACROSS rounds without reprefill:
   advanced through `d(k-1)`; the next round's first draft consumes the
   bonus token `a_k` with the recorded feedback. No target reprefill and
   no head rebuild happen.
-- On partial acceptance the rollback context restores the head's rejected
-  rows and selects the recorded prefix feedback at the accepted count
-  (measured: rollback exact 60/60, reprefill fallback median 8.8 ms).
+- On partial acceptance the serving adapter rebuilds the head prefix by
+  replaying accepted inputs plus the bonus from the round-entry feedback.
 - The target paged KV rows written by the verify pass are exact for the
   accepted prefix and must be restored for rejected rows; the next round
   (or plain step) resumes from position `p + accepted + 1` with seed
   token `a_accepted`.
+
+## Measured round anatomy (0.77 runtime, 2026-09-08 screen)
+
+Steady-state per round, from the five-prompt screen stage table:
+verify replay 127-175 ms (dominant), draft 12-24 ms, rollback 18-106 ms,
+head-commit 6-24 ms, against a 57-71 ms plain step. Break-even needs
+about 3.3 accepted drafts per round at this verify cost; the healthy
+cache state delivers 2.4 on the same prompts. The rollback path also
+shows allocator jitter (one 759 ms outlier): `_synchronize_convolution_
+carry` concatenates per-layer rows on every rollback. Both the verify
+replay cost and the carry-sync allocation belong to a device-level
+campaign; the serving-side structure is complete and exact.
 
 Round cost (measured pieces, k=3): draft replay ~10-14 ms + verify replay
 ~60-90 ms + restore ~12 ms on rejection, against 3.4 emitted tokens -
