@@ -340,9 +340,8 @@ def probe_p150x2_gate():
         "reset_tp lost its reset_state dispatch",
     )
 
-    # gdn-seq-fallback: fused_chunk_enabled must probe the runtime for the
-    # fused op instead of hardcoding True (the packaged 0.74 bindings lack
-    # ttnn.transformer.chunk_gated_delta_rule and must use the seq adapter).
+    # Runtime availability does not admit a new numerical prefill path.
+    # Keep the seq adapter until model-level evidence admits fused prefill.
     fused_chunk = (qwen36 / "tt" / "gdn" / "fused_chunk.py").read_text()
     require(
         'hasattr(ttnn.transformer, "chunk_gated_delta_rule")' in fused_chunk,
@@ -356,17 +355,30 @@ def probe_p150x2_gate():
     import ttnn as _ttnn
 
     require(
-        not hasattr(_ttnn.transformer, "chunk_gated_delta_rule"),
-        "packaged runtime unexpectedly exposes chunk_gated_delta_rule; revisit the seq fallback",
+        hasattr(_ttnn.transformer, "chunk_gated_delta_rule"),
+        "packaged 0.77 runtime lacks chunk_gated_delta_rule",
     )
+    from unittest import mock
+
+    from models.demos.blackhole.qwen36.tt.gdn import fused_chunk as fused_chunk_module
+
+    require(
+        not fused_chunk_module.FUSED_CHUNK_PREFILL_ADMITTED
+        and not fused_chunk_module.fused_chunk_enabled(),
+        "a runtime upgrade enabled unadmitted fused GDN prefill",
+    )
+    with mock.patch.object(fused_chunk_module, "FUSED_CHUNK_PREFILL_ADMITTED", True):
+        require(fused_chunk_module.fused_chunk_enabled(), "admitted fused GDN capability was rejected")
+        with mock.patch.object(fused_chunk_module.ttnn, "transformer", SimpleNamespace()):
+            require(not fused_chunk_module.fused_chunk_enabled(), "missing fused GDN capability was admitted")
     require(
         hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
         "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
     )
 
     # tp2-runtime-compat: the TP=4-tuned fused GDN output reduction waits on
-    # P150x2. The packaged AGMM binding also rejects its newer fuse_swiglu
-    # keyword. Keep both safe fallbacks capability- and topology-gated.
+    # P150x2. The new AGMM keyword does not establish numerical admission.
+    # Keep the safe fallbacks admission-, capability-, and topology-gated.
     import models.demos.blackhole.qwen36.tt.gdn.tp as gdn_tp
     from models.demos.blackhole.qwen36.tt import tp_common
 
@@ -389,13 +401,19 @@ def probe_p150x2_gate():
         "fused-SwiGLU capability probe accepts a signature without fuse_swiglu",
     )
     require(
-        not tp_common._runtime_supports_fused_swiglu(),
-        "packaged 0.74 runtime unexpectedly advertises fuse_swiglu; revisit the fallback",
+        tp_common._runtime_supports_fused_swiglu(),
+        "packaged 0.77 runtime lacks the expected fuse_swiglu keyword",
     )
     require(
-        not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
-        "P150x2 enables MLP gate/up AGMM despite the missing runtime keyword",
+        not tp_common.FUSED_MLP_GATEUP_ADMITTED
+        and not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+        "a runtime upgrade enabled unadmitted MLP gate/up AGMM",
     )
+    with mock.patch.object(tp_common, "FUSED_MLP_GATEUP_ADMITTED", True):
+        require(tp_common.mlp_gateup_agmm_enabled(p150x2_device_count), "admitted AGMM capability was rejected")
+        require(not tp_common.mlp_gateup_agmm_enabled(1), "single-device AGMM was admitted")
+        with mock.patch.object(tp_common, "_runtime_supports_fused_swiglu", return_value=False):
+            require(not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count), "missing AGMM capability was admitted")
 
 
 # r[verify tenstorrent.qwen38_p150x2.traced_decode]
