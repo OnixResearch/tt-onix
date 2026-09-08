@@ -10,4 +10,4 @@
 
 ## Baseline
 
-The package and repository Cairn validation pass at `e205476`. Tasks 1 through 6 are complete with device-free suites and the physical screen. The screen passed exact parity on both prompts and measured zero draft acceptance; the diagnostic pilot on the same runtime also reports zero acceptance (`mtp-drafter-invalid`), so the blocker is the 0.77 runtime's draft-target agreement, not the serving loop. Task 7 stays open: do not enable until that agreement is repaired.
+The package and repository Cairn validation pass at `e205476`. Tasks 1 through 6 are complete with device-free suites and two physical screens. The root cause of zero acceptance was the 0.77 misreading of 0.74-written head caches; runtime-scoped cache directories restore the 0.74 acceptance level, and targeted per-row rollback cut round cost to 0.17 s with exact parity on every screen. Task 7 stays open: economics are near break-even, so do not enable without the owner's review of the remaining levers.

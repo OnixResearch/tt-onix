@@ -39,7 +39,11 @@ Receipt: private log `screen/serving-screen.json` (the repository artifact gate 
 
 Interpretation: the exactness contract held on hardware. Even with zero acceptance, rollback plus the continuation commit produced the identical stream, and the economics guard contained the losses exactly as designed. Speculation gave no speedup at this operating point, so it must stay disabled.
 
-Open anomaly, resolved by the discriminating check: the diagnostic pilot re-run on this same runtime and package shows `accepted_prefix_length: 0` on all five prompts, with verdict `mtp-drafter-invalid` (`screen/pilot.json`). The zero acceptance is therefore not a serving-loop defect. Draft-target agreement itself is broken on the TT-Metal 0.77 runtime, consistent with the runtime's known GDN numerical blocker and the 0.74-era pilot's 2.4 drafts/round measured before the migration. Speculation stays disabled until draft-target agreement is restored. Exactness is unaffected: rejection is always safe.
+Open anomaly, resolved and fixed: the diagnostic pilot re-run showed `accepted_prefix_length: 0` on all five prompts because the 0.77 runtime misreads head weight caches written by 0.74. The fix scopes the head cache directory by runtime identity (`mtp_drafter_probe-runtime-<identity>`), so each runtime regenerates once. After regeneration the pilot reports 12/15 accepted drafts with the exact 0.74 golden tokens (prompt 1: `89454, 4384, 58377`), and the only remaining blocker is `production-admission-missing`.
+
+A second hardware screen with the healthy head confirmed exact parity again and cut round costs from up to 3.5 s to a steady 0.17 s by replacing per-round whole-state snapshots with the verifier's per-row prefix rollback. Economics remain near break-even on acceptance-heavy prompts and negative on rejection-heavy ones; the sticky guard still protects every request. Committed as `a611242`.
+
+Remaining levers, in order: fold the bonus-token head advance into the verify replay (removes a replay per round), reduce verification readback latency, and widen the screen prompt set before any enablement reconsideration.
 
 ## Upstream reference consulted
 
