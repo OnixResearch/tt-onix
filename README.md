@@ -163,3 +163,7 @@ boundary and non-claims.
 - [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) — desktop runner, model manager, and OpenAI-compatible RWKV service.
 - [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) — parameter-efficient fine-tuning reference for RWKV models.
 - [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) — Rust and Vulkan RWKV inference server with an OpenAI-compatible API.
+
+### vLLM Tenstorrent plugin
+
+- [tenstorrent/vllm-tt-plugin](https://github.com/tenstorrent/vllm-tt-plugin/tree/bef89e429e202caa38d3e3c8a24da4e8cc02405a) — standard vLLM platform plugin at `bef89e429e202caa38d3e3c8a24da4e8cc02405a`. This source targets vLLM 0.26.0 and replaces the deprecated Tenstorrent vLLM fork. See [the upgrade evaluation](docs/tenstorrent-upgrade-evaluation.md) for compatibility limits and local evidence.
