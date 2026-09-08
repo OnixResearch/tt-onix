@@ -2,7 +2,7 @@
 
 ## Status
 
-The [HiFi4 precision candidate](gdn-precision-candidate.md) follows this port and passes the bounded GDN hardware smoke. This is not full-model or production acceptance.
+The [HiFi4 precision candidate](gdn-precision-candidate.md) passes the bounded GDN hardware smoke. The later [Qwen runtime comparison](qwen-0.77-runtime-smoke.md) also passes a bounded full-model smoke with matching baseline tokens. Neither result is broad model-accuracy or production acceptance.
 
 The later [approved hardware attempts](evidence/tt-metal-0.77/hardware-attempt.md) first encountered a stale lock. After recovery, both 0.74 and 0.77 executed the kernel but failed the state tolerance with the same mismatch summary. Numerical acceptance remains blocked. The sections below record the earlier simulator-only port.
 
