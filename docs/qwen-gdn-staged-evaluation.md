@@ -23,7 +23,11 @@ The subsequent B=4 serving smoke failed during the width-one startup warm-up:
 RuntimeError: shape '[2, 1]' is invalid for input of size 40
 ```
 
-The model capacity was four. No long-output comparison completed. The driver closed normally. This records the integration error, not its root cause.
+The model capacity was four. No long-output comparison completed. The driver closed normally.
+
+A later device-free regression reproduced the exact error at the trace-output boundary. The `full` mode captures 20 candidates per device. The old startup warm-up passed those candidates to the greedy reader, which expected one winner per device.
+
+The warm-up now selects the reader for the captured mode. Tests cover widths one and four, malformed output widths, read errors, cleanup, and denied readiness. This fix does not change the serving router or establish full-fusion numerical acceptance. A new physical B=4 full-fusion run remains outside this result.
 
 The older full-fusion rejection remains relevant: `.cairn/archive/2026-08-27-fuse-qwen38-gdn-decode-state-update/evidence/parity-root-cause.md` records precision loss at mixed-kernel boundaries. The newer HiFi4 smoke does not erase that evidence.
 
@@ -43,7 +47,9 @@ The physical `norm-state` sequence completed with package `/nix/store/jbl3rh5j2g
 
 The [comparison](evidence/tt-metal-0.77/qwen-gdn-staged/sequence-comparison.json) passed positive, token-mutation, and empty-sequence controls. The [raw receipt](evidence/tt-metal-0.77/qwen-gdn-staged/norm-state-sequence.json) records the observed mode and successful cleanup.
 
-This is one B=1 candidate sequence compared with a saved B=4 baseline response. It does not establish candidate B=4 correctness, exact recurrent-state equality, a controlled speedup, or production admission. The next acceptance work remains broader parity and balanced performance measurements.
+This was one B=1 candidate sequence compared with a saved B=4 baseline response. It did not establish candidate B=4 correctness, exact recurrent-state equality, a controlled speedup, or production admission.
+
+The later [balanced B=1 comparison](qwen38-staged-decode-comparison.md) preserved exact token/text parity but missed the existing full-step timing target. Broader parity and B=4 measurements remain open.
 
 ## Fusion-profile contract repair
 

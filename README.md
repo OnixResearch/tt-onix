@@ -69,6 +69,8 @@ Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
 The `qwen36` package and command names remain compatibility aliases.
 The implementation directory `pkgs/qwen36`, upstream Python imports, cache
 paths, and historical receipt schemas retain their existing names.
+See the [staged decode comparison](docs/qwen38-staged-decode-comparison.md)
+for the latest bounded timing result and its non-claims.
 
 See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.
