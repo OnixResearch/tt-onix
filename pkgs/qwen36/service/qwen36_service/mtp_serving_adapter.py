@@ -78,6 +78,7 @@ def run_rounds(
     accepted_total = 0
     rejected_rounds = 0
     round_durations = []
+    round_stage_seconds = []
     verification_margins = []
     disengaged_reason = None
     capture_seconds = 0.0
@@ -131,6 +132,7 @@ def run_rounds(
                 seconds=ROUND_WATCHDOG_SECONDS,
                 stage="draft",
             )
+            draft_seconds = time.monotonic() - round_started
             if not (
                 replay.trace_binding_valid
                 and replay.capture_idempotence_valid
@@ -141,6 +143,7 @@ def run_rounds(
                 )
             drafts = (first_draft, *replay.token_ids)
             require_deadline(request_deadline)
+            verify_started = time.monotonic()
             verification = run_device_stage(
                 lambda: verifier.replay_round(
                     (current, *drafts), start_position=position
@@ -148,17 +151,21 @@ def run_rounds(
                 seconds=ROUND_WATCHDOG_SECONDS,
                 stage="verify",
             )
+            verify_seconds = time.monotonic() - verify_started
             commit = commit_verified_round(
                 draft_token_ids=drafts, continuation_token_ids=verification.token_ids
             )
             verification_margins.append(verification.minimum_top_two_margin)
+            rollback_seconds = 0.0
             if commit.rejected:
                 rejected_rounds += 1
+                rollback_started = time.monotonic()
                 run_device_stage(
                     lambda: verifier.rollback_to_prefix(commit.accepted),
                     seconds=ROUND_WATCHDOG_SECONDS,
                     stage="target-rollback",
                 )
+                rollback_seconds = time.monotonic() - rollback_started
                 continuation_inputs = (
                     *drafts[: commit.accepted],
                     commit.committed_token_ids[-1],
@@ -171,6 +178,7 @@ def run_rounds(
                 continuation_feedback = trace._trace_feedback
                 continuation_position = position + width - 1
             require_deadline(request_deadline)
+            head_commit_started = time.monotonic()
             first_draft, feedback = run_device_stage(
                 lambda: advance_draft_prefix(
                     trace,
@@ -181,11 +189,20 @@ def run_rounds(
                 seconds=ROUND_WATCHDOG_SECONDS,
                 stage="head-commit",
             )
+            head_commit_seconds = time.monotonic() - head_commit_started
             ttnn.synchronize_device(owner.mesh)
             require_deadline(request_deadline)
             duration = time.monotonic() - round_started - replay.trace_capture_seconds
             capture_seconds += replay.trace_capture_seconds
             round_durations.append(duration)
+            round_stage_seconds.append({
+                "draft": round(draft_seconds, 6),
+                "verify": round(verify_seconds, 6),
+                "rollback": round(rollback_seconds, 6),
+                "head_commit": round(head_commit_seconds, 6),
+                "emitted": len(commit.committed_token_ids),
+                "accepted": commit.accepted,
+            })
             generated.extend(commit.committed_token_ids)
             accepted_total += commit.accepted
             current = commit.committed_token_ids[-1]
@@ -235,6 +252,7 @@ def run_rounds(
         "rejected_rounds": rejected_rounds,
         "disengaged_reason": disengaged_reason,
         "round_seconds": tuple(round_durations),
+        "round_stage_seconds": tuple(round_stage_seconds),
         "trace_capture_seconds": capture_seconds,
         "minimum_verification_margin": (
             min(verification_margins) if verification_margins else None

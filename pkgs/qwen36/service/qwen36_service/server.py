@@ -555,6 +555,7 @@ class QwenEngine:
             "mtp_rejected_rounds": result["rejected_rounds"],
             "mtp_rounds": result["rounds"],
             "mtp_round_seconds": result.get("round_seconds", ()),
+            "mtp_round_stage_seconds": result.get("round_stage_seconds", ()),
             "mtp_trace_capture_seconds": result.get("trace_capture_seconds", 0.0),
             "mtp_plain_step_seconds": self._mtp_plain_step_seconds,
             "mtp_minimum_verification_margin": result.get(
@@ -648,6 +649,7 @@ class QwenEngine:
                 "mtp_rejected_rounds": mtp_perf["mtp_rejected_rounds"],
                 "mtp_rounds": mtp_perf["mtp_rounds"],
                 "mtp_round_seconds": mtp_perf["mtp_round_seconds"],
+                "mtp_round_stage_seconds": mtp_perf["mtp_round_stage_seconds"],
                 "mtp_trace_capture_seconds": mtp_perf["mtp_trace_capture_seconds"],
                 "mtp_plain_step_seconds": mtp_perf["mtp_plain_step_seconds"],
                 "mtp_minimum_verification_margin": mtp_perf[

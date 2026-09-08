@@ -7,7 +7,7 @@ from .core import CompletionRequest, Endpoint
 from .server import DECODE_MODE_EAGER, QwenEngine
 
 GENERATION_TOKENS = 64
-MAXIMUM_PROMPTS = 2
+MAXIMUM_PROMPTS = 5
 
 
 def compare_serving(
