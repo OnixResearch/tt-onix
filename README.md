@@ -99,6 +99,7 @@ It does not acquire a Tenstorrent device. See
 
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
 See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
+The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
 
 On `x86_64-linux`, the flake also publishes:
 

@@ -4,7 +4,7 @@ The `ttsim` package pins release 1.10.6 and provides complete single-chip simula
 
 - the exact host-specific release asset;
 - a canonical `libttsim.so` link;
-- the matching `soc_descriptor.yaml` from TT-Metal 0.74.0.
+- the matching `soc_descriptor.yaml` from the selected TT-Metal package.
 
 The package supports `x86_64-linux` and `aarch64-linux`. It never uses an x86-64 asset on an AArch64 host.
 
@@ -53,13 +53,19 @@ The receipt binds the library, descriptor, host system, TT-Metal identity, dispa
 
 The release includes `bh_x2`, `bh_x32`, `wh_x2`, `wh_x8`, and `wh_x32` assets. The package keeps these exact host assets in its asset directory. It does not expose them as runnable simulator environments.
 
-TTsim 1.10.6 documents incomplete multi-chip UMD support beyond `wh_x2`. Its README names `micah/native-sim` as the validated TT-Metal branch for Blackhole multi-chip simulation. TT-Metal 0.74.0 has mock-cluster plumbing, but its package has no reviewed `blackhole_P300` cluster descriptor.
+TTsim 1.10.6 documents incomplete multi-chip UMD support beyond `wh_x2`. Its README names `micah/native-sim` as the validated TT-Metal branch for Blackhole multi-chip simulation. The package has no admitted multi-chip runtime or reviewed `blackhole_P300` cluster descriptor.
 
 Release 1.10.6 also publishes `bh_x4` assets. This package does not yet include or admit those assets.
 
 The `ttsim-blackhole-x2` command therefore stops before simulation. It prints the blocker receipt and exits nonzero. The package stores the same receipt at `share/ttsim/blackhole-x2-blocker.json`.
 
 Do not use a simulated P300 topology as P150x2 evidence.
+
+## GDN numerical check
+
+The [0.77 port](tt-metal-0.77-port.md) adds `checks.x86_64-linux.ttsim-gdn-reference-smoke`. This check compares the fused recurrence with a NumPy reference and checks state carry and invalid inputs.
+
+TTsim 1.10.6 currently stops at an unsupported FP32 matmul control flag. The check remains failing. The basic `ttnn.ones`/`ttnn.add` smoke does not replace this numerical gate.
 
 ## Claim boundary
 

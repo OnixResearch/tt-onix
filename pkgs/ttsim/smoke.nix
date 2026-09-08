@@ -56,6 +56,8 @@ stdenvNoCC.mkDerivation {
     runHook postInstall
   '';
 
+  passthru = { inherit python; };
+
   meta = {
     description = "Bounded Blackhole 1x1 TT-NN smoke on TTsim";
     license = lib.licenses.mit;

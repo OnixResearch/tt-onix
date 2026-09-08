@@ -24,6 +24,7 @@ final: prev: {
   ttsim-runtime-validator = final.callPackage ./pkgs/ttsim-runtime-validator { };
   ttsim-blackhole-smoke = final.callPackage ./pkgs/ttsim/smoke.nix { };
   ttsim-smoke-check = final.callPackage ./pkgs/ttsim/smoke-check.nix { };
+  ttsim-gdn-smoke-check = final.callPackage ./pkgs/ttsim/gdn-smoke-check.nix { };
 
   pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
     (pyfinal: pyprev: {

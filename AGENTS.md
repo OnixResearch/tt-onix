@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## TT-Metal 0.77 candidate
+
+The current upgrade branch pins TT-Metal 0.77.0. Its host build and device-free Qwen checks pass, but the GDN numerical simulator gate remains blocked. Read `docs/tt-metal-0.77-port.md` before further runtime work.
+
+Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.77 authority.
+
+Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. Production device access still requires an approved idle device or an explicit maintenance window.
+
 ## Local pi skills
 
 The `.pi/skills/` directory holds pi skills copied from the reference checkouts.

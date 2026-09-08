@@ -174,7 +174,7 @@ in
   };
 
   unsupportedReleaseSurfaces = {
-    quasar = "tt-metal 0.74.0 has no package-matched Quasar SoC descriptor";
+    quasar = "this package has no admitted Quasar simulator runtime";
     multiChip = "package-matched TT-Metal has mock-cluster plumbing but packages no reviewed blackhole_P300 descriptor; ttsim 1.10.6 documents incomplete multi-chip UMD support and validates Blackhole on micah/native-sim";
   };
 }

@@ -2,9 +2,11 @@
 
 Review date: 2026-09-07 (local time).
 
-## Result and scope
+## Initial result and scope
 
-This change upgrades TTsim from 1.10.2 to 1.10.6. TT-Metal stays at 0.74.0 and TT-KMD stays at 2.10.0. No service, kernel module, or firmware changed on a production machine.
+This section records the simulator-only change at `b4b4556`. The later [TT-Metal 0.77 port](tt-metal-0.77-port.md) supersedes its runtime-pin status, but not its historical evidence.
+
+The initial change upgraded TTsim from 1.10.2 to 1.10.6. TT-Metal remained at 0.74.0 and TT-KMD remained at 2.10.0. No service, kernel module, or firmware changed on a production machine.
 
 The evaluation covers three separate paths: simulator compatibility, driver build compatibility, and TT-Metal/model compatibility. Source review passes share one reviewer. They are not independent audits.
 

@@ -181,7 +181,7 @@ runCommand "ttsim-runtime-bundle-check"
     grep -Fx '1' "$TMPDIR/sfpu-wrapper-environment"
 
     jq -e '.schemaVersion == 1' ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
-    jq -e '.unsupported.quasar | contains("no package-matched Quasar")' \
+    jq -e '.unsupported.quasar | contains("no admitted Quasar simulator runtime")' \
       ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
     jq -e '.unsupported.multiChip | contains("packages no reviewed blackhole_P300 descriptor")' \
       ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
