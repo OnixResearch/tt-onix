@@ -2,7 +2,7 @@
 
 ## Status
 
-A later [approved hardware attempt](evidence/tt-metal-0.77/hardware-attempt.md) stopped at an apparent stale device lock. It produced no numerical result. The sections below record the earlier simulator-only port.
+The later [approved hardware attempts](evidence/tt-metal-0.77/hardware-attempt.md) first encountered a stale lock. After recovery, both 0.74 and 0.77 executed the kernel but failed the state tolerance with the same mismatch summary. Numerical acceptance remains blocked. The sections below record the earlier simulator-only port.
 
 The 0.77 package builds. The Qwen device-free checks and the basic Blackhole simulator smoke pass. The fused GDN numerical smoke remains blocked by a TTsim limitation. This branch is not a production runtime release.
 
