@@ -55,7 +55,7 @@
  
 --- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.cpp
 +++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.cpp
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,153 @@
 +// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -113,6 +113,13 @@
 +        validate_tensor(*in.output_state, "output_state");
 +    }
 +
++    const auto [fidelity, approximate, fp32_acc, l1_acc, full_sync] =
++        get_compute_kernel_config_args(in.q.device()->arch(), attrs.compute_kernel_config);
++    TT_FATAL(
++        fidelity == MathFidelity::HiFi4 && !approximate && fp32_acc && !l1_acc && !full_sync,
++        "gated_delta_decode requires HiFi4, exact math, fp32 accumulation, no L1 accumulation, and no full sync");
++
++    // The factory implements this one precision profile, rather than ignoring caller settings.
 +    TT_FATAL(attrs.num_heads > 0, "num_heads must be positive");
 +    TT_FATAL(attrs.key_dim == kRequiredHeadDim, "key_dim must be {}, got {}", kRequiredHeadDim, attrs.key_dim);
 +    TT_FATAL(attrs.val_dim == kRequiredHeadDim, "val_dim must be {}, got {}", kRequiredHeadDim, attrs.val_dim);
@@ -385,7 +392,7 @@
 +        kernel_dir + "compute/gated_delta_decode.cpp",
 +        cores,
 +        ComputeConfig{
-+            .math_fidelity = MathFidelity::HiFi2,
++            .math_fidelity = MathFidelity::HiFi4,
 +            .fp32_dest_acc_en = true,
 +            .math_approx_mode = false,
 +            .compile_args = compute_args});
@@ -888,7 +895,7 @@
 +    const auto kernel_config = init_device_compute_kernel_config(
 +        q.device()->arch(),
 +        compute_kernel_config,
-+        MathFidelity::HiFi2,
++        MathFidelity::HiFi4,
 +        /*default_approx_mode=*/false,
 +        /*default_fp32_acc=*/true,
 +        /*default_l1_acc=*/false);
