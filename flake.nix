@@ -92,6 +92,7 @@
             ttsim-runtime-bundle = pkgs.ttsim-check;
             ttsim-single-chip-smoke = pkgs.ttsim-smoke-check;
             ttsim-gdn-reference-smoke = pkgs.ttsim-gdn-smoke-check;
+            ttsim-gdn-input-validation = pkgs.ttsim-gdn-validation-check;
             inherit (pkgs.python3Packages)
               pyluwen
               tt-flash

@@ -5163,6 +5163,37 @@ def probe_gdn_decode_fusion_candidate():
         "norm fusion lost its paired-input failure",
     )
 
+    import ast
+
+    def fused_call_uses_hifi4(source):
+        calls = [
+            node for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "gated_delta_decode"
+        ]
+        if len(calls) != 1:
+            return False
+        configs = [item.value for item in calls[0].keywords if item.arg == "compute_kernel_config"]
+        if len(configs) != 1 or not isinstance(configs[0], ast.Call):
+            return False
+        fidelities = [item.value for item in configs[0].keywords if item.arg == "math_fidelity"]
+        return (
+            len(fidelities) == 1
+            and isinstance(fidelities[0], ast.Attribute)
+            and fidelities[0].attr == "HiFi4"
+        )
+
+    require(fused_call_uses_hifi4(delta_source), "fused recurrence lost its HiFi4 profile")
+    require(
+        not fused_call_uses_hifi4(delta_source.replace("MathFidelity.HiFi4", "MathFidelity.HiFi2")),
+        "fused precision check admitted HiFi2",
+    )
+    require(
+        not fused_call_uses_hifi4(delta_source.replace("compute_kernel_config=", "ignored_config=")),
+        "fused precision check admitted a missing config",
+    )
+
 
 # r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 def probe_kernel_distribution_admission():

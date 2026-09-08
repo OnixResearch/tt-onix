@@ -1,0 +1,19 @@
+{
+  "negative_cases": 7,
+  "non_claims": [
+    "numerical correctness",
+    "recurrent state carry",
+    "cache reuse",
+    "hardware execution",
+    "performance",
+    "full-model correctness",
+    "trace capture"
+  ],
+  "status": "passed",
+  "workload": "gdn-invalid-input-rejection",
+  "simulated": true,
+  "tt_metal": "/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0",
+  "ttsim": "/nix/store/zw3k9hs9gc3y087npflw6sd9nda8qd52-ttsim-1.10.6",
+  "tt_metal_version": "0.77.0",
+  "simulator_version": "1.10.6"
+}

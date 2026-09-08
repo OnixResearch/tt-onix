@@ -25,6 +25,7 @@ HALF = 0.5
 DIRECTION_OFFSET = 0.3
 ORACLE_VALUE = 0.25
 CORRUPTION = 1.0
+PRECISION_REGRESSION_DELTA = 2.2e-4
 FLOAT_DTYPE = np.float32
 VECTOR_SHAPE = (HEAD_COUNT, 1, HEAD_DIM)
 STATE_SHAPE = (HEAD_COUNT, HEAD_DIM, HEAD_DIM)
@@ -102,15 +103,22 @@ def host_checks():
             pass
         else:
             raise AssertionError("the reference admitted an invalid state")
-    try:
-        assert_close(values + CORRUPTION, values)
-    except AssertionError:
-        pass
-    else:
-        raise AssertionError("the numerical check admitted a corrupted result")
+    precision_values = np.full(VECTOR_SHAPE, STATE_SCALE, dtype=FLOAT_DTYPE)
+    assert_close(precision_values + ABSOLUTE_TOLERANCE * HALF, precision_values)
+    corrupt_results = (
+        (values + CORRUPTION, values),
+        (precision_values + PRECISION_REGRESSION_DELTA, precision_values),
+    )
+    for actual, expected in corrupt_results:
+        try:
+            assert_close(actual, expected)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("the numerical check admitted a corrupted result")
 
 
-def device_checks():
+def device_checks(validation_only=False):
     import ttnn
 
     def to_device(value, dtype=ttnn.float32):
@@ -128,7 +136,7 @@ def device_checks():
         expected_state = initial.copy()
         state = to_device(initial)
         errors = []
-        for step in range(RECURRENT_STEPS):
+        for step in range(0 if validation_only else RECURRENT_STEPS):
             host_inputs = inputs_for_step(step)
             expected_output, expected_state = reference_step(*host_inputs, expected_state)
             device_inputs = tuple(to_device(value) for value in host_inputs)
@@ -175,9 +183,48 @@ def device_checks():
                 raise AssertionError(f"the device operation admitted invalid {diagnostic}")
             assert_close(to_host(state), expected_state)
 
+        valid_config = {
+            "math_fidelity": ttnn.MathFidelity.HiFi4,
+            "math_approx_mode": False,
+            "fp32_dest_acc_en": True,
+            "packer_l1_acc": False,
+            "dst_full_sync_en": False,
+        }
+        invalid_configs = (
+            {"math_fidelity": ttnn.MathFidelity.HiFi2},
+            {"math_approx_mode": True},
+            {"fp32_dest_acc_en": False},
+            {"packer_l1_acc": True},
+            {"dst_full_sync_en": True},
+        )
+        for override in invalid_configs:
+            config = ttnn.WormholeComputeKernelConfig(**(valid_config | override))
+            try:
+                ttnn.transformer.gated_delta_decode(
+                    *device_inputs, state, output_state=state, compute_kernel_config=config
+                )
+            except (RuntimeError, ValueError) as error:
+                if "requires HiFi4" not in str(error):
+                    raise AssertionError(f"unexpected config rejection: {error}") from error
+            else:
+                raise AssertionError(f"the operation admitted invalid config: {override}")
+            assert_close(to_host(state), expected_state)
+
+        if validation_only:
+            return {
+                "workload": "gdn-invalid-input-rejection",
+                "status": "passed",
+                "negative_cases": len(invalid_cases) + len(invalid_configs),
+                "non_claims": ["numerical correctness", "recurrent state carry", "cache reuse"],
+            }
+
         expected_output, expected_state = reference_step(*host_inputs, expected_state)
         output, state = ttnn.transformer.gated_delta_decode(
-            *device_inputs, state, output_state=state, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            *device_inputs,
+            state,
+            output_state=state,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            compute_kernel_config=ttnn.WormholeComputeKernelConfig(**valid_config),
         )
         assert_close(to_host(output), expected_output)
         assert_close(to_host(state), expected_state)
@@ -187,7 +234,7 @@ def device_checks():
             "head_count": HEAD_COUNT,
             "head_dim": HEAD_DIM,
             "recurrent_steps": RECURRENT_STEPS,
-            "negative_cases": len(invalid_cases),
+            "negative_cases": len(invalid_cases) + len(invalid_configs),
             "post_rejection_retry": "passed",
             "cache_reuse_checked": True,
             "state_max_abs_errors": errors,
@@ -198,14 +245,16 @@ def device_checks():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--host-only", action="store_true")
+    mode.add_argument("--validation-only", action="store_true")
     parser.add_argument("--result", type=Path)
     arguments = parser.parse_args()
     host_checks()
     if arguments.host_only:
         print("GDN reference positive and negative checks passed")
     else:
-        result = json.dumps(device_checks(), sort_keys=True)
+        result = json.dumps(device_checks(arguments.validation_only), sort_keys=True)
         if arguments.result is not None:
             arguments.result.write_text(result + "\n")
         print(result, flush=True)
