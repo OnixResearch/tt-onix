@@ -5201,7 +5201,10 @@ def probe_gdn_decode_fusion_candidate():
         candidate.selected_mode({candidate.ENV_GATE: " FULL "}) == candidate.MODE_FULL,
         "closed full mode was not normalized",
     )
-    require(candidate.uses_fused_norm(candidate.MODE_NORM), "norm mode did not enable norm fusion")
+    require(
+        candidate.uses_fused_norm(candidate.MODE_NORM),
+        "norm mode did not enable norm fusion",
+    )
     require(
         not candidate.uses_fused_state_update(candidate.MODE_NORM),
         "norm mode enabled state fusion",
@@ -5210,7 +5213,26 @@ def probe_gdn_decode_fusion_candidate():
         candidate.uses_fused_state_update(candidate.MODE_STATE),
         "state mode did not enable state fusion",
     )
-    require(not candidate.uses_fused_norm(candidate.MODE_STATE), "state mode enabled norm fusion")
+    require(
+        not candidate.uses_fused_norm(candidate.MODE_STATE),
+        "state mode enabled norm fusion",
+    )
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: " NORM-STATE "})
+        == candidate.MODE_NORM_STATE,
+        "combined mode was not normalized",
+    )
+    require(
+        candidate.uses_fused_norm(candidate.MODE_NORM_STATE)
+        and candidate.uses_fused_state_update(candidate.MODE_NORM_STATE)
+        and not candidate.uses_fused_recurrence(candidate.MODE_NORM_STATE),
+        "combined mode must retain the composite recurrence",
+    )
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: "norm_state"})
+        == candidate.MODE_OFF,
+        "unsupported combined-mode spelling did not fail closed",
+    )
     require(
         candidate.uses_fused_norm(candidate.MODE_FULL)
         and not candidate.uses_fused_state_update(candidate.MODE_FULL)

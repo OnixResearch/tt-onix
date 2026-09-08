@@ -1237,17 +1237,21 @@ stdenvNoCC.mkDerivation {
     grep -F '"maximum_full_step_median_ratio": 0.97' gdn-decode-fusion-profile-first.json
     grep -F "\"authority_blake3\": \"$authority_blake3\"" gdn-decode-fusion-profile-first.json
 
-    # Negative: production eligibility must fail the fusion profile contract.
-    mkdir -p gdn-decode-fusion-profile-negative
+    # Negative: retain valid imports and require a contract error, not a parser error.
+    mkdir -p gdn-decode-fusion-profile-negative/fixtures
     cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-profile.ncl
     cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-contracts.ncl
-    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl
-    if nickel export --format json gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl \
-        > invalid-gdn-decode-fusion-profile.json 2> invalid-gdn-decode-fusion-profile.log; then
-      echo "invalid GDN decode fusion profile exported" >&2
-      exit 1
-    fi
-    test -s invalid-gdn-decode-fusion-profile.log
+    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/fixtures/profile.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-modes.ncl} gdn-decode-fusion-profile-negative/fixtures/modes.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-parity.ncl} gdn-decode-fusion-profile-negative/fixtures/parity.ncl
+    for fixture in profile modes parity; do
+      if nickel export --format json "gdn-decode-fusion-profile-negative/fixtures/$fixture.ncl" \
+          > "invalid-gdn-decode-fusion-$fixture.json" 2> "invalid-gdn-decode-fusion-$fixture.log"; then
+        echo "invalid GDN decode fusion $fixture exported" >&2
+        exit 1
+      fi
+      grep -Fi "contract broken" "invalid-gdn-decode-fusion-$fixture.log"
+    done
 
     # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
     # Positive: the TTFT control profile exports deterministically and binds authority.
