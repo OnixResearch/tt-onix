@@ -1340,7 +1340,7 @@ stdenvNoCC.mkDerivation {
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
-    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py}; do
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py}; do
       PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
         TT_METAL_HOME="$out/libexec/tt-metalium" \
         TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \

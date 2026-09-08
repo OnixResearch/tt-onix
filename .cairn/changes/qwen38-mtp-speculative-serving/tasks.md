@@ -1,17 +1,13 @@
 # Tasks
 
-1. [x] Pure serving round policy core (`mtp_serving_core.py`): round
-   schedule, exact greedy commit rule, closed validation.
-2. [x] Device-free check probe (`probe_mtp_serving_core`) with positive and
-   negative cases, bound to the spec delta.
-3. [x] Bind the module into the package execution identity and pass the
-   qwen36 device-free check.
-4. [ ] Serving adapter: request-scoped trace capture in hygiene order
-   (verify, draft, decode), round replay, snapshot rollback per round,
-   plain-step fallback, disengage accounting.
-5. [ ] Server wiring: `QWEN36_MTP_SERVING` gate (default off), module
-   option, readiness payload field, metrics for round outcomes.
-6. [ ] Physical exactness screen: greedy requests through the gated path
-   versus the plain path, 64 tokens, exact token parity required; draft
-   and verify trace capture costs excluded from round economics.
-7. [ ] Owner review: k operating point, disengage thresholds, enablement.
+- [x] [serial] Complete the pure round policy and measured economics transition. Keep device effects outside the core. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds.policy]
+- [x] [serial] Run positive and negative checks for scheduling, commit, economics, and request cancellation. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds.valid] r[tenstorrent.qwen38_p150x2.mtp_serving_rounds.invalid]
+- [x] [serial] Bind the serving module into the package identity and pass the baseline device-free check. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+- [x] [serial] Complete the serving adapter with persistent traces, exact rollback, plain fallback, and cleanup. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+- [x] [serial] Complete the default-off server gate, module option, readiness field, and round metrics. Preserve other routes. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+- [x] [serial] Run the physical greedy parity screen against plain decode for 64 tokens. Require exact parity; on divergence record the first index and the minimum verification top-two margin to classify a near-tie. Measure capture and round costs separately. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds.valid]
+- [ ] [serial] Obtain owner review of the measured operating point, disengagement policy, and enablement. r[tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+
+## Baseline
+
+The package and repository Cairn validation pass at `e205476`. Tasks 1 through 6 are complete with device-free suites and the physical screen. The screen passed exact parity on both prompts and measured zero draft acceptance; the diagnostic pilot on the same runtime also reports zero acceptance (`mtp-drafter-invalid`), so the blocker is the 0.77 runtime's draft-target agreement, not the serving loop. Task 7 stays open: do not enable until that agreement is repaired.

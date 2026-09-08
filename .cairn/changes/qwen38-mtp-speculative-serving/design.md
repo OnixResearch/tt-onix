@@ -28,9 +28,9 @@ speculation for the request and records the reason.
 ## Exactness contract
 
 The core owns the commit rule. `commit_verified_round` accepts the draft
-tokens and the verification argmaxes (both length k) and returns the
-committed tokens: `drafts[:accepted] + (argmaxes[accepted],)` on rejection
-at `accepted < k`, or `drafts + (argmaxes[k-1],)` on full acceptance. The
+tokens (length k) and the verification argmaxes (length k+1). It returns
+`drafts[:accepted] + (argmaxes[accepted],)` on rejection at `accepted < k`,
+or `drafts + (argmaxes[k],)` on full acceptance. The
 emitted stream equals sequential greedy output for any acceptance pattern;
 the device-free probe asserts this property against a reference stream.
 

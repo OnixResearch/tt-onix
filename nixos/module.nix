@@ -110,6 +110,16 @@ in
         description = "Qwen package that owns the P150x2 service executable.";
       };
 
+      mtpSpeculation = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Enable experimental greedy MTP serving on the serialized route.
+          This option requires owner review of matched physical evidence.
+          It does not admit sampled speculation or batch speculation.
+        '';
+      };
+
       sampledFusion = mkOption {
         type = types.bool;
         default = false;
@@ -237,6 +247,10 @@ in
           assertion = qwen38.maximumGenerationTokens <= qwen38.maximumSequenceLength;
           message = "Qwen maximumGenerationTokens must not exceed maximumSequenceLength";
         }
+        {
+          assertion = !(qwen38.mtpSpeculation && qwen38.sampledFusion);
+          message = "MTP speculation cannot combine with sampled fusion";
+        }
       ];
 
       systemd.services.qwen38-p150x2 = {
@@ -255,6 +269,7 @@ in
           PYTHONUNBUFFERED = "1";
           QWEN35_TEMP = "0";
           QWEN36_SAMPLED_FUSION = if qwen38.sampledFusion then "1" else "0";
+          QWEN36_MTP_SERVING = if qwen38.mtpSpeculation then "1" else "0";
           TT_CACHE_PATH = qwen38.modelPath;
           XDG_CACHE_HOME = "/var/lib/${qwenStateDirectory}/cache";
         };
@@ -266,7 +281,7 @@ in
         ];
 
         serviceConfig = {
-          ExecStart = lib.escapeShellArgs [
+          ExecStart = lib.escapeShellArgs ([
             "${qwen38.package}/bin/qwen38-p150x2-serve"
             "--host"
             qwen38.listenAddress
@@ -281,7 +296,14 @@ in
             "--max-generation-tokens"
             (toString qwen38.maximumGenerationTokens)
             "--require-systemd-notify"
-          ];
+          ] ++ lib.optionals qwen38.mtpSpeculation [
+            "--decode-mode"
+            "eager"
+            "--mtp-drafter-profile"
+            "${qwen38.package}/share/qwen36/mtp-drafter-profile.json"
+            "--mtp-trace-profile"
+            "${qwen38.package}/share/qwen36/mtp-trace-profile.json"
+          ]);
           Group = cfg.deviceGroup;
           NotifyAccess = "main";
           Restart = "on-failure";

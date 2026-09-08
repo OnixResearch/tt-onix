@@ -235,6 +235,16 @@
       };
       qwenServiceInvalidModelPathRejected = hasFailedAssertion "modelPath must be an absolute path" qwenServiceInvalidModelPathEval;
       qwenServiceInvalidTokenLimitRejected = hasFailedAssertion "must not exceed maximumSequenceLength" qwenServiceInvalidTokenLimitEval;
+      qwenServiceSpeculativeEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.mtpSpeculation = true;
+      };
+      qwenServiceSpeculativeUnit = qwenServiceSpeculativeEval.config.systemd.services.qwen38-p150x2;
+      qwenServiceSpeculativeConflictingEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.mtpSpeculation = true;
+        hardware.tenstorrent.qwen38.sampledFusion = true;
+      };
+      qwenServiceSpeculativeConflictingRejected =
+        hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
       qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
       qwenServiceCheck =
         assert lib.assertMsg qwenServiceInvalidModelPathRejected
@@ -261,6 +271,30 @@
         assert lib.assertMsg (
           qwenServiceUnit.serviceConfig.NotifyAccess == "main"
         ) "the Qwen service must accept readiness only from its main process";
+        assert lib.assertMsg (
+          qwenServiceUnit.environment.QWEN36_MTP_SERVING or "" == "0"
+        ) "the Qwen service must default speculative serving off";
+        assert lib.assertMsg (
+          !(lib.hasInfix "--mtp-drafter-profile" qwenServiceUnit.serviceConfig.ExecStart)
+        ) "the default Qwen service must not enable speculative serving";
+        assert lib.assertMsg (
+          qwenServiceSpeculativeUnit.environment.QWEN36_MTP_SERVING or "" == "1"
+        ) "the speculative option must set the serving gate";
+        assert lib.assertMsg (
+          lib.hasInfix "--decode-mode eager" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must select the serialized eager route";
+        assert lib.assertMsg (
+          lib.hasInfix "--mtp-drafter-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-drafter-profile.json"
+            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must pass the packaged drafter profile";
+        assert lib.assertMsg (
+          lib.hasInfix "--mtp-trace-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-trace-profile.json"
+            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must pass the packaged trace profile";
+        assert lib.assertMsg qwenServiceSpeculativeConflictingRejected
+          "the Qwen service must reject speculative and sampled fusion together";
         pkgs.runCommand "qwen38-nixos-service" { } ''
           set -euo pipefail
           test -x ${qwen38}/bin/qwen38-p150x2-serve
@@ -273,6 +307,14 @@
           grep -Fx '${qwenServiceModelPath}' "$conditions"
           grep -Fx '/dev/tenstorrent/0' "$conditions"
           grep -Fx '/dev/tenstorrent/1' "$conditions"
+          if grep -F -q -- '--mtp-drafter-profile' "$exec_start"; then
+            echo "the default Qwen service must not enable speculative serving" >&2
+            exit 1
+          fi
+          speculative_exec_start=${pkgs.writeText "qwen-service-speculative-exec-start" qwenServiceSpeculativeUnit.serviceConfig.ExecStart}
+          grep -F -- '--decode-mode eager' "$speculative_exec_start"
+          grep -F -- '--mtp-drafter-profile ${qwen38}/share/qwen36/mtp-drafter-profile.json' "$speculative_exec_start"
+          grep -F -- '--mtp-trace-profile ${qwen38}/share/qwen36/mtp-trace-profile.json' "$speculative_exec_start"
           touch "$out"
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {

@@ -82,6 +82,7 @@ ROLLBACK_MEASUREMENT_MODE = "diagnostic-mtp-kv-rollback"
 RECOVERY_CONTROL_MEASUREMENT_MODE = "diagnostic-mtp-recovery-prewarmed-control"
 STAGE_MEASUREMENT_MODE = "diagnostic-mtp-recovery-stage"
 SMOKE_MODE = "smoke"
+SERVING_MODE = "serving-screen"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
 TRACE_MODE = "trace"
@@ -219,6 +220,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=(
             SMOKE_MODE,
+            SERVING_MODE,
             PILOT_MODE,
             SELECTION_MODE,
             TRACE_MODE,
@@ -304,7 +306,7 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
-    if args.mode in (TRACE_MODE, ROLLBACK_MODE, RECOVERY_CONTROL_MODE, STAGE_MODE):
+    if args.mode in (TRACE_MODE, ROLLBACK_MODE, RECOVERY_CONTROL_MODE, STAGE_MODE, SERVING_MODE):
         if args.mtp_trace_profile is None:
             raise SystemExit(
                 "--mtp-trace-profile is required in trace, rollback, recovery-control, or stage mode"
@@ -397,6 +399,7 @@ def main() -> None:
     decode_adapter = None
     adapter = None
     smoke_result = None
+    serving_result = None
     pilot_results = None
     selection_results = None
     trace_results = None
@@ -489,7 +492,15 @@ def main() -> None:
             control_writer,
             recovery_control_core.ADAPTER_CREATE_COMPLETE,
         )
-        if args.mode == SMOKE_MODE:
+        if args.mode == SERVING_MODE:
+            from .mtp_serving_probe import compare_serving
+
+            serving_result = compare_serving(
+                model=model, tokenizer=tokenizer, decode_adapter=decode_adapter,
+                drafter=adapter, model_path=model_path, decode_profile=decode_profile,
+                identity=identity, model_alias=MODEL_ALIAS,
+            )
+        elif args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
                 prompt_tokens,
                 selector_mode=args.selector_mode,
@@ -791,7 +802,11 @@ def main() -> None:
             )
         ),
     }
-    if args.mode == SMOKE_MODE:
+    if args.mode == SERVING_MODE:
+        if serving_result is None:
+            raise MtpDrafterCommandError("MTP serving screen produced no result")
+        receipt = {**common_receipt, **serving_result, "measurement_mode": SERVING_MODE}
+    elif args.mode == SMOKE_MODE:
         if smoke_result is None:
             raise MtpDrafterCommandError("MTP drafter smoke produced no result")
         receipt = {

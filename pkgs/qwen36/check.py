@@ -6117,7 +6117,7 @@ def probe_mtp_serving_core():
     # detection fire the three outcomes the serving loop relies on.
     import time as _time
 
-    from qwen36_service.mtp_serving_core import (
+    from qwen36_service.mtp_watchdog_adapter import (
         MtpServingRoundTimeout,
         run_with_watchdog,
     )
