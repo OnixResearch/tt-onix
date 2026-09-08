@@ -81,4 +81,4 @@ The responses explicitly retain `admission_eligible: false`. One prompt does not
 
 Timing fields remain in the raw responses, but this is not a controlled benchmark. Cold compilation, scratch-storage placement, and concurrent host work differ between attempts.
 
-The official vLLM plugin remains a separate integration. Its installer requires vLLM 0.26.0 with the empty target. The current base package is vLLM 0.16.0 and is not a verified substitute. This smoke used the existing Qwen server, not vLLM.
+The official vLLM plugin remains a separate integration. Its installer requires vLLM 0.26.0 with the empty target. The current base package is vLLM 0.16.0 and is not a verified substitute. This smoke used the existing Qwen server, not vLLM. See the [vLLM dependency preflight](vllm-tt-dependency-preflight.md) for the checked version differences.
