@@ -4,6 +4,7 @@ final: prev: {
   luwen = final.callPackage ./pkgs/luwen { };
   tt-metal-tracy-tools = final.callPackage ./pkgs/tt-metal-tracy-tools { };
   qwen36 = final.callPackage ./pkgs/qwen36 { };
+  qwen36-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   xtensor-blas = prev.xtensor-blas.overrideAttrs (prevAttrs: {
     postFixup = (prevAttrs.postFixup or "") + ''
       sed -i "s|\''${PACKAGE_PREFIX_DIR}//nix/store|/nix/store|g" $out/lib/cmake/xtensor-blas/xtensor-blasConfig.cmake

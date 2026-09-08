@@ -43,6 +43,7 @@
           };
 
           packages = {
+            inherit (pkgs) qwen36-trace-reuse-host1;
             inherit (pkgs)
               enchantum
               llama-cpp-metalium
@@ -74,6 +75,7 @@
           };
 
           checks = {
+            inherit (pkgs) qwen36-trace-reuse-host1;
             inherit (pkgs)
               enchantum
               llama-cpp-metalium

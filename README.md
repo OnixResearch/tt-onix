@@ -64,6 +64,9 @@ metadata-only profile, bounded simulator verdict, and explicit non-claims.
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
 P150x2 path and serialized NixOS inference service.
 
+See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
+an opt-in B=4 route with measured request-time savings and unchanged service defaults.
+
 Build a stable result link when you need to inspect or run several commands:
 
 ```sh

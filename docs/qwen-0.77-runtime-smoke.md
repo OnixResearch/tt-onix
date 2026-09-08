@@ -75,6 +75,8 @@ Local logs under `~/.cache/tt-upgrade-review/evidence/`:
 
 The first baseline attempt hit `ENOSPC` during kernel compilation. The full disk also stopped the Pueue daemon. The agent removed only disposable compiler caches from this task and restarted the user daemon. The baseline retry used memory-backed scratch space and completed successfully. The failed attempt is not numerical evidence.
 
+The later [trace-reuse comparison](qwen-0.77-trace-optimization.md) adds a bounded B=4 performance result with exact token parity.
+
 ## Non-claims and next integration
 
 The responses explicitly retain `admission_eligible: false`. One prompt does not establish broad accuracy, long-context behavior, sampled generation, concurrency scaling, MTP correctness, or production admission.
