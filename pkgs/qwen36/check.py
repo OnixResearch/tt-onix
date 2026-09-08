@@ -1217,6 +1217,106 @@ def probe_batch_admission():
 
 
 # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+def probe_tensor_binding_identity():
+    """Keep exact identities and failure behavior without temporary shard views."""
+    from types import SimpleNamespace
+
+    from qwen36_service import batch_decode_adapter as adapter_module
+
+    first_address = 4096
+    second_address = 8192
+    shard_count = 2
+    shard_reads = []
+
+    class FakeMeshTensor:
+        def __init__(self):
+            self.address = first_address
+            self.coords = tuple(range(shard_count))
+            self.fail_address = False
+            self.fail_coords = False
+
+        def buffer_address(self):
+            if self.fail_address:
+                raise RuntimeError("no shared address")
+            return self.address
+
+        def device_coords(self):
+            if self.fail_coords:
+                raise AttributeError("legacy API")
+            return self.coords
+
+    def shards(value):
+        shard_reads.append(value)
+        return (
+            SimpleNamespace(buffer_address=lambda: first_address),
+            SimpleNamespace(buffer_address=lambda: second_address),
+        )
+
+    original_ttnn = adapter_module.ttnn
+    adapter_module.ttnn = SimpleNamespace(
+        Tensor=FakeMeshTensor, get_device_tensors=shards
+    )
+    try:
+        tensor = FakeMeshTensor()
+        initial = adapter_module._tensor_identity(tensor)
+        require(
+            initial == f"FakeMeshTensor:device:[{first_address},{first_address}]",
+            "shared identity changed",
+        )
+        require(not shard_reads, "shared identity constructed shard views")
+        tensor.address = second_address
+        require(
+            adapter_module._tensor_identity(tensor) != initial,
+            "address mutation escaped validation",
+        )
+        tensor.address = first_address
+        tensor.coords = (0,)
+        require(
+            adapter_module._tensor_identity(tensor) != initial,
+            "shard-count mutation escaped validation",
+        )
+        tensor.coords = ()
+        require(
+            adapter_module._tensor_identity(tensor) == "FakeMeshTensor:device:[]",
+            "empty shard identity changed",
+        )
+        fallback = f"FakeMeshTensor:device:[{first_address},{second_address}]"
+        tensor.fail_address = True
+        require(
+            adapter_module._tensor_identity(tensor) == fallback,
+            "address failure lost shard identities",
+        )
+        tensor.fail_address = False
+        tensor.fail_coords = True
+        require(
+            adapter_module._tensor_identity(tensor) == fallback,
+            "legacy API lost shard identities",
+        )
+
+        class CustomMeshTensor(FakeMeshTensor):
+            pass
+
+        custom = CustomMeshTensor()
+        require(
+            adapter_module._tensor_identity(custom)
+            == f"CustomMeshTensor:device:[{first_address},{second_address}]",
+            "custom tensor type bypassed shard validation",
+        )
+        host = object()
+        adapter_module.ttnn.get_device_tensors = lambda value: (value,)
+        require(
+            adapter_module._tensor_identity(host) == f"object:host:{id(host)}",
+            "host fallback changed",
+        )
+        adapter_module.ttnn.get_device_tensors = None
+        require(
+            adapter_module._tensor_identity(host) == f"object:host:{id(host)}",
+            "unavailable shard API lost host fallback",
+        )
+    finally:
+        adapter_module.ttnn = original_ttnn
+
+
 def probe_trace_reuse_profile():
     """Positive and negative tests for closed trace-reuse activation policy."""
     from qwen36_service.trace_reuse_core import (
@@ -6059,6 +6159,7 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("batch admission policy", probe_batch_admission)
+    probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)
     probe("startup warm-up readiness", probe_startup_readiness)
     probe("prefill program profile", probe_prefill_program_profile)
