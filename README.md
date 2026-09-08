@@ -70,6 +70,8 @@ The later [binding-identity optimization](docs/qwen-binding-identity-optimizatio
 reduces accessor overhead without skipping binding checks.
 The [readback evaluation](docs/qwen-readback-evaluation.md) retains a rejected
 candidate and the bounded B=1 component measurements.
+The [staged GDN evaluation](docs/qwen-gdn-staged-evaluation.md) records the
+default-off `norm-state` candidate, its B=1 sequence check, and remaining limits.
 
 Build a stable result link when you need to inspect or run several commands:
 

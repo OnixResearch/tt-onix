@@ -50,7 +50,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime-identity", required=True)
     parser.add_argument("--package-identity", required=True)
     parser.add_argument("--output", required=True)
-    return parser.parse_args()
+    parser.add_argument("--sequence-steps", type=int)
+    args = parser.parse_args()
+    if args.sequence_steps is not None and args.sequence_steps < 1:
+        parser.error("sequence steps must be positive")
+    return args
 
 
 def main() -> None:
@@ -73,6 +77,11 @@ def main() -> None:
     decode_profile = _load_decode_profile(decode_profile_path)
     component_profile = _load_component_profile(component_profile_path)
     _validate_profile_binding(model_path, decode_profile, component_profile)
+    if (
+        args.sequence_steps is not None
+        and args.sequence_steps >= component_profile.maximum_sequence_length
+    ):
+        raise SystemExit("sequence steps leave no room for the prompt")
     os.environ["HF_MODEL"] = str(model_path)
     os.environ["TT_CACHE_PATH"] = str(model_path)
 
@@ -105,6 +114,7 @@ def main() -> None:
     model = None
     decode_adapter = None
     probe_run = None
+    sequence_run = None
     cleanup_complete = False
     try:
         mesh_device = ttnn.open_mesh_device(
@@ -151,7 +161,15 @@ def main() -> None:
             identity=identity,
             physical_pcie_device_ids=pcie_device_ids,
         )
-        probe_run = probe.run(prompt_tokens)
+        if args.sequence_steps is None:
+            probe_run = probe.run(prompt_tokens)
+        else:
+            sequence_run = probe.run_sequence(
+                prompt_tokens, generation_tokens=args.sequence_steps
+            )
+            sequence_run["text"] = tokenizer.decode(
+                sequence_run["generated_token_ids"], skip_special_tokens=True
+            )
     finally:
         if decode_adapter is not None:
             decode_adapter.close()
@@ -170,6 +188,26 @@ def main() -> None:
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
         cleanup_complete = True
 
+    if sequence_run is not None:
+        receipt = {
+            "schema_version": RECEIPT_SCHEMA_VERSION,
+            "measurement_mode": "diagnostic-gdn-sequence",
+            "diagnostic_only": True,
+            "admission_eligible": False,
+            "simulated": False,
+            "batch_width": MAXIMUM_BATCH_SIZE,
+            "cleanup_complete": cleanup_complete,
+            "profile_id": component_profile.profile_id,
+            "prompt": component_profile.prompt,
+            "runtime_identity": identity.runtime_identity,
+            "package_identity": identity.package_identity,
+            "model_identity": identity.model_identity,
+            "physical_pcie_device_ids": list(pcie_device_ids),
+            **sequence_run,
+        }
+        _write_receipt(output_path, receipt)
+        print(json.dumps(receipt, sort_keys=True))
+        return
     if probe_run is None:
         raise DecodeComponentCommandError("component probe produced no evidence")
     evidence = replace(probe_run.evidence, cleanup_complete=cleanup_complete)

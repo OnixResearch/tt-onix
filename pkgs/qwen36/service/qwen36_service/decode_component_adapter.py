@@ -193,6 +193,49 @@ class DecodeComponentProbeAdapter:
             first_decode_token=first_token,
         )
 
+    def run_sequence(
+        self, prompt_tokens: torch.Tensor, *, generation_tokens: int
+    ) -> dict[str, Any]:
+        """Exercise an unadmitted candidate without passing through a serving router."""
+        if (
+            isinstance(generation_tokens, bool)
+            or not isinstance(generation_tokens, int)
+            or generation_tokens < PROBE_GENERATION_TOKENS
+        ):
+            raise DecodeComponentAdapterError(
+                "sequence length must be a positive integer"
+            )
+        modes = {
+            layer.attention._decode_fusion_mode
+            for layer in self.model.layers
+            if not layer.is_full_attention
+        }
+        if len(modes) != 1:
+            raise DecodeComponentAdapterError(
+                "sequence requires one consistent GDN mode"
+            )
+        prompt_count, token = self._prefill(
+            prompt_tokens, generation_tokens=generation_tokens
+        )
+        eligibility = self.decode_adapter.ensure_trace(
+            token=token, position=prompt_count
+        )
+        if not eligibility.eligible:
+            raise DecodeComponentAdapterError(
+                f"sequence trace unavailable: {eligibility.reason}"
+            )
+        tokens = [token]
+        for offset in range(1, generation_tokens):
+            token = self.decode_adapter.decode_traced(
+                token=token, position=prompt_count + offset - 1
+            )
+            tokens.append(token)
+        return {
+            "fusion_mode": modes.pop(),
+            "prompt_token_count": prompt_count,
+            "generated_token_ids": tokens,
+        }
+
     def _validate_representatives(self) -> None:
         for layer_index in self.profile.gdn_representatives:
             if self._layers[layer_index].is_full_attention:
@@ -210,7 +253,12 @@ class DecodeComponentProbeAdapter:
                     f"MLP representative {layer_index} is missing"
                 )
 
-    def _prefill(self, prompt_tokens: torch.Tensor) -> tuple[int, int]:
+    def _prefill(
+        self,
+        prompt_tokens: torch.Tensor,
+        *,
+        generation_tokens: int = PROBE_GENERATION_TOKENS,
+    ) -> tuple[int, int]:
         if prompt_tokens.dtype not in (torch.int32, torch.int64):
             raise DecodeComponentAdapterError(
                 "component prompt must contain integer token IDs"
@@ -223,7 +271,7 @@ class DecodeComponentProbeAdapter:
         if prompt_token_count < PROBE_GENERATION_TOKENS:
             raise DecodeComponentAdapterError("component prompt is empty")
         if (
-            prompt_token_count + PROBE_GENERATION_TOKENS
+            prompt_token_count + generation_tokens
             > self.profile.maximum_sequence_length
         ):
             raise DecodeComponentAdapterError(
@@ -235,7 +283,7 @@ class DecodeComponentProbeAdapter:
             )
         page_table = self.decode_adapter.prefill_page_table(
             prompt_tokens=prompt_token_count,
-            generation_tokens=PROBE_GENERATION_TOKENS,
+            generation_tokens=generation_tokens,
         )
         self.decode_adapter.reset_for_request()
         logits_device = self.model.prefill_traced_chunked(

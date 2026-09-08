@@ -1308,6 +1308,10 @@ stdenvNoCC.mkDerivation {
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
+    PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      TT_METAL_HOME="$out/libexec/tt-metalium" \
+      TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
+      ${pythonEnvironment}/bin/python ${./sequence-probe-check.py}
 
     # Negative: env-gated BF4 cache names must never collide; the check script
     # itself rejects a missing .bfp4 distinction.
