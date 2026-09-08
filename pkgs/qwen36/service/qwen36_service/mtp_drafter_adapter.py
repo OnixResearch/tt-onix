@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -79,6 +80,25 @@ ZERO_DURATION_SECONDS = 0.0
 
 class MtpDrafterAdapterError(RuntimeError):
     """The physical MTP drafter cannot continue safely."""
+
+
+LEGACY_MTP_CACHE_DIRECTORY = "mtp_drafter_probe"
+
+
+def mtp_cache_directory_name(runtime_identity: str | None) -> str:
+    """Scope the head's weight-cache directory to the tt-metal runtime.
+
+    Caches written by one runtime were misread by another, so the directory
+    name carries the runtime identity. The unscoped legacy name stays for
+    callers that do not supply an identity.
+    """
+    if not runtime_identity:
+        return LEGACY_MTP_CACHE_DIRECTORY
+    identity = runtime_identity
+    if identity.startswith("/"):
+        identity = identity.rsplit("/", 1)[-1]
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", identity)[-64:]
+    return f"{LEGACY_MTP_CACHE_DIRECTORY}-runtime-{safe}"
 
 
 @dataclass(frozen=True)
@@ -165,6 +185,7 @@ class MtpDrafterAdapter:
         profile: MtpDrafterProfile,
         trace_profile: MtpTraceProfile | None = None,
         rollback_profile: MtpRollbackProfile | None = None,
+        runtime_identity: str | None = None,
     ) -> None:
         if model.num_devices != len(profile.expected_pcie_device_ids):
             raise MtpDrafterAdapterError("MTP drafter device count differs from policy")
@@ -174,6 +195,7 @@ class MtpDrafterAdapter:
         self.profile = profile
         self.trace_profile = trace_profile
         self.rollback_profile = rollback_profile
+        self.runtime_identity = runtime_identity
         self.mesh = model.mesh_device
         self._rollback_selector_mode = SHARD_LOCAL_TOP1
         self._replicate = ttnn.ReplicateTensorToMesh(self.mesh)
@@ -183,9 +205,7 @@ class MtpDrafterAdapter:
         self._mtp_zero_caches: tuple[Any, ...] = ()
         self._native_verifier = NativeMtpVerifierAdapter(
             model=model,
-            maximum_width=(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ),
+            maximum_width=(self.profile.draft_token_count + PROBE_BATCH_SIZE),
             trace_capture_timeout_seconds=(
                 decode_adapter.profile.trace_capture_timeout_seconds
             ),
@@ -321,9 +341,7 @@ class MtpDrafterAdapter:
             )
         page_table = self.decode_adapter.prefill_page_table(
             prompt_tokens=prompt_length,
-            generation_tokens=(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ),
+            generation_tokens=(self.profile.draft_token_count + PROBE_BATCH_SIZE),
         )
         _report(progress, stage_core.TARGET_PREFILL_START)
         target_hidden, anchor = self._target_prefill_hidden(
@@ -373,9 +391,7 @@ class MtpDrafterAdapter:
         _report(progress, stage_core.TARGET_SEQUENTIAL_START)
         target_started = time.monotonic()
         try:
-            for offset in range(
-                self.profile.draft_token_count + PROBE_BATCH_SIZE
-            ):
+            for offset in range(self.profile.draft_token_count + PROBE_BATCH_SIZE):
                 sequential_inputs.append(current)
                 current = self.decode_adapter.decode_traced(
                     token=current,
@@ -644,7 +660,9 @@ class MtpDrafterAdapter:
             or not isinstance(maximum_generation_tokens, int)
             or maximum_generation_tokens < 1
         ):
-            raise MtpDrafterAdapterError("maximum_generation_tokens must be a positive integer")
+            raise MtpDrafterAdapterError(
+                "maximum_generation_tokens must be a positive integer"
+            )
         if request_deadline is not None:
             if (
                 isinstance(request_deadline, bool)
@@ -655,7 +673,9 @@ class MtpDrafterAdapter:
                 raise MtpDrafterAdapterError("request deadline is invalid or expired")
         if maximum_generation_tokens > 1:
             advance_round_economics(
-                RoundEconomics(), round_seconds=1.0, emitted_tokens=1,
+                RoundEconomics(),
+                round_seconds=1.0,
+                emitted_tokens=1,
                 plain_step_seconds=plain_step_seconds,
             )
         if (
@@ -675,7 +695,9 @@ class MtpDrafterAdapter:
             self.decode_adapter.release_trace()
             for trace_name in ("_chunked_trace_id", "_bucket_trace_id"):
                 if getattr(self.model, trace_name, None) is not None:
-                    raise MtpDrafterAdapterError("MTP verification requires no resident prefill trace")
+                    raise MtpDrafterAdapterError(
+                        "MTP verification requires no resident prefill trace"
+                    )
         draft_width = self.profile.draft_token_count
         page_table = self.decode_adapter.prefill_page_table(
             prompt_tokens=prompt_length,
@@ -698,8 +720,11 @@ class MtpDrafterAdapter:
         if maximum_generation_tokens == 1:
             ttnn.deallocate(target_hidden)
             return {
-                "token_ids": (anchor,), "rounds": 0, "accepted_total": 0,
-                "rejected_rounds": 0, "disengaged_reason": None,
+                "token_ids": (anchor,),
+                "rounds": 0,
+                "accepted_total": 0,
+                "rejected_rounds": 0,
+                "disengaged_reason": None,
                 "prefill_seconds": prefill_seconds,
                 "elapsed_seconds": time.monotonic() - started,
             }
@@ -722,10 +747,15 @@ class MtpDrafterAdapter:
 
         try:
             result = run_rounds(
-                self, anchor=anchor, first_draft=first_draft, feedback=feedback,
-                page_table=page_table, prompt_length=prompt_length,
+                self,
+                anchor=anchor,
+                first_draft=first_draft,
+                feedback=feedback,
+                page_table=page_table,
+                prompt_length=prompt_length,
                 maximum_generation_tokens=maximum_generation_tokens,
-                request_deadline=request_deadline, plain_step_seconds=plain_step_seconds,
+                request_deadline=request_deadline,
+                plain_step_seconds=plain_step_seconds,
             )
         finally:
             ttnn.deallocate(feedback)
@@ -772,7 +802,10 @@ class MtpDrafterAdapter:
         self._weight_shapes = observed
 
         cache_root = (
-            self.model_path / "P300" / "tensor_cache_bfp8_mesh1x2" / "mtp_drafter_probe"
+            self.model_path
+            / "P300"
+            / "tensor_cache_bfp8_mesh1x2"
+            / mtp_cache_directory_name(self.runtime_identity)
         )
         cache_root.mkdir(parents=True, exist_ok=True)
         layer_prefix = f"layers.{MTP_REFERENCE_FULL_ATTENTION_LAYER}"
@@ -1361,16 +1394,12 @@ class _FeedbackRecorder:
 
     def record_prefix_feedback(self, prefix_length: int, feedback: Any) -> None:
         if not 0 < prefix_length < len(self._buffers):
-            raise MtpDrafterAdapterError(
-                "feedback recorder prefix is outside the pool"
-            )
+            raise MtpDrafterAdapterError("feedback recorder prefix is outside the pool")
         ttnn.copy(feedback, self._buffers[prefix_length])
 
     def feedback_for_prefix(self, accepted_prefix_length: int) -> Any:
         if not 0 <= accepted_prefix_length < len(self._buffers):
-            raise MtpDrafterAdapterError(
-                "feedback recorder prefix is outside the pool"
-            )
+            raise MtpDrafterAdapterError("feedback recorder prefix is outside the pool")
         return self._buffers[accepted_prefix_length]
 
     def close(self) -> None:
@@ -1383,7 +1412,9 @@ def _report(progress: Callable[[str], None] | None, stage: str) -> None:
         progress(stage)
 
 
-def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+def _dequantize_fp8_weights(
+    weights: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
     """Return bf16 weights, dequantizing the fp8 block-scaled checkpoint form.
 
     The served checkpoint stores linear weights as F8_E4M3 with BF16 inverse
@@ -1406,8 +1437,7 @@ def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch
     for name, scale_name in (
         (weight_name, f"{weight_name.removesuffix('.weight')}.weight_scale_inv")
         for weight_name in EXPECTED_MTP_WEIGHT_SHAPES
-        if f"{weight_name.removesuffix('.weight')}.weight_scale_inv"
-        in scale_names
+        if f"{weight_name.removesuffix('.weight')}.weight_scale_inv" in scale_names
     ):
         raw = weights[name]
         if raw.dtype != torch.float8_e4m3fn:
@@ -1418,7 +1448,8 @@ def _dequantize_fp8_weights(weights: dict[str, torch.Tensor]) -> dict[str, torch
         rows, columns = raw.shape
         dequantized[name] = (
             raw.to(torch.float32)
-            * scale.to(torch.float32)
+            * scale
+            .to(torch.float32)
             .repeat_interleave(block, dim=0)[:rows, :]
             .repeat_interleave(block, dim=1)[:, :columns]
         ).to(torch.bfloat16)

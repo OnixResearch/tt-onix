@@ -152,7 +152,9 @@ class QwenEngine:
         self._mtp_plain_step_seconds: float | None = None
         if mtp_serving_enabled:
             if decode_mode != DECODE_MODE_EAGER:
-                raise ValueError("MTP serving requires serialized eager mode, not batch admission")
+                raise ValueError(
+                    "MTP serving requires serialized eager mode, not batch admission"
+                )
             if mtp_drafter_profile is None or mtp_trace_profile is None:
                 raise ValueError("MTP serving requires drafter and trace profiles")
         self._mtp_drafter: Any | None = None
@@ -215,9 +217,7 @@ class QwenEngine:
                 emitter=emit,
                 batch_admission_profile=batch_admission_profile,
                 batch_admission_enabled=batch_admission_enabled,
-                sampled_admission_enabled=os.environ.get(
-                    "QWEN36_SAMPLED_FUSION", "0"
-                )
+                sampled_admission_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0")
                 == "1",
                 trace_reuse_profile=trace_reuse_profile,
                 trace_reuse_admission_enabled=trace_reuse_admission_enabled,
@@ -281,10 +281,15 @@ class QwenEngine:
         state = self._startup_readiness
         if state is None:
             speculative_status = (
-                {"speculative_decode": {
-                    "enabled": True, "candidate": True,
-                    "plain_step_seconds": self._mtp_plain_step_seconds,
-                }} if self.mtp_serving_enabled else {}
+                {
+                    "speculative_decode": {
+                        "enabled": True,
+                        "candidate": True,
+                        "plain_step_seconds": self._mtp_plain_step_seconds,
+                    }
+                }
+                if self.mtp_serving_enabled
+                else {}
             )
             return {
                 **speculative_status,
@@ -505,6 +510,7 @@ class QwenEngine:
                 model_path=self.model_path,
                 profile=self._mtp_drafter_profile,
                 trace_profile=self._mtp_trace_profile,
+                runtime_identity=self.runtime_identity,
             )
         return self._mtp_drafter
 
@@ -520,11 +526,15 @@ class QwenEngine:
         if self._mtp_plain_step_seconds is None:
             calibration_tokens = 8
             _, calibration = self._run_persistent_generation(
-                token_ids, calibration_tokens, request_deadline,
+                token_ids,
+                calibration_tokens,
+                request_deadline,
             )
             if calibration["decode_path"] != "traced":
                 raise RuntimeError("MTP calibration requires the traced plain path")
-            self._mtp_plain_step_seconds = statistics.median(calibration["token_latency_s"])
+            self._mtp_plain_step_seconds = statistics.median(
+                calibration["token_latency_s"]
+            )
         result = drafter.run_speculative_completion(
             prompt_tokens=token_ids,
             maximum_generation_tokens=maximum_generation_tokens,
@@ -1075,9 +1085,7 @@ def main() -> None:
             ),
             mtp_trace_profile=(
                 MtpTraceProfile.from_mapping(
-                    json.loads(
-                        Path(args.mtp_trace_profile).read_text(encoding="utf-8")
-                    )
+                    json.loads(Path(args.mtp_trace_profile).read_text(encoding="utf-8"))
                 )
                 if args.mtp_trace_profile is not None
                 else None

@@ -83,6 +83,7 @@ RECOVERY_CONTROL_MEASUREMENT_MODE = "diagnostic-mtp-recovery-prewarmed-control"
 STAGE_MEASUREMENT_MODE = "diagnostic-mtp-recovery-stage"
 SMOKE_MODE = "smoke"
 SERVING_MODE = "serving-screen"
+HEAD_LOAD_MODE = "head-load-check"
 PILOT_MODE = "pilot"
 SELECTION_MODE = "selection"
 TRACE_MODE = "trace"
@@ -221,6 +222,7 @@ def parse_args() -> argparse.Namespace:
         choices=(
             SMOKE_MODE,
             SERVING_MODE,
+            HEAD_LOAD_MODE,
             PILOT_MODE,
             SELECTION_MODE,
             TRACE_MODE,
@@ -306,7 +308,13 @@ def main() -> None:
         _require_selection_profile_match(drafter_profile, selection_profile)
     elif args.mtp_selection_profile is not None:
         raise SystemExit("--mtp-selection-profile requires selection mode")
-    if args.mode in (TRACE_MODE, ROLLBACK_MODE, RECOVERY_CONTROL_MODE, STAGE_MODE, SERVING_MODE):
+    if args.mode in (
+        TRACE_MODE,
+        ROLLBACK_MODE,
+        RECOVERY_CONTROL_MODE,
+        STAGE_MODE,
+        SERVING_MODE,
+    ):
         if args.mtp_trace_profile is None:
             raise SystemExit(
                 "--mtp-trace-profile is required in trace, rollback, recovery-control, or stage mode"
@@ -400,6 +408,7 @@ def main() -> None:
     adapter = None
     smoke_result = None
     serving_result = None
+    head_load_result = None
     pilot_results = None
     selection_results = None
     trace_results = None
@@ -486,6 +495,7 @@ def main() -> None:
             profile=drafter_profile,
             trace_profile=trace_profile,
             rollback_profile=rollback_profile,
+            runtime_identity=args.runtime_identity,
         )
         _record_stage(stage_writer, stage_core.ADAPTER_CREATE_COMPLETE)
         _record_control(
@@ -496,10 +506,19 @@ def main() -> None:
             from .mtp_serving_probe import compare_serving
 
             serving_result = compare_serving(
-                model=model, tokenizer=tokenizer, decode_adapter=decode_adapter,
-                drafter=adapter, model_path=model_path, decode_profile=decode_profile,
-                identity=identity, model_alias=MODEL_ALIAS,
+                model=model,
+                tokenizer=tokenizer,
+                decode_adapter=decode_adapter,
+                drafter=adapter,
+                model_path=model_path,
+                decode_profile=decode_profile,
+                identity=identity,
+                model_alias=MODEL_ALIAS,
             )
+        elif args.mode == HEAD_LOAD_MODE:
+            from .mtp_head_load_probe import run_head_load_check
+
+            head_load_result = run_head_load_check(adapter)
         elif args.mode == SMOKE_MODE:
             smoke_result = adapter.run_smoke(
                 prompt_tokens,
@@ -806,6 +825,14 @@ def main() -> None:
         if serving_result is None:
             raise MtpDrafterCommandError("MTP serving screen produced no result")
         receipt = {**common_receipt, **serving_result, "measurement_mode": SERVING_MODE}
+    elif args.mode == HEAD_LOAD_MODE:
+        if head_load_result is None:
+            raise MtpDrafterCommandError("MTP head load check produced no result")
+        receipt = {
+            **common_receipt,
+            **head_load_result,
+            "measurement_mode": HEAD_LOAD_MODE,
+        }
     elif args.mode == SMOKE_MODE:
         if smoke_result is None:
             raise MtpDrafterCommandError("MTP drafter smoke produced no result")

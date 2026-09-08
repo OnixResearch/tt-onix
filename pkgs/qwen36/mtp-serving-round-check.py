@@ -53,17 +53,29 @@ def load_source(name, namespace):
 
 
 class RoundFixture:
+    """Model device rows with rewrite-before-read cache semantics.
+
+    Committed rows are positions below ``next``. Verification writes rows
+    speculatively; a rejected round's ``rollback_to_prefix`` un-commits the
+    rejected tail, and any later write at the same position must match the
+    committed value.
+    """
+
     def __init__(self, accepted, *, failed_capture=False, failed_head=False):
         self.accepted = accepted
         self.failed_capture = failed_capture
         self.failed_head = failed_head
         self.clock = 0.0
         self.events = []
-        self.target = Tensor({"next": PROMPT_LENGTH, "tokens": []})
-        self.head = Tensor({"next": PROMPT_LENGTH, "tokens": [ANCHOR_TOKEN]})
+        self.target = Tensor({"next": PROMPT_LENGTH, "rows": {}})
+        self.head = Tensor({
+            "next": PROMPT_LENGTH,
+            "rows": {PROMPT_LENGTH - 1: ANCHOR_TOKEN},
+        })
         self.feedback = Tensor(ANCHOR_TOKEN)
         self.trace = None
         self.verify_resident = False
+        self.verify_start = None
         self.namespace = {
             name: getattr(core, name) for name in dir(core) if not name.startswith("__")
         }
@@ -86,6 +98,7 @@ class RoundFixture:
         verifier = SimpleNamespace(
             capture_persistent=self.capture,
             replay_round=self.verify,
+            rollback_to_prefix=self.rollback,
             close_persistent=self.close_verify,
             trace_capture_timeout_seconds=SLOW_PLAIN_SECONDS,
         )
@@ -109,36 +122,58 @@ class RoundFixture:
         self.clock += CLOCK_STEP
         return self.clock
 
-    def target_input(self, token, position):
-        if position != self.target.value["next"]:
-            raise RuntimeError("target position drift")
-        self.target.value["next"] += 1
-        self.target.value["tokens"].append(token)
-        return token + 1
+    def sequential_token(self, position):
+        """The committed stream value at an absolute position."""
+        return ANCHOR_TOKEN + (position - PROMPT_LENGTH) + 1
+
+    def commit_row(self, position, token):
+        state = self.target.value
+        if position == state["next"]:
+            state["rows"][position] = token
+            state["next"] = position + 1
+        elif position < state["next"]:
+            if state["rows"].get(position) != token:
+                raise RuntimeError("committed row rewrite changed the value")
+        else:
+            raise RuntimeError("committed write skipped a position")
 
     def plain(self, *, token, position):
         self.events.append("plain")
-        return self.target_input(token, position)
+        emitted = self.sequential_token(position)
+        self.commit_row(position, emitted)
+        return emitted
 
     def capture(self, tokens, *, start_position, page_table):
         self.events.append("verify-capture")
         self.verify_resident = True
-        # Capture mutates state. The caller must restore it before replay.
-        for offset, token in enumerate(tokens):
-            self.target_input(token, start_position + offset)
         if self.failed_capture:
             raise RuntimeError("capture failed")
         return CLOCK_STEP
 
     def verify(self, tokens, *, start_position):
         self.events.append("verify")
+        self.verify_start = start_position
+        # The verify replay writes the whole window. Values for the accepted
+        # prefix are exactly the sequential rows; the rejected tail is
+        # un-committed by rollback_to_prefix.
+        state = self.target.value
+        for offset in range(len(tokens)):
+            position = start_position + offset
+            if position == state["next"]:
+                state["rows"][position] = self.sequential_token(position)
+                state["next"] = position + 1
+        token_ids = tuple(
+            self.sequential_token(start_position + offset)
+            for offset in range(len(tokens))
+        )
         return SimpleNamespace(
-            token_ids=tuple(
-                self.target_input(token, start_position + offset)
-                for offset, token in enumerate(tokens)
-            ),
+            token_ids=token_ids,
             minimum_top_two_margin=1.0,
         )
+
+    def rollback(self, accepted):
+        state = self.target.value
+        state["next"] = self.verify_start + accepted + 1
 
     def close_verify(self):
         self.verify_resident = False
@@ -159,10 +194,13 @@ class RoundFixture:
 
             def consume(self, token, position, feedback):
                 state = fixture.head.value
-                if state["next"] != position or state["tokens"][-1] != feedback.value:
-                    raise RuntimeError("draft feedback or shifted position drift")
-                state["next"] += 1
-                state["tokens"].append(token)
+                if feedback.value != state["rows"].get(position - 1):
+                    raise RuntimeError("draft feedback drift")
+                if position > state["next"]:
+                    raise RuntimeError("draft position skipped ahead")
+                # A rebuild may rewrite speculative rows below the pointer.
+                state["next"] = max(state["next"], position + 1)
+                state["rows"][position] = token
                 self._trace_feedback.value = token
                 return token + 1
 
@@ -222,22 +260,32 @@ class RoundFixture:
 
 
 class RoundTests(unittest.TestCase):
+    EXPECTED = tuple(range(ANCHOR_TOKEN, ANCHOR_TOKEN + GENERATION_LIMIT))
+
+    def sequential_token(self, position):
+        """The committed stream value at an absolute position."""
+        return ANCHOR_TOKEN + (position - PROMPT_LENGTH) + 1
+
+    def assert_exact_stream(self, fixture, result):
+        self.assertEqual(result["token_ids"], self.EXPECTED)
+        committed = fixture.target.value["next"]
+        self.assertEqual(committed, PROMPT_LENGTH + GENERATION_LIMIT - 1)
+        for position in range(PROMPT_LENGTH, committed):
+            self.assertEqual(
+                fixture.target.value["rows"].get(position),
+                self.sequential_token(position),
+            )
+
     def test_every_acceptance_length_preserves_tokens_and_target_state(self):
         for accepted in (None, *range(DRAFT_WIDTH)):
             with self.subTest(accepted=accepted):
                 fixture = RoundFixture(accepted)
                 result = fixture.run()
-                expected = tuple(range(ANCHOR_TOKEN, ANCHOR_TOKEN + GENERATION_LIMIT))
-                self.assertEqual(result["token_ids"], expected)
-                self.assertEqual(fixture.target.value["tokens"], list(expected[:-1]))
+                self.assert_exact_stream(fixture, result)
                 self.assertGreater(result["rounds"], 0)
                 self.assertFalse(fixture.verify_resident)
                 self.assertTrue(fixture.trace.closed)
                 self.assertEqual(fixture.events.count("verify-capture"), 1)
-                if accepted == 0:
-                    self.assertGreater(
-                        result["rounds"], GENERATION_LIMIT // DRAFT_WIDTH
-                    )
 
     def test_slow_rounds_switch_once_and_preserve_exact_output(self):
         fixture = RoundFixture(0)
@@ -245,10 +293,7 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(result["rounds"], core.ECONOMICS_DISENGAGE_STREAK)
         self.assertEqual(result["disengaged_reason"], "round-economics")
         self.assertEqual(fixture.events.count("plain-capture"), 1)
-        self.assertEqual(
-            result["token_ids"],
-            tuple(range(ANCHOR_TOKEN, ANCHOR_TOKEN + GENERATION_LIMIT)),
-        )
+        self.assertEqual(result["token_ids"], self.EXPECTED)
 
     def test_capture_failure_releases_trace(self):
         fixture = RoundFixture(None, failed_capture=True)

@@ -87,8 +87,6 @@ def run_rounds(
     with ExitStack() as cleanup:
         target = MtpStateSnapshot(lambda: target_state_tensors(owner.model))
         cleanup.callback(target.close)
-        draft = MtpStateSnapshot(owner._mtp_cache_tensors)
-        cleanup.callback(draft.close)
         saved_feedback = ttnn.clone(feedback)
         cleanup.callback(ttnn.deallocate, saved_feedback)
         cleanup.callback(verifier.close_persistent)
@@ -122,8 +120,6 @@ def run_rounds(
             if plan.mode != ROUND_MODE_SPECULATIVE:
                 break
             round_started = time.monotonic()
-            target.refresh()
-            draft.refresh()
             ttnn.copy(feedback, saved_feedback)
             replay = run_device_stage(
                 lambda: trace.run(
@@ -159,19 +155,10 @@ def run_rounds(
             if commit.rejected:
                 rejected_rounds += 1
                 run_device_stage(
-                    lambda: restore_target_prefix(
-                        owner,
-                        target,
-                        current,
-                        drafts,
-                        commit,
-                        position,
-                        request_deadline,
-                    ),
+                    lambda: verifier.rollback_to_prefix(commit.accepted),
                     seconds=ROUND_WATCHDOG_SECONDS,
                     stage="target-rollback",
                 )
-                draft.restore()
                 continuation_inputs = (
                     *drafts[: commit.accepted],
                     commit.committed_token_ids[-1],
