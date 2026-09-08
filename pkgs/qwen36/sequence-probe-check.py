@@ -37,7 +37,16 @@ def check():
         ensure_trace=lambda **kwargs: SimpleNamespace(eligible=True),
         decode_traced=replay,
     )
-    result = adapter.run_sequence(object(), generation_tokens=generation_tokens)
+    clock_reads_per_step = 2
+    expected_step_count = generation_tokens - 1
+    clock_ticks = iter(range(expected_step_count * clock_reads_per_step))
+    result = adapter.run_sequence(
+        object(),
+        generation_tokens=generation_tokens,
+        clock=lambda: next(clock_ticks),
+    )
+    assert result["decode_step_seconds"] == [1] * expected_step_count
+    assert result["decode_step_count"] == expected_step_count
     assert result["fusion_mode"] == "norm-state"
     assert result["generated_token_ids"] == list(
         range(initial_token, initial_token + generation_tokens)
@@ -45,6 +54,30 @@ def check():
     assert events == [("prefill", generation_tokens)] + [
         ("replay", prompt_count + offset) for offset in range(generation_tokens - 1)
     ]
+
+    # The prefill token is not a measured decode step.
+    def unused_clock():
+        raise AssertionError("single-token sequence read the decode clock")
+
+    single = adapter.run_sequence(object(), generation_tokens=1, clock=unused_clock)
+    assert single["generated_token_ids"] == [initial_token]
+    assert single["decode_step_count"] == 0
+    assert single["decode_step_seconds"] == []
+
+    # A clock error must not produce an apparently successful timing receipt.
+    for invalid_elapsed in (0, -1, float("nan"), float("inf")):
+        clock_ticks = iter((0, invalid_elapsed))
+        try:
+            adapter.run_sequence(
+                object(),
+                generation_tokens=generation_tokens,
+                clock=lambda: next(clock_ticks),
+            )
+        except DecodeComponentAdapterError as error:
+            assert "sequence decode duration is invalid" in str(error)
+        else:
+            raise AssertionError("invalid sequence timing was accepted")
+
     for invalid in (0, -1, True, str(generation_tokens)):
         events.clear()
         try:

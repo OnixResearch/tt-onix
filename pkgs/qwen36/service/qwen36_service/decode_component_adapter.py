@@ -194,7 +194,11 @@ class DecodeComponentProbeAdapter:
         )
 
     def run_sequence(
-        self, prompt_tokens: torch.Tensor, *, generation_tokens: int
+        self,
+        prompt_tokens: torch.Tensor,
+        *,
+        generation_tokens: int,
+        clock: Callable[[], float] = time.monotonic,
     ) -> dict[str, Any]:
         """Exercise an unadmitted candidate without passing through a serving router."""
         if (
@@ -225,15 +229,25 @@ class DecodeComponentProbeAdapter:
                 f"sequence trace unavailable: {eligibility.reason}"
             )
         tokens = [token]
+        decode_step_seconds = []
         for offset in range(1, generation_tokens):
+            # Prefill and trace preparation stay outside each timing window.
+            # decode_traced includes input transfer, mesh sync, and winner readback.
+            started = clock()
             token = self.decode_adapter.decode_traced(
                 token=token, position=prompt_count + offset - 1
             )
+            elapsed = clock() - started
+            if not _valid_duration(elapsed):
+                raise DecodeComponentAdapterError("sequence decode duration is invalid")
+            decode_step_seconds.append(elapsed)
             tokens.append(token)
         return {
             "fusion_mode": modes.pop(),
             "prompt_token_count": prompt_count,
             "generated_token_ids": tokens,
+            "decode_step_count": len(decode_step_seconds),
+            "decode_step_seconds": decode_step_seconds,
         }
 
     def _validate_representatives(self) -> None:

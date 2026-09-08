@@ -1551,6 +1551,8 @@ def probe_startup_readiness():
     require(failed.phase is StartupPhase.FAILED, "warm-up failure was not retained")
 
     class FakeWarmupAdapter:
+        fusion_mode = "off"
+
         def __init__(self):
             self.prefill_widths = []
             self.prepared_widths = []
