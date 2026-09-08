@@ -52,4 +52,12 @@ This comparison shows that the observed numerical failure also exists with the b
 
 The local logs are `gdn077-recovered.log` and `gdn074-hardware.log` under `~/.cache/tt-upgrade-review/evidence/`. No passing result JSON exists for either run.
 
-After both runs, the service remained inactive and an unprivileged `fuser` check reported no device users. The startup lock obstruction is resolved for these probes. Service readiness and protection against another OOM kill remain unverified. A restart still requires the user's administrator access.
+After both runs, the service remained inactive and an unprivileged `fuser` check reported no device users. The startup lock obstruction is resolved for these probes. At that point, service readiness and protection against another OOM kill remained unverified. A restart required the user's administrator access.
+
+## Service restored
+
+The user restarted the existing service at 01:16:16 EDT on 2026-09-08. It passed device initialization, loaded the model, and completed startup warm-up for widths 1 and 4. Systemd reported `active/running` at 01:18:18 EDT.
+
+A subsequent GET to `http://127.0.0.1:8000/readyz` returned `status: ok` and `ready: true` for Qwen3.8-27B. The existing service package remains `/nix/store/cdvkpnr32i9rs6h40i464wwd0p52biy0-qwen36-0.1.0`. The agent did not deploy the 0.77 candidate.
+
+This verifies startup recovery. It does not resolve the separate GDN numerical failure or establish protection against another OOM kill.
