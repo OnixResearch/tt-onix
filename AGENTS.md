@@ -6,7 +6,9 @@ The current upgrade branch pins TT-Metal 0.77.0. Its host build and device-free 
 
 Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.77 authority.
 
-Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. Production device access still requires an approved idle device or an explicit maintenance window.
+Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. The later HiFi4 candidate passes a bounded hardware recurrence test. Read `docs/gdn-precision-candidate.md` for its scope.
+
+The user grants standing authority for Tenstorrent maintenance: service stops, hardware probes, recovery, and firmware updates need no further task approval. Service restoration is not required. Use the existing `ttwkv7-owner-control` helper for passwordless service isolation and restoration. This authority does not bypass OS permissions or authorize unrelated system changes. Firmware changes still require compatibility checks and a recovery procedure.
 
 ## Local pi skills
 

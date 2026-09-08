@@ -2,7 +2,7 @@
 
 ## Status
 
-The [HiFi4 precision candidate](gdn-precision-candidate.md) follows this port. It changes the compute precision profile but does not yet establish numerical acceptance.
+The [HiFi4 precision candidate](gdn-precision-candidate.md) follows this port and passes the bounded GDN hardware smoke. This is not full-model or production acceptance.
 
 The later [approved hardware attempts](evidence/tt-metal-0.77/hardware-attempt.md) first encountered a stale lock. After recovery, both 0.74 and 0.77 executed the kernel but failed the state tolerance with the same mismatch summary. Numerical acceptance remains blocked. The sections below record the earlier simulator-only port.
 

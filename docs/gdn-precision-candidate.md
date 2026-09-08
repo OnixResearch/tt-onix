@@ -4,7 +4,7 @@
 
 Make the fused GDN state pass the existing NumPy tolerance without changing the equation or weakening the test. Numerical acceptance requires the same host and device binaries to pass a bounded hardware run.
 
-The deployed service remains unchanged. This investigation uses source review, host tests, builds, and simulator checks. It does not stop the service or access physical devices.
+The initial phase used source review, host tests, builds, and simulator checks without service changes. The later authorized hardware phase stopped the service and passed the bounded numerical test. No candidate deployment or firmware update occurred.
 
 ## Observed failure
 
@@ -74,7 +74,7 @@ The source review used three related checks, not independent agent reviews:
 | Precision loss | HiFi2 is forced; documentation describes omitted mantissa phases | HiFi4 needs numerical execution evidence |
 | Runtime migration regression | Both tested runtimes report the same state mismatch | This does not exclude other 0.77 regressions |
 
-The confirmed defect is that the factory ignored precision settings. HiFi2 as the cause of the observed state error remains a hypothesis until the candidate passes numerical comparison.
+The confirmed defect is that the factory ignored precision settings. The later HiFi4 hardware pass supports the precision hypothesis for this workload. It does not prove accuracy for all shapes or models.
 
 No full-model, serving-performance, or production admission follows from a host build or rejection-only simulator check.
 
@@ -106,4 +106,25 @@ ERROR: UnsupportedFunctionality: tensix_matmul_op: ALU_ACC_CTRL_Zero_Flag_disabl
 
 Local logs are `gdn-hifi4-checks.log`, `gdn-hifi4-final-checks.log`, and `gdn-hifi4-passing-checks.log` under `~/.cache/tt-upgrade-review/evidence/`. The final-checks log includes the failed numerical gate. The passing-checks log excludes that gate rather than reclassifying its result.
 
-The deployed service still returned `ready: true` after these checks. No hardware probe or service stop ran for the HiFi4 candidate. A new approved maintenance window is required for numerical hardware acceptance.
+The deployed service still returned `ready: true` after the offline checks. The user then granted standing Tenstorrent maintenance authority, including service stops, recovery, and firmware updates. Restoration is not required after maintenance.
+
+## Hardware result
+
+At 01:50 EDT on 2026-09-08, `ttwkv7-owner-control isolate` stopped the service without an interactive sudo prompt. The same candidate runtime and smoke script then ran on physical Blackhole hardware. The test requested device 0, used slow dispatch, and disabled SFPLOADMACRO. Simulator environment overrides were absent.
+
+The [hardware observations](evidence/tt-metal-0.77/gdn-hifi4-hardware.json) record a pass:
+
+- Two heads with head dimension 128.
+- Three recurrent steps.
+- Fresh and aliased state storage.
+- Program-cache reuse.
+- Seven invalid-input and configuration rejections.
+- A successful valid retry after rejection.
+
+The largest recorded recurrent-state absolute error was `7.927790284156799e-05`. The original tolerances stayed at `atol=0.0001` and `rtol=0.001`.
+
+The runtime was `/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0`. UMD reported firmware 19.11.0 and KMD 2.10.0. Device-driver close completed normally. The local log is `~/.cache/tt-upgrade-review/evidence/gdn-hifi4-hardware.log`.
+
+This is a physical hardware result, not a simulated result. It establishes the bounded GDN smoke only. Full-model accuracy, multi-chip inference, performance, and production deployment remain outside this result.
+
+The service remains stopped under the user's authorization. No firmware update was necessary. The full numerical simulator gate still fails at its unsupported matmul flag.
