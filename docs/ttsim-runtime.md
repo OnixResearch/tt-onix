@@ -1,6 +1,6 @@
 # TTsim runtime bundle
 
-The `ttsim` package provides complete simulator runtime directories. Each supported directory contains these files:
+The `ttsim` package pins release 1.10.6 and provides complete single-chip simulator runtime directories. Each supported directory contains these files:
 
 - the exact host-specific release asset;
 - a canonical `libttsim.so` link;
@@ -19,7 +19,7 @@ The package supports `x86_64-linux` and `aarch64-linux`. It never uses an x86-64
 
 The normal wrappers set `TT_METAL_SIMULATOR` and `TT_METAL_SLOW_DISPATCH_MODE=1`. They also remove an inherited `TT_MESH_GRAPH_DESC_PATH` because it can select an unrelated physical mesh.
 
-Use an `-sfpu` wrapper only when the workload can use `SFPLOADMACRO`. These wrappers also set `TT_METAL_DISABLE_SFPLOADMACRO=1`. TTsim 1.10.1 does not support that macro.
+Use an `-sfpu` wrapper only when the workload can use `SFPLOADMACRO`. These wrappers also set `TT_METAL_DISABLE_SFPLOADMACRO=1`. TTsim 1.10.6 does not support that macro.
 
 The wrappers run the command that follows the wrapper name. For example:
 
@@ -53,7 +53,9 @@ The receipt binds the library, descriptor, host system, TT-Metal identity, dispa
 
 The release includes `bh_x2`, `bh_x32`, `wh_x2`, `wh_x8`, and `wh_x32` assets. The package keeps these exact host assets in its asset directory. It does not expose them as runnable simulator environments.
 
-TTsim 1.10.1 requires the unmerged `mcraighead/mc-p300` TT-Metal integration for these assets. TT-Metal 0.74.0 has mock-cluster plumbing, but its package has no reviewed `blackhole_P300` cluster descriptor.
+TTsim 1.10.6 documents incomplete multi-chip UMD support beyond `wh_x2`. Its README names `micah/native-sim` as the validated TT-Metal branch for Blackhole multi-chip simulation. TT-Metal 0.74.0 has mock-cluster plumbing, but its package has no reviewed `blackhole_P300` cluster descriptor.
+
+Release 1.10.6 also publishes `bh_x4` assets. This package does not yet include or admit those assets.
 
 The `ttsim-blackhole-x2` command therefore stops before simulation. It prints the blocker receipt and exits nonzero. The package stores the same receipt at `share/ttsim/blackhole-x2-blocker.json`.
 

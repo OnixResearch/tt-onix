@@ -13,7 +13,7 @@
 }:
 let
   # r[impl tenstorrent.ttsim.runtime_bundle]
-  version = "1.10.2";
+  version = "1.10.6";
   releaseBaseUrl = "https://github.com/tenstorrent/ttsim/releases/download/v${version}";
   assetAuthority = import ./assets.nix { inherit lib; };
   hostSystem = stdenv.hostPlatform.system;
@@ -186,7 +186,7 @@ stdenv.mkDerivation (finalAttrs: {
         topology: "blackhole-x2",
         blocker: {
           code: "missing_package_matched_multi_chip_authority",
-          detail: "tt-metal ${tt-metal.version} packages no reviewed blackhole_P300 cluster descriptor; ttsim ${version} requires the unmerged mcraighead/mc-p300 integration"
+          detail: "tt-metal ${tt-metal.version} packages no reviewed blackhole_P300 cluster descriptor; ttsim ${version} documents incomplete multi-chip UMD support and validates Blackhole on micah/native-sim"
         },
         identities: {
           host_system: $host_system,

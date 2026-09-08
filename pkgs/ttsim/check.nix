@@ -56,6 +56,10 @@ let
     hash = oppositeBlackhole.hash;
   };
 in
+# Reject a package bump that leaves emitted receipts on an older version.
+assert lib.hasInfix ''pub const SUPPORTED_SIMULATOR_VERSION: &str = "${ttsim.version}";'' (
+  builtins.readFile ../ttsim-runtime-validator/src/lib.rs
+);
 assert x86Blackhole.name == "libttsim_bh.so";
 assert armBlackhole.name == "libttsim_bh_aarch64.so";
 assert x86Blackhole.hash != armBlackhole.hash;

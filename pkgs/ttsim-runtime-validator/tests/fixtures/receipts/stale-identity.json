@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "simulated": true,
-  "simulator_version": "1.10.1",
+  "simulator_version": "1.10.6",
   "host_system": "x86_64-linux",
   "topology": "blackhole-x1",
   "dispatch_mode": "slow",
