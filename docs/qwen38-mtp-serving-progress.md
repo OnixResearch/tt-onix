@@ -4,7 +4,7 @@
 
 Speculation remains off by default. The latest two-draft candidate reached a 0.992 round-only ratio. The three-draft control reached 0.797. Both passed bounded token parity, but neither establishes a serving speedup. General exactness and production safety remain unproven.
 
-A later target-KV recovery prototype fails a simulated bitwise-state check. It remains diagnostic-only and does not change the serving defaults.
+An earlier target-KV test failed its bitwise comparison. A follow-up found the zero sign absent before rollback, at mesh upload/readback. The recovery prototype remains diagnostic-only.
 
 Local commits reside on `work/qwen38-mtp-serving-20260908` in `../tenstorrent.nix-mtp-serving-20260908`. No push or main-branch integration ran. Owner review remains open.
 
@@ -162,7 +162,21 @@ Private evidence under `.pi/logs/qwen38-mtp-serving/`:
 
 The isolated package `i9c3s50v369fyrrzvp73a0awzyirrdsy` passed its build, 47 scoped host tests, Ruff, Nix formatting, and pinned Cairn validation. Its device gate is not accepted. The two simulated failures came from the earlier prototype package, not a new run of the isolated package.
 
-The smallest remaining check is a bitwise readback after each row-conversion stage and after the cache update. Independent review and artifact registration remain incomplete. No speedup or production acceptance follows from this prototype.
+The follow-up below checks each row-conversion stage and the cache update. Independent review and artifact registration remain incomplete. No speedup or production acceptance follows from this prototype.
+
+### Signed-zero observation boundary
+
+A separate stage audit used the unchanged `i9c3s50v369fyrrzvp73a0awzyirrdsy` package on the simulator. It injected one negative zero into a bf16 tensor of shape `[4,2,128,256]`.
+
+The first upload/readback already reported zero negative-zero elements. The snapshot, aligned slice, row slice, permutation, padding, sharding, and cache update also reported zero. The audit completed and reported cleanup. It was not a passing restoration test: its input control did not preserve the injected bit.
+
+Matched host-only controls used the same tensor shape and values. Both row-major and tile-layout roundtrips preserved the negative-zero bits, `-32768`. Neither control opened a device.
+
+This narrows the first observed loss to the mesh upload/readback path, before recovery. It does not distinguish upload, mesh mapping, simulator storage, or device readback. The earlier assertion therefore does not establish that rollback changed the sign. The original expected bits came from the pre-upload host tensor, not a measured request-entry cache.
+
+The bitwise criterion remains unchanged. A valid restoration test must establish its device-entry baseline and retain a separate upload control. The next discriminating check is an explicit host-tiled transfer compared with direct device construction, with readback controls. No package code, production defaults, or admission gates changed during this audit.
+
+Private evidence: `kv-zero-stage-sim/`, `kv-zero-host-control.log`, and `kv-zero-host-matched-control.log` under `.pi/logs/qwen38-mtp-serving/`. The scope is `kv-zero-stage-scope.md`. No hardware test ran.
 
 ## Upstream reference
 
