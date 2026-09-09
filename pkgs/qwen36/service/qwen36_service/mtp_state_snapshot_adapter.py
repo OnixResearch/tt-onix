@@ -32,6 +32,17 @@ class MtpStateSnapshot:
         if observed != self._identities:
             raise RuntimeError("speculative state binding changed")
 
+    def saved_tensor(self, tensor):
+        """Borrow one request-entry tensor without replacing its allocation."""
+        self._require_live()
+        identity = tensor_identity(tensor)
+        matches = [
+            saved for live, saved in self._pairs if tensor_identity(live) == identity
+        ]
+        if len(matches) != 1:
+            raise RuntimeError("speculative snapshot tensor is missing or ambiguous")
+        return matches[0]
+
     def refresh(self):
         self._require_live()
         for live, saved in self._pairs:

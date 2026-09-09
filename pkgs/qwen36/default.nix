@@ -174,6 +174,7 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"
+    cp ${./mtp-kv-tail-device-check.py} "$out/share/qwen36/mtp-kv-tail-device-check.py"
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
@@ -1346,7 +1347,7 @@ stdenvNoCC.mkDerivation {
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
-    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py}; do
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py}; do
       PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
         TT_METAL_HOME="$out/libexec/tt-metalium" \
         TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \

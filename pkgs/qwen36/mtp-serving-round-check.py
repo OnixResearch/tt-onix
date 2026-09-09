@@ -71,6 +71,8 @@ class RoundFixture:
         draft_width=DRAFT_WIDTH,
     ):
         self.accepted = accepted
+        self.require_clean_tail = False
+        self.skip_kv_restore = False
         self.failed_capture = failed_capture
         self.failed_head = failed_head
         self.clock = 0.0
@@ -99,6 +101,7 @@ class RoundFixture:
             "tensor_identity": lambda tensor: id(tensor),
             "run_device_stage": lambda work, **kwargs: work(),
             "TracedMtpDraftAdapter": self.make_trace,
+            "MtpTargetKvRecovery": self.make_kv_recovery,
         })
         load_source("mtp_state_snapshot_adapter.py", self.namespace)
         self.namespace["target_state_tensors"] = lambda model: (self.target,)
@@ -124,6 +127,24 @@ class RoundFixture:
                 decode_traced=self.plain,
                 ensure_trace=self.capture_plain,
             ),
+        )
+
+    def make_kv_recovery(self, *, snapshot, draft_count, **kwargs):
+        entry = snapshot.saved_tensor(self.target)
+
+        def finish_round(*, position, accepted):
+            self.events.append("kv-finish")
+            if self.skip_kv_restore:
+                return
+            rows = self.target.value["rows"]
+            for index in range(position + accepted + 1, position + draft_count + 1):
+                if index in entry.value["rows"]:
+                    rows[index] = entry.value["rows"][index]
+                else:
+                    rows.pop(index, None)
+
+        return SimpleNamespace(
+            finish_round=finish_round, close=lambda: self.events.append("kv-close")
         )
 
     def tick(self):
@@ -240,6 +261,10 @@ class RoundFixture:
             ):
                 if fixture.failed_head:
                     raise RuntimeError("head commit failed")
+                if fixture.require_clean_tail:
+                    state = fixture.target.value
+                    if any(index >= state["next"] for index in state["rows"]):
+                        raise RuntimeError("rejected KV rows remain before head commit")
                 fixture.events.append("head-commit")
                 token = self.consume(token_inputs[0], start_position, initial_feedback)
                 if fixture.accepted == 0:
@@ -255,7 +280,7 @@ class RoundFixture:
         self.trace = DraftTrace()
         return self.trace
 
-    def run(self, *, plain_seconds=SLOW_PLAIN_SECONDS, deadline=None):
+    def run(self, *, plain_seconds=SLOW_PLAIN_SECONDS, deadline=None, restore_kv=False):
         return self.namespace["run_rounds"](
             self.owner,
             anchor=ANCHOR_TOKEN,
@@ -266,6 +291,7 @@ class RoundFixture:
             maximum_generation_tokens=GENERATION_LIMIT,
             request_deadline=deadline,
             plain_step_seconds=plain_seconds,
+            diagnostic_kv_tail_restore=restore_kv,
         )
 
 
@@ -305,6 +331,36 @@ class RoundTests(unittest.TestCase):
                 self.assert_exact_stream(fixture, result)
                 self.assertTrue(fixture.trace.closed)
                 self.assertFalse(fixture.verify_resident)
+
+    def test_rejected_tail_is_restored_before_head_commit(self):
+        for width in (TWO_DRAFT_WIDTH, DRAFT_WIDTH):
+            for accepted in range(width):
+                with self.subTest(width=width, accepted=accepted):
+                    fixture = RoundFixture(accepted, draft_width=width)
+                    fixture.require_clean_tail = True
+                    self.assert_exact_stream(fixture, fixture.run(restore_kv=True))
+
+    def test_missing_tail_restore_is_detected_before_fallback(self):
+        fixture = RoundFixture(0)
+        fixture.require_clean_tail = True
+        fixture.skip_kv_restore = True
+        with self.assertRaisesRegex(RuntimeError, "rejected KV rows remain"):
+            fixture.run(restore_kv=True)
+        self.assertNotIn("plain-capture", fixture.events)
+
+    def test_unadmitted_kv_recovery_is_off_by_default(self):
+        fixture = RoundFixture(0)
+        result = fixture.run()
+        self.assertNotIn("kv-finish", fixture.events)
+        self.assertTrue(
+            all(stage["kv_tail"] == 0 for stage in result["round_stage_seconds"])
+        )
+
+    def test_invalid_diagnostic_switch_rejects_before_device_effects(self):
+        fixture = RoundFixture(0)
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            fixture.run(restore_kv=1)
+        self.assertEqual(fixture.events, [])
 
     def test_slow_rounds_switch_once_and_preserve_exact_output(self):
         fixture = RoundFixture(0)

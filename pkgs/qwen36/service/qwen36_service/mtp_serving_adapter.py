@@ -5,6 +5,7 @@ from contextlib import ExitStack
 
 import ttnn
 
+from .mtp_kv_tail_adapter import MtpTargetKvRecovery
 from .mtp_serving_core import (
     ROUND_MODE_SPECULATIVE,
     ROUND_WATCHDOG_SECONDS,
@@ -68,8 +69,11 @@ def run_rounds(
     maximum_generation_tokens,
     request_deadline,
     plain_step_seconds,
+    diagnostic_kv_tail_restore=False,
 ):
     """Own snapshots and traces for one request. Never retain them for reuse."""
+    if type(diagnostic_kv_tail_restore) is not bool:
+        raise ValueError("diagnostic KV restoration switch must be a boolean")
     width = owner.profile.draft_token_count
     generated = [anchor]
     current = anchor
@@ -88,6 +92,19 @@ def run_rounds(
     with ExitStack() as cleanup:
         target = MtpStateSnapshot(lambda: target_state_tensors(owner.model))
         cleanup.callback(target.close)
+        # The operator gate rejects signed-zero changes. No server or CLI
+        # enables this unadmitted path; the explicit seam supports diagnostics.
+        kv_recovery = None
+        if diagnostic_kv_tail_restore:
+            kv_recovery = MtpTargetKvRecovery(
+                model=owner.model,
+                snapshot=target,
+                mesh=owner.mesh,
+                page_table=page_table,
+                position=position,
+                draft_count=width,
+            )
+            cleanup.callback(kv_recovery.close)
         saved_feedback = ttnn.clone(feedback)
         cleanup.callback(ttnn.deallocate, saved_feedback)
         cleanup.callback(verifier.close_persistent)
@@ -156,6 +173,17 @@ def run_rounds(
                 draft_token_ids=drafts, continuation_token_ids=verification.token_ids
             )
             verification_margins.append(verification.minimum_top_two_margin)
+            kv_tail_seconds = 0.0
+            if kv_recovery is not None:
+                kv_started = time.monotonic()
+                run_device_stage(
+                    lambda: kv_recovery.finish_round(
+                        position=position, accepted=commit.accepted
+                    ),
+                    seconds=ROUND_WATCHDOG_SECONDS,
+                    stage="target-kv-tail",
+                )
+                kv_tail_seconds = time.monotonic() - kv_started
             rollback_seconds = 0.0
             if commit.rejected:
                 rejected_rounds += 1
@@ -209,6 +237,7 @@ def run_rounds(
                     - verification.readback_seconds
                 ),
                 "rollback": rollback_seconds,
+                "kv_tail": kv_tail_seconds,
                 "head_commit": head_commit_seconds,
                 "emitted": len(commit.committed_token_ids),
                 "accepted": commit.accepted,

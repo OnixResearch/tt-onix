@@ -52,3 +52,11 @@ The later row-window pair preserved 320 tokens and the same 18-round acceptance 
 The two-draft hw9 screen preserved all 320 tokens and reduced verifier device time to about 94.5 ms. Its round-only ratio was 0.770. A 489 ms rollback outlier motivated the prefix-trace candidate. The outlier does not prove allocator causality.
 
 See `docs/qwen38-mtp-serving-progress.md` and the immutable private run directories for measurements. Historical pilot averages and design estimates are not serving-loop acceptance evidence.
+
+## Unadmitted target-KV row recovery
+
+The diagnostic prototype reuses request-entry snapshots for rejected rows. The pure planner requires a contiguous committed boundary and a unique page map. The adapter restores offsets `accepted+1` through `draft_count`, with the seed retained. It validates all bindings and formats before writes. This approach assumes that no other writer changes the uncommitted tail between rounds.
+
+The simulator rejected the first bitwise cache comparison: one restored bf16 value changed from negative zero to positive zero. The first stage that changes the sign remains unknown. The bitwise criterion remains unchanged. This is simulated evidence, not a silicon defect claim.
+
+The `diagnostic_kv_tail_restore` seam therefore defaults to false. No server or CLI route enables it. The existing serving behavior and the open rejected-KV requirement remain unchanged. The device test, host mutation, and failed receipts preserve the counterexample for further work.

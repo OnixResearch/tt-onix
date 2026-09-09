@@ -4,6 +4,8 @@
 
 Speculation remains off by default. The latest two-draft candidate reached a 0.992 round-only ratio. The three-draft control reached 0.797. Both passed bounded token parity, but neither establishes a serving speedup. General exactness and production safety remain unproven.
 
+A later target-KV recovery prototype fails a simulated bitwise-state check. It remains diagnostic-only and does not change the serving defaults.
+
 Local commits reside on `work/qwen38-mtp-serving-20260908` in `../tenstorrent.nix-mtp-serving-20260908`. No push or main-branch integration ran. Owner review remains open.
 
 ## Implemented candidate
@@ -121,6 +123,46 @@ Private evidence under `.pi/logs/qwen38-mtp-serving/` in the primary repository:
 Each receipt reports complete cleanup. The build passed package checks and 33 scoped host tests: six policy, ten serving-round, five convolution-window, nine prefix-trace, and three profile tests. Ruff, Nix formatting, diff checks, and pinned Cairn validation passed. Host negative cases include capture failure, stale bindings, incomplete capture, invalid widths, and invalid replay indices.
 
 The simulator limitation, missing independent review, and artifact-registration blocker remain. Task 4 is open again because the target path still relies on masking instead of full recovery of rejected KV rows. The delta specification requires rejected-KV restoration. Task 7 remains open for owner review. Neither these measurements nor the host tests authorize spec sync, archive, or production admission.
+
+## Rejected target-KV recovery (2026-09-09 UTC)
+
+The existing serving fixture checked committed rows but permitted stale rejected rows. A new assertion before head continuation exposed that gap at every rejection position for widths two and three. The baseline produced five errors. The clean-tail integration cases pass only with the diagnostic recovery seam enabled.
+
+The prototype reuses the request-entry snapshot instead of copying the entire model before each round. A pure planner retains the seed and accepted input rows. It maps rejected positions through the page table. The adapter restores those rows with `paged_update_cache` and preserves cache allocations.
+
+This route depends on a monotonic committed boundary and an unchanged request-entry tail. The planner rejects backward or skipped boundaries, invalid counts, malformed pages, aliases, and capacity overflow. The adapter checks all cache bindings and bf16 formats before writes. An operation error prevents another attempt through that owner.
+
+### Simulated rejection
+
+Package `048w967wvj88dx8nf894sg5ab7g7vnj1` passed its package and host checks. The model-free operator test then ran on TTsim 1.10.6, with a `1x1` mesh, slow dispatch, and no physical device nodes in its sandbox.
+
+The first comparison failed after zero accepted drafts at position 127. A diagnostic replay located one mismatch in the first compared cache:
+
+| Field | Observed value |
+|---|---|
+| Cache index | `[0, 0, 1, 0]` |
+| Expected bf16 value | `-0.0` |
+| Observed bf16 value | `+0.0` |
+| Expected signed bits | `-32768` |
+| Observed signed bits | `0` |
+
+This is a bitwise failure, not a token divergence or a tolerance failure. The test did not finish the other cache comparisons or its device-negative cases. The stage that changes the zero sign remains unknown. This result does not prove that silicon has the same behavior.
+
+The bitwise gate remains unchanged. `diagnostic_kv_tail_restore` defaults to false, and no server or CLI route enables it. The normal speculative route still has the rejected-KV recovery gap. Task 4 remains open. No physical operator test or hardware serving screen followed this failure.
+
+The host oracle now compares storage bits and includes a mutation that erases negative-zero signs. That mutation must fail. It models the observed loss, not its cause. The final host suites cover the disabled default and reject an invalid diagnostic switch before device effects.
+
+Private evidence under `.pi/logs/qwen38-mtp-serving/`:
+
+- `kv-tail-red.log`: the baseline integration errors.
+- `kv-tail-operator-sim/operator.log`: the first simulated failure.
+- `kv-tail-operator-sim-detail/`: the diagnostic replay, source copy, and source hash.
+- `kv-tail-scope.md`: the bounds and stop decision.
+- `build-kv-tail.log` and `build-kv-tail-isolated.log`: the prototype and isolated package builds.
+
+The isolated package `i9c3s50v369fyrrzvp73a0awzyirrdsy` passed its build, 47 scoped host tests, Ruff, Nix formatting, and pinned Cairn validation. Its device gate is not accepted. The two simulated failures came from the earlier prototype package, not a new run of the isolated package.
+
+The smallest remaining check is a bitwise readback after each row-conversion stage and after the cache update. Independent review and artifact registration remain incomplete. No speedup or production acceptance follows from this prototype.
 
 ## Upstream reference
 
