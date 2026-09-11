@@ -1,0 +1,620 @@
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
+@@ -29,13 +29,25 @@
+     auto* device = in.q.device();
+     const CoreCoord compute_grid = device->compute_with_storage_grid_size();
+     const uint32_t grid_y = compute_grid.y;
+-    TT_FATAL(num_heads <= compute_grid.x * grid_y, "num_heads exceeds the available compute grid");
+-
+-    std::vector<CoreCoord> head_cores(num_heads);
++    // num_heads can exceed the grid (decode head count is B * heads, e.g. 192
++    // head-instances on a ~110-core die). Each active core takes a contiguous
++    // chunk of ceil(num_heads / ncores) instances. For num_heads <= ncores the
++    // chunk is one and this reduces to the original one-instance-per-core
++    // mapping (core index c <-> instance c), so the in-range program mapping is
++    // unchanged.
++    const uint32_t ncores = compute_grid.x * grid_y;
++    TT_FATAL(ncores > 0, "decode gated delta rule needs at least one compute core");
++    const uint32_t heads_per_core = (num_heads + ncores - 1) / ncores;
++    TT_FATAL(heads_per_core > 0, "decode gated delta rule needs a non-zero head chunk");
++
++    const uint32_t active_cores = (num_heads + heads_per_core - 1) / heads_per_core;
++    std::vector<CoreCoord> head_cores(active_cores);
++    std::vector<uint32_t> head_start(active_cores);
+     std::set<CoreRange> core_set;
+-    for (uint32_t head = 0; head < num_heads; head++) {
+-        head_cores[head] = CoreCoord{head / grid_y, head % grid_y};
+-        core_set.insert(CoreRange{head_cores[head], head_cores[head]});
++    for (uint32_t core_index = 0; core_index < active_cores; core_index++) {
++        head_cores[core_index] = CoreCoord{core_index / grid_y, core_index % grid_y};
++        head_start[core_index] = core_index * heads_per_core;
++        core_set.insert(CoreRange{head_cores[core_index], head_cores[core_index]});
+     }
+     const CoreRangeSet cores{core_set};
+ 
+@@ -114,15 +126,18 @@
+     const uint32_t output_address = outputs[0].buffer()->address();
+     const uint32_t output_state_address = outputs[1].buffer()->address();
+ 
+-    for (uint32_t head = 0; head < num_heads; head++) {
+-        const auto core = head_cores[head];
++    for (uint32_t core_index = 0; core_index < active_cores; core_index++) {
++        const auto core = head_cores[core_index];
++        const uint32_t start = head_start[core_index];
++        const uint32_t remaining = num_heads - start;
++        const uint32_t count = (heads_per_core < remaining) ? heads_per_core : remaining;
+         SetRuntimeArgs(
+             program,
+             reader,
+             core,
+-            {head, q_address, k_address, v_address, beta_address, g_address, state_address});
+-        SetRuntimeArgs(program, writer, core, {head, output_address, output_state_address});
+-        SetRuntimeArgs(program, compute, core, {});
++            {start, count, q_address, k_address, v_address, beta_address, g_address, state_address});
++        SetRuntimeArgs(program, writer, core, {start, count, output_address, output_state_address});
++        SetRuntimeArgs(program, compute, core, {count});
+     }
+ 
+     return cached_program_t{
+@@ -132,7 +147,8 @@
+             .writer_kernel_id = writer,
+             .compute_kernel_id = compute,
+             .grid_y = grid_y,
+-            .num_cores = num_heads,
++            .num_cores = active_cores,
++            .heads_per_core = heads_per_core,
+         }};
+ }
+ 
+@@ -153,19 +169,26 @@
+     const uint32_t output_address = outputs[0].buffer()->address();
+     const uint32_t output_state_address = outputs[1].buffer()->address();
+ 
+-    for (uint32_t head = 0; head < attrs.num_heads; head++) {
+-        const CoreCoord core{head / shared.grid_y, head % shared.grid_y};
++    // The chunk bounds are fixed when the program is built; only buffer
++    // addresses change between calls. Re-assert the shape so a mismatched cache
++    // hit cannot silently reuse a stale chunking.
++    TT_FATAL(
++        shared.num_cores == (attrs.num_heads + shared.heads_per_core - 1) / shared.heads_per_core,
++        "decode gated delta rule runtime override got a mismatched head count");
++
++    for (uint32_t core_index = 0; core_index < shared.num_cores; core_index++) {
++        const CoreCoord core{core_index / shared.grid_y, core_index % shared.grid_y};
+         auto& reader_args = GetRuntimeArgs(program, shared.reader_kernel_id, core);
+-        reader_args[1] = q_address;
+-        reader_args[2] = k_address;
+-        reader_args[3] = v_address;
+-        reader_args[4] = beta_address;
+-        reader_args[5] = g_address;
+-        reader_args[6] = state_address;
++        reader_args[2] = q_address;
++        reader_args[3] = k_address;
++        reader_args[4] = v_address;
++        reader_args[5] = beta_address;
++        reader_args[6] = g_address;
++        reader_args[7] = state_address;
+ 
+         auto& writer_args = GetRuntimeArgs(program, shared.writer_kernel_id, core);
+-        writer_args[1] = output_address;
+-        writer_args[2] = output_state_address;
++        writer_args[2] = output_address;
++        writer_args[3] = output_state_address;
+     }
+ }
+ 
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp
+@@ -14,6 +14,7 @@
+     tt::tt_metal::KernelHandle compute_kernel_id{};
+     uint32_t grid_y = 1;
+     uint32_t num_cores = 0;
++    uint32_t heads_per_core = 1;
+ };
+ 
+ struct GatedDeltaDecodeProgramFactory {
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
+@@ -35,6 +35,8 @@
+     constexpr uint32_t cb_state_new = tt::CBIndex::c_13;
+     constexpr uint32_t cb_output = tt::CBIndex::c_16;
+ 
++    const uint32_t head_count = get_arg_val<uint32_t>(0);
++
+     compute_kernel_hw_startup<SrcOrder::Reverse>(cb_k, cb_state_decay, cb_v_read);
+ 
+     CircularBuffer q_buffer(cb_q);
+@@ -53,156 +55,158 @@
+     CircularBuffer state_new_buffer(cb_state_new);
+     CircularBuffer output_buffer(cb_output);
+ 
+-    q_buffer.wait_front(key_tiles);
+-    k_buffer.wait_front(key_tiles);
+-    v_buffer.wait_front(val_tiles);
+-    beta_buffer.wait_front(1);
+-    g_buffer.wait_front(1);
+-    state_buffer.wait_front(state_tiles);
+-
+-    // decay = exp(g), using the accurate SFPU path.
+-    g_exp_buffer.reserve_back(1);
+-    init_sfpu(cb_g, cb_g_exp);
+-    tile_regs_acquire();
+-    copy_tile_to_dst_init_short(cb_g);
+-    copy_tile(cb_g, 0, 0);
+-    exp_tile_init<false>();
+-    exp_tile<false>(0);
+-    tile_regs_commit();
+-    tile_regs_wait();
+-    pack_tile(0, cb_g_exp, 0);
+-    tile_regs_release();
+-    g_exp_buffer.push_back(1);
+-    g_buffer.pop_front(1);
+-
+-    // state_decay = state * decay.
+-    g_exp_buffer.wait_front(1);
+-    state_decay_buffer.reserve_back(state_tiles);
+-    mul_tiles_bcast_scalar_init_short(cb_state, cb_g_exp);
+-    for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-        tile_regs_acquire();
+-        mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_state_decay, tile);
+-        tile_regs_release();
+-    }
+-    state_decay_buffer.push_back(state_tiles);
+-    state_buffer.pop_front(state_tiles);
+-    g_exp_buffer.pop_front(1);
+-
+-    // v_read = k @ state_decay.
+-    state_decay_buffer.wait_front(state_tiles);
+-    v_read_buffer.reserve_back(val_tiles);
+-    matmul_init(cb_k, cb_state_decay);
+-    for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+-        tile_regs_acquire();
+-        for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
+-            matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, 0);
++    for (uint32_t instance = 0; instance < head_count; instance++) {
++        q_buffer.wait_front(key_tiles);
++        k_buffer.wait_front(key_tiles);
++        v_buffer.wait_front(val_tiles);
++        beta_buffer.wait_front(1);
++        g_buffer.wait_front(1);
++        state_buffer.wait_front(state_tiles);
++
++        // decay = exp(g), using the accurate SFPU path.
++        g_exp_buffer.reserve_back(1);
++        init_sfpu(cb_g, cb_g_exp);
++        tile_regs_acquire();
++        copy_tile_to_dst_init_short(cb_g);
++        copy_tile(cb_g, 0, 0);
++        exp_tile_init<false>();
++        exp_tile<false>(0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_g_exp, 0);
++        tile_regs_release();
++        g_exp_buffer.push_back(1);
++        g_buffer.pop_front(1);
++
++        // state_decay = state * decay.
++        g_exp_buffer.wait_front(1);
++        state_decay_buffer.reserve_back(state_tiles);
++        mul_tiles_bcast_scalar_init_short(cb_state, cb_g_exp);
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            tile_regs_acquire();
++            mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_state_decay, tile);
++            tile_regs_release();
+         }
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_v_read, val_tile);
+-        tile_regs_release();
+-    }
+-    v_read_buffer.push_back(val_tiles);
+-
+-    // delta = v - v_read.
+-    v_read_buffer.wait_front(val_tiles);
+-    delta_buffer.reserve_back(val_tiles);
+-    sub_tiles_init(cb_v, cb_v_read);
+-    for (uint32_t tile = 0; tile < val_tiles; tile++) {
+-        tile_regs_acquire();
+-        sub_tiles(cb_v, cb_v_read, tile, tile, 0);
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_delta, tile);
+-        tile_regs_release();
+-    }
+-    delta_buffer.push_back(val_tiles);
+-    v_buffer.pop_front(val_tiles);
+-    v_read_buffer.pop_front(val_tiles);
+-
+-    // k_col = transpose(k).
+-    k_col_buffer.reserve_back(key_tiles);
+-    transpose_init(cb_k);
+-    for (uint32_t tile = 0; tile < key_tiles; tile++) {
+-        tile_regs_acquire();
+-        transpose_tile(cb_k, tile, 0);
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_k_col, tile);
+-        tile_regs_release();
+-    }
+-    k_col_buffer.push_back(key_tiles);
+-    k_buffer.pop_front(key_tiles);
+-
+-    // outer = k_col @ delta.
+-    k_col_buffer.wait_front(key_tiles);
+-    delta_buffer.wait_front(val_tiles);
+-    outer_buffer.reserve_back(state_tiles);
+-    matmul_init(cb_k_col, cb_delta);
+-    for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++        state_decay_buffer.push_back(state_tiles);
++        state_buffer.pop_front(state_tiles);
++        g_exp_buffer.pop_front(1);
++
++        // v_read = k @ state_decay.
++        state_decay_buffer.wait_front(state_tiles);
++        v_read_buffer.reserve_back(val_tiles);
++        matmul_init(cb_k, cb_state_decay);
+         for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+             tile_regs_acquire();
+-            matmul_tiles(cb_k_col, cb_delta, key_tile, val_tile, 0);
++            for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++                matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, 0);
++            }
+             tile_regs_commit();
+             tile_regs_wait();
+-            pack_tile(0, cb_outer, key_tile * val_tiles + val_tile);
++            pack_tile(0, cb_v_read, val_tile);
+             tile_regs_release();
+         }
+-    }
+-    outer_buffer.push_back(state_tiles);
+-    k_col_buffer.pop_front(key_tiles);
+-    delta_buffer.pop_front(val_tiles);
+-
+-    // outer_scaled = outer * beta.
+-    outer_buffer.wait_front(state_tiles);
+-    outer_scaled_buffer.reserve_back(state_tiles);
+-    mul_tiles_bcast_scalar_init_short(cb_outer, cb_beta);
+-    for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-        tile_regs_acquire();
+-        mul_tiles_bcast_scalar(cb_outer, cb_beta, tile, 0, 0);
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_outer_scaled, tile);
+-        tile_regs_release();
+-    }
+-    outer_scaled_buffer.push_back(state_tiles);
+-    outer_buffer.pop_front(state_tiles);
+-    beta_buffer.pop_front(1);
+-
+-    // state_new = state_decay + outer_scaled.
+-    outer_scaled_buffer.wait_front(state_tiles);
+-    state_new_buffer.reserve_back(state_tiles);
+-    add_tiles_init(cb_state_decay, cb_outer_scaled);
+-    for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-        tile_regs_acquire();
+-        add_tiles(cb_state_decay, cb_outer_scaled, tile, tile, 0);
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_state_new, tile);
+-        tile_regs_release();
+-    }
+-    state_new_buffer.push_back(state_tiles);
+-    state_decay_buffer.pop_front(state_tiles);
+-    outer_scaled_buffer.pop_front(state_tiles);
+-
+-    // output = q @ state_new. Do not pop state_new: the writer owns that
+-    // credit after it observes output, which orders this read before state write.
+-    state_new_buffer.wait_front(state_tiles);
+-    output_buffer.reserve_back(val_tiles);
+-    matmul_init(cb_q, cb_state_new);
+-    for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+-        tile_regs_acquire();
++        v_read_buffer.push_back(val_tiles);
++
++        // delta = v - v_read.
++        v_read_buffer.wait_front(val_tiles);
++        delta_buffer.reserve_back(val_tiles);
++        sub_tiles_init(cb_v, cb_v_read);
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            tile_regs_acquire();
++            sub_tiles(cb_v, cb_v_read, tile, tile, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_delta, tile);
++            tile_regs_release();
++        }
++        delta_buffer.push_back(val_tiles);
++        v_buffer.pop_front(val_tiles);
++        v_read_buffer.pop_front(val_tiles);
++
++        // k_col = transpose(k).
++        k_col_buffer.reserve_back(key_tiles);
++        transpose_init(cb_k);
++        for (uint32_t tile = 0; tile < key_tiles; tile++) {
++            tile_regs_acquire();
++            transpose_tile(cb_k, tile, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_k_col, tile);
++            tile_regs_release();
++        }
++        k_col_buffer.push_back(key_tiles);
++        k_buffer.pop_front(key_tiles);
++
++        // outer = k_col @ delta.
++        k_col_buffer.wait_front(key_tiles);
++        delta_buffer.wait_front(val_tiles);
++        outer_buffer.reserve_back(state_tiles);
++        matmul_init(cb_k_col, cb_delta);
+         for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
+-            matmul_tiles(cb_q, cb_state_new, key_tile, key_tile * val_tiles + val_tile, 0);
++            for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++                tile_regs_acquire();
++                matmul_tiles(cb_k_col, cb_delta, key_tile, val_tile, 0);
++                tile_regs_commit();
++                tile_regs_wait();
++                pack_tile(0, cb_outer, key_tile * val_tiles + val_tile);
++                tile_regs_release();
++            }
+         }
+-        tile_regs_commit();
+-        tile_regs_wait();
+-        pack_tile(0, cb_output, val_tile);
+-        tile_regs_release();
++        outer_buffer.push_back(state_tiles);
++        k_col_buffer.pop_front(key_tiles);
++        delta_buffer.pop_front(val_tiles);
++
++        // outer_scaled = outer * beta.
++        outer_buffer.wait_front(state_tiles);
++        outer_scaled_buffer.reserve_back(state_tiles);
++        mul_tiles_bcast_scalar_init_short(cb_outer, cb_beta);
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            tile_regs_acquire();
++            mul_tiles_bcast_scalar(cb_outer, cb_beta, tile, 0, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_outer_scaled, tile);
++            tile_regs_release();
++        }
++        outer_scaled_buffer.push_back(state_tiles);
++        outer_buffer.pop_front(state_tiles);
++        beta_buffer.pop_front(1);
++
++        // state_new = state_decay + outer_scaled.
++        outer_scaled_buffer.wait_front(state_tiles);
++        state_new_buffer.reserve_back(state_tiles);
++        add_tiles_init(cb_state_decay, cb_outer_scaled);
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            tile_regs_acquire();
++            add_tiles(cb_state_decay, cb_outer_scaled, tile, tile, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_state_new, tile);
++            tile_regs_release();
++        }
++        state_new_buffer.push_back(state_tiles);
++        state_decay_buffer.pop_front(state_tiles);
++        outer_scaled_buffer.pop_front(state_tiles);
++
++        // output = q @ state_new. Do not pop state_new: the writer owns that
++        // credit after it observes output, which orders this read before state write.
++        state_new_buffer.wait_front(state_tiles);
++        output_buffer.reserve_back(val_tiles);
++        matmul_init(cb_q, cb_state_new);
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            tile_regs_acquire();
++            for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++                matmul_tiles(cb_q, cb_state_new, key_tile, key_tile * val_tiles + val_tile, 0);
++            }
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_output, val_tile);
++            tile_regs_release();
++        }
++        output_buffer.push_back(val_tiles);
++        q_buffer.pop_front(key_tiles);
+     }
+-    output_buffer.push_back(val_tiles);
+-    q_buffer.pop_front(key_tiles);
+ }
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp
+@@ -13,13 +13,14 @@
+     constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
+     constexpr uint32_t state_tiles = key_tiles * val_tiles;
+ 
+-    const uint32_t head = get_arg_val<uint32_t>(0);
+-    const uint32_t q_address = get_arg_val<uint32_t>(1);
+-    const uint32_t k_address = get_arg_val<uint32_t>(2);
+-    const uint32_t v_address = get_arg_val<uint32_t>(3);
+-    const uint32_t beta_address = get_arg_val<uint32_t>(4);
+-    const uint32_t g_address = get_arg_val<uint32_t>(5);
+-    const uint32_t state_address = get_arg_val<uint32_t>(6);
++    const uint32_t head_start = get_arg_val<uint32_t>(0);
++    const uint32_t head_count = get_arg_val<uint32_t>(1);
++    const uint32_t q_address = get_arg_val<uint32_t>(2);
++    const uint32_t k_address = get_arg_val<uint32_t>(3);
++    const uint32_t v_address = get_arg_val<uint32_t>(4);
++    const uint32_t beta_address = get_arg_val<uint32_t>(5);
++    const uint32_t g_address = get_arg_val<uint32_t>(6);
++    const uint32_t state_address = get_arg_val<uint32_t>(7);
+ 
+     constexpr uint32_t cb_q = tt::CBIndex::c_0;
+     constexpr uint32_t cb_k = tt::CBIndex::c_1;
+@@ -57,37 +58,51 @@
+     state_buffer.reserve_back(state_tiles);
+ 
+     Noc noc;
+-    const uint32_t q_offset = head * key_tiles;
+-    const uint32_t v_offset = head * val_tiles;
+-    const uint32_t scalar_offset = head;
+-    const uint32_t state_offset = head * state_tiles;
+-
+-    for (uint32_t tile = 0; tile < key_tiles; tile++) {
+-        noc.async_read(
+-            q_accessor, q_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
+-        noc.async_read(
+-            k_accessor, k_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
+-    }
+-    for (uint32_t tile = 0; tile < val_tiles; tile++) {
+-        noc.async_read(
+-            v_accessor, v_buffer, tile_bytes, {.page_id = v_offset + tile}, {.offset_bytes = tile * tile_bytes});
+-    }
+-    noc.async_read(beta_accessor, beta_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
+-    noc.async_read(g_accessor, g_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
+-    for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-        noc.async_read(
+-            state_accessor,
+-            state_buffer,
+-            tile_bytes,
+-            {.page_id = state_offset + tile},
+-            {.offset_bytes = tile * tile_bytes});
+-    }
+-    noc.async_read_barrier();
+ 
+-    q_buffer.push_back(key_tiles);
+-    k_buffer.push_back(key_tiles);
+-    v_buffer.push_back(val_tiles);
+-    beta_buffer.push_back(1);
+-    g_buffer.push_back(1);
+-    state_buffer.push_back(state_tiles);
++    // One core covers head_count contiguous head-instances. The accessors and
++    // the circular buffers are head-independent, so they stay outside the loop;
++    // only the per-head offsets and the CB handshakes repeat.
++    for (uint32_t instance = 0; instance < head_count; instance++) {
++        const uint32_t head = head_start + instance;
++        const uint32_t q_offset = head * key_tiles;
++        const uint32_t v_offset = head * val_tiles;
++        const uint32_t scalar_offset = head;
++        const uint32_t state_offset = head * state_tiles;
++
++        q_buffer.reserve_back(key_tiles);
++        k_buffer.reserve_back(key_tiles);
++        v_buffer.reserve_back(val_tiles);
++        beta_buffer.reserve_back(1);
++        g_buffer.reserve_back(1);
++        state_buffer.reserve_back(state_tiles);
++
++        for (uint32_t tile = 0; tile < key_tiles; tile++) {
++            noc.async_read(
++                q_accessor, q_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
++            noc.async_read(
++                k_accessor, k_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
++        }
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            noc.async_read(
++                v_accessor, v_buffer, tile_bytes, {.page_id = v_offset + tile}, {.offset_bytes = tile * tile_bytes});
++        }
++        noc.async_read(beta_accessor, beta_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
++        noc.async_read(g_accessor, g_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            noc.async_read(
++                state_accessor,
++                state_buffer,
++                tile_bytes,
++                {.page_id = state_offset + tile},
++                {.offset_bytes = tile * tile_bytes});
++        }
++        noc.async_read_barrier();
++
++        q_buffer.push_back(key_tiles);
++        k_buffer.push_back(key_tiles);
++        v_buffer.push_back(val_tiles);
++        beta_buffer.push_back(1);
++        g_buffer.push_back(1);
++        state_buffer.push_back(state_tiles);
++    }
+ }
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp
+@@ -13,9 +13,10 @@
+     constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
+     constexpr uint32_t state_tiles = key_tiles * val_tiles;
+ 
+-    const uint32_t head = get_arg_val<uint32_t>(0);
+-    const uint32_t output_address = get_arg_val<uint32_t>(1);
+-    const uint32_t state_address = get_arg_val<uint32_t>(2);
++    const uint32_t head_start = get_arg_val<uint32_t>(0);
++    const uint32_t head_count = get_arg_val<uint32_t>(1);
++    const uint32_t output_address = get_arg_val<uint32_t>(2);
++    const uint32_t state_address = get_arg_val<uint32_t>(3);
+ 
+     constexpr uint32_t cb_output = tt::CBIndex::c_16;
+     constexpr uint32_t cb_state = tt::CBIndex::c_13;
+@@ -30,31 +31,37 @@
+     CircularBuffer state_buffer(cb_state);
+     Noc noc;
+ 
+-    // Waiting for output first orders the writer after compute has finished
+-    // reading the final-state CB for q @ state. The writer can then pop state.
+-    output_buffer.wait_front(val_tiles);
+-    const uint32_t output_offset = head * val_tiles;
+-    for (uint32_t tile = 0; tile < val_tiles; tile++) {
+-        noc.async_write(
+-            output_buffer,
+-            output_accessor,
+-            tile_bytes,
+-            {.offset_bytes = tile * tile_bytes},
+-            {.page_id = output_offset + tile});
++    // One core covers head_count contiguous head-instances, matching the reader
++    // and compute loops so the CB credits stay balanced per instance.
++    for (uint32_t instance = 0; instance < head_count; instance++) {
++        const uint32_t head = head_start + instance;
++
++        // Waiting for output first orders the writer after compute has finished
++        // reading the final-state CB for q @ state. The writer can then pop state.
++        output_buffer.wait_front(val_tiles);
++        const uint32_t output_offset = head * val_tiles;
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            noc.async_write(
++                output_buffer,
++                output_accessor,
++                tile_bytes,
++                {.offset_bytes = tile * tile_bytes},
++                {.page_id = output_offset + tile});
++        }
++        noc.async_write_barrier();
++        output_buffer.pop_front(val_tiles);
++
++        state_buffer.wait_front(state_tiles);
++        const uint32_t state_offset = head * state_tiles;
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            noc.async_write(
++                state_buffer,
++                state_accessor,
++                tile_bytes,
++                {.offset_bytes = tile * tile_bytes},
++                {.page_id = state_offset + tile});
++        }
++        noc.async_write_barrier();
++        state_buffer.pop_front(state_tiles);
+     }
+-    noc.async_write_barrier();
+-    output_buffer.pop_front(val_tiles);
+-
+-    state_buffer.wait_front(state_tiles);
+-    const uint32_t state_offset = head * state_tiles;
+-    for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-        noc.async_write(
+-            state_buffer,
+-            state_accessor,
+-            tile_bytes,
+-            {.offset_bytes = tile * tile_bytes},
+-            {.page_id = state_offset + tile});
+-    }
+-    noc.async_write_barrier();
+-    state_buffer.pop_front(state_tiles);
+ }

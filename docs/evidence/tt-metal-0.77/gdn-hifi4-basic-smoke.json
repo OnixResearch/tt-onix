@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "simulated": true,
+  "simulator_version": "1.10.6",
+  "host_system": "x86_64-linux",
+  "topology": "blackhole-x1",
+  "dispatch_mode": "slow",
+  "workload": "ttnn-ones-add-1x32x32",
+  "timeout_seconds": 3600,
+  "status": "passed",
+  "classification": "passed",
+  "blocker": null,
+  "observations": {
+    "device_opened": true,
+    "firmware_compiled": true,
+    "representative_operations_completed": true,
+    "clean_close": true
+  },
+  "identities": {
+    "library": {
+      "value": "/nix/store/zw3k9hs9gc3y087npflw6sd9nda8qd52-ttsim-1.10.6/lib/ttsim/runtimes/blackhole-x1/libttsim.so",
+      "blake3": "6d7401a4c8cc9086384564d847bfaa6b131ececcdf8f08cd6f67fa4026bcb88f"
+    },
+    "descriptor": {
+      "value": "/nix/store/zw3k9hs9gc3y087npflw6sd9nda8qd52-ttsim-1.10.6/lib/ttsim/runtimes/blackhole-x1/soc_descriptor.yaml",
+      "blake3": "659111dd52696fb0abe458e85ac1a5e122b5861f1c1e5faa077a884463e70b70"
+    },
+    "tt_metal": {
+      "value": "tt-metal-0.77.0:/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0",
+      "blake3": "7362493dba441642d7955628c4743271a2fd654231f0111535620a54b96be6b4"
+    }
+  },
+  "claims": [],
+  "non_claims": [
+    "physical placement",
+    "hardware profiling",
+    "performance",
+    "thermals",
+    "device health",
+    "silicon success"
+  ]
+}

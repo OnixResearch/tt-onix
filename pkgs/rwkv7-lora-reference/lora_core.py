@@ -6,9 +6,9 @@ network, or a framework. The shell injects token IDs and identities.
 
 from __future__ import annotations
 
-import hashlib
 import json
-from typing import Any, Iterable, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 SCHEMA_VERSION = 1
 RECORD_FIELDS = ("prompt", "response")
@@ -33,18 +33,15 @@ def blake3_hex(data: bytes) -> str:
     The shell provides the real blake3 module; this helper exists so pure
     manifest tests can run without importing it at module scope.
     """
-    try:
-        import blake3  # type: ignore
+    import blake3  # type: ignore
 
-        return blake3.blake3(data).hexdigest()
-    except Exception:
-        return hashlib.sha256(data).hexdigest()
+    return blake3.blake3(data).hexdigest()
 
 
 def admit_record(record: Any) -> tuple[str, str]:
     """Admit one JSONL record with nonempty prompt and response strings."""
     if not isinstance(record, dict):
-        raise ValueError("record must be a JSON object")
+        raise TypeError("record must be a JSON object")
     unknown = set(record) - set(RECORD_FIELDS)
     if unknown:
         raise ValueError(f"record has unknown fields: {sorted(unknown)}")
@@ -168,4 +165,6 @@ def validate_resume_manifest(saved: dict[str, Any], current: dict[str, Any]) -> 
     """Fail closed when resume inputs drift from the saved manifest."""
     for key in ("bound", "adapter_tensor_blake3", "schema_version", "format"):
         if saved.get(key) != current.get(key):
-            raise ValueError(f"resume rejected: '{key}' identity differs from saved manifest")
+            raise ValueError(
+                f"resume rejected: '{key}' identity differs from saved manifest"
+            )

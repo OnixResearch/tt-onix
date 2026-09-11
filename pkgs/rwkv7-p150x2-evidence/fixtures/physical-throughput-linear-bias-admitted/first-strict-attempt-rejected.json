@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_throughput",
+  "profile_identity_blake3": "baaf6aa8da124f5c0d7081bac430237d87f07dc006c70ff14c66d967bc2b73b7",
+  "one_card": {
+    "device_ids": [
+      0
+    ],
+    "sample_count": 5,
+    "request_count": 40,
+    "token_count": 800,
+    "aggregate_tokens_per_second": 81.21023634255727,
+    "per_card_tokens_per_second": {
+      "0": 81.21023634255727
+    },
+    "p50_latency_seconds": 0.188394869,
+    "p99_latency_seconds": 1.05868923
+  },
+  "two_card": {
+    "device_ids": [
+      0,
+      1
+    ],
+    "sample_count": 5,
+    "request_count": 40,
+    "token_count": 800,
+    "aggregate_tokens_per_second": 146.61968326078446,
+    "per_card_tokens_per_second": {
+      "0": 73.30984163039223,
+      "1": 73.30984163039223
+    },
+    "p50_latency_seconds": 0.179725098,
+    "p99_latency_seconds": 1.184946813
+  },
+  "dual_card_speedup": 1.8054335249354538,
+  "scaling_efficiency": 0.9027167624677269,
+  "p99_latency_regression_fraction": 0.11925839936994553,
+  "identity_blake3": "e178526399f04174402f5504563b21d053e1b3634e966fe7a02164015977aad8"
+}

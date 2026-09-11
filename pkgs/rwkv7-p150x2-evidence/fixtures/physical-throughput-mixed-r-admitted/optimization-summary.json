@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_mixed_r_optimization",
+  "status": "admitted",
+  "alternating_ab": {
+    "pair_count": 6,
+    "tokens_per_sample": 80,
+    "baseline_elapsed_seconds": [
+      0.978315008,
+      2.107666244,
+      0.967542914,
+      1.066990861,
+      1.02271167,
+      0.955747069
+    ],
+    "candidate_elapsed_seconds": [
+      0.911226845,
+      0.925638637,
+      0.947629584,
+      1.046892183,
+      0.934692508,
+      0.929022554
+    ],
+    "stable_pair_count": 5,
+    "stable_candidate_faster_pair_count": 5,
+    "stable_baseline_aggregate_tokens_per_second": 80.13932185843787,
+    "stable_candidate_aggregate_tokens_per_second": 83.86687211405733,
+    "stable_aggregate_gain_percent": 4.651337407376599,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-mixed-r-ab-20260810-0220"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "removed_typecast_launch_count": 468,
+    "baseline_source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-profiler-20260810-0010",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-mixed-r-profiler-20260810-0210"
+  },
+  "strict_admission": {
+    "one_card_tokens_per_second": 73.54229630441628,
+    "two_card_tokens_per_second": 152.99240618044047,
+    "dual_card_speedup": 2.0803321879854484,
+    "scaling_efficiency": 1.0401660939927242,
+    "p99_latency_regression_fraction": -0.453708148495063,
+    "identity_blake3": "8c65d0fe7f1b39907a100fac0457bb4ab128b9c3b1fcdd58aa71466ee29aa93c",
+    "source_root": "/var/tmp/rwkv7-p150x2-mixed-r-saturated-20260810-0240"
+  },
+  "absolute_record_replaced": false
+}

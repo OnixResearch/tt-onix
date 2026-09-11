@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_bf16_wkv_output_optimization",
+  "status": "admitted",
+  "card_zero_alternating_ab": {
+    "pair_count": 6,
+    "tokens_per_sample": 80,
+    "baseline_elapsed_seconds": [
+      0.998377047,
+      0.997023769,
+      1.027774676,
+      0.997395897,
+      1.154706063,
+      1.022926433
+    ],
+    "candidate_elapsed_seconds": [
+      0.977952317,
+      0.98713974,
+      1.00733543,
+      1.017351536,
+      0.965367483,
+      1.000819418
+    ],
+    "stable_pair_count": 5,
+    "stable_candidate_faster_pair_count": 4,
+    "stable_baseline_aggregate_tokens_per_second": 79.31003722360683,
+    "stable_candidate_aggregate_tokens_per_second": 80.15070832263741,
+    "stable_aggregate_gain_percent": 1.0599807142447792,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-ab-20260810-0020"
+  },
+  "dual_card_alternating_ab": {
+    "pair_count": 4,
+    "tokens_per_sample": 160,
+    "baseline_elapsed_seconds": [
+      1.859627666,
+      1.025200188,
+      1.056420225,
+      0.988101474
+    ],
+    "candidate_elapsed_seconds": [
+      2.592128777,
+      0.948822801,
+      1.009763164,
+      0.959292308
+    ],
+    "stable_pair_count": 3,
+    "stable_candidate_faster_pair_count": 3,
+    "stable_baseline_aggregate_tokens_per_second": 156.365956809559,
+    "stable_candidate_aggregate_tokens_per_second": 164.50309268950096,
+    "stable_aggregate_gain_percent": 5.203905022531408,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-dual-ab-20260810-0120"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "removed_typecast_launch_count": 468,
+    "baseline_source_root": "/var/tmp/rwkv7-p150x2-linear-bias-profiler-20260809-2030",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-profiler-20260810-0010"
+  },
+  "first_strict_admission": {
+    "one_card_tokens_per_second": 60.735118166222286,
+    "two_card_tokens_per_second": 148.5868316177181,
+    "dual_card_speedup": 2.446473080221228,
+    "p99_latency_regression_fraction": -0.6194669464558341,
+    "identity_blake3": "9935eabe4412d52d9ddcaffa8dd5ea920b242c1f2d14915da4b4e3bd51adb3e7",
+    "source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-saturated-20260810-0040"
+  },
+  "strict_admission_retry": {
+    "one_card_tokens_per_second": 68.99105169738961,
+    "two_card_tokens_per_second": 149.08769593833534,
+    "dual_card_speedup": 2.1609714922489918,
+    "scaling_efficiency": 1.0804857461244959,
+    "p99_latency_regression_fraction": -0.4801809257635618,
+    "identity_blake3": "d3a8ca3b483e52a9002376393f034466a1666ebcd0cb300b53d4bf0c39548513",
+    "source_root": "/var/tmp/rwkv7-p150x2-bf16-wkv-output-saturated-retry-20260810-0100"
+  },
+  "absolute_record_replaced": false
+}

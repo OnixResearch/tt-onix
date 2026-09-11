@@ -8,8 +8,7 @@ const CLOSED_TERMINAL_STATE: &str = "closed";
 const MINIMUM_CALL_COUNT: u32 = 1;
 const KIBIBYTE_BYTES: u64 = 1024;
 const MAXIMUM_RECEIPT_KIBIBYTES: u64 = 2048;
-pub const MAXIMUM_PERSISTENT_RECEIPT_BYTES: u64 =
-    MAXIMUM_RECEIPT_KIBIBYTES * KIBIBYTE_BYTES;
+pub const MAXIMUM_PERSISTENT_RECEIPT_BYTES: u64 = MAXIMUM_RECEIPT_KIBIBYTES * KIBIBYTE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PersistentReceiptExpectations {
@@ -111,7 +110,11 @@ fn validate_host_receipt(
     receipt: &PersistentHostReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("host schema_version", receipt.schema_version, RECEIPT_SCHEMA_VERSION)?;
+    require_u32(
+        "host schema_version",
+        receipt.schema_version,
+        RECEIPT_SCHEMA_VERSION,
+    )?;
     require_text("host target", &receipt.target, HOST_RECEIPT_TARGET)?;
     require_u32(
         "host physical_wkv_call_count",
@@ -146,7 +149,11 @@ fn validate_core_receipt(
     receipt: &PersistentCoreReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("core schema_version", receipt.schema_version, RECEIPT_SCHEMA_VERSION)?;
+    require_u32(
+        "core schema_version",
+        receipt.schema_version,
+        RECEIPT_SCHEMA_VERSION,
+    )?;
     require_text("core target", &receipt.target, CORE_RECEIPT_TARGET)?;
     require_u32(
         "core physical_wkv_call_count",
@@ -164,7 +171,11 @@ fn validate_session_receipt(
     receipt: &PersistentSessionReceipt,
     expectations: PersistentReceiptExpectations,
 ) -> Result<(), String> {
-    require_u32("core.session.call_count", receipt.call_count, expectations.call_count)?;
+    require_u32(
+        "core.session.call_count",
+        receipt.call_count,
+        expectations.call_count,
+    )?;
     require_u32(
         "core.session.same_layer_state_continuity_count",
         receipt.same_layer_state_continuity_count,
@@ -252,6 +263,29 @@ mod tests {
     }
 
     #[test]
+    fn saved_non_finite_receipt_and_repaired_bytes_use_the_public_validator() {
+        let saved_expectations = PersistentReceiptExpectations {
+            call_count: 1,
+            continuity_count: 0,
+        };
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/non-finite.json");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/valid.json");
+        let error = validate_persistent_receipt(invalid, saved_expectations).unwrap_err();
+        assert!(
+            error.contains("persistent receipt JSON is invalid:"),
+            "{error}"
+        );
+        let repaired = std::str::from_utf8(invalid).unwrap().replace("NaN", "0");
+        assert_eq!(repaired.as_bytes(), valid);
+        let summary = validate_persistent_receipt(valid, saved_expectations).unwrap();
+        assert_eq!(summary.call_count, saved_expectations.call_count);
+        assert_eq!(
+            summary.continuity_count,
+            saved_expectations.continuity_count
+        );
+    }
+
+    #[test]
     fn accepts_nested_persistent_receipt() {
         let summary = validate_value(&valid_receipt()).expect("valid receipt must pass");
         assert_eq!(summary.call_count, EXPECTED_CALL_COUNT);
@@ -322,7 +356,9 @@ mod tests {
             json!(WRONG_CONTINUITY_COUNT);
         let continuity_error =
             validate_value(&continuity_receipt).expect_err("wrong continuity count must fail");
-        assert!(continuity_error.contains("core.session.same_layer_state_continuity_count mismatch"));
+        assert!(
+            continuity_error.contains("core.session.same_layer_state_continuity_count mismatch")
+        );
 
         let mut terminal_receipt = valid_receipt();
         terminal_receipt["terminal_state"] = json!("open");

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "comparison_bound": {
+    "first_generated_token_index": 0,
+    "last_generated_token_index": 10,
+    "boundary_count": 11
+  },
+  "cpu_authority": {
+    "method": "pinned_fp32_full_sequence_greedy_argmax",
+    "receipt_blake3": "6995c6bdb32eadfac6cb85b77eb1d131cc9af6548a7fc6d6ae32e54145935cbe",
+    "generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170]
+  },
+  "generic_tt_nn": {
+    "runtime_receipt_blake3": "2a85d91ace6fbe82cd1a37d8cc43d3fecd17b0633dba09908c6feeab04486a0d",
+    "generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170],
+    "exact_cpu_token_parity": true
+  },
+  "rejected_fused_wkv": {
+    "normal_receipt_blake3": "e9005a8347c9b2bd893477490335577376f4d4f22fd7e85f842e1a67d528cedf",
+    "persistent_receipt_blake3": "7db1a2bf950697fb04c2a0a9e65a74cb4d6b16906a1d67f9e164fe8faa382bf9",
+    "generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 64390],
+    "normal_and_persistent_equal": true,
+    "exact_cpu_token_parity": false
+  },
+  "first_divergence": {
+    "generated_token_index": 10,
+    "value_family": "selected_token",
+    "expected": 46170,
+    "actual": 64390,
+    "prior_matching_generated_token_index": 9
+  }
+}

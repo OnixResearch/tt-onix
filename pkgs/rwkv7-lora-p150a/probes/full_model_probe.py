@@ -27,6 +27,7 @@ LOSS_IGNORE_INDEX = M.LOSS_IGNORE_INDEX
 ROLES = list(M.LORA_ROLE_TO_ATTR.keys())
 SELECTED_ORDINAL = 0
 HLO_OP_PATTERN = re.compile(r"stablehlo\.([a-z_0-9]+)")
+NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
 def emit(status, **extra):
@@ -39,8 +40,9 @@ def build_batch(profile, generator):
     static_shape = profile["static_shape"]
     tokens = static_shape["micro_batch"] * static_shape["sequence_length"]
     vocab = profile["model"]["vocabulary_size"]
-    input_ids = torch.randint(0, vocab, (static_shape["micro_batch"], tokens),
-                              generator=generator)
+    input_ids = torch.randint(
+        0, vocab, (static_shape["micro_batch"], tokens), generator=generator
+    )
     labels = input_ids.clone()
     return input_ids, labels
 
@@ -48,8 +50,10 @@ def build_batch(profile, generator):
 def compute_loss(model, input_ids, labels):
     logits = model(input_ids)
     loss = torch.nn.functional.cross_entropy(
-        logits.reshape(-1, logits.size(-1)), labels.reshape(-1),
-        ignore_index=LOSS_IGNORE_INDEX)
+        logits.reshape(-1, logits.size(-1)),
+        labels.reshape(-1),
+        ignore_index=LOSS_IGNORE_INDEX,
+    )
     return logits, loss
 
 
@@ -57,13 +61,36 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", required=True)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--mode", default="forward",
-                        choices=["forward", "step", "debug", "isolate", "receipt", "multistep", "checkpoint"])
-    parser.add_argument("--dtype", default="",
-                        help="override model dtype: bf16 or fp32 (default: profile)")
-    parser.add_argument("--emit-cpu", default="",
-                        help="optional path to also save CPU reference tensors")
+    parser.add_argument(
+        "--mode",
+        default="forward",
+        choices=[
+            "forward",
+            "step",
+            "debug",
+            "isolate",
+            "receipt",
+            "measurement",
+            "multistep",
+            "longrun",
+            "checkpoint",
+        ],
+    )
+    parser.add_argument(
+        "--dtype",
+        default="",
+        help="override model dtype: bf16 or fp32 (default: profile)",
+    )
+    parser.add_argument(
+        "--emit-cpu",
+        default="",
+        help="optional path to also save CPU reference tensors",
+    )
+    parser.add_argument("--stability-policy", default="")
+    parser.add_argument("--eval-split", default="")
     args = parser.parse_args()
+    if args.mode == "longrun" and not (args.stability_policy and args.eval_split):
+        parser.error("longrun mode requires --stability-policy and --eval-split")
     with open(args.profile, encoding="utf-8") as handle:
         profile = json.load(handle)
 
@@ -75,9 +102,14 @@ def main():
     elif args.dtype == "bf16":
         dtype = torch.bfloat16
     else:
-        dtype = torch.bfloat16 if profile["precision"]["model_dtype"] == "bf16" else torch.float32
+        dtype = (
+            torch.bfloat16
+            if profile["precision"]["model_dtype"] == "bf16"
+            else torch.float32
+        )
 
     from safetensors.torch import load_file
+
     state_dict = {k: v.to(torch.float32) for k, v in load_file(args.checkpoint).items()}
 
     generator = torch.Generator().manual_seed(profile["seed"])
@@ -97,12 +129,13 @@ def main():
     # CPU forward only here. The CPU backward must run AFTER the device
     # backward: this runtime's autograd engine trips a device-index assert if
     # a CPU backward initializes the engine before an XLA backward.
-    cpu_logits, cpu_loss = compute_loss(cpu_model, input_ids, labels)
+    _cpu_logits, cpu_loss = compute_loss(cpu_model, input_ids, labels)
 
     # ---- Device run ----
     import torch_xla
     import torch_xla.core.xla_model as xm
     import torch_xla.runtime as xr
+
     os.environ["PJRT_DEVICE"] = "TT"
     xr.set_device_type("TT")
     supported = xm.get_xla_supported_devices()
@@ -119,6 +152,85 @@ def main():
     dev_model = dev_model.to(dtype).to(device)
     dev_model.train()
 
+    if args.mode == "measurement":
+        repeat_count = profile["measurement_profile"]["repeat_count"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+        trainable_params_dev = [dev_model.get_parameter(n) for n in trainable_names]
+        trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
+        dev_input_ids = input_ids.to(device)
+        dev_labels = labels.to(device)
+
+        def device_step():
+            dev_optimizer.zero_grad()
+            _logits, loss = compute_loss(dev_model, dev_input_ids, dev_labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
+            dev_optimizer.step()
+            torch_xla.sync(wait=True)
+            return float(loss.detach().to("cpu").item())
+
+        def cpu_step():
+            cpu_optimizer.zero_grad()
+            _logits, loss = compute_loss(cpu_model, input_ids, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
+            cpu_optimizer.step()
+            return float(loss.detach().item())
+
+        host_start_nanoseconds = int(os.environ["MEASUREMENT_HOST_START_NS"])
+        compile_started_nanoseconds = time.time_ns()
+        compile_started = time.monotonic()
+        device_step()
+        compile_seconds = time.monotonic() - compile_started
+        runs = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            loss = device_step()
+            runs.append({"time_seconds": time.monotonic() - step_started, "loss": loss})
+        cpu_step()
+        cpu_step_seconds = []
+        for _ in range(repeat_count):
+            step_started = time.monotonic()
+            cpu_step()
+            cpu_step_seconds.append(time.monotonic() - step_started)
+
+        launch_seconds = (
+            compile_started_nanoseconds - host_start_nanoseconds
+        ) / NANOSECONDS_PER_SECOND
+        measured_step_seconds = sum(run["time_seconds"] for run in runs)
+        checkpoint_seconds = 0.0
+        teardown_seconds = 0.0
+        end_to_end_seconds = (
+            launch_seconds
+            + compile_seconds
+            + measured_step_seconds
+            + checkpoint_seconds
+            + teardown_seconds
+        )
+        emit(
+            "pass",
+            mode="measurement",
+            device_count=len(supported),
+            stage_times_seconds={
+                "launch": launch_seconds,
+                "compile": compile_seconds,
+                "step": measured_step_seconds,
+                "checkpoint": checkpoint_seconds,
+                "teardown": teardown_seconds,
+                "end_to_end": end_to_end_seconds,
+            },
+            cpu_step_seconds=sum(cpu_step_seconds) / len(cpu_step_seconds),
+            cpu_runs=cpu_step_seconds,
+            runs=runs,
+        )
+        return
+
     if args.mode == "debug":
         # Localize the first non-finite activation by hooking each block and
         # the embedding / final norm / lm_head.
@@ -130,12 +242,17 @@ def main():
                 tensor = output[0] if isinstance(output, tuple) else output
                 if isinstance(tensor, torch.Tensor):
                     captured[name] = tensor
+
             return hook
 
-        hooks.append(dev_model.model.embeddings.register_forward_hook(make_hook("embeddings")))
+        hooks.append(
+            dev_model.model.embeddings.register_forward_hook(make_hook("embeddings"))
+        )
         for i, layer in enumerate(dev_model.model.layers):
             hooks.append(layer.register_forward_hook(make_hook(f"layer{i}")))
-        hooks.append(dev_model.model.norm.register_forward_hook(make_hook("final_norm")))
+        hooks.append(
+            dev_model.model.norm.register_forward_hook(make_hook("final_norm"))
+        )
 
         with torch.no_grad():
             dev_logits = dev_model(input_ids.to(device))
@@ -143,11 +260,15 @@ def main():
         report = {}
         for name, tensor in captured.items():
             cpu_t = tensor.to("cpu")
-            report[name] = {"absmax": float(cpu_t.abs().max().item()),
-                            "finite": bool(torch.isfinite(cpu_t).all().item())}
+            report[name] = {
+                "absmax": float(cpu_t.abs().max().item()),
+                "finite": bool(torch.isfinite(cpu_t).all().item()),
+            }
         logits_cpu = dev_logits.to("cpu")
-        report["logits"] = {"absmax": float(logits_cpu.abs().max().item()),
-                            "finite": bool(torch.isfinite(logits_cpu).all().item())}
+        report["logits"] = {
+            "absmax": float(logits_cpu.abs().max().item()),
+            "finite": bool(torch.isfinite(logits_cpu).all().item()),
+        }
         for h in hooks:
             h.remove()
         emit("pass", mode="debug", device_count=len(supported), report=report)
@@ -192,17 +313,22 @@ def main():
     if args.mode == "forward":
         t0 = time.monotonic()
         with torch.no_grad():
-            dev_logits, dev_loss = compute_loss(dev_model, input_ids.to(device),
-                                                labels.to(device))
+            dev_logits, dev_loss = compute_loss(
+                dev_model, input_ids.to(device), labels.to(device)
+            )
         torch_xla.sync(wait=True)
         dt = time.monotonic() - t0
-        emit("pass", mode="forward", device_count=len(supported),
-             seconds=dt,
-             loss=float(dev_loss.to("cpu").item()),
-             logits_absmax=float(dev_logits.abs().max().to("cpu").item()),
-             logits_finite=bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
-             cpu_loss=float(cpu_loss.item()),
-             loss_dev=float(abs(dev_loss.to("cpu").item() - cpu_loss.item())))
+        emit(
+            "pass",
+            mode="forward",
+            device_count=len(supported),
+            seconds=dt,
+            loss=float(dev_loss.to("cpu").item()),
+            logits_absmax=float(dev_logits.abs().max().to("cpu").item()),
+            logits_finite=bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
+            cpu_loss=float(cpu_loss.item()),
+            loss_dev=float(abs(dev_loss.to("cpu").item() - cpu_loss.item())),
+        )
         return
 
     # mode == "receipt": full one-step placement + parity receipt
@@ -213,20 +339,26 @@ def main():
         trainable_params_cpu = [cpu_model.get_parameter(n) for n in trainable_names]
 
         def adapter_snapshot(model):
-            return {n: model.get_parameter(n).detach().to("cpu").float().clone()
-                    for n in trainable_names}
+            return {
+                n: model.get_parameter(n).detach().to("cpu").float().clone()
+                for n in trainable_names
+            }
 
         def capture_grads(model):
-            return {n: model.get_parameter(n).grad.detach().to("cpu").float().clone()
-                    for n in trainable_names}
+            return {
+                n: model.get_parameter(n).grad.detach().to("cpu").float().clone()
+                for n in trainable_names
+            }
 
         # Device step first (backward ordering rule).
-        dev_optimizer = torch.optim.AdamW(trainable_params_dev, lr=lr,
-                                          weight_decay=0.0, capturable=True)
+        dev_optimizer = torch.optim.AdamW(
+            trainable_params_dev, lr=lr, weight_decay=0.0, capturable=True
+        )
         t0 = time.monotonic()
         dev_before = adapter_snapshot(dev_model)
-        dev_logits, dev_loss = compute_loss(dev_model, input_ids.to(device),
-                                            labels.to(device))
+        dev_logits, dev_loss = compute_loss(
+            dev_model, input_ids.to(device), labels.to(device)
+        )
         dev_loss.backward()
         dev_clip = torch.nn.utils.clip_grad_norm_(trainable_params_dev, clip_norm)
         torch_xla.sync(wait=True)
@@ -237,10 +369,11 @@ def main():
         dev_seconds = time.monotonic() - t0
 
         # CPU reference step after the device backward.
-        cpu_optimizer = torch.optim.AdamW(trainable_params_cpu, lr=lr,
-                                          weight_decay=0.0, capturable=False)
+        cpu_optimizer = torch.optim.AdamW(
+            trainable_params_cpu, lr=lr, weight_decay=0.0, capturable=False
+        )
         cpu_before = adapter_snapshot(cpu_model)
-        cpu_logits2, cpu_loss2 = compute_loss(cpu_model, input_ids, labels)
+        _cpu_logits2, cpu_loss2 = compute_loss(cpu_model, input_ids, labels)
         cpu_loss2.backward()
         cpu_clip = torch.nn.utils.clip_grad_norm_(trainable_params_cpu, clip_norm)
         cpu_grads = capture_grads(cpu_model)
@@ -249,6 +382,7 @@ def main():
 
         # Placement evidence: lower the full forward to StableHLO and count ops.
         from torch_xla.stablehlo import exported_program_to_stablehlo
+
         export_module = M.RWKV7ForCausalLM(M.GOOSE_0P1B_CONFIG)
         export_module.load_state_dict(state_dict, strict=True)
         export_module.eval()
@@ -263,9 +397,10 @@ def main():
             return float((dev_t - cpu_t).abs().max().item()) / scale
 
         grad_devs = {n: rel_dev(dev_grads[n], cpu_grads[n]) for n in trainable_names}
-        delta_devs = {n: rel_dev(dev_after[n] - dev_before[n],
-                                 cpu_after[n] - cpu_before[n])
-                      for n in trainable_names}
+        delta_devs = {
+            n: rel_dev(dev_after[n] - dev_before[n], cpu_after[n] - cpu_before[n])
+            for n in trainable_names
+        }
         max_grad_rel = max(grad_devs.values())
         max_delta_rel = max(delta_devs.values())
         loss_dev = abs(float(dev_loss.to("cpu").item()) - float(cpu_loss2.item()))
@@ -274,9 +409,6 @@ def main():
         def within(value, scale, role):
             return value <= tol[role]["atol"] + tol[role]["rtol"] * scale
 
-        grad_scale = max(float(cpu_grads[n].abs().max().item()) for n in trainable_names)
-        delta_scale = max(float((cpu_after[n] - cpu_before[n]).abs().max().item())
-                          for n in trainable_names)
         def pass_fraction(dev_list, cpu_list, role):
             """Fraction of elements within atol + rtol*|cpu| across tensors.
 
@@ -298,8 +430,12 @@ def main():
         delta_dev_tensors = [dev_after[n] - dev_before[n] for n in trainable_names]
         delta_cpu_tensors = [cpu_after[n] - cpu_before[n] for n in trainable_names]
 
-        grad_pass = pass_fraction(grad_dev_tensors, grad_cpu_tensors, "adapter_gradient")
-        delta_pass = pass_fraction(delta_dev_tensors, delta_cpu_tensors, "adapter_delta")
+        grad_pass = pass_fraction(
+            grad_dev_tensors, grad_cpu_tensors, "adapter_gradient"
+        )
+        delta_pass = pass_fraction(
+            delta_dev_tensors, delta_cpu_tensors, "adapter_delta"
+        )
 
         pass_fraction_threshold = profile["run_criteria"]["parity_pass_fraction"]
         grad_ok = grad_pass >= pass_fraction_threshold
@@ -307,29 +443,44 @@ def main():
         loss_ok = within(loss_dev, float(cpu_loss2.item()), "loss")
         clip_ok = within(clip_dev, float(cpu_clip.item()), "clip_coefficient")
 
-        emit("pass", mode="receipt", device_count=len(supported),
-             placement={"stablehlo_op_count": op_count, "device": "TT",
-                        "ordinal": SELECTED_ORDINAL, "visible_count": len(supported)},
-             step={"seconds": dev_seconds,
-                   "loss": float(dev_loss.to("cpu").item()),
-                   "cpu_loss": float(cpu_loss2.item()),
-                   "loss_dev": loss_dev,
-                   "clip_norm": float(dev_clip.to("cpu").item()),
-                   "cpu_clip_norm": float(cpu_clip.item()),
-                   "clip_dev": clip_dev,                   "max_grad_rel_dev": max_grad_rel,
-                   "max_delta_rel_dev": max_delta_rel,
-                   "grad_pass_fraction": grad_pass,
-                   "delta_pass_fraction": delta_pass,
-                   "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item())},
-             parity={"loss_ok": loss_ok, "clip_ok": clip_ok,
-                     "gradients_ok": grad_ok, "adapter_delta_ok": delta_ok,
-                     "all_ok": loss_ok and clip_ok and grad_ok and delta_ok})
+        emit(
+            "pass",
+            mode="receipt",
+            device_count=len(supported),
+            placement={
+                "stablehlo_op_count": op_count,
+                "device": "TT",
+                "ordinal": SELECTED_ORDINAL,
+                "visible_count": len(supported),
+            },
+            step={
+                "seconds": dev_seconds,
+                "loss": float(dev_loss.to("cpu").item()),
+                "cpu_loss": float(cpu_loss2.item()),
+                "loss_dev": loss_dev,
+                "clip_norm": float(dev_clip.to("cpu").item()),
+                "cpu_clip_norm": float(cpu_clip.item()),
+                "clip_dev": clip_dev,
+                "max_grad_rel_dev": max_grad_rel,
+                "max_delta_rel_dev": max_delta_rel,
+                "grad_pass_fraction": grad_pass,
+                "delta_pass_fraction": delta_pass,
+                "finite": bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
+            },
+            parity={
+                "loss_ok": loss_ok,
+                "clip_ok": clip_ok,
+                "gradients_ok": grad_ok,
+                "adapter_delta_ok": delta_ok,
+                "all_ok": loss_ok and clip_ok and grad_ok and delta_ok,
+            },
+        )
         return
 
     # mode == "checkpoint": adapter save, load, and resume parity.
     if args.mode == "checkpoint":
-        from safetensors.torch import save_file as st_save_file
         from safetensors.torch import load_file as st_load_file
+        from safetensors.torch import save_file as st_save_file
 
         run_criteria = profile["run_criteria"]
         clip_norm = profile["optimizer"]["clip_norm"]
@@ -340,15 +491,17 @@ def main():
             # Preserve the model dtype so the safetensors save/load round trip
             # is byte-identical; casting to fp32 here would introduce a load
             # deviation that the resume comparison then amplifies.
-            return {n: model.get_parameter(n).detach().to("cpu").clone()
-                    for n in trainable_names}
+            return {
+                n: model.get_parameter(n).detach().to("cpu").clone()
+                for n in trainable_names
+            }
 
         def run_n_steps(model, optimizer, ids, labels, count):
             params = [model.get_parameter(n) for n in trainable_names]
             last = None
             for _ in range(count):
                 optimizer.zero_grad()
-                logits, loss = compute_loss(model, ids, labels)
+                _logits, loss = compute_loss(model, ids, labels)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(params, clip_norm)
                 optimizer.step()
@@ -361,16 +514,24 @@ def main():
 
         # Model A: train pre_steps, save the adapter and optimizer state, then
         # continue. Restoring both makes resume match the uninterrupted run.
-        opt_a = torch.optim.AdamW([dev_model.get_parameter(n) for n in trainable_names],
-                                  lr=lr, weight_decay=0.0, capturable=True)
-        run_n_steps(dev_model, opt_a, input_ids.to(device), labels.to(device), pre_steps)
+        opt_a = torch.optim.AdamW(
+            [dev_model.get_parameter(n) for n in trainable_names],
+            lr=lr,
+            weight_decay=0.0,
+            capturable=True,
+        )
+        run_n_steps(
+            dev_model, opt_a, input_ids.to(device), labels.to(device), pre_steps
+        )
         saved_adapters = adapter_snapshot(dev_model)
         st_save_file(saved_adapters, save_path)
         os.chmod(save_path, 0o644)
         opt_state_path = "/evidence/optimizer_state.pt"
         torch.save(opt_a.state_dict(), opt_state_path)
         os.chmod(opt_state_path, 0o644)
-        final_a = run_n_steps(dev_model, opt_a, input_ids.to(device), labels.to(device), post_steps)
+        final_a = run_n_steps(
+            dev_model, opt_a, input_ids.to(device), labels.to(device), post_steps
+        )
 
         # Fresh model C: load the saved adapter and continue; must match A.
         resumed_model = M.RWKV7ForCausalLM(M.GOOSE_0P1B_CONFIG)
@@ -390,23 +551,183 @@ def main():
             # Round-trip check: the loaded tensor must equal the saved tensor.
             load_diff = max(
                 load_diff,
-                float((loaded[n].float() - saved_adapters[n].float()).abs().max().item()))
+                float(
+                    (loaded[n].float() - saved_adapters[n].float()).abs().max().item()
+                ),
+            )
             target = resumed_model.get_parameter(n)
             with torch.no_grad():
                 target.copy_(loaded[n].to(target.dtype).to(target.device))
         torch_xla.sync(wait=True)
-        opt_c = torch.optim.AdamW([resumed_model.get_parameter(n) for n in trainable_names],
-                                  lr=lr, weight_decay=0.0, capturable=True)
+        opt_c = torch.optim.AdamW(
+            [resumed_model.get_parameter(n) for n in trainable_names],
+            lr=lr,
+            weight_decay=0.0,
+            capturable=True,
+        )
         opt_c.load_state_dict(torch.load(opt_state_path))
-        final_c = run_n_steps(resumed_model, opt_c, input_ids.to(device), labels.to(device), post_steps)
+        final_c = run_n_steps(
+            resumed_model, opt_c, input_ids.to(device), labels.to(device), post_steps
+        )
 
         resume_dev = abs(final_c - final_a)
-        emit("pass", mode="checkpoint", device_count=len(supported),
-             pre_steps=pre_steps, post_steps=post_steps,
-             adapter_load_max_diff=load_diff,
-             final_loss_interrupted=final_a,
-             final_loss_resumed=final_c,
-             resume_loss_dev=resume_dev)
+        emit(
+            "pass",
+            mode="checkpoint",
+            device_count=len(supported),
+            pre_steps=pre_steps,
+            post_steps=post_steps,
+            adapter_load_max_diff=load_diff,
+            final_loss_interrupted=final_a,
+            final_loss_resumed=final_c,
+            resume_loss_dev=resume_dev,
+        )
+        return
+
+    # r[impl tenstorrent.harness.long_run]
+    # r[impl tenstorrent.harness.heldout_eval]
+    if args.mode == "longrun":
+        with open(args.stability_policy, encoding="utf-8") as handle:
+            stability_policy = json.load(handle)
+        with open(args.eval_split, encoding="utf-8") as handle:
+            eval_split = json.load(handle)
+
+        step_budget = stability_policy["step_budget"]
+        cadence = stability_policy["trajectory_cadence_steps"]
+        maximum_loss = stability_policy["maximum_loss"]
+        maximum_gradient_norm = stability_policy["maximum_gradient_norm"]
+        clip_norm = profile["optimizer"]["clip_norm"]
+
+        static_shape = profile["static_shape"]
+        micro_batch = static_shape["micro_batch"]
+        sequence_length = static_shape["sequence_length"]
+        tokens = micro_batch * sequence_length
+        vocab = profile["model"]["vocabulary_size"]
+        period = 8
+        base_tokens = torch.randint(
+            0,
+            vocab,
+            (period,),
+            generator=torch.Generator().manual_seed(profile["seed"]),
+        )
+        row = base_tokens.repeat(tokens // period + 1)[:tokens]
+        longrun_input_ids = row.reshape(micro_batch, sequence_length)
+        longrun_labels = longrun_input_ids.clone()
+        with open("/evidence/reference-batch.json", "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "input_ids": longrun_input_ids.tolist(),
+                    "labels": longrun_labels.tolist(),
+                },
+                handle,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            handle.write("\n")
+
+        eval_input_ids = torch.tensor(eval_split["input_ids"], dtype=torch.long)
+        eval_labels = torch.tensor(eval_split["labels"], dtype=torch.long)
+        expected_shape = (micro_batch, sequence_length)
+        if (
+            tuple(eval_input_ids.shape) != expected_shape
+            or tuple(eval_labels.shape) != expected_shape
+        ):
+            raise ValueError(f"held-out eval tensors must have shape {expected_shape}")
+        if torch.equal(eval_input_ids, longrun_input_ids) and torch.equal(
+            eval_labels, longrun_labels
+        ):
+            raise ValueError("held-out eval split equals the periodic reference batch")
+
+        def evaluate_loss(model):
+            model.eval()
+            with torch.no_grad():
+                _logits, loss = compute_loss(
+                    model, eval_input_ids.to(device), eval_labels.to(device)
+                )
+                torch_xla.sync(wait=True)
+                value = float(loss.detach().to("cpu").item())
+            model.train()
+            return value
+
+        heldout_before_loss = evaluate_loss(dev_model)
+        trainable_params = [dev_model.get_parameter(n) for n in trainable_names]
+        optimizer = torch.optim.AdamW(
+            trainable_params, lr=lr, weight_decay=0.0, capturable=True
+        )
+        trajectory = []
+        checked_steps = 0
+        started = time.monotonic()
+        for step_index in range(step_budget):
+            optimizer.zero_grad()
+            _logits, loss = compute_loss(
+                dev_model, longrun_input_ids.to(device), longrun_labels.to(device)
+            )
+            loss.backward()
+            gradient_norm = torch.nn.utils.clip_grad_norm_(trainable_params, clip_norm)
+            optimizer.step()
+            torch_xla.sync(wait=True)
+            step = step_index + 1
+            checked_steps = step
+            loss_value = float(loss.detach().to("cpu").item())
+            gradient_norm_value = float(gradient_norm.detach().to("cpu").item())
+            if not math.isfinite(loss_value) or not math.isfinite(gradient_norm_value):
+                emit(
+                    "fail",
+                    mode="longrun",
+                    failing_step=step,
+                    condition="non_finite_loss_or_gradient_norm",
+                )
+                return
+            if loss_value > maximum_loss or gradient_norm_value > maximum_gradient_norm:
+                emit(
+                    "fail",
+                    mode="longrun",
+                    failing_step=step,
+                    condition="divergence_bound_exceeded",
+                    loss=loss_value,
+                    gradient_norm=gradient_norm_value,
+                )
+                return
+            if step % cadence == 0:
+                marker_directory = "/evidence/longrun-steps"
+                os.makedirs(marker_directory, exist_ok=True)
+                latest_marker_tmp = "/evidence/longrun-step.json.tmp"
+                latest_marker_path = "/evidence/longrun-step.json"
+                with open(latest_marker_tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"step": step}, handle, sort_keys=True)
+                    handle.write("\n")
+                os.replace(latest_marker_tmp, latest_marker_path)
+                marker_path = f"{marker_directory}/{step}.json"
+                marker_tmp = f"{marker_path}.tmp"
+                with open(marker_tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"step": step}, handle, sort_keys=True)
+                    handle.write("\n")
+                os.replace(marker_tmp, marker_path)
+                trajectory.append({
+                    "step": step,
+                    "loss": loss_value,
+                    "gradient_norm": gradient_norm_value,
+                })
+
+        heldout_after_loss = evaluate_loss(dev_model)
+        emit(
+            "pass",
+            mode="longrun",
+            device_count=len(supported),
+            seconds=time.monotonic() - started,
+            completed_steps=step_budget,
+            checked_steps=checked_steps,
+            trajectory=trajectory,
+            heldout_eval={
+                "split_role": "held_out",
+                "metric": "loss",
+                "before_loss": heldout_before_loss,
+                "after_loss": heldout_after_loss,
+                "generalization_non_claim": stability_policy[
+                    "generalization_non_claim"
+                ],
+            },
+        )
         return
 
     # mode == "multistep": bounded multi-step run with loss-improvement
@@ -419,15 +740,18 @@ def main():
         trainable_set = set(trainable_names)
 
         def base_snapshot(model):
-            return {n: p.detach().to("cpu").float().clone()
-                    for n, p in model.named_parameters() if n not in trainable_set}
+            return {
+                n: p.detach().to("cpu").float().clone()
+                for n, p in model.named_parameters()
+                if n not in trainable_set
+            }
 
         def run_steps(model, optimizer, ids, labels, on_device):
             losses = []
             params = [model.get_parameter(n) for n in trainable_names]
             for _ in range(steps):
                 optimizer.zero_grad()
-                logits, loss = compute_loss(model, ids, labels)
+                _logits, loss = compute_loss(model, ids, labels)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(params, clip_norm)
                 optimizer.step()
@@ -442,89 +766,126 @@ def main():
         tokens = static_shape["micro_batch"] * static_shape["sequence_length"]
         vocab = profile["model"]["vocabulary_size"]
         period = 8
-        base_tokens = torch.randint(0, vocab, (period,), generator=torch.Generator().manual_seed(profile["seed"]))
+        base_tokens = torch.randint(
+            0,
+            vocab,
+            (period,),
+            generator=torch.Generator().manual_seed(profile["seed"]),
+        )
         ms_input_ids = base_tokens.repeat(tokens // period + 1)[:tokens].unsqueeze(0)
         ms_labels = ms_input_ids.clone()
 
         # Device run first (backward ordering rule).
         dev_optimizer = torch.optim.AdamW(
             [dev_model.get_parameter(n) for n in trainable_names],
-            lr=lr, weight_decay=0.0, capturable=True)
+            lr=lr,
+            weight_decay=0.0,
+            capturable=True,
+        )
         dev_base_before = base_snapshot(dev_model)
         t0 = time.monotonic()
-        dev_losses = run_steps(dev_model, dev_optimizer,
-                               ms_input_ids.to(device), ms_labels.to(device), True)
+        dev_losses = run_steps(
+            dev_model,
+            dev_optimizer,
+            ms_input_ids.to(device),
+            ms_labels.to(device),
+            True,
+        )
         dev_base_after = base_snapshot(dev_model)
         dev_seconds = time.monotonic() - t0
 
         base_changed = any(
             not torch.equal(dev_base_before[n], dev_base_after[n])
-            for n in dev_base_before)
+            for n in dev_base_before
+        )
 
         # CPU reference run after the device run.
         cpu_optimizer = torch.optim.AdamW(
             [cpu_model.get_parameter(n) for n in trainable_names],
-            lr=lr, weight_decay=0.0, capturable=False)
+            lr=lr,
+            weight_decay=0.0,
+            capturable=False,
+        )
         cpu_losses = run_steps(cpu_model, cpu_optimizer, ms_input_ids, ms_labels, False)
 
         finite = all(
-            all(math.isfinite(v) for v in losses) for losses in [dev_losses, cpu_losses])
+            all(math.isfinite(v) for v in losses) for losses in [dev_losses, cpu_losses]
+        )
         improved = dev_losses[-1] <= improvement_ratio * dev_losses[0]
         final_loss_dev = abs(dev_losses[-1] - cpu_losses[-1])
 
-        emit("pass", mode="multistep", device_count=len(supported),
-             seconds=dev_seconds,
-             steps=steps,
-             losses=dev_losses,
-             cpu_losses=cpu_losses,
-             initial_loss=dev_losses[0],
-             final_loss=dev_losses[-1],
-             cpu_final_loss=cpu_losses[-1],
-             final_loss_dev=final_loss_dev,
-             finite=finite,
-             base_unchanged=(not base_changed),
-             improved=improved,
-             improvement_ratio=improvement_ratio)
+        emit(
+            "pass",
+            mode="multistep",
+            device_count=len(supported),
+            seconds=dev_seconds,
+            steps=steps,
+            losses=dev_losses,
+            cpu_losses=cpu_losses,
+            initial_loss=dev_losses[0],
+            final_loss=dev_losses[-1],
+            cpu_final_loss=cpu_losses[-1],
+            final_loss_dev=final_loss_dev,
+            finite=finite,
+            base_unchanged=(not base_changed),
+            improved=improved,
+            improvement_ratio=improvement_ratio,
+        )
         return
 
     # mode == "step": backward + AdamW adapter update
     optimizer = torch.optim.AdamW(
         [p for n, p in dev_model.named_parameters() if n in set(trainable_names)],
-        lr=lr, weight_decay=0.0, capturable=True)
+        lr=lr,
+        weight_decay=0.0,
+        capturable=True,
+    )
     t0 = time.monotonic()
-    dev_logits, dev_loss = compute_loss(dev_model, input_ids.to(device), labels.to(device))
+    dev_logits, dev_loss = compute_loss(
+        dev_model, input_ids.to(device), labels.to(device)
+    )
     dev_loss.backward()
     torch_xla.sync(wait=True)
-    grad_dev = {n: dev_model.get_parameter(n).grad.to("cpu").to(torch.float32)
-                for n in trainable_names}
+    grad_dev = {
+        n: dev_model.get_parameter(n).grad.to("cpu").to(torch.float32)
+        for n in trainable_names
+    }
     optimizer.step()
     torch_xla.sync(wait=True)
     dt = time.monotonic() - t0
 
     # CPU reference backward runs only after the device backward completes.
     cpu_loss.backward()
-    cpu_grads = {n: cpu_model.get_parameter(n).grad.clone()
-                 for n in trainable_names}
+    cpu_grads = {n: cpu_model.get_parameter(n).grad.clone() for n in trainable_names}
 
     max_grad_dev = 0.0
     for n in trainable_names:
         g_dev = grad_dev[n]
         g_cpu = cpu_grads[n]
         scale_ref = max(float(g_cpu.abs().max().item()), 1e-9)
-        max_grad_dev = max(max_grad_dev,
-                           float((g_dev - g_cpu).abs().max().item()) / scale_ref)
+        max_grad_dev = max(
+            max_grad_dev, float((g_dev - g_cpu).abs().max().item()) / scale_ref
+        )
 
-    emit("pass", mode="step", device_count=len(supported), seconds=dt,
-         loss=float(dev_loss.to("cpu").item()), cpu_loss=float(cpu_loss.item()),
-         max_grad_rel_dev=max_grad_dev,
-         logits_finite=bool(torch.isfinite(dev_logits.to("cpu")).all().item()))
+    emit(
+        "pass",
+        mode="step",
+        device_count=len(supported),
+        seconds=dt,
+        loss=float(dev_loss.to("cpu").item()),
+        cpu_loss=float(cpu_loss.item()),
+        max_grad_rel_dev=max_grad_dev,
+        logits_finite=bool(torch.isfinite(dev_logits.to("cpu")).all().item()),
+    )
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as error:
+    # This process boundary converts every framework error into a terminal diagnostic.
+    except Exception as error:  # noqa: BLE001
         import traceback
+
         traceback.print_exc()
         emit("fail", detail=f"{type(error).__name__}: {error}")
         sys.exit(1)

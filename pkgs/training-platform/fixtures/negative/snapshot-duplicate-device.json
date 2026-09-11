@@ -1,0 +1,24 @@
+{
+  "driver_version": "2.10.0",
+  "devices": [
+    {
+      "board_type": "p150a",
+      "board_id": "duplicate-device",
+      "dram_status": true,
+      "fw_bundle_version": "18.8.0.0"
+    },
+    {
+      "board_type": "p150a",
+      "board_id": "duplicate-device",
+      "dram_status": true,
+      "fw_bundle_version": "18.8.0.0"
+    }
+  ],
+  "hugepages": {
+    "mount": "/dev/hugepages-1G",
+    "free_pages": 6
+  },
+  "ownership": {
+    "devices_free": true
+  }
+}

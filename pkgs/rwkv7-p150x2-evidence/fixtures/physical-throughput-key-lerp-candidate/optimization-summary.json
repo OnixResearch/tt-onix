@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_key_lerp_candidate",
+  "status": "rejected",
+  "reason": "dual_card_p99_latency_regression",
+  "alternating_ab": {
+    "pair_count": 6,
+    "tokens_per_sample": 80,
+    "old_elapsed_seconds": [
+      0.967971387,
+      0.993059083,
+      0.967351715,
+      1.019228907,
+      1.053494066,
+      1.106477112
+    ],
+    "candidate_elapsed_seconds": [
+      0.925413534,
+      1.246656167,
+      0.987458989,
+      0.918202749,
+      1.058693258,
+      0.99689644
+    ],
+    "stable_pair_count": 5,
+    "stable_candidate_faster_pair_count": 3,
+    "stable_old_aggregate_tokens_per_second": 78.2086590235259,
+    "stable_candidate_aggregate_tokens_per_second": 81.85541723356575,
+    "stable_aggregate_gain_percent": 4.662857355657857,
+    "exact_generated_token_parity": true,
+    "source_root": "/var/tmp/rwkv7-p150x2-key-lerp-ab-20260809-2220"
+  },
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "net_removed_launch_count": 936,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-linear-bias-profiler-20260809-2030",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-key-lerp-profiler-20260809-2210"
+  },
+  "strict_attempt": {
+    "status": "rejected",
+    "one_card_tokens_per_second": 88.48352791430418,
+    "two_card_tokens_per_second": 156.00165524423414,
+    "dual_card_speedup": 1.7630587174973507,
+    "scaling_efficiency": 0.8815293587486753,
+    "p99_latency_regression_fraction": 0.5001155625063585,
+    "maximum_p99_latency_regression_fraction": 0.1,
+    "identity_blake3": "37161393fb935f00750aeac33d69e940af41af01bf5096246475096c3d3b75e2",
+    "source_root": "/var/tmp/rwkv7-p150x2-key-lerp-saturated-20260809-2240"
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "classification": "passed",
+  "date": "2026-08-20",
+  "deployment": {
+    "completion_blake3": "00b26f0bf592e907794fc96be1b522dc85fe6af88fa2a4ecdbe7a7576f024555",
+    "completion_path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/final-completion.json",
+    "endpoint": "http://127.0.0.1:8000",
+    "maximum_completion_blake3": "0026f6996dae63d721042ef7106939c1cff0c8759a11d32f96993a173cf775a5",
+    "maximum_completion_path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/final-64-token-completion.json",
+    "maximum_completion_tokens": 64,
+    "package": "/nix/store/nfb8mjxjvpjjwg8b1g97pxplz002gbj8-qwen36-0.1.0",
+    "scope": "per-user systemd",
+    "unit": "qwen38-p150x2.service",
+    "unit_state": "active"
+  },
+  "execution": {
+    "fabric": "FABRIC_1D",
+    "http_listen_address": "127.0.0.1",
+    "layer_count": 64,
+    "maximum_generation_tokens": 64,
+    "maximum_sequence_length": 2048,
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "request_serialization": true,
+    "simulated": false
+  },
+  "http_acceptance": {
+    "chat": {
+      "blake3": "4e3dcf51a9cc44ce9ce9d9dec634f5d10e6859f0d840fe03d020f05202bc997e",
+      "status": 200
+    },
+    "completion": {
+      "blake3": "b63679d5a0c3cccc0284752bd056ea1c7bd4d2e1e1c57ecbfcd95a23aa71a1fd",
+      "status": 200
+    },
+    "health": {
+      "blake3": "1de3a5ca3f8382864e26465db5d8725c11b4cd845cb2ed8d8deb64aa6a4f51fd",
+      "status": 200
+    },
+    "models": {
+      "blake3": "ef7130bd2afca2cd9c4be793079ab1db03744ddf833570f1c96d0d12d221f771",
+      "status": 200
+    },
+    "rejected_model": {
+      "blake3": "8d795a1baf6b116d39d712be6cd46a3ae72ec7a30017123726de2631e5159b96",
+      "status": 400
+    },
+    "rejected_route": {
+      "blake3": "359d4a720e6e89ba6cb17fec525d53c83f94da02d83bd1bd578a669470e6844d",
+      "status": 404
+    },
+    "rejected_streaming": {
+      "blake3": "5957b1b9c00d4996ad54dfadd4786e523bf9bece6736ae0ab034675c4b4be86a",
+      "status": 400
+    }
+  },
+  "model": {
+    "hf_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "name": "Qwen3.8-27B",
+    "upstream_commit": "d102e7f4512060e09e580e40cf26a870bfa88c55"
+  },
+  "non_claims": [
+    "No streaming API claim",
+    "No parallel-request or batch-serving claim",
+    "No prompt-plus-generation length above 2048 tokens",
+    "No admitted TTFT or throughput claim",
+    "No semantic chat-quality claim"
+  ],
+  "paged_multirequest": {
+    "raw_log_blake3": "ba8724bf04e4da2a1bf95182b75a6856b49d29ac1b7440ca8af7bf358ea00966",
+    "raw_log_path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-27b-tp2-paged-multirequest.log",
+    "requests": [
+      {
+        "generated_text": " Paris.\nThe",
+        "prompt": "The capital of France is"
+      },
+      {
+        "generated_text": " Berlin.\nThe",
+        "prompt": "The capital of Germany is"
+      }
+    ]
+  },
+  "runtime": {
+    "firmware": "19.11.0",
+    "kmd": "2.10.0",
+    "qwen_package": "/nix/store/ql50byh7ff83k78vs9x9dz03742f1h82-qwen36-0.1.0",
+    "sfpi": "7.70.0[847]",
+    "tt_metal": "0.74.0-rc6",
+    "tt_umd": "0.9.9"
+  },
+  "schema_version": 1
+}

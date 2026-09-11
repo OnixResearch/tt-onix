@@ -1,0 +1,1317 @@
+{
+  "admission": {
+    "admitted": false,
+    "bounds": {
+      "maximum_duplicate_root_ratio": 1.25,
+      "maximum_resident_trace_count": 1,
+      "maximum_reused_trace_prepare_seconds": 0.05,
+      "maximum_tail_latency_ratio": 1.1,
+      "maximum_ttft_ratio": 1.05,
+      "minimum_decode_rate_retention_ratio": 0.95,
+      "minimum_request_wall_speedup_ratio": 1.05,
+      "require_clean_reset": true,
+      "require_exact_token_parity": true,
+      "require_physical_evidence": true,
+      "require_stable_binding": true,
+      "require_zero_measured_recaptures": true
+    },
+    "reasons": [
+      "recapture-duplicate-root-instability",
+      "reuse-duplicate-root-instability",
+      "request-wall-speedup-below-bound",
+      "ttft-ratio-above-bound"
+    ]
+  },
+  "correctness": {
+    "clean_reset": true,
+    "exact_text_parity": true,
+    "exact_token_parity": true,
+    "one_resident_trace": true,
+    "stable_binding": true,
+    "zero_measured_recaptures": true
+  },
+  "execution": {
+    "execution_order": [
+      "recapture",
+      "reuse",
+      "reuse",
+      "recapture"
+    ],
+    "generated_tokens": 64,
+    "measured_runs": 3,
+    "prompt_count": 4,
+    "simulated": false,
+    "width": 4
+  },
+  "identity": {
+    "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "package_identity": "/nix/store/cv0ana4k28b9v3cy81ky2yvmg23g1bil-qwen36-execution-identity-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "runtime_identity": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "metrics": {
+    "decode_rate_retention_ratio": 1.0024661519899465,
+    "recapture": {
+      "median_cleanup_seconds": 0.006431891000829637,
+      "median_decode_tokens_per_second": 14.313697063546371,
+      "median_request_wall_seconds": 10.28385874495143,
+      "median_tail_token_latency_seconds": 0.10003242047969252,
+      "median_trace_prepare_seconds": 0.8465498390141875,
+      "median_ttft_seconds": 4.341617294005118
+    },
+    "recapture_duplicate_root_ratio": 1.29943584821287,
+    "request_wall_speedup_ratio": 0.9183776011887692,
+    "reuse": {
+      "median_cleanup_seconds": 0.0066492645419202745,
+      "median_decode_tokens_per_second": 14.348996816043126,
+      "median_request_wall_seconds": 11.197854489961173,
+      "median_tail_token_latency_seconds": 0.08361057500587776,
+      "median_trace_prepare_seconds": 0.001110980927478522,
+      "median_ttft_seconds": 5.608782936993521
+    },
+    "reuse_duplicate_root_ratio": 1.293629083003451,
+    "tail_latency_ratio": 0.8358347684174199,
+    "ttft_ratio": 1.2918648874782441
+  },
+  "non_claims": [
+    "this receipt does not admit arbitrary continuous batching",
+    "this receipt does not admit width changes without trace release",
+    "this receipt does not admit slot recycling or live request insertion",
+    "this receipt does not replace the B=1 versus B=4 throughput gate"
+  ],
+  "profile_id": "qwen38-p150x2-same-width-trace-reuse-b4-v1",
+  "response_hashes": {
+    "recapture": [
+      {
+        "root": "recapture-1",
+        "samples": [
+          {
+            "blake3": "af2474537dfeb8e5ca8697a9e1ddae69354d2c915ef77e96a247c7e6014cc9e2",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "6f24b3611e59bdb8aa2ea7e2bab434ccd19c1cac3eca37ba8bf030f393d988ff",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "e127970780a804f3c9812511da2bea230103a2528629943a273b8f13e95f1f4f",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "379079d68a4f8229349d78f3419af95172cab2b9e09303e9ceb7a0be7788f746",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "37fcd2d9683497fefad9c714379c1763adb17b6828733352ca6195b00d00492a",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "68333e4c863095d2cf87bc9effffb6ec509eb9b65b6cd423c6bf4d592fd0393c",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "b74fd6b44bcffdd3a5b079e63f7ff88c200db879bb6775354f03667e9ef2c1a0",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "7897cf67793d47a9e8b01299cbddbb48e00f27cf5b0c14671c85afc6dce5213b",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "7f9b9a3f321c5612c6b1e87934f65a2da80f1ce5e2df0fc5ab60a3ff8efeee09",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "9a264b8e907fbc7d2e8b56b0e7d3b5f60d50108a600eb2f872a946e51dbabecb",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "a6f5e836f13272ec4b901e8bd6936a67e02640dcc65b2cf4fc73bf53f4089599",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "5337207b8abf9813c7a996794b33a244ec992d5af19113cb16f256ae058e7474",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "root": "recapture-2",
+        "samples": [
+          {
+            "blake3": "f04378933e0d90cdc18139062629aad5a032d8bb9481d5013cc1ff24bbfd0b30",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "f70e8a7885c4e1c9ec06db58d50312cf58d653f1a9fddb7ae076f6c659385f0e",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "01f4ef90807ed5b3c2b4458f2ebda887ba2a212ffbaf5ff7195ccb2cbbdb7372",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "3a4c83dae8b169c0d5aae3c251bb12edbf385cdb7b70dfe09944db088edc70e4",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "5137669b9a34efbef6973c2d82f472f79ed1e81a8a978895dd84008ce350d8ef",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "f9a193a740c83430fd0a4b19d87c35f4fb5f1d191423b6527c7114f6b1d89681",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "68f1b6fd6d8d6829690a341b1c7a2e1ddb7825edb424e1788a49b2e61c619cd7",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "00743c6d2452a1f94855568a9d67eb217641f97f93e68f6443e2b2cda0220148",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "f6e2eaa2590f6cdbf766431e349320e28469d2d340e99ca320e1d5f912e957b8",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "21608e34e1c5b9e55031878af84ecdc07b2f008884d0e3f5b30dabc2ad2b5424",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "3dfe9ca436056fe953f5e0b7075e879dda2cce123d2b0ac7465d3e2a8af0995d",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "b72b527d54b7dadffc50424eb5a14e7a87ef25de7a20528af0008fb17a24db90",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "reuse": [
+      {
+        "root": "reuse-1",
+        "samples": [
+          {
+            "blake3": "93d07b1f1902cab5e8a7d3a61d3f0740c322f9451f8450d4762833fa1cbeefdc",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "6ea3e248429e71b81957816a2ef9bb75c18b08dd006e7d537456dc621940118e",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "b18990146b8a05770f4a5a301ca87543540465c43668fe83307d1ff6c455366f",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "009d4fbba203ab227c03f373cbc21c6651dfe428fd031618c757945f14122c33",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "c48388e583e6d81cfca0604c1ecb439f33a1e0c65ff7885b1ffa52b475638ab2",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "d4db9ea2c2fc32c9c159db10a145c850351882552f72fcf5b3b7649bf7a65a86",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "f444fe4546b870d1808bc9eb4875ef518bf969cf597295f681956d1ddd57a82c",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "831c8bf4e838ff030b108e7e55788af6cfe5000c90c61b692022b21c6ececb26",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "d8426c244baabb1e898581d00990e9fd6118add11e1dbed51947b5b75144894a",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "7f878b035ba74879ff824530b61fef58f33a8910e253f5037343016faaf64d3a",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "82945d160f81773269aaee661e5798b9fe22ffe4c36bf1fbce5719d3dedcf060",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "4dc1fd79f5db6567abecc107699ec3367a0eae5cac16394d3093d5a52083d2b7",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "root": "reuse-2",
+        "samples": [
+          {
+            "blake3": "5ce5f96e08ea32f74af0b11aa7dee31002a25effa746b609ad165c2a4e419579",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "d48f624dd513c26e3f90d980e758e3d8f00e34a2fcd3cdda0495bcc21dad6f2b",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "4aa39a4caa31c3736277c934c36da06342d2ad2cfcc77a3ab09e2ebdef54f9c2",
+            "path": {
+              "Unix": [
+                48,
+                48,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "65284b8bd21de01e0c964501094800c9739a5f012bc737e83fc1f295210686ad",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "d8cd5b53a9be088e75b94ef1d3a0c46ff09be894daba1f27964d498e88830817",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "246a2e51abe53b91430e2e256bb0b6b3e1121157c20f586623ab3ef7889f308a",
+            "path": {
+              "Unix": [
+                48,
+                49,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "b6eb4335e812d917d2fa65af4173e8215ceef9a64a11fd63b95686774db57d7e",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "38e986d3571e8db68cf4056fcede204db4d86d055eeec899a4b0e545120afa88",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "b0070f221cc9a6e13eb6a945a9f39acccdb9004bf50c30e1f3d9abd80120093d",
+            "path": {
+              "Unix": [
+                48,
+                50,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "9767da19c102580537596014e823a455f7d9d79b1fbbdc1f8fe56f045530c144",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                48,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "ebc97cacf8c2da6592a3abc8b5e5d0f535c2730cff1615bbc4f3bdb60e7f11ff",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                49,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          },
+          {
+            "blake3": "078a6a87d010a7c16531bccafd2ce28dcfd487e839ebf629c7c25493d5912ebf",
+            "path": {
+              "Unix": [
+                48,
+                51,
+                45,
+                109,
+                101,
+                97,
+                115,
+                117,
+                114,
+                101,
+                100,
+                45,
+                50,
+                46,
+                106,
+                115,
+                111,
+                110
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "schema": "onix.qwen36.trace-reuse-receipt.v1"
+}

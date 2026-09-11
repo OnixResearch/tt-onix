@@ -33,25 +33,6 @@ index 8ebd4d130a5..b5205466bda 100644
  
  ############################################################################################################################
  # range-v3 : https://github.com/ericniebler/range-v3
-@@ -218,6 +226,18 @@ CPMAddPackage(
- # nanobind : https://github.com/wjakob/nanobind
- ############################################################################################################################
- 
-+if(CPM_USE_LOCAL_PACKAGES OR CPM_LOCAL_PACKAGES_ONLY)
-+    # When using local packages, CPM uses "find_package".
-+    # nanobind wants python included before CPM calls "find_package".
-+    find_package(
-+        Python
-+        COMPONENTS
-+            Interpreter
-+            Development
-+        REQUIRED
-+    )
-+endif()
-+
- CPMAddPackage(
-     NAME nanobind
-     GITHUB_REPOSITORY wjakob/nanobind
 @@ -226,6 +246,7 @@ CPMAddPackage(
      OPTIONS
          "CMAKE_MESSAGE_LOG_LEVEL NOTICE"
@@ -104,14 +85,6 @@ index 8ebd4d130a5..b5205466bda 100644
      OPTIONS
          "TT_LOGGER_INSTALL ON"
          "TT_LOGGER_BUILD_TESTING OFF"
-+    FIND_PACKAGE_ARGUMENTS GLOBAL
- )
- 
- ####################################################################################################################
-@@ -414,6 +441,7 @@ CPMAddPackage(
-         "PIC_ALWAYS ON"
-         "BUILD_TESTING OFF"
-         "CMAKE_MESSAGE_LOG_LEVEL NOTICE"
 +    FIND_PACKAGE_ARGUMENTS GLOBAL
  )
  

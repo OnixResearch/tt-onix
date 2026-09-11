@@ -1,5 +1,5 @@
 {
-  "driver_version": "2.10.1-pre",
+  "driver_version": "2.10.0",
   "devices": [
     {
       "board_type": "p150a",

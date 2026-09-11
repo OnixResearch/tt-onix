@@ -1,0 +1,13 @@
+{
+ "action": "swap-production-mtp-head",
+ "date": "2026-08-29",
+ "old_fp8_crc32": "837f3352",
+ "new_bf16_crc32": "7faff4a3",
+ "backup": "/home/brittonr/models/mtp-fp8-backup-20260829/mtp.safetensors",
+ "rationale": "fp8 head broke draft acceptance (0.0 vs 2.4); serving path never reads mtp keys",
+ "evidence": [
+  "receipt-trace-bf16head.json (hybrid bf16 head: acceptance 2.4, 1.382x)",
+  "receipt-trace-hybrid-k4.json (k=4: acceptance 3.0, 1.333x)",
+  "receipt-tracedefault.json (fp8 head: acceptance 0.0)"
+ ]
+}

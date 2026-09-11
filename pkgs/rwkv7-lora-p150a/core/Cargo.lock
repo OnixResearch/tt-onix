@@ -102,6 +102,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rwkv7-lora-p150a-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -159,15 +168,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "rwkv7-lora-p150a-core"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "serde",
- "serde_json",
 ]
 
 [[package]]

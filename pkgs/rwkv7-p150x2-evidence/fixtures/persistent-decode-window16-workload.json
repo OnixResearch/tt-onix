@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "cpu_reference_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+  "cpu_reference_method": "pinned_fp32_full_sequence_greedy_argmax",
+  "requests": [
+    {
+      "request_id": "persistent-window16-hello-0",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 16,
+      "expected_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
+    },
+    {
+      "request_id": "persistent-window16-hello-1",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 16,
+      "expected_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
+    },
+    {
+      "request_id": "persistent-window16-hello-2",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 16,
+      "expected_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
+    },
+    {
+      "request_id": "persistent-window16-hello-3",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 16,
+      "expected_generated_token_ids": [36786, 34, 308, 459, 39743, 4811, 31063, 32227, 22799, 5230, 46170, 53200, 32487, 32515, 55809, 47]
+    }
+  ]
+}

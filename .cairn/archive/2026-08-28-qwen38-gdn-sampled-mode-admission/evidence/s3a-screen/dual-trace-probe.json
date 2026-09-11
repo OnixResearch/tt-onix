@@ -1,0 +1,28 @@
+{
+  "schema": "qwen38-dual-decode-trace-probe.v1",
+  "steps": {
+    "modes_differ": true,
+    "trace_off_captured": true,
+    "trace_full_captured_with_off_resident": true,
+    "off_replay_diff": 0.0,
+    "full_replay_diff": 2.997595911977802e+20,
+    "interleaved_off_diff": 0.0,
+    "interleaved_full_diff": 2.997595911977802e+20,
+    "interleaved_off_repeat_diff": 0.0
+  },
+  "loaded_mode": [
+    "full"
+  ],
+  "feasible": false,
+  "switch_cycle": {
+    "cycle0_full_diff": 0.0,
+    "cycle0_full_capture_seconds": 0.7538,
+    "cycle0_off_diff": 0.0,
+    "cycle0_off_capture_seconds": 0.5095,
+    "cycle1_off_diff": 0.0,
+    "cycle1_off_capture_seconds": 0.4456,
+    "cycle1_full_diff": 0.0,
+    "cycle1_full_capture_seconds": 0.3871
+  },
+  "switch_cycle_feasible": true
+}

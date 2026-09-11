@@ -38,4 +38,4 @@ let contracts = import "contracts.ncl" in
     timeout_seconds = 900,
     collective_free = true,
   },
-} | contracts.PlatformConfigClosed | contracts.PlatformConfig
+} | contracts.PlatformConfigClosed | contracts.PlatformConfigDeepClosed | contracts.PlatformConfig

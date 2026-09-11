@@ -1,0 +1,247 @@
+these 2 derivations will be built:
+  /nix/store/3xr9288ppmr6vmfbzhcvvvgpjcdk5zm8-qwen36-0.1.0.drv
+  /nix/store/wn3laws0pclmiqy8vcd4h8741bxppxj0-qwen36-trace-reuse-host1.drv
+building '/nix/store/3xr9288ppmr6vmfbzhcvvvgpjcdk5zm8-qwen36-0.1.0.drv'...
+qwen36> Running phase: unpackPhase
+qwen36> unpacking source archive /nix/store/m28mhmkj3xsc5azbz10mad3wdhp1r8gl-source
+qwen36> source root is source
+qwen36> Running phase: patchPhase
+qwen36> applying patch /nix/store/g8jj8vhzgp4r5sngna5ifjb9qikn727n-p150x2-tp.patch
+qwen36> patching file models/demos/blackhole/qwen36/demo/text_demo.py
+qwen36> patching file models/demos/blackhole/qwen36/README.md
+qwen36> patching file models/demos/blackhole/qwen36/tests/test_factory.py
+qwen36> patching file models/demos/blackhole/qwen36/tt/qwen36_vllm.py
+qwen36> patching file models/tt_transformers/tt/model_config.py
+qwen36> applying patch /nix/store/9nicyrc83ghg25ijwgi0nq11fb8ywf22-generate-tp-reset.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/model.py
+qwen36> applying patch /nix/store/3xbvrc38ln0fcn4dwxp6ca5z8mbxwyd1-gdn-seq-fallback.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+qwen36> applying patch /nix/store/60rjjh9jycz36945sz0i56zgfksknhix-tp2-runtime-compat.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/tp.py
+qwen36> Hunk #1 succeeded at 25 (offset 1 line).
+qwen36> Hunk #2 succeeded at 203 (offset 1 line).
+qwen36> patching file models/demos/blackhole/qwen36/tt/tp_common.py
+qwen36> Hunk #1 succeeded at 387 (offset -4 lines).
+qwen36> applying patch /nix/store/bvw99xpqc4gx13d20g9ny971ywwrmc45-layer-type-authority.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/model_config.py
+qwen36> patching file models/demos/blackhole/qwen36/tt/weight_mapping.py
+qwen36> applying patch /nix/store/4p1cmclw8dcrnfmyn44n5xby431cp31m-gdn-decode-layout-candidate.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/tp.py
+qwen36> applying patch /nix/store/sq7874pqk0nyqxh3b5ka57nkd14158z9-prefill-device-staging.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/model.py
+qwen36> Hunk #1 succeeded at 1726 (offset 6 lines).
+qwen36> Hunk #2 succeeded at 1765 (offset 6 lines).
+qwen36> Hunk #3 succeeded at 1788 (offset 6 lines).
+qwen36> Hunk #4 succeeded at 3241 (offset 6 lines).
+qwen36> Hunk #5 succeeded at 3275 (offset 6 lines).
+qwen36> applying patch /nix/store/5ji9swg516dg041l3w9vzvb8nsb34759-gdn-decode-fusion-candidate.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/tp.py
+qwen36> Hunk #2 succeeded at 43 (offset 6 lines).
+qwen36> Hunk #3 succeeded at 207 (offset 6 lines).
+qwen36> Hunk #4 succeeded at 1150 (offset 44 lines).
+qwen36> Hunk #5 succeeded at 1166 (offset 44 lines).
+qwen36> patching file models/experimental/gated_attention_gated_deltanet/tt/ttnn_delta_rule_ops.py
+qwen36> applying patch /nix/store/aw9v8kxwlxicc1hamfi15b2k426nfip5-prefill-runtime-admission.patch
+qwen36> patching file models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+qwen36> patching file models/demos/blackhole/qwen36/tt/tp_common.py
+qwen36> Running phase: updateAutotoolsGnuConfigScriptsPhase
+qwen36> Running phase: installPhase
+qwen36> Running phase: fixupPhase
+qwen36> shrinking RPATHs of ELF executables and libraries in /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0
+qwen36> checking for references to /build/ in /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0...
+qwen36> patching script interpreter paths in /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tests/generate_reference_outputs.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/deepseek_v3_d_p/scripts/stress.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/deepseek_v3_d_p/scripts/tail.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/deepseek_v3_d_p/scripts/watch.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/deepseek_v3_d_p/scripts/watch_multiple_dirs.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/t3000/falcon40b/scripts/get_falcon40b_perf_numbers.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/common/prefill/runners/run_pipeline_prefill.sh: interpreter directive changed from "#!/usr/bin/env bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/common/prefill/runners/run_migration_driver.sh: interpreter directive changed from "#!/usr/bin/env bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/stable_diffusion_xl_base/tests/test_sdxl_stress.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/wormhole/bge_large_en/demo/setup_vllm.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/minimax_m3/scripts/run_prefill_perf.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/minimax_m3/scripts/run_prefill_profile.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/demos/gpt_oss/tests/run_logprobs_tests.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/experimental/yunet/web_demo/server/run_server.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/experimental/yunet/web_demo/client/run_client.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/experimental/yunet/setup.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/experimental/openvla/references/setup_openvla_weights.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/experimental/depth_anything_v2/scripts/run_n300_validation.sh: interpreter directive changed from "#!/bin/bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/lib/python3.13/site-packages/models/tt_dit/utils/cpp/build.sh: interpreter directive changed from "#!/usr/bin/env bash" to "/nix/store/gik3rh1vz2jlgnifb9dh6vc6sxwwz9jj-bash-5.3p9/bin/bash"
+qwen36> Running phase: installCheckPhase
+qwen36>   "package_identity_kind": "nix-execution-artifact",
+qwen36> input=/nix/store/3fz7w9dsqlw5kdh87iyip3dffizcsxpa-qwen36-batch-admission-policy.ncl
+qwen36> input=/nix/store/xxqbgrvn6b8j7j8a8j0hfjm9fp14f7dj-qwen36-trace-reuse-policy.ncl
+qwen36> input=/nix/store/l8ang1s5ipl9s4yvjryrsc0jkhx8b76h-qwen36-kernel-distribution-admission-policy.ncl
+qwen36> exec "/nix/store/fyl85s6achm6l7ka256acp0j7fk562cp-python3-3.13.13-env/bin/python"  -m qwen36_service.server --decode-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/decode-profile.json --decode-mode candidate --trace-reuse-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/trace-reuse-profile.json --runtime-identity /nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0 --package-identity /nix/store/ygzmv097ijfisqx6w5a28pb7j1mjhr7n-qwen36-execution-identity-0.1.0 "$@"
+qwen36> exec "/nix/store/fyl85s6achm6l7ka256acp0j7fk562cp-python3-3.13.13-env/bin/python"  -m qwen36_service.server --decode-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/decode-profile.json --decode-mode candidate --batch-admission-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/batch-admission-profile.json --batch-admission --trace-reuse-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/trace-reuse-profile.json --runtime-identity /nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0 --package-identity /nix/store/ygzmv097ijfisqx6w5a28pb7j1mjhr7n-qwen36-execution-identity-0.1.0 "$@"
+qwen36> exec "/nix/store/fyl85s6achm6l7ka256acp0j7fk562cp-python3-3.13.13-env/bin/python"  -m qwen36_service.server --decode-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/decode-profile.json --decode-mode candidate --batch-admission-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/batch-admission-b8-profile.json --batch-admission --trace-reuse-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/trace-reuse-profile.json --runtime-identity /nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0 --package-identity /nix/store/ygzmv097ijfisqx6w5a28pb7j1mjhr7n-qwen36-execution-identity-0.1.0 "$@"
+qwen36> exec "/nix/store/fyl85s6achm6l7ka256acp0j7fk562cp-python3-3.13.13-env/bin/python"  -m qwen36_service.server --decode-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/decode-profile.json --decode-mode candidate --trace-reuse-profile /nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0/share/qwen36/trace-reuse-profile.json --trace-reuse-admission --runtime-identity /nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0 --package-identity /nix/store/ygzmv097ijfisqx6w5a28pb7j1mjhr7n-qwen36-execution-identity-0.1.0 "$@"
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-cnehyj4v because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:13:53.441 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> 2026-09-08 16:13:54.106 | WARNING  | models.perf.benchmarking_utils:<module>:19 - Skipping import of pydantic_models for benchmarking since not running in CI environment
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-a_ws5fnm because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:00.036 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> 2026-09-08 16:14:00.393 | WARNING  | models.perf.benchmarking_utils:<module>:19 - Skipping import of pydantic_models for benchmarking since not running in CI environment
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-3t29j073 because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:04.824 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> 2026-09-08 16:14:05.146 | WARNING  | models.perf.benchmarking_utils:<module>:19 - Skipping import of pydantic_models for benchmarking since not running in CI environment
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-o6ebggsy because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:11.007 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-quk3jfa1 because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:16.951 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-sbbzw3ga because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:22.007 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-qc8a32qt because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:27.912 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-0s2hbc5e because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:33.556 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-byglzy9b because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:38.197 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-2vjhitdt because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:43.102 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-mcftre78 because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:48.001 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-4z7dxx5q because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:52.915 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-d4aal1oa because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:14:57.699 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36>   "physically_admitted": false,
+qwen36>     "candidate_width": 4,
+qwen36>   "physically_admitted": true,
+qwen36>     "receipt_blake3": "489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028",
+qwen36>     "candidate_width": 8,
+qwen36>     "minimum_aggregate_decode_speedup_ratio": 6,
+qwen36>     "maximum_ttft_ratio": 9,
+qwen36>   "physically_admitted": false,
+qwen36>     "receipt_blake3": "not-measured",
+qwen36>     "width": 4
+qwen36>     "maximum_resident_trace_count": 1,
+qwen36>   "physically_admitted": false,
+qwen36>     "receipt_blake3": "not-measured",
+qwen36>   "diagnostic_only": true,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "draft_token_count": 3,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "maximum_selector_ratio": 0.95,
+qwen36>     "shard-local-top1",
+qwen36>     "shard-local-top1",
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "minimum_samples_per_route": 6,
+qwen36>   "maximum_traced_draft_ratio": 0.95,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "schema_version": 2,
+qwen36>   "recovery_execution_mode": "persistent-traced",
+qwen36>   "required_process_trace_capture_count": 1,
+qwen36>   "snapshot_row_count": 2
+qwen36>   "maximum_snapshot_recovery_ratio": 0.8,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "diagnostic_only": true,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36>   "diagnostic_only": true,
+qwen36>     "maximum_gdn_median_ratio": 0.95,
+qwen36>     "maximum_full_step_median_ratio": 0.97,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36> error: contract broken by the value of `diagnostic_only`
+qwen36> error: contract broken by the value of `modes`
+qwen36> error: contract broken by the value of `require_exact_token_parity`
+qwen36>   "diagnostic_only": true,
+qwen36>     "material_regression_ratio": 1.05,
+qwen36>     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+qwen36> 2 │ a with { upstream = a.upstream & { commit = "deadbeef" } }
+qwen36>   ┌─ /build/source/authority-no-artifacts.ncl:2:3
+qwen36> 2 │ a with { release = a.release & { artifacts = [] } }
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-ztsxy989 because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:15:02.730 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> PASS import ttnn (packaged runtime)
+qwen36> PASS import models.tt_transformers.tt.model_config
+qwen36> PASS import gated_attention_gated_deltanet tt ops
+qwen36> PASS import qwen36.tt.common
+qwen36> PASS import qwen36.tt.model_config
+qwen36> PASS import qwen36.tt.model
+qwen36> PASS import qwen36.tt.qwen36_vllm (vLLM absent)
+qwen36> PASS MLP down-proj BF4 gate defaults
+qwen36> PASS LM head BF4 gate + .bfp4 cache name
+qwen36> PASS source env gates + Qwen3.8-27B entries
+qwen36> PASS checkpoint layer-type authority
+qwen36> PASS GDN decode layout candidate gate
+qwen36> PASS GDN decode fusion candidate
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2481 - Unknown model Qwen3.5-27B on device P150x16, setting MAX_PREFILL_CHUNK_SIZE to 4 for compatibility
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2484 - Try setting MAX_PREFILL_CHUNK_SIZE to larger powers of 2 up to e.g. 128 for faster performance (if you run out of L1 memory it was too high)
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2481 - Unknown model Qwen3.6-27B on device P150x16, setting MAX_PREFILL_CHUNK_SIZE to 4 for compatibility
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2484 - Try setting MAX_PREFILL_CHUNK_SIZE to larger powers of 2 up to e.g. 128 for faster performance (if you run out of L1 memory it was too high)
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2481 - Unknown model Qwen3.8-27B on device P150x16, setting MAX_PREFILL_CHUNK_SIZE to 4 for compatibility
+qwen36> 2026-09-08 16:15:04.069 | WARNING  | models.tt_transformers.tt.model_config:get_max_prefill_chunk_size:2484 - Try setting MAX_PREFILL_CHUNK_SIZE to larger powers of 2 up to e.g. 128 for faster performance (if you run out of L1 memory it was too high)
+qwen36> PASS TP=2 / P300 gate invariants
+qwen36> PASS traced decode pure core
+qwen36> 2026-09-08 16:15:04.151 | WARNING  | models.perf.benchmarking_utils:<module>:19 - Skipping import of pydantic_models for benchmarking since not running in CI environment
+qwen36> PASS batch decode scheduler
+qwen36> PASS batch admission policy
+qwen36> PASS tensor binding identity
+qwen36> PASS same-width trace-reuse profile
+qwen36> PASS startup warm-up readiness
+qwen36> PASS prefill program profile
+qwen36> PASS MTP target-verification pure core
+qwen36> PASS MTP drafter pure core
+qwen36> PASS MTP draft selection
+qwen36> PASS MTP draft trace
+qwen36> PASS MTP K/V rollback
+qwen36> PASS MTP recovery stage progress
+qwen36> PASS MTP prewarmed recovery control
+qwen36> PASS MTP target-validation prewarm
+qwen36> PASS MTP sampled acceptance
+qwen36> PASS MTP trace capture hygiene
+qwen36> PASS decode component attribution
+qwen36> PASS same-process TTFT control
+qwen36> PASS serialized service request contract
+qwen36> PASS kernel distribution admission
+qwen36> PASS kernel distribution probe builder
+qwen36> PASS sampled-mode router
+qwen36> PASS sampled decode
+qwen36> PASS MTP serving round policy
+qwen36> qwen36 device-free check: PASS
+qwen36> mkdir -p failed for path /homeless-shelter/.config/matplotlib: [Errno 13] Permission denied: '/homeless-shelter'
+qwen36> Matplotlib created a temporary cache directory at /build/matplotlib-atvan03g because there was an issue with the default path (/homeless-shelter/.config/matplotlib); it is highly recommended to set the MPLCONFIGDIR environment variable to a writable directory, in particular to speed up the import of Matplotlib and to better support multiprocessing.
+qwen36> 2026-09-08 16:15:09.363 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+qwen36> Config{cache_path=/homeless-shelter/.cache/ttnn,model_cache_path=/homeless-shelter/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+qwen36> PASS diagnostic sequence
+qwen36> installCheckPhase completed in 1 minutes 20 seconds
+building '/nix/store/wn3laws0pclmiqy8vcd4h8741bxppxj0-qwen36-trace-reuse-host1.drv'...
+qwen36-trace-reuse-host1>                  [--trace-reuse-admission]
+qwen36-trace-reuse-host1>   --trace-reuse-admission
+qwen36-trace-reuse-host1> server.py: error: unrecognized arguments: --unknown-host-budget-option
+qwen36-trace-reuse-host1> --trace-reuse-admission requires candidate decode mode
+/nix/store/dm7df3z8sx55gfn6jqml0grj5yzg84zz-qwen36-0.1.0
+/nix/store/4ilv89gbz499ly22lms6rc8v5p8rgzpg-qwen36-trace-reuse-host1

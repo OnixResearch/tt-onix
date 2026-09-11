@@ -10,5 +10,14 @@
   "memory_bounds": "device-free fixture only",
   "reference_authority": "deterministic synthetic fixture",
   "evidence_adapter": "synthetic-transformer-evidence-v1",
-  "topology_compatibility": "device-free-fixture"
+  "topology_compatibility": "device-free-fixture",
+  "simulator_audit": {
+    "ttsim_version": "fixture",
+    "runtime": "device-free-fixture",
+    "required_operator_inventory_complete": true,
+    "package_matched": true,
+    "bounded_path_available": true,
+    "not_run_reasons": [],
+    "blockers": []
+  }
 }

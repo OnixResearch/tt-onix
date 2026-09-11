@@ -7,8 +7,8 @@ This package proves the smallest complete accelerator claim: one admitted SFT
 batch, full loss, adapter gradients, and one optimizer step on one logical
 P150A device, plus a bounded multi-step run and adapter save/load/resume.
 
-It does not prove two-card scaling, long-context support, useful
-generalization, or speedup over the CPU reference.
+It does not prove two-card scaling, long-context support, or useful
+generalization. The checked-in parity receipts do not prove speedup.
 
 ## What this establishes
 
@@ -82,6 +82,49 @@ Other runtime facts learned during bring-up, all encoded in the probes:
 - The runtime wheels (pjrt-plugin-tt, torch, torch-xla, tt_lang) are cached
   locally with sha256 identities matching the platform manifest.
 
+## Measurement profile
+
+The profile `rwkv7-lora-p150a-single-measurement` keeps all parity
+tolerances unchanged. It records five measured steps after one compile step.
+The receipt reports launch, compile, step, checkpoint, teardown, and
+end-to-end wall time.
+
+The receipt also reports mean, p50, p99, and standard deviation for step time
+and loss. The speedup ratio uses a CPU step from the same process and batch.
+Each receipt binds the board class, firmware, PCIe link, power state, and mesh
+identity with BLAKE3.
+
+Create a machine-fact values file before a hardware measurement:
+
+```json
+{
+  "board_identity": "p150a:device-0",
+  "firmware_version": "<firmware-version>",
+  "mesh_descriptor_identity": "single-device-1x1",
+  "pcie_link": "<generation-and-width>",
+  "power_state": "<power-state>"
+}
+```
+
+Do not put a serial number in this file. The runner fails before device access
+when a required fact is absent.
+
+## Utilization and bottleneck evidence
+
+Measurement mode also requires `--device-telemetry <profiler-telemetry.json>`.
+Convert the package-matched TT-Metal operation report into the closed telemetry
+schema in `fixtures/device-telemetry.json`. Do not estimate missing fields.
+
+The telemetry names the source columns for math busy, NoC idle, and operation
+latency. It records peak and capacity bytes for L1 and DRAM on each logical
+device. The operation list must exactly match the latency table. Each operation
+contains all observed latency samples. The core computes mean and p99 latency.
+
+The runner writes `utilization-receipt.json` and
+`utilization-admission.json`. Their BLAKE3 identities bind the measurement,
+telemetry, memory table, and complete operation table. A single-device receipt
+cannot make a scaling claim.
+
 ## Commands
 
 Device-free validation (no hardware):
@@ -98,13 +141,8 @@ Compile probes (hardware):
 
 ```sh
 TOOLS=$(nix build .#packages.x86_64-linux.rwkv7-lora-p150a-tools --no-link --print-out-paths)
-PLATFORM=$(nix build .#packages.x86_64-linux.training-platform-tools --no-link --print-out-paths)
 "$TOOLS/bin/rwkv7-lora-p150a-probe" \
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
-  --manifest "$PLATFORM/share/training-platform/manifest.json" \
-  --config "$PLATFORM/share/training-platform/platform.json" \
-  --descriptor "$PLATFORM/share/training-platform/p150_x2_mesh_graph_descriptor.textproto" \
-  --wheels-dir <wheel-cache-dir> \
   --evidence-root <evidence-dir> \
   --probe wkv7-forward --shape-kind representative
 ```
@@ -117,21 +155,75 @@ Full-model step, bounded run, and checkpoint (hardware):
 ```sh
 "$TOOLS/bin/rwkv7-lora-p150a-full-step" \
   --profile "$TOOLS/share/rwkv7-lora-p150a/profile.json" \
-  --manifest "$PLATFORM/share/training-platform/manifest.json" \
-  --config "$PLATFORM/share/training-platform/platform.json" \
-  --descriptor "$PLATFORM/share/training-platform/p150_x2_mesh_graph_descriptor.textproto" \
   --checkpoint <pinned-checkpoint.safetensors> \
-  --wheels-dir <wheel-cache-dir> \
   --evidence-root <evidence-dir> \
-  --mode receipt          # or: multistep, checkpoint
+  --mode receipt          # or: measurement, multistep, longrun, checkpoint
 ```
 
 - `receipt`: one-step placement + parity receipt.
+- `measurement`: five measured steps and a bound CPU speedup ratio. Use
+  `--profile "$TOOLS/share/rwkv7-lora-p150a/measurement-profile.json"`.
+  Add `--machine-facts <machine-fact-values.json>` and
+  `--device-telemetry <profiler-telemetry.json>`.
 - `multistep`: bounded multi-step run with loss-improvement criterion.
+- `longrun`: the policy-bound stability and held-out-eval run. Add
+  `--stability-policy "$TOOLS/share/rwkv7-lora-p150a/stability-policy.json"`,
+  `--thermal-telemetry <evidence-dir>/thermal.jsonl`, and
+  `--eval-split <held-out-token-split.json>`. The split file must be distinct
+  from the periodic reference batch.
 - `checkpoint`: adapter save/load/resume receipt and the Safetensors artifact.
 
+Each runner uses the package-owned training-platform authority and offline
+wheelhouse. It does not accept replacement platform files or wheel sources.
 Each run writes a BLAKE3-bound receipt to the evidence root and validates it
 with the admission core before it counts as evidence.
+
+## Regression gates
+
+The package includes `regression-policy.json` and `baseline-store.json`.
+The policy names the mean step time, p99 step time, and mean loss bounds.
+The store key binds the full measurement profile and the machine facts.
+A profile or machine mismatch fails closed.
+
+The checked baseline uses the device-free check fixture. It tests the gate but
+does not claim physical P150A performance. Create a physical baseline from an
+admitted measurement before you make a hardware regression claim.
+
+Run one independent measurement first. Then add all three options to a later
+measurement:
+
+```sh
+--regression-baseline <physical-baseline-store.json> \
+--regression-policy "$TOOLS/share/rwkv7-lora-p150a/regression-policy.json" \
+--determinism-receipt <independent-measurement-receipt.json>
+```
+
+The options are one group. The runner rejects a partial group. A passing run
+writes `regression-receipt.json` and `determinism-receipt.json`. The
+determinism receipt records the maximum absolute time and loss differences.
+It is not a bitwise tensor-equivalence claim.
+
+## Stability and training value
+
+The checked policy runs 256 optimizer steps. It records loss and gradient norm
+every 16 steps. The probe stops at the first non-finite value or named bound
+violation. It writes `reference-batch.json` and `longrun-step.json` before the
+runner constructs the receipt.
+
+During `longrun`, the runner starts the sampler before the probe. The sampler
+uses `tt-smi -s --snapshot_no_tty` after each new cadence-aligned trajectory
+point. The core retains the profile-selected device. The
+sampler writes one source JSONL record per sample and stops when the probe ends.
+The runner rejects missing points, duplicate points, wrong devices, non-finite
+values, source errors, and cadence mismatches.
+
+The admission binds the exact policy, parity profile, machine facts, telemetry,
+trajectory, and held-out split with BLAKE3. It requires finite held-out loss and
+a final-to-initial loss ratio of at most 0.99. This result only applies to the
+bound split. It does not prove useful generalization or production quality.
+
+A passing run writes `receipt.json` and `stability-admission.json`. The checked
+fixtures only test the admission mechanism. They are not hardware evidence.
 
 ## Failure diagnosis
 
@@ -160,6 +252,11 @@ every adapter tensor BLAKE3.
 A passing receipt does NOT establish:
 
 - Dual-card scaling, model parallelism, or data parallelism.
-- Useful generalization or production fine-tuning quality.
+- Useful generalization or production fine-tuning quality. A passing
+  `longrun` receipt only reports improvement on its bound held-out split.
 - Long-context support or other RWKV model sizes.
-- Speedup over the CPU reference.
+- Speedup over the CPU reference from a parity, run, or checkpoint receipt.
+  Only a passing physical `measurement` receipt can report the named ratio.
+- Thermal endurance or power efficiency outside the bound `longrun` samples.
+  A utilization receipt covers only its measured run. A stability receipt
+  covers only its named step budget, cadence, devices, and limits.

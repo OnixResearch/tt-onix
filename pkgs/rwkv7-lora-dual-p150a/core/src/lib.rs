@@ -10,6 +10,13 @@
 //! Every function is deterministic and free of I/O, clocks, and process
 //! state. The CLI shell in `main.rs` owns all filesystem and process work.
 
+mod generated_model_target_identity;
+
+pub use rwkv7_lora_p150a_core::{
+    DeterminismAdmission, Distribution, MeasurementAdmission, MeasurementProfile,
+    RegressionAdmission, StabilityAdmission, UtilizationAdmission,
+};
+
 use serde_json::{Value, json};
 
 const SCHEMA_VERSION: u64 = 1;
@@ -18,19 +25,18 @@ const HEX_HASH_LEN: usize = 64;
 // Admitted runtime bundle from the training platform manifest.
 const REQUIRED_BUNDLE_ID: &str = "tt-xla-training-2026-08-04";
 
-// CPU authority identities from pkgs/rwkv7-lora-reference.
-const REQUIRED_MODEL_ID: &str = "RWKV/RWKV7-Goose-World2.8-0.1B-HF";
-const REQUIRED_MODEL_REVISION: &str = "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-const REQUIRED_CHECKPOINT_BLAKE3: &str =
-    "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
+// Generated CPU authority identities from the canonical model target profile.
+const REQUIRED_MODEL_ID: &str = generated_model_target_identity::MODEL_ID;
+const REQUIRED_MODEL_REVISION: &str = generated_model_target_identity::MODEL_REVISION;
+const REQUIRED_CHECKPOINT_BLAKE3: &str = generated_model_target_identity::MODEL_BLAKE3;
 const REQUIRED_TOKENIZER_VOCAB_BLAKE3: &str =
-    "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2";
-const REQUIRED_CPU_PRECISION: &str = "fp32_from_bf16";
-const REQUIRED_LAYER_COUNT: u64 = 12;
-const REQUIRED_HIDDEN_SIZE: u64 = 768;
-const REQUIRED_HEAD_COUNT: u64 = 12;
-const REQUIRED_HEAD_SIZE: u64 = 64;
-const REQUIRED_VOCABULARY_SIZE: u64 = 65536;
+    generated_model_target_identity::TOKENIZER_VOCAB_BLAKE3;
+const REQUIRED_CPU_PRECISION: &str = generated_model_target_identity::CPU_REFERENCE_PRECISION;
+const REQUIRED_LAYER_COUNT: u64 = generated_model_target_identity::MODEL_LAYER_COUNT as u64;
+const REQUIRED_HIDDEN_SIZE: u64 = generated_model_target_identity::HIDDEN_SIZE as u64;
+const REQUIRED_HEAD_COUNT: u64 = generated_model_target_identity::HEAD_COUNT as u64;
+const REQUIRED_HEAD_SIZE: u64 = generated_model_target_identity::HEAD_SIZE as u64;
+const REQUIRED_VOCABULARY_SIZE: u64 = generated_model_target_identity::VOCABULARY_SIZE as u64;
 const REQUIRED_VOCABULARY_ENTRY_COUNT: u64 = 65529;
 const CPU_REFERENCE_OUTCOME: &str = "bounded_cpu_reference_pass";
 
@@ -273,8 +279,118 @@ pub fn blake3_identity(value: &Value) -> String {
         .to_string()
 }
 
+fn shared_measurement_rejection(rejection: rwkv7_lora_p150a_core::Rejection) -> Rejection {
+    Rejection::new(rejection.code, rejection.detail)
+}
+
+pub fn bind_machine_facts(values: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::bind_machine_facts(values).map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_measurement(raw: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_measurement(raw, profile).map_err(shared_measurement_rejection)
+}
+
+pub fn admit_measurement_receipt(
+    receipt: &Value,
+    profile: &Value,
+) -> Result<MeasurementAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_measurement_receipt(receipt, profile)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_measurement_profile(profile: &Value) -> Result<MeasurementProfile, Rejection> {
+    rwkv7_lora_p150a_core::admit_measurement_profile(profile).map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_utilization(raw: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_utilization(raw, profile).map_err(shared_measurement_rejection)
+}
+
+pub fn admit_utilization_receipt(
+    receipt: &Value,
+    raw: &Value,
+    profile: &Value,
+) -> Result<UtilizationAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_utilization_receipt(receipt, raw, profile)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn create_baseline(
+    receipt: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::create_baseline(receipt, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_baseline_store(
+    store: &Value,
+    profile: &Value,
+    receipt: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::admit_baseline_store(store, profile, receipt)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn gate_regression(
+    receipt: &Value,
+    profile: &Value,
+    store: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::gate_regression(receipt, profile, store, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_regression_receipt(receipt: &Value) -> Result<RegressionAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_regression_receipt(receipt).map_err(shared_measurement_rejection)
+}
+
+pub fn compare_determinism(
+    left: &Value,
+    right: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::compare_determinism(left, right, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_determinism_receipt(receipt: &Value) -> Result<DeterminismAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_determinism_receipt(receipt).map_err(shared_measurement_rejection)
+}
+
+pub fn normalize_tt_smi_snapshot(snapshot: &Value, profile: &Value) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::normalize_tt_smi_snapshot(snapshot, profile)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn summarize_stability(
+    raw: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<Value, Rejection> {
+    rwkv7_lora_p150a_core::summarize_stability(raw, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
+pub fn admit_stability_receipt(
+    receipt: &Value,
+    raw: &Value,
+    profile: &Value,
+    policy: &Value,
+) -> Result<StabilityAdmission, Rejection> {
+    rwkv7_lora_p150a_core::admit_stability_receipt(receipt, raw, profile, policy)
+        .map_err(shared_measurement_rejection)
+}
+
 fn is_hash_hex(value: &str) -> bool {
-    value.len() == HEX_HASH_LEN && value.chars().all(|c| c.is_ascii_hexdigit())
+    value.len() == HEX_HASH_LEN
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn field<'a>(value: &'a Value, key: &str) -> Result<&'a Value, Rejection> {
@@ -2884,4 +3000,20 @@ fn single_checkpoint_receipt(single_profile: &Value) -> Value {
             "resume_loss_dev": 0.0,
         },
     })
+}
+
+#[cfg(test)]
+mod hash_tests {
+    use super::{HEX_HASH_LEN, is_hash_hex};
+
+    const LOWER_HEX_CHARACTER: &str = "a";
+    const UPPER_HEX_CHARACTER: &str = "A";
+
+    #[test]
+    fn hash_grammar_accepts_lowercase_and_rejects_uppercase() {
+        let lowercase = LOWER_HEX_CHARACTER.repeat(HEX_HASH_LEN);
+        let uppercase = UPPER_HEX_CHARACTER.repeat(HEX_HASH_LEN);
+        assert!(is_hash_hex(&lowercase));
+        assert!(!is_hash_hex(&uppercase));
+    }
 }

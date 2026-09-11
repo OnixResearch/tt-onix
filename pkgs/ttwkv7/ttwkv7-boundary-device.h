@@ -18,16 +18,22 @@
 #include <blake3.h>
 #include <nlohmann/json.hpp>
 
+#include "generated-model-target-identity.h"
+
 namespace ttwkv7::boundary_device {
 
 using Json = nlohmann::json;
 
 constexpr std::uint32_t kSchemaVersion = 1;
 constexpr std::uint32_t kLayerIndex = 0;
-constexpr std::uint32_t kHeadCount = 12;
-constexpr std::uint32_t kHeadSize = 64;
-constexpr std::uint32_t kHiddenSize = kHeadCount * kHeadSize;
-constexpr std::uint32_t kIntermediateSize = 3072;
+constexpr std::uint32_t kHeadCount =
+    static_cast<std::uint32_t>(model_target_identity::kHeadCount);
+constexpr std::uint32_t kHeadSize =
+    static_cast<std::uint32_t>(model_target_identity::kHeadSize);
+constexpr std::uint32_t kHiddenSize =
+    static_cast<std::uint32_t>(model_target_identity::kHiddenSize);
+constexpr std::uint32_t kIntermediateSize =
+    static_cast<std::uint32_t>(model_target_identity::kIntermediateSize);
 constexpr std::uint32_t kSequenceCount = 1;
 constexpr std::uint32_t kTokenCount = 1;
 constexpr std::uint32_t kPaddedHeadCount = 32;
@@ -62,19 +68,16 @@ constexpr double kPccDenominatorFloor = 1.0e-12;
 constexpr double kBoundaryNmseCeiling = 6.0e-2;
 constexpr std::string_view kTarget = "ttwkv7_logical_wkv_boundary";
 constexpr std::string_view kPrecision =
-    "little_endian_bf16_storage_cpu_fp32_recurrence";
+    model_target_identity::kTtwkv7BoundaryPrecision;
 constexpr std::string_view kByteOrder = "little_endian";
 constexpr std::string_view kVectorOrder = "head_dimension";
 constexpr std::string_view kStateOrder = "head_row_column";
 constexpr std::string_view kOutputOrder = "head_row";
-constexpr std::string_view kModelId = "RWKV/RWKV7-Goose-World2.8-0.1B-HF";
-constexpr std::string_view kModelRevision =
-    "d81965cb4e1a9f96696b4f70b84212b8f2e43216";
-constexpr std::string_view kModelBlake3 =
-    "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5";
-constexpr std::string_view kModelSha256Sri =
-    "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
-constexpr std::uint64_t kModelByteCount = 382111072;
+constexpr std::string_view kModelId = model_target_identity::kModelId;
+constexpr std::string_view kModelRevision = model_target_identity::kModelRevision;
+constexpr std::string_view kModelBlake3 = model_target_identity::kModelBlake3;
+constexpr std::string_view kModelSha256Sri = model_target_identity::kModelSha256Sri;
+constexpr std::uint64_t kModelByteCount = model_target_identity::kModelByteCount;
 constexpr std::string_view kExpectedFixtureBlake3 =
     "731f44866c869300ca330f703f1adad4c3ae7ee62b832fa881a6bf4ea90211cd";
 constexpr std::string_view kExpectedOrderedArtifactBlake3 =

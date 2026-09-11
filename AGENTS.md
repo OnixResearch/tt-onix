@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## TT-Metal 0.77 candidate
+
+The current upgrade branch pins TT-Metal 0.77.0. Its host build and device-free Qwen checks pass, but the GDN numerical simulator gate remains blocked. Read `docs/tt-metal-0.77-port.md` before further runtime work.
+
+Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.77 authority.
+
+Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. The later HiFi4 candidate passes a bounded hardware recurrence test. Read `docs/gdn-precision-candidate.md` for its scope.
+
+The user grants standing authority for Tenstorrent maintenance: service stops, hardware probes, recovery, and firmware updates need no further task approval. Service restoration is not required. Use the existing `ttwkv7-owner-control` helper for passwordless service isolation and restoration. This authority does not bypass OS permissions or authorize unrelated system changes. Firmware changes still require compatibility checks and a recovery procedure.
+
 ## Local pi skills
 
 The `.pi/skills/` directory holds pi skills copied from the reference checkouts.
@@ -49,11 +59,15 @@ Read these package-matched or commit-pinned sources before you change hardware b
   Source: <https://github.com/tenstorrent/tt-low-level-documentation>.
   The downloaded checkout uses commit `cf344d2dda4cb9d06451d0cc62e9a12c7f1b9240`.
 - Read the host-driver sources at `.pi/references/tenstorrent/tt-umd` and `.pi/references/tenstorrent/tt-kmd`.
-  The `tt-umd` checkout uses tag `v0.9.6` and commit `740b6ae98afd3f4ec97e4dbe473f3a70af8cc2f1`.
-  The `tt-kmd` checkout uses tag `ttkmd-2.7.0` and commit `8e1017f5757fd3a4697e8391ef058adf122723d8`.
+  The `tt-umd` checkout uses tag `v0.9.9` and commit `8f2f3d293852ee4f129eea5a40f6c15f7d259add`.
+  The `tt-kmd` checkout uses tag `ttkmd-2.10.0` and commit `49ae9d88e177635746db4c085bd21a9481adb591`.
 - Read the device-free simulator source and ABI docs at `.pi/references/tenstorrent/ttsim`.
-  Source: <https://github.com/tenstorrent/ttsim/tree/v1.9.2>.
-  The downloaded checkout uses commit `f80c33939e58e8c3c6d5b04edc0e3a03e5144d13`.
+  Source: <https://github.com/tenstorrent/ttsim/tree/v1.10.1>.
+  The downloaded checkout uses commit `3d82cd1b8e3c3d8fa69abb8ac3835c4713e4e52a`.
+- Read the SFPI compiler source at `.pi/references/tenstorrent/sfpi`.
+  Source: <https://github.com/tenstorrent/sfpi/tree/7.70.0>.
+  The downloaded checkout uses commit `6659aeb9e350dd8eef69edbdfa4f963759b04c44`.
+  The tt-metal 0.74 source names SFPI 7.64.0. The Nix package intentionally carries 7.70.0 and rewrites the installed version metadata.
 - Read the training-platform frontend source at `.pi/references/tenstorrent/tt-xla`.
   Source: <https://github.com/tenstorrent/tt-xla>.
   The downloaded checkout uses commit `10b111f3885a598958b0c4e393a07d672584736a`.
@@ -95,8 +109,8 @@ Do not wait for full simulated inference when a smaller test can remove the same
 ### Tenstorrent system-management references
 
 - Read the package-matched Luwen source at `.pi/references/tenstorrent/luwen`.
-  Source: <https://github.com/tenstorrent/luwen/tree/v0.8.5>.
-  The downloaded checkout uses commit `774e36f2853fb15dfb3d1141c03e1725a76ca271`.
+  Source: <https://github.com/tenstorrent/luwen/tree/v0.9.0>.
+  The downloaded checkout uses commit `8d9175cc71da8c13cf86f46264f7468884f800d8`.
 
 Use Luwen for chip discovery, initialization, diagnostics, firmware communication, and Rust host-tooling behavior.
 
@@ -106,14 +120,14 @@ Use Luwen for chip discovery, initialization, diagnostics, firmware communicatio
   Source: <https://github.com/tenstorrent/tt-tools-common/tree/v1.6.0>.
   The downloaded checkout uses commit `dba5f77b5d9f29163fe1b971d5c79c7d89a47a3b`.
 - Read the package-matched diagnostics sources at `.pi/references/tenstorrent/tt-smi` and `.pi/references/tenstorrent/tt-topology`.
-  The `tt-smi` checkout uses tag `v5.2.0` and commit `3f7b6931fb0236a993a53cfdb0e144e77eb89b98`.
-  The `tt-topology` checkout uses tag `v1.2.13` and commit `20266aef47bf41dd4bcadc408e95216c89ac501a`.
+  The `tt-smi` checkout uses tag `v6.2.1` and commit `07208d7e783b8bb585440460db53f515b5828f16`.
+  The `tt-topology` checkout uses tag `v1.2.20` and commit `7bd675f888f9f0d27674fab7cb4188d5b1255481`.
 - Read the firmware update tool at `.pi/references/tenstorrent/tt-flash`.
-  Source: <https://github.com/tenstorrent/tt-flash/tree/v3.6.0>.
-  The downloaded checkout uses commit `48fe9c7df7c40e3d69c3c169f1cc9339c6687f61`.
+  Source: <https://github.com/tenstorrent/tt-flash/tree/v3.10.0>.
+  The downloaded checkout uses commit `3e9f69a14c2b60a54ee645863486b5d57bdbaf6a`.
 - Read the device stress tool at `.pi/references/tenstorrent/tt-burnin`.
-  Source: <https://github.com/tenstorrent/tt-burnin/tree/v0.2.4>.
-  The downloaded checkout uses commit `809f293d2c0344a1e62a40a4bcb14d6bdb70ac09`.
+  Source: <https://github.com/tenstorrent/tt-burnin/tree/v0.4.4>.
+  The downloaded checkout uses commit `e9124ab38517ac847607afb6720fdadd7a5faf30`.
 - Read the incident collection tools at `.pi/references/tenstorrent/tt-system-tools`.
   Source: <https://github.com/tenstorrent/tt-system-tools/tree/v1.4.1>.
   The downloaded checkout uses commit `8cea822ea86ba7336c16f164a3a9f939e2eb4392`.
@@ -151,6 +165,20 @@ Treat the DeepWiki overview and Oxen article as secondary explanations.
 Check DeepWiki claims against the primary references because its indexed revision can differ.
 Keep the existing package pins unless the task requires a pin update.
 Record a mismatch when the paper, source, and local implementation differ.
+
+### RWKV ecosystem references
+
+Use these resources to find current RWKV projects and implementation examples.
+
+- Use the [recently updated RWKV repository search](https://github.com/search?o=desc&q=rwkv&s=updated&type=Repositories) for project discovery.
+- Use the [RWKV Wiki](https://wiki.rwkv.com) for community documentation about architectures, models, terminology, and tools.
+- Use [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) as a desktop runner and OpenAI-compatible service reference.
+- Use [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) as a parameter-efficient fine-tuning reference.
+- Use [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) as a Rust and Vulkan inference-server reference.
+
+Treat these resources as ecosystem and implementation leads.
+Check architecture claims against the RWKV paper and `RWKV-LM` source.
+Do not update a package pin only because an ecosystem resource changed.
 
 ### llama.cpp Metalium upstream reference
 
@@ -201,6 +229,25 @@ Use this tree as the upstream bring-up reference for the Qwen3.6-A3B model targe
 Treat its PCC, performance, memory, and firmware observations as upstream claims until this repository reproduces them.
 Record the Blackhole firmware floor (`>= 19.5.0`) and the pinned tt-metal `python_env` as machine facts, not as local evidence.
 Do not run demo, server, or test commands from the reference tree without a bounded change.
+
+- Read the Adartras independent tt-kernel vLLM bundle at `.pi/references/qwen3-6-a3b/adartras-tt-kernel`.
+  Source: <https://huggingface.co/Adartras/qwen3.6-a3b-blackhole>.
+  It is a code-only bundle (commit `42a71032659a9d0e3b860b6104c59cfa6ca82149`) serving the
+  same model on one p150 with `ttnn >= 0.77`, BFP4 routed experts, and MTP spec-decode.
+  This is a SECOND, independent Qwen3.6-A3B implementation; it is not the bring-up reference.
+- Read the distilled transferable-technique study at `.pi/references/qwen3-6-a3b/LESSONS-FROM-ADARTRAS-BUNDLE.md`
+  before changing the local `pkgs/qwen36` MTP, precision, or gated-delta code.
+  It maps the bundle's distribution-exact speculative sampling, recurrent-state
+  verify/commit contract, KV bf8 gating discipline, and trace-capture hygiene to the
+  local 0.74 path, and it flags which lessons require the 0.77 pin and which do not.
+
+Use the brought-up tree and the Adartras bundle as independent implementation references for the Qwen3.6-A3B target candidate.
+
+## Adartras-bundle caveats (machine facts, not local evidence)
+
+- The bundle is built against `ttnn 0.77.1.dev0+g9f9cd4fd590.d20260819` (2026-08-19 dev build); the local tt-metal pin is `0.74.0`.
+- The bundle targets a single p150 (`1x1` mesh); the local serialized qwen36 service requires `P150x2`.
+- Its routed-expert default is BFP4 because only that fits one 32 GB p150 (~17.5 GB vs ~35 GB BFP8).
 
 The `.pi/` directory is not in version control.
 Download a missing reference from its listed source before you use it.

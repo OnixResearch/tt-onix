@@ -2,7 +2,7 @@
 """Pinned CPU PyTorch equation comparison for the RWKV-7 reference harness."""
 
 # Validation diagnostics stay local to each fail-closed branch for auditability.
-# ruff: noqa: EM101, EM102, TRY003, TRY004
+# ruff: noqa: TRY004
 
 from __future__ import annotations
 
@@ -16,15 +16,24 @@ from typing import Any
 
 import blake3
 import torch
-import torch.nn.functional as functional
+from generated_model_target_identity import (
+    HEAD_COUNT,
+    HEAD_SIZE,
+    HIDDEN_SIZE,
+    INTERMEDIATE_SIZE,
+    MODEL_BLAKE3,
+    MODEL_BYTE_COUNT,
+    MODEL_ID,
+    MODEL_LAYER_COUNT,
+    MODEL_REVISION,
+    MODEL_SHA256_SRI,
+    PROFILE_BLAKE3,
+    VOCABULARY_SIZE,
+)
 from safetensors.torch import load_file
+from torch.nn import functional
 
 SCHEMA_VERSION = 1
-MODEL_ID = "RWKV/RWKV7-Goose-World2.8-0.1B-HF"
-MODEL_REVISION = "d81965cb4e1a9f96696b4f70b84212b8f2e43216"
-MODEL_SHA256_SRI = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM="
-MODEL_BLAKE3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5"
-MODEL_BYTE_COUNT = 382_111_072
 HF_SOURCE_REVISION = MODEL_REVISION
 HF_SOURCE_SHA256_SRI = "sha256-CwBZk2Oziq7f+c1xUZ1aDqfHSOHXcaTXQkNp+S6FChc="
 HF_SOURCE_BLAKE3 = "4c2c9b2527655e17ca74780f8e85597c39cd94497bc862850798478c0d53e5cd"
@@ -39,12 +48,6 @@ OFFICIAL_SOURCE_BLAKE3 = (
     "b55f5c0076b0bd8bab0aeba33bef2db9d77c4e47bf5412ac45c7ab406de9ffab"
 )
 OFFICIAL_SOURCE_BYTE_COUNT = 15_698
-HIDDEN_SIZE = 768
-HEAD_SIZE = 64
-HEAD_COUNT = 12
-INTERMEDIATE_SIZE = 3_072
-MODEL_LAYER_COUNT = 12
-VOCABULARY_SIZE = 65_536
 PREFIX_TOKEN_IDS = [1, 2]
 LAYER_NORM_EPSILON = 1.0e-5
 GROUP_NORM_EPSILON = HEAD_SIZE * LAYER_NORM_EPSILON
@@ -533,6 +536,7 @@ def comparison_receipt(
     )
     receipt: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
+        "profile_blake3": PROFILE_BLAKE3,
         "valid": valid,
         "model": {
             "model_id": MODEL_ID,

@@ -1,0 +1,14 @@
+{
+  "batch_capacity": 16,
+  "device_budget_bytes": 3221225472,
+  "effective_batch_size": 16,
+  "physical_device_id": 0,
+  "production_physically_admitted": false,
+  "recurrent_state_bytes": 37748736,
+  "safety_reserve_bytes": 268435456,
+  "schema_version": 1,
+  "temporary_tensor_bytes": 83886080,
+  "token_shift_bytes": 589824,
+  "total_required_bytes": 390660096,
+  "wkv_execution_policy": "fused-candidate"
+}

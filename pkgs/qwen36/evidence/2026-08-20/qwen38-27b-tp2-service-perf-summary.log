@@ -1,0 +1,15 @@
+# Qwen3.8-27B TP=2 warm-service performance summary
+# Date: 2026-08-20. Physical PCIe devices: 0, 1. Mesh: 1x2. Fabric: FABRIC_1D.
+# Scope: one warmup request followed by three measured greedy requests.
+# Request: prompt="Count upward from one:", prompt tokens=5, generated tokens=64.
+TTFT seconds: 0.5609844290011097, 0.5750412510024034, 0.6330752939975355
+TTFT mean seconds: 0.5897003246670162
+TTFT median seconds: 0.5750412510024034
+Decode tokens/second: 4.230676426549128, 4.145796211974314, 4.333893261685755
+Decode mean tokens/second: 4.236788633403066
+Decode median tokens/second: 4.2306764265491275
+Server elapsed seconds: 16.15578030400502, 16.52778933600348, 15.975794641999528
+Server elapsed mean seconds: 16.219788094002674
+HTTP client elapsed seconds: 16.304896, 16.694638, 16.105767
+HTTP client elapsed mean seconds: 16.368433666666665
+Every response returned 64 completion tokens. Service remained healthy.

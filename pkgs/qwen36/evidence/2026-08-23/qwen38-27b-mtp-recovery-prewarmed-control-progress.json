@@ -1,0 +1,3216 @@
+{
+  "admission_eligible": false,
+  "complete": true,
+  "diagnostic_only": true,
+  "events": [
+    {
+      "elapsed_seconds": 8.387025445699692e-06,
+      "program_cache_entries": null,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "command-start"
+    },
+    {
+      "elapsed_seconds": 2.6850966589991003,
+      "program_cache_entries": null,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "mesh-open-start"
+    },
+    {
+      "elapsed_seconds": 6.883542594034225,
+      "program_cache_entries": 0,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "mesh-open-complete"
+    },
+    {
+      "elapsed_seconds": 6.886147718993016,
+      "program_cache_entries": 0,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "model-load-start"
+    },
+    {
+      "elapsed_seconds": 82.31038403103594,
+      "program_cache_entries": 9,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "model-load-complete"
+    },
+    {
+      "elapsed_seconds": 83.12869591003982,
+      "program_cache_entries": 9,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "adapter-create-start"
+    },
+    {
+      "elapsed_seconds": 85.86050967301708,
+      "program_cache_entries": 14,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "adapter-create-complete"
+    },
+    {
+      "elapsed_seconds": 85.86431064101635,
+      "program_cache_entries": 14,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-start"
+    },
+    {
+      "elapsed_seconds": 85.866686836991,
+      "program_cache_entries": 14,
+      "prompt_index": 1,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-prompt-start"
+    },
+    {
+      "elapsed_seconds": 190.36208922602236,
+      "program_cache_entries": 405,
+      "prompt_index": 1,
+      "root_index": null,
+      "route": null,
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": null,
+      "stage": "prewarm-prompt-complete"
+    },
+    {
+      "elapsed_seconds": 190.36469016299816,
+      "program_cache_entries": 405,
+      "prompt_index": 2,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-prompt-start"
+    },
+    {
+      "elapsed_seconds": 197.71518714603735,
+      "program_cache_entries": 406,
+      "prompt_index": 2,
+      "root_index": null,
+      "route": null,
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": null,
+      "stage": "prewarm-prompt-complete"
+    },
+    {
+      "elapsed_seconds": 197.720962255029,
+      "program_cache_entries": 406,
+      "prompt_index": 3,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-prompt-start"
+    },
+    {
+      "elapsed_seconds": 202.16694406000897,
+      "program_cache_entries": 406,
+      "prompt_index": 3,
+      "root_index": null,
+      "route": null,
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": null,
+      "stage": "prewarm-prompt-complete"
+    },
+    {
+      "elapsed_seconds": 202.17025237804046,
+      "program_cache_entries": 406,
+      "prompt_index": 4,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-prompt-start"
+    },
+    {
+      "elapsed_seconds": 206.70715511299204,
+      "program_cache_entries": 407,
+      "prompt_index": 4,
+      "root_index": null,
+      "route": null,
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": null,
+      "stage": "prewarm-prompt-complete"
+    },
+    {
+      "elapsed_seconds": 206.70912235003198,
+      "program_cache_entries": 407,
+      "prompt_index": 5,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-prompt-start"
+    },
+    {
+      "elapsed_seconds": 211.12577241199324,
+      "program_cache_entries": 408,
+      "prompt_index": 5,
+      "root_index": null,
+      "route": null,
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": null,
+      "stage": "prewarm-prompt-complete"
+    },
+    {
+      "elapsed_seconds": 211.1302879070281,
+      "program_cache_entries": 408,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "prewarm-complete"
+    },
+    {
+      "elapsed_seconds": 211.13309258199297,
+      "program_cache_entries": 408,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "persistent-warmup-start"
+    },
+    {
+      "elapsed_seconds": 211.13431410799967,
+      "program_cache_entries": 408,
+      "prompt_index": 1,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 215.70206681103446,
+      "program_cache_entries": 409,
+      "prompt_index": 1,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 215.70580378803425,
+      "program_cache_entries": 409,
+      "prompt_index": 1,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 220.08445336204022,
+      "program_cache_entries": 409,
+      "prompt_index": 1,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 220.0880937910406,
+      "program_cache_entries": 409,
+      "prompt_index": 2,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 227.32842665101634,
+      "program_cache_entries": 409,
+      "prompt_index": 2,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 227.33238535403507,
+      "program_cache_entries": 409,
+      "prompt_index": 2,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 234.62663238402456,
+      "program_cache_entries": 409,
+      "prompt_index": 2,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 234.63122062804177,
+      "program_cache_entries": 409,
+      "prompt_index": 3,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 239.18603616702603,
+      "program_cache_entries": 409,
+      "prompt_index": 3,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 239.19046348001575,
+      "program_cache_entries": 409,
+      "prompt_index": 3,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 243.70177998801228,
+      "program_cache_entries": 409,
+      "prompt_index": 3,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 243.7047923890059,
+      "program_cache_entries": 409,
+      "prompt_index": 4,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 248.33243656600825,
+      "program_cache_entries": 409,
+      "prompt_index": 4,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 248.33647239702987,
+      "program_cache_entries": 409,
+      "prompt_index": 4,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 252.7881570419995,
+      "program_cache_entries": 410,
+      "prompt_index": 4,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 252.79078406299232,
+      "program_cache_entries": 410,
+      "prompt_index": 5,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 257.2739373850054,
+      "program_cache_entries": 410,
+      "prompt_index": 5,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 257.2784902070416,
+      "program_cache_entries": 410,
+      "prompt_index": 5,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "warmup-root-start"
+    },
+    {
+      "elapsed_seconds": 261.8199571070145,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "warmup-root-complete"
+    },
+    {
+      "elapsed_seconds": 261.8227108370047,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "persistent-warmup-complete"
+    },
+    {
+      "elapsed_seconds": 261.8242016049917,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "measurement-start"
+    },
+    {
+      "elapsed_seconds": 261.8255559540121,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 266.23727096099174,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 266.2411266519921,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 270.7689375629998,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 270.77199645899236,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 275.21385947300587,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 275.22598564298823,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 279.7712998870411,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 279.7739579210174,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 284.28140432800865,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 284.2847266549943,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 288.57532679999713,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 288.57909961102996,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 293.06007852201583,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 293.0724117580103,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 297.75874333799584,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 297.76147599500837,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 302.2756835250184,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 302.2786787300138,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 306.717336177011,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 306.7197129440028,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 311.1278384560137,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 311.13267161202384,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 315.6396042149863,
+      "program_cache_entries": 411,
+      "prompt_index": 1,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          89454,
+          4384,
+          58377
+        ],
+        "target_verification_token_ids": [
+          89454,
+          4384,
+          58377,
+          12482
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 315.64408923703013,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 322.57056334702065,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 322.5753648690297,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 329.72833909798646,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 329.7405820679851,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 336.5940667790128,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 336.6064453070285,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 344.0915728730033,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 344.09777891699923,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 351.5711513439892,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 351.5842013400397,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 359.29244205600116,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 359.30477754503954,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 367.1124221170321,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 367.1166687600198,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 374.71939707698766,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 374.72353928600205,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 382.16128743998706,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 382.16641553200316,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 390.4603832429857,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 390.4657366370084,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 398.77858732204186,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 398.7834942599875,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 409.65001267101616,
+      "program_cache_entries": 411,
+      "prompt_index": 2,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 0,
+        "committed_width": 1,
+        "draft_token_ids": [
+          248045,
+          74455,
+          198
+        ],
+        "rollback_applied": true,
+        "target_token_ids": [
+          37132,
+          55404,
+          369
+        ],
+        "target_verification_token_ids": [
+          37132,
+          55404,
+          369,
+          279
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 409.654882783012,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 414.23065794602735,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 414.24357979901833,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 419.00488021899946,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 419.0175071270205,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 423.35135640000226,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 423.3552708920324,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 427.12677725899266,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 427.13131176301977,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 431.16664442402544,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 431.169153772993,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 435.6228774529882,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 435.6263413699926,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 440.7597266579978,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 440.76200571499066,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 446.8674583249958,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 446.8711873969878,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 453.8161549710203,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 453.8212643539882,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 459.81897759699496,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 459.8242763989838,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 469.57114513003035,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 469.5752255319967,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 477.02965380001115,
+      "program_cache_entries": 411,
+      "prompt_index": 3,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          760,
+          6511,
+          314
+        ],
+        "target_verification_token_ids": [
+          760,
+          6511,
+          314,
+          9338
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 477.0352093090187,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 484.0599981690175,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 484.0658966010087,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 488.95656966703245,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 488.9625667909859,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 494.37893484998494,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 494.38301941001555,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 499.9832820899901,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 499.9872447809903,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 505.2567221909994,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 505.2627277930151,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 510.66196426103124,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 510.6659669940127,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 515.784557697014,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 515.788490276027,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 520.7313276610221,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 520.7383761529927,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 525.422127739992,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 525.4274953440181,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 530.2224074479891,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 530.2262333480176,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 534.9684530789964,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 534.9730983100017,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 539.7699043810135,
+      "program_cache_entries": 411,
+      "prompt_index": 4,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          32,
+          14294,
+          6297
+        ],
+        "target_verification_token_ids": [
+          32,
+          14294,
+          6297,
+          1220
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 539.7747747540125,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 544.6608211970306,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 1,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 544.6666337430361,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 549.4771624790155,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 2,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 549.4812001340324,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 554.8635150220362,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 3,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 554.8700063510332,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 559.8052065059892,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 4,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 559.809653209988,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 565.1888095880277,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 5,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 565.1933759170352,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 571.4518779219943,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 6,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 571.4591631499934,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 576.7395932020154,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 7,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 576.7432856480009,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 581.6186548339901,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 8,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 581.6223903580103,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 586.213256595016,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 9,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 586.2174652600079,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 590.7058141030138,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 10,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 590.7106478310307,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 595.1834710990079,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 11,
+      "route": "snapshot",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 595.18852336501,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": null,
+      "signature_match": null,
+      "stage": "measured-root-start"
+    },
+    {
+      "elapsed_seconds": 599.5131711490103,
+      "program_cache_entries": 411,
+      "prompt_index": 5,
+      "root_index": 12,
+      "route": "reprefill",
+      "signature": {
+        "accepted_prefix_length": 3,
+        "committed_width": 4,
+        "draft_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "rollback_applied": false,
+        "target_token_ids": [
+          11,
+          4097,
+          11
+        ],
+        "target_verification_token_ids": [
+          11,
+          4097,
+          11,
+          4590
+        ]
+      },
+      "signature_match": true,
+      "stage": "measured-root-complete"
+    },
+    {
+      "elapsed_seconds": 599.5179990340257,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "measurement-complete"
+    },
+    {
+      "elapsed_seconds": 599.5212703960133,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "cleanup-start"
+    },
+    {
+      "elapsed_seconds": 600.3368398890016,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "cleanup-complete"
+    },
+    {
+      "elapsed_seconds": 600.3398745860322,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "evaluation-start"
+    },
+    {
+      "elapsed_seconds": 600.3500320460298,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "evaluation-complete"
+    },
+    {
+      "elapsed_seconds": 600.3525685310015,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "receipt-write-start"
+    },
+    {
+      "elapsed_seconds": 600.3610406240332,
+      "program_cache_entries": 411,
+      "prompt_index": null,
+      "root_index": null,
+      "route": null,
+      "signature": null,
+      "signature_match": null,
+      "stage": "complete"
+    }
+  ],
+  "failed": false,
+  "last_stage": "complete",
+  "measurement_program_cache_entries": 411,
+  "prompt_count": 5,
+  "route_schedule": [
+    "reprefill",
+    "snapshot",
+    "snapshot",
+    "reprefill",
+    "reprefill",
+    "snapshot",
+    "snapshot",
+    "reprefill",
+    "reprefill",
+    "snapshot",
+    "snapshot",
+    "reprefill"
+  ],
+  "schema_version": 1
+}

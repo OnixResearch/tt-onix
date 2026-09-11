@@ -1,0 +1,1 @@
+echo "$unquoted_fixture"

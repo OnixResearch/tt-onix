@@ -1,0 +1,16 @@
+diff -ruN a/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py b/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py	2026-08-19 19:56:07.754656288 -0400
++++ b/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py	2026-08-19 19:56:07.771656413 -0400
+@@ -37,8 +37,10 @@
+ 
+ def fused_chunk_enabled():
+     """Route GDN prefill through the fused ttnn.transformer.chunk_gated_delta_rule op (fast path).
+-    Always on; the seq adapter is used only for decode (valid_len set), selected in tp.py."""
+-    return True
++    On runtimes that do not expose the fused op (the packaged 0.74 bindings),
++    fall back to the seq adapter (gated_delta_attn_seq), which those runtimes
++    do expose; tp.py already dispatches on this flag for prefill and decode."""
++    return hasattr(ttnn.transformer, "chunk_gated_delta_rule")
+ 
+ 
+ def phased_enabled():

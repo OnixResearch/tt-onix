@@ -194,7 +194,7 @@ fn write_f32_artifact(root: &Path, name: &str, values: &[f32]) -> Result<Value, 
             "reference tensor must be non-empty and finite",
         ));
     }
-    let mut bytes = Vec::with_capacity(values.len() * size_of::<f32>());
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(values));
     for value in values {
         bytes.extend_from_slice(&value.to_le_bytes());
     }

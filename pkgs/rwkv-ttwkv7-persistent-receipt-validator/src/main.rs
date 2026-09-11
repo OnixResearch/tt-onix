@@ -1,6 +1,5 @@
 use rwkv_ttwkv7_persistent_receipt_validator::{
-    MAXIMUM_PERSISTENT_RECEIPT_BYTES, PersistentReceiptExpectations,
-    validate_persistent_receipt,
+    MAXIMUM_PERSISTENT_RECEIPT_BYTES, PersistentReceiptExpectations, validate_persistent_receipt,
 };
 use std::env;
 use std::fs;

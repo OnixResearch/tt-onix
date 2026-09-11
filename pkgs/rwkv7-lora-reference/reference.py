@@ -11,10 +11,23 @@ import json
 import os
 import sys
 
-import torch
-
 import lora_core
+import torch
 import wkv7
+from generated_model_target_identity import (
+    CPU_REFERENCE_PRECISION,
+    HEAD_COUNT,
+    HEAD_SIZE,
+    HIDDEN_SIZE,
+    LORA_FINITE_DIFFERENCE_TOLERANCE,
+    LORA_GRADIENT_AGREEMENT_TOLERANCE,
+    MODEL_ID,
+    MODEL_LAYER_COUNT,
+    MODEL_REVISION,
+    PROFILE_BLAKE3,
+    TOKENIZER_VOCAB_BLAKE3,
+)
+from generated_model_target_identity import MODEL_BLAKE3 as CHECKPOINT_BLAKE3
 
 torch.manual_seed(0)
 
@@ -22,15 +35,10 @@ BOUNDED_BATCH = 1
 BOUNDED_TIME = 4
 BOUNDED_HEADS = 2
 BOUNDED_WIDTH = 4
-GRADIENT_TOLERANCE = 5e-3
-FINITE_DIFFERENCE_TOLERANCE = 2e-2
+GRADIENT_TOLERANCE = LORA_GRADIENT_AGREEMENT_TOLERANCE
+FINITE_DIFFERENCE_TOLERANCE = LORA_FINITE_DIFFERENCE_TOLERANCE
 LORA_RANK = 2
 LEARNING_RATE = 1e-2
-
-MODEL_ID = "RWKV/RWKV7-Goose-World2.8-0.1B-HF"
-MODEL_REVISION = "d81965cb4e1a9f96696b4f70b84212b8f2e43216"
-CHECKPOINT_BLAKE3 = "905f82048a64b881f9267117a398feb8a8a92bcc5233666bf67904e0d899d0e5"
-TOKENIZER_VOCAB_BLAKE3 = "3997a74891dd68ced8daadae0d7475274b08988c9263ca042896c8106967aef2"
 
 
 def bounded_inputs() -> dict[str, torch.Tensor]:
@@ -43,26 +51,47 @@ def bounded_inputs() -> dict[str, torch.Tensor]:
         "v": torch.randn(shape, generator=generator),
         "a": torch.sigmoid(torch.randn(shape, generator=generator)),
         "b": torch.randn(shape, generator=generator),
-        "state": torch.zeros((BOUNDED_BATCH, BOUNDED_HEADS, BOUNDED_WIDTH, BOUNDED_WIDTH)),
+        "state": torch.zeros((
+            BOUNDED_BATCH,
+            BOUNDED_HEADS,
+            BOUNDED_WIDTH,
+            BOUNDED_WIDTH,
+        )),
     }
 
 
 def check_gradient_agreement() -> dict[str, float]:
     inputs = bounded_inputs()
     out, _ = wkv7.wkv7_forward(
-        inputs["r"], inputs["w"], inputs["k"], inputs["v"],
-        inputs["a"], inputs["b"], inputs["state"],
+        inputs["r"],
+        inputs["w"],
+        inputs["k"],
+        inputs["v"],
+        inputs["a"],
+        inputs["b"],
+        inputs["state"],
     )
     wkv7.require_finite("wkv7 forward output", out)
     gout = torch.ones_like(out)
 
     autograd = wkv7.autograd_gradients(
-        inputs["r"], inputs["w"], inputs["k"], inputs["v"],
-        inputs["a"], inputs["b"], inputs["state"], gout,
+        inputs["r"],
+        inputs["w"],
+        inputs["k"],
+        inputs["v"],
+        inputs["a"],
+        inputs["b"],
+        inputs["state"],
+        gout,
     )
     manual = wkv7.wkv7_backward(
-        inputs["r"], inputs["w"], inputs["k"], inputs["v"],
-        inputs["a"], inputs["b"], gout,
+        inputs["r"],
+        inputs["w"],
+        inputs["k"],
+        inputs["v"],
+        inputs["a"],
+        inputs["b"],
+        gout,
         torch.zeros((BOUNDED_BATCH, BOUNDED_HEADS, BOUNDED_WIDTH, BOUNDED_WIDTH)),
     )
     names = ["r", "w", "k", "v", "a", "b"]
@@ -77,8 +106,13 @@ def check_gradient_agreement() -> dict[str, float]:
     # Finite-difference check on the r gradient for one element.
     def scalar_for_r(r_candidate: torch.Tensor) -> float:
         candidate_out, _ = wkv7.wkv7_forward(
-            r_candidate, inputs["w"], inputs["k"], inputs["v"],
-            inputs["a"], inputs["b"], inputs["state"],
+            r_candidate,
+            inputs["w"],
+            inputs["k"],
+            inputs["v"],
+            inputs["a"],
+            inputs["b"],
+            inputs["state"],
         )
         return float((candidate_out * gout).sum().item())
 
@@ -191,11 +225,13 @@ def check_checkpoint_resume() -> dict[str, object]:
     # Zero-effect init: force at least one nonzero adapter so save/load is meaningful.
     adapters["lora_A"].normal_()
 
-    from safetensors.torch import save as st_save
     from safetensors.torch import load as st_load
+    from safetensors.torch import save as st_save
 
     blob = st_save(adapters)
-    tensor_blake3 = {name: lora_core.blake3_hex(t.numpy().tobytes()) for name, t in adapters.items()}
+    tensor_blake3 = {
+        name: lora_core.blake3_hex(t.numpy().tobytes()) for name, t in adapters.items()
+    }
     bound = {
         "model_id": MODEL_ID,
         "model_revision": MODEL_REVISION,
@@ -221,7 +257,10 @@ def check_checkpoint_resume() -> dict[str, object]:
         resume_rejected = True
     else:
         raise ValueError("incompatible resume manifest was accepted")
-    return {"manifest_blake3": manifest["manifest_blake3"], "resume_rejected": resume_rejected}
+    return {
+        "manifest_blake3": manifest["manifest_blake3"],
+        "resume_rejected": resume_rejected,
+    }
 
 
 def check_data_planning() -> dict[str, object]:
@@ -237,8 +276,12 @@ def check_data_planning() -> dict[str, object]:
             prompt, response = lora_core.admit_record(record)
             prompt_ids = [b + 1 for b in prompt.encode()]
             response_ids = [b + 1 for b in response.encode()]
-            plan = lora_core.plan_token_labels(prompt_ids, response_ids, sequence_length)
-            plan_again = lora_core.plan_token_labels(prompt_ids, response_ids, sequence_length)
+            plan = lora_core.plan_token_labels(
+                prompt_ids, response_ids, sequence_length
+            )
+            plan_again = lora_core.plan_token_labels(
+                prompt_ids, response_ids, sequence_length
+            )
             if plan != plan_again:
                 raise ValueError("label planning is not deterministic")
             active = [label for label in plan["labels"] if label != -100]
@@ -288,11 +331,11 @@ def check_model_authority() -> dict[str, object]:
         "revision": MODEL_REVISION,
         "checkpoint_blake3": CHECKPOINT_BLAKE3,
         "tokenizer_vocab_blake3": TOKENIZER_VOCAB_BLAKE3,
-        "layer_count": 12,
-        "hidden_size": 768,
-        "head_count": 12,
-        "head_size": 64,
-        "precision": "fp32_from_bf16",
+        "layer_count": MODEL_LAYER_COUNT,
+        "hidden_size": HIDDEN_SIZE,
+        "head_count": HEAD_COUNT,
+        "head_size": HEAD_SIZE,
+        "precision": CPU_REFERENCE_PRECISION,
     }
     identity = lora_core.authority_identity(fields)
     identity_again = lora_core.authority_identity(fields)
@@ -301,7 +344,10 @@ def check_model_authority() -> dict[str, object]:
     drifted = dict(fields, revision="deadbeef")
     if lora_core.authority_identity(drifted) == identity:
         raise ValueError("authority drift was not detected")
-    return {"authority_blake3": identity}
+    return {
+        "authority_blake3": identity,
+        "profile_blake3": PROFILE_BLAKE3,
+    }
 
 
 def check_model_load() -> dict[str, object]:
@@ -321,7 +367,7 @@ def check_model_load() -> dict[str, object]:
         names = handle.keys()
         if not names:
             raise ValueError("pinned checkpoint has no tensors")
-        first = sorted(names)[0]
+        first = min(names)
         tensor = handle.get_tensor(first)
     if tensor.dtype != torch.bfloat16:
         raise ValueError(f"pinned checkpoint tensor dtype is {tensor.dtype}, not bf16")

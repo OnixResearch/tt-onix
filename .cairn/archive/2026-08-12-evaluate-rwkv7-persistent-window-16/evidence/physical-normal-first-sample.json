@@ -1,0 +1,259 @@
+{
+  "batch_step_count": 16,
+  "capacity": {
+    "id": "B4",
+    "memory_plan_bytes": {
+      "device_budget_bytes": 3221225472,
+      "recurrent_state_bytes": 9437184,
+      "safety_reserve_bytes": 268435456,
+      "temporary_tensor_bytes": 20971520,
+      "token_shift_bytes": 147456,
+      "total_required_bytes": 298991616
+    },
+    "per_card_slot_count": 4
+  },
+  "effective_batch_size": 4,
+  "elapsed_seconds": 0.275748863,
+  "execution": {
+    "artifact_writes_during_timing": false,
+    "control_replay_during_timing": false,
+    "dynamic_token_and_state_bindings_validated": true,
+    "fetch_queue_diagnostics_during_timing": false,
+    "hardware_counters_during_timing": false,
+    "inspector_during_timing": false,
+    "primary_thread_fifo_scheduling": true,
+    "primary_thread_only_affinity": true,
+    "production_physically_admitted": true,
+    "profiler_flush_during_timing": false,
+    "program_cache_stable": true,
+    "recurrent_state_residency": "device_fp32",
+    "replica_mode": "independent_card_replica",
+    "scheduler_mode": "deterministic_continuous_batching",
+    "scheduler_tie_break": "least_loaded_card_then_lowest_card_then_lowest_slot",
+    "state_readback_during_timing": false,
+    "synchronized_timed_start": true,
+    "timed_region": "decode_only",
+    "warmup_token_count": 4,
+    "wkv_execution_policy": "production"
+  },
+  "host_gap_accumulated_seconds": 5.962000000000001e-06,
+  "logical_device_ids": [
+    0
+  ],
+  "persistent_decode": {
+    "admitted_decode_windows": [
+      2,
+      4,
+      8,
+      16
+    ],
+    "binding_identities": {
+      "checkpoint": "fe39d4602de2dc43ace6010120b1078b2b98a58f6ee2b8e051d8925fa68d99a6",
+      "output": "3114cb4d337f2ee266ac83a11c6d2447d4d30f72fbe775cd5c61967f0d228ada",
+      "profile": "2076f3256994c5454c42b608b42c36806e96b0bcc47816854eb2b6b27e63a6bb",
+      "program": "1430ac2e9282113ec1dc1720821355ad8c038dfedcf577f06b58d9cee995f56e",
+      "runtime": "9b1b9d66c7175d5afad9c6d5e1f4eed732bfbb447ae1537e2af57826dd231bc7",
+      "slot": "36c98fbf9a41c0e03ffe2ffda211742138835f1204046d576fd977fa11e11f4f",
+      "state": "728cfb00fda943ea8ea655b2ed61a9230f05590399de7df02e95c896a95b5092",
+      "token": "7f68d16c645b4c95aa59e542e1d516a1daab18cd97988fc3c538911e8d92694f",
+      "weight": "4a74b838c4228a30fce47478fcd3cbea76174ec3a54773d35744a203400413df"
+    },
+    "bindings_validated": true,
+    "canary_binding_blake3": null,
+    "canary_interlock_allows_persistent": true,
+    "canary_interlock_file_blake3": null,
+    "canary_interlock_present": false,
+    "canary_interlock_state": "not_present",
+    "canary_interlock_valid": true,
+    "cancellation_poll_interval_steps": 2,
+    "candidate_requested": false,
+    "exact_fp32_recurrent_state_parity": false,
+    "exact_generated_token_parity": false,
+    "fallback_detail": "the persistent candidate is not physically admitted",
+    "fallback_reason": "profile_not_admitted",
+    "final_state_blake3": null,
+    "hash_algorithm": "blake3",
+    "lifecycle_receipts": [],
+    "mechanism": "bounded_metal_trace_chunk",
+    "model_profile_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+    "output_readback_after_region": false,
+    "persistent_region_entered": false,
+    "physically_admitted": false,
+    "pre_replay_terminal_event": false,
+    "profile_blake3": "0fd161f7172276d1efbe51623b1d110947e68de40024109618547cf7a42bb01a",
+    "profile_id": "rwkv7-p150x2-persistent-decode-window16-candidate-v1",
+    "prompt_prefill_outside_timed_region": true,
+    "recurrent_state_dtype": "fp32",
+    "reference_state_blake3": null,
+    "reference_state_zeroed": false,
+    "selected_decode_window_steps": 16,
+    "selected_mode": "normal_dispatch",
+    "selected_token_device_resident_inside_region": false,
+    "selected_token_readback_inside_region": false,
+    "simulated": false,
+    "state_zeroed_before_slot_release": false,
+    "terminal_event_poll_step": null,
+    "terminal_probe": "none",
+    "timed_host_model_submissions": 16,
+    "trace_capture_outside_timed_region": false,
+    "trace_execution_seconds": 0.0,
+    "trace_region_bytes": 0,
+    "window_admitted": true,
+    "workload_eligible": true,
+    "zero_per_token_host_submissions_proven": false
+  },
+  "persistent_decode_telemetry": {
+    "cleanup_status": "not_applicable",
+    "dispatch": {
+      "fallback_reason": "profile_not_admitted",
+      "selected_mode": "normal_dispatch",
+      "selected_window_steps": 16
+    },
+    "eligibility": {
+      "bindings_validated": true,
+      "candidate_requested": false,
+      "profile_physically_admitted": false,
+      "window_admitted": true,
+      "workload_eligible": true
+    },
+    "event_kind": "rwkv7_persistent_decode_worker",
+    "parity": {
+      "fp32_recurrent_state": "not_applicable",
+      "generated_tokens": "not_applicable"
+    },
+    "schema_version": 1,
+    "terminal_outcomes": {
+      "cancelled": 0,
+      "completed": 0,
+      "failed": 0,
+      "timed_out": 0
+    },
+    "timing": {
+      "cleanup_seconds": 0.0,
+      "clock": "steady_monotonic",
+      "trace_replay_seconds": 0.0,
+      "trace_setup_seconds": 0.0,
+      "unit": "seconds"
+    }
+  },
+  "physical_device_ids": [
+    0
+  ],
+  "physical_hardware": true,
+  "primary_thread_cpu_affinity": 2,
+  "primary_thread_fifo_priority": 1,
+  "profiler_attributed": false,
+  "profiler_trace_only": false,
+  "queue_occupancy_fraction": 1.0,
+  "requests": [
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        36786,
+        34,
+        308,
+        459,
+        39743,
+        4811,
+        31063,
+        32227,
+        22799,
+        5230,
+        64390,
+        32074,
+        64356,
+        32487,
+        32515,
+        46705
+      ],
+      "latency_seconds": 0.275741409,
+      "request_id": "persistent-window16-hello-0",
+      "state_slot": 0,
+      "token_count": 23
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        36786,
+        34,
+        308,
+        459,
+        39743,
+        4811,
+        31063,
+        32227,
+        22799,
+        5230,
+        64390,
+        32074,
+        64356,
+        32487,
+        32515,
+        46705
+      ],
+      "latency_seconds": 0.275741409,
+      "request_id": "persistent-window16-hello-1",
+      "state_slot": 1,
+      "token_count": 23
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        36786,
+        34,
+        308,
+        459,
+        39743,
+        4811,
+        31063,
+        32227,
+        22799,
+        5230,
+        64390,
+        32074,
+        64356,
+        32487,
+        32515,
+        46705
+      ],
+      "latency_seconds": 0.275741409,
+      "request_id": "persistent-window16-hello-2",
+      "state_slot": 2,
+      "token_count": 23
+    },
+    {
+      "card_id": 0,
+      "generated_token_ids": [
+        36786,
+        34,
+        308,
+        459,
+        39743,
+        4811,
+        31063,
+        32227,
+        22799,
+        5230,
+        64390,
+        32074,
+        64356,
+        32487,
+        32515,
+        46705
+      ],
+      "latency_seconds": 0.275741409,
+      "request_id": "persistent-window16-hello-3",
+      "state_slot": 3,
+      "token_count": 23
+    }
+  ],
+  "run_id": "single-normal-0-wave-0-card-0",
+  "schema_version": 1,
+  "timed_end_monotonic_ns": 359759618653452,
+  "timed_end_unix_ns": 1786570770399996489,
+  "timed_start_monotonic_ns": 359759342904589,
+  "timed_start_unix_ns": 1786570770124247536,
+  "visible_physical_device_ids": [
+    0
+  ]
+}

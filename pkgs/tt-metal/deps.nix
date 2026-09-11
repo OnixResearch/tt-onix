@@ -30,9 +30,9 @@ in
   nanobind = fetchFromGitHub {
     owner = "wjakob";
     repo = "nanobind";
-    rev = "c5a3a378aa61d104c82ca053cb1e367782cd3618";
+    rev = "86e5626728fc282637a6c338597120913dded1bb";
     fetchSubmodules = true;
-    hash = "sha256-io44YhN+VpfHFWyvvLWSanRgbzA0whK8WlDNRi3hahU=";
+    hash = "sha256-jAg/CotM361gc+5Ymsz8jP0ddLBzrFTxCkssJKFe0NY=";
   };
   taskflow = fetchFromGitHub {
     owner = "taskflow";

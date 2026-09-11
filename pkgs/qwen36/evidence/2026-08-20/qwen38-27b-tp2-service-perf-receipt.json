@@ -1,0 +1,97 @@
+{
+  "classification": "passed",
+  "date": "2026-08-20",
+  "execution": {
+    "fabric": "FABRIC_1D",
+    "generated_token_count": 64,
+    "measured_request_count": 3,
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prompt": "Count upward from one:",
+    "prompt_token_count": 5,
+    "request_serialization": true,
+    "simulated": false,
+    "warmup_request_count": 1
+  },
+  "metrics": {
+    "client_elapsed_mean_seconds": 16.368433666666665,
+    "client_elapsed_seconds": [
+      16.304896,
+      16.694638,
+      16.105767
+    ],
+    "decode_mean_tokens_per_second": 4.236788633403066,
+    "decode_median_tokens_per_second": 4.2306764265491275,
+    "decode_tokens_per_second": [
+      4.230676426549128,
+      4.145796211974314,
+      4.333893261685755
+    ],
+    "server_elapsed_mean_seconds": 16.219788094002674,
+    "server_elapsed_seconds": [
+      16.15578030400502,
+      16.52778933600348,
+      15.975794641999528
+    ],
+    "ttft_mean_seconds": 0.5897003246670162,
+    "ttft_median_seconds": 0.5750412510024034,
+    "ttft_seconds": [
+      0.5609844290011097,
+      0.5750412510024034,
+      0.6330752939975355
+    ]
+  },
+  "model": {
+    "hf_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "name": "Qwen3.8-27B",
+    "upstream_commit": "d102e7f4512060e09e580e40cf26a870bfa88c55"
+  },
+  "non_claims": [
+    "No batch-size greater than one claim",
+    "No parallel-request or streaming claim",
+    "No prompt-plus-generation length above 2048 tokens",
+    "No long-context performance claim",
+    "No comparison with upstream P150x4 or P150x8 results",
+    "Three local measurements are not a fleet performance guarantee"
+  ],
+  "raw_metrics": {
+    "blake3": "7a788df9b67217f80cb1e7e03e91cf988a2dd26bdbc9ab92f0d6aec72afcec76",
+    "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/perf/measured-metrics.jsonl"
+  },
+  "responses": [
+    {
+      "blake3": "4db10ee0f74cae1acf916c1ba8064c7b26252cc7f1ea3d7b9c81d7bc74adb739",
+      "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/perf/measured-1.json"
+    },
+    {
+      "blake3": "87108fd430ca0489ca4442220ffcbc6018548b4d892234f74c399082f486297b",
+      "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/perf/measured-2.json"
+    },
+    {
+      "blake3": "9f1e37b44c6c19971a5ed6765d16f79e9df5352b4eb384e119e5ffa9d1fb77f7",
+      "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-service/perf/measured-3.json"
+    }
+  ],
+  "runtime": {
+    "firmware": "19.11.0",
+    "kmd": "2.10.0",
+    "qwen_package": "/nix/store/igx41fzy1jl72gbsxc98cbifcax7dndn-qwen36-0.1.0",
+    "sfpi": "7.70.0[847]",
+    "tt_metal": "0.74.0-rc6",
+    "tt_umd": "0.9.9"
+  },
+  "schema_version": 1,
+  "service": {
+    "deployed_package": "/nix/store/nfb8mjxjvpjjwg8b1g97pxplz002gbj8-qwen36-0.1.0",
+    "endpoint": "http://127.0.0.1:8000",
+    "scope": "per-user systemd",
+    "unit": "qwen38-p150x2.service",
+    "unit_state_after_measurement": "active"
+  }
+}

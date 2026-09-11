@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "run_id": "persistent-window8-lifecycle-probe",
+  "capacity": {
+    "id": "B4",
+    "per_card_slot_count": 4,
+    "temporary_tensor_bytes_per_slot": 5242880,
+    "device_budget_bytes": 3221225472,
+    "safety_reserve_bytes": 268435456
+  },
+  "requests": [
+    {
+      "request_id": "lifecycle-window8-hello-0",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 8,
+      "state_slot": 0
+    },
+    {
+      "request_id": "lifecycle-window8-hello-1",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 8,
+      "state_slot": 1
+    },
+    {
+      "request_id": "lifecycle-window8-hello-2",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 8,
+      "state_slot": 2
+    },
+    {
+      "request_id": "lifecycle-window8-hello-3",
+      "prompt_token_ids": [0, 24281, 59, 36786, 65530, 5585, 41693, 59],
+      "max_new_tokens": 8,
+      "state_slot": 3
+    }
+  ]
+}

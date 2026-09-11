@@ -1,0 +1,13 @@
+# Silicon op roundtrip probe (matmul 32x1024x1024, cosine vs torch reference).
+# Date: 2026-08-19 18:47 EDT. Physical device 1, packaged 0.74 runtime via qwen36 env.
+visible device_ids: [0]
+device opened arch=Arch.BLACKHOLE
+matmul 32x1024x1024 cosine=0.999968
+probe_silicon: PASS
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulDeviceOperation"

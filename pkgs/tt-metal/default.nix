@@ -47,15 +47,14 @@ stdenv.mkDerivation (
   in
   {
     pname = "tt-metal";
-    version = "0.74.0";
+    version = "0.77.0";
 
     src = fetchFromGitHub {
       owner = "tenstorrent";
       repo = "tt-metal";
-      # 0.74.0 final isn't cut yet; rc6 is the newest 0.74.
-      tag = "v${finalAttrs.version}-rc6";
+      tag = "v${finalAttrs.version}";
       fetchSubmodules = true;
-      hash = "sha256-Mm11sjlO/KuOOJon6R3jf73XNHz4CmsxjmbDjrdHV8E=";
+      hash = "sha256-5NY5orbs7w9BTOUsylg8eAXIxJK+smthhkjd6HFePGA=";
     };
 
     cpm = fetchurl {
@@ -66,13 +65,10 @@ stdenv.mkDerivation (
     sfpi = callPackage ./sfpi.nix { };
 
     patches = [
-      # https://github.com/tenstorrent/tt-metal/pull/46222
-      ./cadical-local.patch
+      # TT-Metal 0.77 already accepts local cadical and header-only dependencies.
       ./umd-asio-local.patch
       # https://github.com/tenstorrent/tt-metal/pull/46224
       ./local-find-package.patch
-      # https://github.com/tenstorrent/tt-metal/pull/46226
-      ./header-only-local.patch
       # https://github.com/tenstorrent/tt-metal/pull/46229
       ./patched-pins-local.patch
       # tt-umd PR 2187 (./umd-targets-local.patch) merged upstream as of the umd
@@ -81,6 +77,14 @@ stdenv.mkDerivation (
       # Drop harvested/nonexistent eth dispatch cores so a 4x p150a mesh can open
       # (the eth dispatch YAML lists cores that don't exist on harvested Blackhole).
       ./bh-eth-dispatch-harvesting.patch
+      # Fuse the fp32 single-token gated-delta recurrence into one device program.
+      # The public path stays opt-in at the Qwen model layer until physical admission.
+      ./gdn-decode-fp32.patch
+    ];
+
+    patchFlags = [
+      "-p1"
+      "--fuzz=0"
     ];
 
     postUnpack = ''
@@ -93,17 +97,33 @@ stdenv.mkDerivation (
       cp $cpm tt_metal/third_party/umd/cmake/CPM.cmake
       patchShebangs .
       substituteInPlace tt_metal/sfpi-info.sh --replace-fail "sfpi_dist=unknown" "sfpi_dist=debian"
-      # Cap'n Proto's local-find-package.patch hunks don't apply to 0.74 (block
-      # reordered); do them here so CPM finds nixpkgs capnproto offline. (0.74
-      # already renames googletest -> GTest upstream, so that rewrite is dropped.)
+      # Keep TT-Metal's compiler guard and installed metadata aligned with the
+      # newer correctness-fix SFPI release carried by this package.
+      cat > tt_metal/sfpi-version <<'EOF'
+      # sfpi release ${finalAttrs.sfpi.version}
+
+      sfpi_repo="https://github.com/tenstorrent/sfpi"
+      sfpi_version="${finalAttrs.sfpi.version}"
+      sfpi_base=""
+      sfpi_build="${finalAttrs.sfpi.releaseBuild}"
+      sfpi_hashtype="sha256"
+      sfpi_aarch64_debian_txz_hash="${finalAttrs.sfpi.releaseHashes.aarch64DebianTxz}"
+      sfpi_aarch64_debian_deb_hash="${finalAttrs.sfpi.releaseHashes.aarch64DebianDeb}"
+      sfpi_x86_64_debian_txz_hash="${finalAttrs.sfpi.releaseHashes.x86_64DebianTxz}"
+      sfpi_x86_64_debian_deb_hash="${finalAttrs.sfpi.releaseHashes.x86_64DebianDeb}"
+      sfpi_x86_64_fedora_txz_hash="${finalAttrs.sfpi.releaseHashes.x86_64FedoraTxz}"
+      sfpi_x86_64_fedora_rpm_hash="${finalAttrs.sfpi.releaseHashes.x86_64FedoraRpm}"
+      EOF
+      # Keep Cap'n Proto discovery offline. Its block moved independently of
+      # the local-find-package patch. Upstream already names googletest GTest.
       substituteInPlace third_party/CMakeLists.txt --replace-fail "NAME capnproto" "NAME CapnProto"
       sed -i 's|^        capnproto_pthread.patch$|&\n    FIND_PACKAGE_ARGUMENTS GLOBAL|' third_party/CMakeLists.txt
 
       # Disable Tracy's profiler CLI tools + WASM viewer: they pull a GUI/web CPM
-      # stack (imgui/glfw/emsdk) and run `emsdk install` at configure. Only
-      # TracyClient is needed, and it's built earlier.
+      # stack (imgui/glfw/emsdk) and run `emsdk install` at configure.
+      # Keep TracyClient and its generated debug-category header enabled.
       sed -i '/^add_subdirectory(tracy\/csvexport)$/i if(FALSE) # nix: profiler tools + WASM viewer disabled; TracyClient is built above' tt_metal/third_party/CMakeLists.txt
-      printf '\nendif()\n' >> tt_metal/third_party/CMakeLists.txt
+      sed -i '/^set(_tt_tracy_categories_file /i endif() # nix: retain runtime debug-category generation' tt_metal/third_party/CMakeLists.txt
     '';
 
     cmakeFlags = [

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "rwkv7_p150x2_affine_groupnorm_candidate",
+  "status": "rejected",
+  "reason": "exact_token_parity_failed",
+  "profiler": {
+    "profiled_recurrent_steps": 39,
+    "removed_multiply_launch_count": 468,
+    "removed_add_launch_count": 468,
+    "net_removed_launch_count": 936,
+    "layernorm_launch_change": 0,
+    "old_source_root": "/var/tmp/rwkv7-p150x2-lerp-profiler-20260809-1520",
+    "candidate_source_root": "/var/tmp/rwkv7-p150x2-affine-groupnorm-profiler-20260809-2010"
+  },
+  "parity": {
+    "status": "failed",
+    "expected_short_tokens": [2, 2, 2, 2],
+    "candidate_short_tokens": [59, 2430, 45, 2430],
+    "expected_long_prefix": [39, 6699, 19826, 4706],
+    "candidate_long_prefix": [32053, 32053, 32053, 32053]
+  },
+  "throughput_claim": null
+}

@@ -1,0 +1,10 @@
+{
+  "depends_on": [
+    "scale-rwkv7-card-local-batching"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}

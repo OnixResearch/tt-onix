@@ -5,4 +5,4 @@ let platform = import "../platform.ncl" in
 platform
 & {
   devices.count | force = 1,
-} | contracts.PlatformConfigClosed | contracts.PlatformConfig
+} | contracts.PlatformConfigClosed | contracts.PlatformConfigDeepClosed | contracts.PlatformConfig

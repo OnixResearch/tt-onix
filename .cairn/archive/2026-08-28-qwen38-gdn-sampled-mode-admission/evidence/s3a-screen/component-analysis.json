@@ -1,0 +1,50 @@
+{
+  "schema": "qwen38-gdn-dist-component-analysis.v1",
+  "physical": true,
+  "simulated": false,
+  "roots": [
+    {
+      "root": 5,
+      "route": "control",
+      "representative_gdn_seconds": 0.0005500330589711666,
+      "full_step_median_seconds": 0.05421066202688962,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 6,
+      "route": "candidate",
+      "representative_gdn_seconds": 0.0005063399439677596,
+      "full_step_median_seconds": 0.05088114202953875,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 7,
+      "route": "candidate",
+      "representative_gdn_seconds": 0.0005674150306731462,
+      "full_step_median_seconds": 0.050989544950425625,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    },
+    {
+      "root": 8,
+      "route": "control",
+      "representative_gdn_seconds": 0.0005844670813530684,
+      "full_step_median_seconds": 0.05422324489336461,
+      "first_decode_token": 11751,
+      "repeated_token": 13
+    }
+  ],
+  "gdn_ratio": 0.9464564493875087,
+  "full_step_ratio": 0.9394726232163095,
+  "full_step_speedup": 1.0644269724182844,
+  "duplicate_spread": 1.0656845096339547,
+  "bounds": {
+    "maximum_gdn_ratio": 0.95,
+    "maximum_full_step_ratio": 0.97,
+    "maximum_duplicate_spread": 1.25
+  },
+  "speed_gates_pass": true,
+  "rejection_reasons": []
+}

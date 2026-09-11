@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "simulated": false,
+  "prompt_count": 4,
+  "generated_tokens_per_prompt": 64,
+  "exact_token_and_text_parity": true,
+  "negative_control_rejected": true,
+  "candidate_package_identity": "/nix/store/1wldl000w9w5rkykiarcw7ja3k60jf1j-qwen36-execution-identity-0.1.0",
+  "non_claims": [
+    "not a controlled decode-speed or broad accuracy benchmark"
+  ]
+}

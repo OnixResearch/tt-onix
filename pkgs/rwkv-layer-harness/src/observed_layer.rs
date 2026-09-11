@@ -1543,35 +1543,32 @@ pub fn run_ttwkv7_observed_model_carry_checkpoint(
         "observed second token",
     )?;
 
+    let completion = ModelCompletionContext {
+        final_norm_weight: &final_norm_weight,
+        final_norm_bias: &final_norm_bias,
+        head: &head,
+        head_tensor: &head_tensor,
+    };
     let source = advance_observed_model_path(
         &weights,
         &model_config_eos,
         source_second,
         LayerZeroWkvMode::SourceFp32,
-        &final_norm_weight,
-        &final_norm_bias,
-        &head,
-        &head_tensor,
+        &completion,
     )?;
     let expected = advance_observed_model_path(
         &weights,
         &model_config_eos,
         expected_second,
         LayerZeroWkvMode::Bf16Cpu,
-        &final_norm_weight,
-        &final_norm_bias,
-        &head,
-        &head_tensor,
+        &completion,
     )?;
     let observed = advance_observed_model_path(
         &weights,
         &model_config_eos,
         observed_second.clone(),
         LayerZeroWkvMode::Bf16Cpu,
-        &final_norm_weight,
-        &final_norm_bias,
-        &head,
-        &head_tensor,
+        &completion,
     )?;
 
     let reset_matrix = vec![0.0_f32; observed_post_state.len()];
@@ -1581,10 +1578,7 @@ pub fn run_ttwkv7_observed_model_carry_checkpoint(
         &model_config_eos,
         reset_second,
         LayerZeroWkvMode::Bf16Cpu,
-        &final_norm_weight,
-        &final_norm_bias,
-        &head,
-        &head_tensor,
+        &completion,
     )?;
     let transposed_matrix = transpose_head_matrices(&observed_post_state, dimensions)?;
     let transposed_second = replace_model_layer_zero_matrix(observed_second, transposed_matrix)?;
@@ -1593,10 +1587,7 @@ pub fn run_ttwkv7_observed_model_carry_checkpoint(
         &model_config_eos,
         transposed_second,
         LayerZeroWkvMode::Bf16Cpu,
-        &final_norm_weight,
-        &final_norm_bias,
-        &head,
-        &head_tensor,
+        &completion,
     )?;
 
     validate_state_carry_token(
@@ -2323,16 +2314,20 @@ fn complete_persistent_model_token(
     })
 }
 
+struct ModelCompletionContext<'a, 'tensor> {
+    final_norm_weight: &'a [f32],
+    final_norm_bias: &'a [f32],
+    head: &'a Matrix,
+    head_tensor: &'a TensorView<'tensor>,
+}
+
 fn run_persistent_model_path(
     weights: &[LayerWeights],
     first_embedding: &[f32],
     continuation_embedding: &[f32],
     seed: ModelTokenExecution,
     route: PersistentModelRoute,
-    final_norm_weight: &[f32],
-    final_norm_bias: &[f32],
-    head: &Matrix,
-    head_tensor: &TensorView<'_>,
+    completion: &ModelCompletionContext<'_, '_>,
 ) -> Result<PersistentModelPath, String> {
     match route {
         PersistentModelRoute::Oracle => {
@@ -2348,10 +2343,10 @@ fn run_persistent_model_path(
                 PERSISTENT_MODEL_DISPATCH_FIRST_TOKEN_INDEX,
                 MODEL_CONFIG_EOS_TOKEN_ID,
                 first,
-                final_norm_weight,
-                final_norm_bias,
-                head,
-                head_tensor,
+                completion.final_norm_weight,
+                completion.final_norm_bias,
+                completion.head,
+                completion.head_tensor,
             )?;
             let second = run_model_token_all_layers_bf16(
                 weights,
@@ -2364,10 +2359,10 @@ fn run_persistent_model_path(
                 PERSISTENT_MODEL_DISPATCH_SECOND_TOKEN_INDEX,
                 MODEL_CONFIG_EOS_TOKEN_ID,
                 second,
-                final_norm_weight,
-                final_norm_bias,
-                head,
-                head_tensor,
+                completion.final_norm_weight,
+                completion.final_norm_bias,
+                completion.head,
+                completion.head_tensor,
             )?;
             Ok(PersistentModelPath {
                 tokens: vec![first, second],
@@ -2392,10 +2387,10 @@ fn run_persistent_model_path(
                 PERSISTENT_MODEL_DISPATCH_FIRST_TOKEN_INDEX,
                 MODEL_CONFIG_EOS_TOKEN_ID,
                 first,
-                final_norm_weight,
-                final_norm_bias,
-                head,
-                head_tensor,
+                completion.final_norm_weight,
+                completion.final_norm_bias,
+                completion.head,
+                completion.head_tensor,
             )?;
             let second = run_model_token_all_layers_bf16(
                 weights,
@@ -2408,10 +2403,10 @@ fn run_persistent_model_path(
                 PERSISTENT_MODEL_DISPATCH_SECOND_TOKEN_INDEX,
                 MODEL_CONFIG_EOS_TOKEN_ID,
                 second,
-                final_norm_weight,
-                final_norm_bias,
-                head,
-                head_tensor,
+                completion.final_norm_weight,
+                completion.final_norm_bias,
+                completion.head,
+                completion.head_tensor,
             )?;
             let summary = session.close()?;
             if summary.call_count != PERSISTENT_MODEL_DISPATCH_CALL_COUNT
@@ -2649,16 +2644,19 @@ pub fn run_ttwkv7_persistent_observed_model_dispatch_checkpoint(
         ModelMatrixControl::Transposed,
     )?;
 
+    let completion = ModelCompletionContext {
+        final_norm_weight: &setup.final_norm_weight,
+        final_norm_bias: &setup.final_norm_bias,
+        head: &setup.head,
+        head_tensor: &head_tensor,
+    };
     let oracle = run_persistent_model_path(
         &setup.weights,
         &setup.model_config_eos,
         &continuation_embedding,
         setup.observed_second.clone(),
         PersistentModelRoute::Oracle,
-        &setup.final_norm_weight,
-        &setup.final_norm_bias,
-        &setup.head,
-        &head_tensor,
+        &completion,
     )?;
     let dispatched = run_persistent_model_path(
         &setup.weights,
@@ -2668,10 +2666,7 @@ pub fn run_ttwkv7_persistent_observed_model_dispatch_checkpoint(
         PersistentModelRoute::Dispatch(super::dispatch_abi::derive_sequence_id(
             PERSISTENT_MODEL_DISPATCH_RETAINED_DOMAIN,
         )),
-        &setup.final_norm_weight,
-        &setup.final_norm_bias,
-        &setup.head,
-        &head_tensor,
+        &completion,
     )?;
     let reset = run_persistent_model_path(
         &setup.weights,
@@ -2681,10 +2676,7 @@ pub fn run_ttwkv7_persistent_observed_model_dispatch_checkpoint(
         PersistentModelRoute::Dispatch(super::dispatch_abi::derive_sequence_id(
             PERSISTENT_MODEL_DISPATCH_RESET_DOMAIN,
         )),
-        &setup.final_norm_weight,
-        &setup.final_norm_bias,
-        &setup.head,
-        &head_tensor,
+        &completion,
     )?;
     let transposed = run_persistent_model_path(
         &setup.weights,
@@ -2694,10 +2686,7 @@ pub fn run_ttwkv7_persistent_observed_model_dispatch_checkpoint(
         PersistentModelRoute::Dispatch(super::dispatch_abi::derive_sequence_id(
             PERSISTENT_MODEL_DISPATCH_TRANSPOSED_DOMAIN,
         )),
-        &setup.final_norm_weight,
-        &setup.final_norm_bias,
-        &setup.head,
-        &head_tensor,
+        &completion,
     )?;
 
     for (name, path) in [
@@ -3019,16 +3008,19 @@ pub fn begin_ttwkv7_persistent_metalium_model_driver(
         .tensor("lm_head.weight")
         .map_err(|error| format!("missing lm_head.weight: {error}"))?;
     let head_bytes = head_tensor.data().to_vec();
+    let completion = ModelCompletionContext {
+        final_norm_weight: &setup.final_norm_weight,
+        final_norm_bias: &setup.final_norm_bias,
+        head: &setup.head,
+        head_tensor: &head_tensor,
+    };
     let oracle = run_persistent_model_path(
         &setup.weights,
         &setup.model_config_eos,
         &continuation_embedding,
         setup.observed_second.clone(),
         PersistentModelRoute::Oracle,
-        &setup.final_norm_weight,
-        &setup.final_norm_bias,
-        &setup.head,
-        &head_tensor,
+        &completion,
     )?;
     if oracle.tokens.len() != PERSISTENT_MODEL_DISPATCH_TOKEN_COUNT {
         return Err(format!(
@@ -3637,10 +3629,7 @@ fn advance_observed_model_path(
     embedding: &[f32],
     second_token: ModelTokenExecution,
     layer_zero_mode: LayerZeroWkvMode<'_>,
-    final_norm_weight: &[f32],
-    final_norm_bias: &[f32],
-    head: &Matrix,
-    head_tensor: &TensorView<'_>,
+    completion: &ModelCompletionContext<'_, '_>,
 ) -> Result<ObservedModelPath, String> {
     let third_token = run_model_token_with_layer_zero_mode(
         weights,
@@ -3651,10 +3640,10 @@ fn advance_observed_model_path(
     finish_observed_model_path(
         second_token,
         third_token,
-        final_norm_weight,
-        final_norm_bias,
-        head,
-        head_tensor,
+        completion.final_norm_weight,
+        completion.final_norm_bias,
+        completion.head,
+        completion.head_tensor,
     )
 }
 

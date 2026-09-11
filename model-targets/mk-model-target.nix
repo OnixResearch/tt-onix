@@ -18,6 +18,24 @@ let
   artifactIdentityMatches =
     expected: actual: expected.blake3 == actual.blake3 && expected.nix_hash == actual.nix_hash;
 
+  validateConsumerIdentity =
+    profile:
+    let
+      projectedProfile = builtins.removeAttrs profile.consumer_identity [ "profile_blake3" ];
+      selectedProfile = builtins.removeAttrs profile [
+        "consumer_identity"
+        "profile_identity"
+      ];
+    in
+    [
+      (require (
+        profile.profile_identity == profile.consumer_identity.profile_blake3
+      ) "model target profile identity mismatch")
+      (require (
+        selectedProfile == projectedProfile
+      ) "model target generated consumer projection mismatch")
+    ];
+
   validateArtifacts =
     profile: artifacts:
     let
@@ -70,7 +88,8 @@ let
     }:
     let
       validation =
-        validateArtifacts profile artifacts
+        validateConsumerIdentity profile
+        ++ validateArtifacts profile artifacts
         ++ validateAdapters profile architectureAdapter evidenceAdapter topology;
       context = {
         inherit

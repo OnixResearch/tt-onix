@@ -1,0 +1,43 @@
+{
+  "after": [
+    "qwen38-optimization-evidence-contract"
+  ],
+  "after_metadata": "{\n  \"depends_on\": [\n    \"qwen38-optimization-evidence-contract\"\n  ]\n}\n",
+  "before": [],
+  "change": "qwen38-orcarouter-checkpoint-switch",
+  "changed": true,
+  "command": "change depend add",
+  "dependency": "qwen38-optimization-evidence-contract",
+  "dry_run": false,
+  "issues": [],
+  "layout": "cairn",
+  "metadata_path": ".cairn/changes/qwen38-orcarouter-checkpoint-switch/metadata.json",
+  "mutated": true,
+  "mutation_manifest": {
+    "after": {
+      "entries": [
+        {
+          "content_hash": "3b1bcfaad16a573bffeef20b2a33cf6a3b66c1136b2aa9aa9eb03bd015ba9bf9",
+          "exists": true,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/metadata.json"
+        }
+      ],
+      "manifest_hash": "12b4178bb99a82f6c8e41b27ed5a3d2e86bc63442392108d219771459363a7d3"
+    },
+    "before": {
+      "entries": [
+        {
+          "content_hash": null,
+          "exists": false,
+          "path": "./.cairn/changes/qwen38-orcarouter-checkpoint-switch/metadata.json"
+        }
+      ],
+      "manifest_hash": "451310e45bd6a8292487c615c76c8debbd783a953090e158827accf8bd8da5d2"
+    },
+    "kind": "change_dependency_metadata",
+    "manifest_hash": "6fc1f4b877c4ff1a0d769eaeae31a9ac07b89232d09a38142904fbf286a06419"
+  },
+  "receipt_hash": "d43adab19d807749bb92bd8f18f5002b3dd4f13978e8a98ebb6ba723b65a8faf",
+  "root": ".",
+  "valid": true
+}

@@ -1,0 +1,1016 @@
+--- a/ttnn/cpp/ttnn/operations/transformer/CMakeLists.txt
++++ b/ttnn/cpp/ttnn/operations/transformer/CMakeLists.txt
+@@ -19,6 +19,7 @@
+     sdpa_decode/device/kernels/*.hpp
+     gated_delta_attn/device/kernels/*.cpp
++    gated_delta_decode/device/kernels/*.cpp
+     chunk_gated_delta_rule/device/kernels/*.cpp
+ )
+ target_sources(
+     ttnn_op_transformer
+@@ -33,6 +34,7 @@
+             sdpa/sparse_sdpa.hpp
+             sdpa/sparse_sdpa_msa.hpp
+             sdpa_decode/sdpa_decode.hpp
++            gated_delta_decode/gated_delta_decode.hpp
+             split_query_key_value_and_split_heads/split_query_key_value_and_split_heads.hpp
+         FILE_SET kernels
+         TYPE HEADERS
+--- a/ttnn/cpp/ttnn/operations/transformer/sources.cmake
++++ b/ttnn/cpp/ttnn/operations/transformer/sources.cmake
+@@ -31,6 +31,9 @@
+     gated_delta_attn/device/gated_delta_attn_device_operation.cpp
+     gated_delta_attn/device/gated_delta_attn_program_factory.cpp
+     gated_delta_attn/gated_delta_attn.cpp
++    gated_delta_decode/device/gated_delta_decode_device_operation.cpp
++    gated_delta_decode/device/gated_delta_decode_program_factory.cpp
++    gated_delta_decode/gated_delta_decode.cpp
+     chunk_gated_delta_rule/device/chunk_gated_delta_rule_device_operation.cpp
+     chunk_gated_delta_rule/device/chunk_gated_delta_rule_program_factory.cpp
+     chunk_gated_delta_rule/device/chunk_gdn_phased.cpp
+@@ -51,5 +54,6 @@
+     split_query_key_value_and_split_heads/split_query_key_value_and_split_heads_nanobind.cpp
+     gated_delta_attn/gated_delta_attn_nanobind.cpp
++    gated_delta_decode/gated_delta_decode_nanobind.cpp
+     chunk_gated_delta_rule/chunk_gated_delta_rule_nanobind.cpp
+     transformer_nanobind.cpp
+ )
+--- a/ttnn/cpp/ttnn/operations/transformer/transformer_nanobind.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/transformer_nanobind.cpp
+@@ -15,6 +15,7 @@
+ #include "attention_softmax/attention_softmax_nanobind.hpp"
+ #include "concatenate_heads/concatenate_heads_nanobind.hpp"
+ #include "gated_delta_attn/gated_delta_attn_nanobind.hpp"
++#include "gated_delta_decode/gated_delta_decode_nanobind.hpp"
+ #include "chunk_gated_delta_rule/chunk_gated_delta_rule_nanobind.hpp"
+ #include "sdpa/sdpa_nanobind.hpp"
+ #include "sdpa_config.hpp"
+@@ -76,6 +77,7 @@
+     bind_sdpa(mod);
+     bind_sdpa_decode(mod);
+     bind_gated_delta_attn_seq(mod);
++    bind_gated_delta_decode(mod);
+     bind_chunk_gated_delta_rule(mod);
+ }
+ 
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.cpp
+@@ -0,0 +1,153 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.hpp"
++
++#include <tt-metalium/constants.hpp>
++
++#include "ttnn/device.hpp"
++#include "ttnn/device_operation.hpp"
++#include "ttnn/operation.hpp"
++#include "ttnn/tensor/tensor_ops.hpp"
++
++using namespace tt::tt_metal;
++
++namespace ttnn::prim {
++namespace {
++
++constexpr uint32_t kRequiredHeadDim = 4 * tt::constants::TILE_HEIGHT;
++
++void validate_tensor(const Tensor& tensor, const char* name) {
++    TT_FATAL(tensor.storage_type() == StorageType::DEVICE, "{} must be on device", name);
++    TT_FATAL(tensor.buffer() != nullptr, "{} must be allocated", name);
++    TT_FATAL(tensor.layout() == Layout::TILE, "{} must use TILE layout", name);
++    TT_FATAL(tensor.dtype() == DataType::FLOAT32, "{} must be float32, got {}", name, tensor.dtype());
++    TT_FATAL(!tensor.is_sharded(), "{} must be interleaved", name);
++}
++
++void validate_shape(const Tensor& tensor, std::initializer_list<uint32_t> expected, const char* name) {
++    const auto shape = tensor.logical_shape();
++    TT_FATAL(shape.rank() == expected.size(), "{} rank mismatch: {} vs {}", name, shape.rank(), expected.size());
++    size_t index = 0;
++    for (const auto extent : expected) {
++        TT_FATAL(
++            static_cast<uint32_t>(shape[index]) == extent,
++            "{} dim[{}] expected {} got {}",
++            name,
++            index,
++            extent,
++            shape[index]);
++        index++;
++    }
++}
++
++}  // namespace
++
++void GatedDeltaDecodeDeviceOperation::validate_on_program_cache_miss(
++    const operation_attributes_t& attrs, const tensor_args_t& in) {
++    validate_tensor(in.q, "q");
++    validate_tensor(in.k, "k");
++    validate_tensor(in.v, "v");
++    validate_tensor(in.beta, "beta");
++    validate_tensor(in.g, "g");
++    validate_tensor(in.state, "state");
++    if (in.output_state.has_value()) {
++        validate_tensor(*in.output_state, "output_state");
++    }
++
++    const auto [fidelity, approximate, fp32_acc, l1_acc, full_sync] =
++        get_compute_kernel_config_args(in.q.device()->arch(), attrs.compute_kernel_config);
++    TT_FATAL(
++        fidelity == MathFidelity::HiFi4 && !approximate && fp32_acc && !l1_acc && !full_sync,
++        "gated_delta_decode requires HiFi4, exact math, fp32 accumulation, no L1 accumulation, and no full sync");
++
++    // The factory implements this one precision profile, rather than ignoring caller settings.
++    TT_FATAL(attrs.num_heads > 0, "num_heads must be positive");
++    TT_FATAL(attrs.key_dim == kRequiredHeadDim, "key_dim must be {}, got {}", kRequiredHeadDim, attrs.key_dim);
++    TT_FATAL(attrs.val_dim == kRequiredHeadDim, "val_dim must be {}, got {}", kRequiredHeadDim, attrs.val_dim);
++    TT_FATAL(!attrs.output_mem_config.is_sharded(), "output must be interleaved");
++
++    validate_shape(in.q, {attrs.num_heads, 1, attrs.key_dim}, "q");
++    validate_shape(in.k, {attrs.num_heads, 1, attrs.key_dim}, "k");
++    validate_shape(in.v, {attrs.num_heads, 1, attrs.val_dim}, "v");
++    validate_shape(in.beta, {attrs.num_heads, 1, 1}, "beta");
++    validate_shape(in.g, {attrs.num_heads, 1, 1}, "g");
++    validate_shape(in.state, {attrs.num_heads, attrs.key_dim, attrs.val_dim}, "state");
++    if (in.output_state.has_value()) {
++        validate_shape(*in.output_state, {attrs.num_heads, attrs.key_dim, attrs.val_dim}, "output_state");
++        TT_FATAL(
++            in.output_state->memory_config() == in.state.memory_config(),
++            "output_state memory config must match state for trace-safe aliasing");
++    }
++}
++
++void GatedDeltaDecodeDeviceOperation::validate_on_program_cache_hit(
++    const operation_attributes_t& attrs, const tensor_args_t& in) {
++    validate_on_program_cache_miss(attrs, in);
++}
++
++GatedDeltaDecodeDeviceOperation::spec_return_value_t GatedDeltaDecodeDeviceOperation::compute_output_specs(
++    const operation_attributes_t& attrs, const tensor_args_t& in) {
++    TensorSpec output_spec(
++        ttnn::Shape({attrs.num_heads, 1, attrs.val_dim}),
++        TensorLayout(DataType::FLOAT32, PageConfig(Layout::TILE), attrs.output_mem_config));
++    const auto state_spec = in.output_state.has_value() ? in.output_state->tensor_spec() : in.state.tensor_spec();
++    return {output_spec, state_spec};
++}
++
++GatedDeltaDecodeDeviceOperation::tensor_return_value_t GatedDeltaDecodeDeviceOperation::create_output_tensors(
++    const operation_attributes_t& attrs, const tensor_args_t& in) {
++    const auto specs = compute_output_specs(attrs, in);
++    Tensor state_output = in.output_state.has_value() ? *in.output_state : create_device_tensor(specs[1], in.state.device());
++    return {create_device_tensor(specs[0], in.q.device()), state_output};
++}
++
++ttsl::hash::hash_t GatedDeltaDecodeDeviceOperation::compute_program_hash(
++    const operation_attributes_t& attrs, const tensor_args_t& in) {
++    return operation::hash_operation<GatedDeltaDecodeDeviceOperation>(
++        attrs.num_heads,
++        attrs.key_dim,
++        attrs.val_dim,
++        attrs.output_mem_config,
++        attrs.compute_kernel_config,
++        in.q,
++        in.k,
++        in.v,
++        in.beta,
++        in.g,
++        in.state,
++        in.output_state);
++}
++
++std::vector<Tensor> gated_delta_decode(
++    const Tensor& q,
++    const Tensor& k,
++    const Tensor& v,
++    const Tensor& beta,
++    const Tensor& g,
++    const Tensor& state,
++    const std::optional<Tensor>& output_state,
++    const tt::tt_metal::MemoryConfig& output_mem_config,
++    const DeviceComputeKernelConfig& compute_kernel_config) {
++    using Operation = GatedDeltaDecodeDeviceOperation;
++    const auto q_shape = q.logical_shape();
++    return ttnn::device_operation::launch<Operation>(
++        Operation::operation_attributes_t{
++            .num_heads = static_cast<uint32_t>(q_shape[0]),
++            .key_dim = static_cast<uint32_t>(q_shape[2]),
++            .val_dim = static_cast<uint32_t>(v.logical_shape()[2]),
++            .output_mem_config = output_mem_config,
++            .compute_kernel_config = compute_kernel_config,
++        },
++        Operation::tensor_args_t{
++            .q = q,
++            .k = k,
++            .v = v,
++            .beta = beta,
++            .g = g,
++            .state = state,
++            .output_state = output_state,
++        });
++}
++
++}  // namespace ttnn::prim
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.hpp
+@@ -0,0 +1,41 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <variant>
++#include <vector>
++
++#include "ttnn/operation.hpp"
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation_types.hpp"
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp"
++#include "ttnn/tensor/tensor.hpp"
++
++namespace ttnn::prim {
++
++struct GatedDeltaDecodeDeviceOperation {
++    using operation_attributes_t = GatedDeltaDecodeParams;
++    using tensor_args_t = GatedDeltaDecodeInputs;
++    using spec_return_value_t = std::vector<tt::tt_metal::TensorSpec>;
++    using tensor_return_value_t = std::vector<Tensor>;
++    using program_factory_t = std::variant<GatedDeltaDecodeProgramFactory>;
++
++    static void validate_on_program_cache_miss(const operation_attributes_t&, const tensor_args_t&);
++    static void validate_on_program_cache_hit(const operation_attributes_t&, const tensor_args_t&);
++    static spec_return_value_t compute_output_specs(const operation_attributes_t&, const tensor_args_t&);
++    static tensor_return_value_t create_output_tensors(const operation_attributes_t&, const tensor_args_t&);
++    static ttsl::hash::hash_t compute_program_hash(const operation_attributes_t&, const tensor_args_t&);
++};
++
++std::vector<Tensor> gated_delta_decode(
++    const Tensor& q,
++    const Tensor& k,
++    const Tensor& v,
++    const Tensor& beta,
++    const Tensor& g,
++    const Tensor& state,
++    const std::optional<Tensor>& output_state,
++    const tt::tt_metal::MemoryConfig& output_mem_config,
++    const DeviceComputeKernelConfig& compute_kernel_config);
++
++}  // namespace ttnn::prim
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation_types.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation_types.hpp
+@@ -0,0 +1,31 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <optional>
++
++#include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
++#include "ttnn/tensor/tensor.hpp"
++
++namespace ttnn::prim {
++
++struct GatedDeltaDecodeParams {
++    uint32_t num_heads;
++    uint32_t key_dim;
++    uint32_t val_dim;
++    tt::tt_metal::MemoryConfig output_mem_config;
++    DeviceComputeKernelConfig compute_kernel_config;
++};
++
++struct GatedDeltaDecodeInputs {
++    Tensor q;
++    Tensor k;
++    Tensor v;
++    Tensor beta;
++    Tensor g;
++    Tensor state;
++    std::optional<Tensor> output_state;
++};
++
++}  // namespace ttnn::prim
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
+@@ -0,0 +1,172 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp"
++
++#include <algorithm>
++#include <set>
++#include <vector>
++
++#include <tt-metalium/buffer.hpp>
++#include <tt-metalium/constants.hpp>
++#include <tt-metalium/host_api.hpp>
++#include <tt-metalium/tensor_accessor_args.hpp>
++
++using namespace tt::constants;
++using namespace tt::tt_metal;
++
++namespace ttnn::prim {
++
++GatedDeltaDecodeProgramFactory::cached_program_t GatedDeltaDecodeProgramFactory::create(
++    const GatedDeltaDecodeParams& attrs, const GatedDeltaDecodeInputs& in, std::vector<Tensor>& outputs) {
++    Program program{};
++
++    const uint32_t num_heads = attrs.num_heads;
++    const uint32_t key_tiles = attrs.key_dim / TILE_WIDTH;
++    const uint32_t val_tiles = attrs.val_dim / TILE_WIDTH;
++    const uint32_t state_tiles = key_tiles * val_tiles;
++
++    auto* device = in.q.device();
++    const CoreCoord compute_grid = device->compute_with_storage_grid_size();
++    const uint32_t grid_y = compute_grid.y;
++    TT_FATAL(num_heads <= compute_grid.x * grid_y, "num_heads exceeds the available compute grid");
++
++    std::vector<CoreCoord> head_cores(num_heads);
++    std::set<CoreRange> core_set;
++    for (uint32_t head = 0; head < num_heads; head++) {
++        head_cores[head] = CoreCoord{head / grid_y, head % grid_y};
++        core_set.insert(CoreRange{head_cores[head], head_cores[head]});
++    }
++    const CoreRangeSet cores{core_set};
++
++    constexpr tt::DataFormat data_format = tt::DataFormat::Float32;
++    auto make_cb = [&](uint32_t index, uint32_t tiles) {
++        const uint32_t page_size = tt::tile_size(data_format);
++        CircularBufferConfig config(tiles * page_size, {{index, data_format}});
++        config.set_page_size(index, page_size);
++        CreateCircularBuffer(program, cores, config);
++    };
++
++    make_cb(0, key_tiles);    // q
++    make_cb(1, key_tiles);    // k
++    make_cb(2, val_tiles);    // v
++    make_cb(3, 1);            // beta
++    make_cb(4, 1);            // g
++    make_cb(5, state_tiles);  // state input
++    make_cb(6, 1);            // exp(g)
++    make_cb(7, state_tiles);  // decayed state
++    make_cb(8, val_tiles);    // k @ state
++    make_cb(9, val_tiles);    // delta
++    make_cb(10, key_tiles);   // transposed k
++    make_cb(11, state_tiles); // outer product
++    make_cb(12, state_tiles); // beta-scaled outer product
++    make_cb(13, state_tiles); // final state
++    make_cb(16, val_tiles);   // output
++
++    const std::string kernel_dir =
++        "ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/";
++    const std::vector<uint32_t> compute_args = {key_tiles, val_tiles};
++
++    std::vector<uint32_t> reader_args = compute_args;
++    TensorAccessorArgs(in.q.buffer()).append_to(reader_args);
++    TensorAccessorArgs(in.k.buffer()).append_to(reader_args);
++    TensorAccessorArgs(in.v.buffer()).append_to(reader_args);
++    TensorAccessorArgs(in.beta.buffer()).append_to(reader_args);
++    TensorAccessorArgs(in.g.buffer()).append_to(reader_args);
++    TensorAccessorArgs(in.state.buffer()).append_to(reader_args);
++
++    std::vector<uint32_t> writer_args = compute_args;
++    TensorAccessorArgs(outputs[0].buffer()).append_to(writer_args);
++    TensorAccessorArgs(outputs[1].buffer()).append_to(writer_args);
++
++    const auto reader = CreateKernel(
++        program,
++        kernel_dir + "dataflow/reader_gated_delta_decode.cpp",
++        cores,
++        DataMovementConfig{
++            .processor = DataMovementProcessor::RISCV_1,
++            .noc = NOC::RISCV_1_default,
++            .compile_args = reader_args});
++    const auto writer = CreateKernel(
++        program,
++        kernel_dir + "dataflow/writer_gated_delta_decode.cpp",
++        cores,
++        DataMovementConfig{
++            .processor = DataMovementProcessor::RISCV_0,
++            .noc = NOC::RISCV_0_default,
++            .compile_args = writer_args});
++    const auto compute = CreateKernel(
++        program,
++        kernel_dir + "compute/gated_delta_decode.cpp",
++        cores,
++        ComputeConfig{
++            .math_fidelity = MathFidelity::HiFi4,
++            .fp32_dest_acc_en = true,
++            .math_approx_mode = false,
++            .compile_args = compute_args});
++
++    const uint32_t q_address = in.q.buffer()->address();
++    const uint32_t k_address = in.k.buffer()->address();
++    const uint32_t v_address = in.v.buffer()->address();
++    const uint32_t beta_address = in.beta.buffer()->address();
++    const uint32_t g_address = in.g.buffer()->address();
++    const uint32_t state_address = in.state.buffer()->address();
++    const uint32_t output_address = outputs[0].buffer()->address();
++    const uint32_t output_state_address = outputs[1].buffer()->address();
++
++    for (uint32_t head = 0; head < num_heads; head++) {
++        const auto core = head_cores[head];
++        SetRuntimeArgs(
++            program,
++            reader,
++            core,
++            {head, q_address, k_address, v_address, beta_address, g_address, state_address});
++        SetRuntimeArgs(program, writer, core, {head, output_address, output_state_address});
++        SetRuntimeArgs(program, compute, core, {});
++    }
++
++    return cached_program_t{
++        std::move(program),
++        {
++            .reader_kernel_id = reader,
++            .writer_kernel_id = writer,
++            .compute_kernel_id = compute,
++            .grid_y = grid_y,
++            .num_cores = num_heads,
++        }};
++}
++
++void GatedDeltaDecodeProgramFactory::override_runtime_arguments(
++    cached_program_t& cached,
++    const GatedDeltaDecodeParams& attrs,
++    const GatedDeltaDecodeInputs& in,
++    std::vector<Tensor>& outputs) {
++    auto& program = cached.program;
++    const auto& shared = cached.shared_variables;
++
++    const uint32_t q_address = in.q.buffer()->address();
++    const uint32_t k_address = in.k.buffer()->address();
++    const uint32_t v_address = in.v.buffer()->address();
++    const uint32_t beta_address = in.beta.buffer()->address();
++    const uint32_t g_address = in.g.buffer()->address();
++    const uint32_t state_address = in.state.buffer()->address();
++    const uint32_t output_address = outputs[0].buffer()->address();
++    const uint32_t output_state_address = outputs[1].buffer()->address();
++
++    for (uint32_t head = 0; head < attrs.num_heads; head++) {
++        const CoreCoord core{head / shared.grid_y, head % shared.grid_y};
++        auto& reader_args = GetRuntimeArgs(program, shared.reader_kernel_id, core);
++        reader_args[1] = q_address;
++        reader_args[2] = k_address;
++        reader_args[3] = v_address;
++        reader_args[4] = beta_address;
++        reader_args[5] = g_address;
++        reader_args[6] = state_address;
++
++        auto& writer_args = GetRuntimeArgs(program, shared.writer_kernel_id, core);
++        writer_args[1] = output_address;
++        writer_args[2] = output_state_address;
++    }
++}
++
++}  // namespace ttnn::prim
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.hpp
+@@ -0,0 +1,33 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include "ttnn/device_operation.hpp"
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation_types.hpp"
++
++namespace ttnn::prim {
++
++struct GatedDeltaDecodeSharedVars {
++    tt::tt_metal::KernelHandle reader_kernel_id{};
++    tt::tt_metal::KernelHandle writer_kernel_id{};
++    tt::tt_metal::KernelHandle compute_kernel_id{};
++    uint32_t grid_y = 1;
++    uint32_t num_cores = 0;
++};
++
++struct GatedDeltaDecodeProgramFactory {
++    using shared_variables_t = GatedDeltaDecodeSharedVars;
++    using cached_program_t = ttnn::device_operation::CachedProgram<shared_variables_t>;
++
++    static cached_program_t create(
++        const GatedDeltaDecodeParams& attrs, const GatedDeltaDecodeInputs& in, std::vector<Tensor>& outputs);
++
++    static void override_runtime_arguments(
++        cached_program_t& cached,
++        const GatedDeltaDecodeParams& attrs,
++        const GatedDeltaDecodeInputs& in,
++        std::vector<Tensor>& outputs);
++};
++
++}  // namespace ttnn::prim
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
+@@ -0,0 +1,208 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include <cstdint>
++
++#include "api/compute/common.h"
++#include "api/compute/matmul.h"
++#include "api/compute/eltwise_binary.h"
++#include "api/compute/eltwise_unary/eltwise_unary.h"
++#include "api/compute/eltwise_unary/exp.h"
++#include "api/compute/bcast.h"
++#include "api/compute/tile_move_copy.h"
++#include "api/compute/transpose.h"
++#include "api/compute/reconfig_data_format.h"
++#include "api/dataflow/circular_buffer.h"
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++
++    constexpr uint32_t cb_q = tt::CBIndex::c_0;
++    constexpr uint32_t cb_k = tt::CBIndex::c_1;
++    constexpr uint32_t cb_v = tt::CBIndex::c_2;
++    constexpr uint32_t cb_beta = tt::CBIndex::c_3;
++    constexpr uint32_t cb_g = tt::CBIndex::c_4;
++    constexpr uint32_t cb_state = tt::CBIndex::c_5;
++    constexpr uint32_t cb_g_exp = tt::CBIndex::c_6;
++    constexpr uint32_t cb_state_decay = tt::CBIndex::c_7;
++    constexpr uint32_t cb_v_read = tt::CBIndex::c_8;
++    constexpr uint32_t cb_delta = tt::CBIndex::c_9;
++    constexpr uint32_t cb_k_col = tt::CBIndex::c_10;
++    constexpr uint32_t cb_outer = tt::CBIndex::c_11;
++    constexpr uint32_t cb_outer_scaled = tt::CBIndex::c_12;
++    constexpr uint32_t cb_state_new = tt::CBIndex::c_13;
++    constexpr uint32_t cb_output = tt::CBIndex::c_16;
++
++    compute_kernel_hw_startup<SrcOrder::Reverse>(cb_k, cb_state_decay, cb_v_read);
++
++    CircularBuffer q_buffer(cb_q);
++    CircularBuffer k_buffer(cb_k);
++    CircularBuffer v_buffer(cb_v);
++    CircularBuffer beta_buffer(cb_beta);
++    CircularBuffer g_buffer(cb_g);
++    CircularBuffer state_buffer(cb_state);
++    CircularBuffer g_exp_buffer(cb_g_exp);
++    CircularBuffer state_decay_buffer(cb_state_decay);
++    CircularBuffer v_read_buffer(cb_v_read);
++    CircularBuffer delta_buffer(cb_delta);
++    CircularBuffer k_col_buffer(cb_k_col);
++    CircularBuffer outer_buffer(cb_outer);
++    CircularBuffer outer_scaled_buffer(cb_outer_scaled);
++    CircularBuffer state_new_buffer(cb_state_new);
++    CircularBuffer output_buffer(cb_output);
++
++    q_buffer.wait_front(key_tiles);
++    k_buffer.wait_front(key_tiles);
++    v_buffer.wait_front(val_tiles);
++    beta_buffer.wait_front(1);
++    g_buffer.wait_front(1);
++    state_buffer.wait_front(state_tiles);
++
++    // decay = exp(g), using the accurate SFPU path.
++    g_exp_buffer.reserve_back(1);
++    init_sfpu(cb_g, cb_g_exp);
++    tile_regs_acquire();
++    copy_tile_to_dst_init_short(cb_g);
++    copy_tile(cb_g, 0, 0);
++    exp_tile_init<false>();
++    exp_tile<false>(0);
++    tile_regs_commit();
++    tile_regs_wait();
++    pack_tile(0, cb_g_exp, 0);
++    tile_regs_release();
++    g_exp_buffer.push_back(1);
++    g_buffer.pop_front(1);
++
++    // state_decay = state * decay.
++    g_exp_buffer.wait_front(1);
++    state_decay_buffer.reserve_back(state_tiles);
++    mul_tiles_bcast_scalar_init_short(cb_state, cb_g_exp);
++    for (uint32_t tile = 0; tile < state_tiles; tile++) {
++        tile_regs_acquire();
++        mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_state_decay, tile);
++        tile_regs_release();
++    }
++    state_decay_buffer.push_back(state_tiles);
++    state_buffer.pop_front(state_tiles);
++    g_exp_buffer.pop_front(1);
++
++    // v_read = k @ state_decay.
++    state_decay_buffer.wait_front(state_tiles);
++    v_read_buffer.reserve_back(val_tiles);
++    matmul_init(cb_k, cb_state_decay);
++    for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++        tile_regs_acquire();
++        for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++            matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, 0);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_v_read, val_tile);
++        tile_regs_release();
++    }
++    v_read_buffer.push_back(val_tiles);
++
++    // delta = v - v_read.
++    v_read_buffer.wait_front(val_tiles);
++    delta_buffer.reserve_back(val_tiles);
++    sub_tiles_init(cb_v, cb_v_read);
++    for (uint32_t tile = 0; tile < val_tiles; tile++) {
++        tile_regs_acquire();
++        sub_tiles(cb_v, cb_v_read, tile, tile, 0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_delta, tile);
++        tile_regs_release();
++    }
++    delta_buffer.push_back(val_tiles);
++    v_buffer.pop_front(val_tiles);
++    v_read_buffer.pop_front(val_tiles);
++
++    // k_col = transpose(k).
++    k_col_buffer.reserve_back(key_tiles);
++    transpose_init(cb_k);
++    for (uint32_t tile = 0; tile < key_tiles; tile++) {
++        tile_regs_acquire();
++        transpose_tile(cb_k, tile, 0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_k_col, tile);
++        tile_regs_release();
++    }
++    k_col_buffer.push_back(key_tiles);
++    k_buffer.pop_front(key_tiles);
++
++    // outer = k_col @ delta.
++    k_col_buffer.wait_front(key_tiles);
++    delta_buffer.wait_front(val_tiles);
++    outer_buffer.reserve_back(state_tiles);
++    matmul_init(cb_k_col, cb_delta);
++    for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            tile_regs_acquire();
++            matmul_tiles(cb_k_col, cb_delta, key_tile, val_tile, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_outer, key_tile * val_tiles + val_tile);
++            tile_regs_release();
++        }
++    }
++    outer_buffer.push_back(state_tiles);
++    k_col_buffer.pop_front(key_tiles);
++    delta_buffer.pop_front(val_tiles);
++
++    // outer_scaled = outer * beta.
++    outer_buffer.wait_front(state_tiles);
++    outer_scaled_buffer.reserve_back(state_tiles);
++    mul_tiles_bcast_scalar_init_short(cb_outer, cb_beta);
++    for (uint32_t tile = 0; tile < state_tiles; tile++) {
++        tile_regs_acquire();
++        mul_tiles_bcast_scalar(cb_outer, cb_beta, tile, 0, 0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_outer_scaled, tile);
++        tile_regs_release();
++    }
++    outer_scaled_buffer.push_back(state_tiles);
++    outer_buffer.pop_front(state_tiles);
++    beta_buffer.pop_front(1);
++
++    // state_new = state_decay + outer_scaled.
++    outer_scaled_buffer.wait_front(state_tiles);
++    state_new_buffer.reserve_back(state_tiles);
++    add_tiles_init(cb_state_decay, cb_outer_scaled);
++    for (uint32_t tile = 0; tile < state_tiles; tile++) {
++        tile_regs_acquire();
++        add_tiles(cb_state_decay, cb_outer_scaled, tile, tile, 0);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_state_new, tile);
++        tile_regs_release();
++    }
++    state_new_buffer.push_back(state_tiles);
++    state_decay_buffer.pop_front(state_tiles);
++    outer_scaled_buffer.pop_front(state_tiles);
++
++    // output = q @ state_new. Do not pop state_new: the writer owns that
++    // credit after it observes output, which orders this read before state write.
++    state_new_buffer.wait_front(state_tiles);
++    output_buffer.reserve_back(val_tiles);
++    matmul_init(cb_q, cb_state_new);
++    for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++        tile_regs_acquire();
++        for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++            matmul_tiles(cb_q, cb_state_new, key_tile, key_tile * val_tiles + val_tile, 0);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_output, val_tile);
++        tile_regs_release();
++    }
++    output_buffer.push_back(val_tiles);
++    q_buffer.pop_front(key_tiles);
++}
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/reader_gated_delta_decode.cpp
+@@ -0,0 +1,93 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include <stdint.h>
++
++#include "api/dataflow/circular_buffer.h"
++#include "api/dataflow/dataflow_api.h"
++#include "api/dataflow/noc.h"
++#include "api/tensor/noc_traits.h"
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++
++    const uint32_t head = get_arg_val<uint32_t>(0);
++    const uint32_t q_address = get_arg_val<uint32_t>(1);
++    const uint32_t k_address = get_arg_val<uint32_t>(2);
++    const uint32_t v_address = get_arg_val<uint32_t>(3);
++    const uint32_t beta_address = get_arg_val<uint32_t>(4);
++    const uint32_t g_address = get_arg_val<uint32_t>(5);
++    const uint32_t state_address = get_arg_val<uint32_t>(6);
++
++    constexpr uint32_t cb_q = tt::CBIndex::c_0;
++    constexpr uint32_t cb_k = tt::CBIndex::c_1;
++    constexpr uint32_t cb_v = tt::CBIndex::c_2;
++    constexpr uint32_t cb_beta = tt::CBIndex::c_3;
++    constexpr uint32_t cb_g = tt::CBIndex::c_4;
++    constexpr uint32_t cb_state = tt::CBIndex::c_5;
++    constexpr uint32_t tile_bytes = get_tile_size(cb_state);
++
++    constexpr auto q_args = TensorAccessorArgs<2>();
++    const auto q_accessor = TensorAccessor(q_args, q_address, tile_bytes);
++    constexpr auto k_args = TensorAccessorArgs<q_args.next_compile_time_args_offset()>();
++    const auto k_accessor = TensorAccessor(k_args, k_address, tile_bytes);
++    constexpr auto v_args = TensorAccessorArgs<k_args.next_compile_time_args_offset()>();
++    const auto v_accessor = TensorAccessor(v_args, v_address, tile_bytes);
++    constexpr auto beta_args = TensorAccessorArgs<v_args.next_compile_time_args_offset()>();
++    const auto beta_accessor = TensorAccessor(beta_args, beta_address, tile_bytes);
++    constexpr auto g_args = TensorAccessorArgs<beta_args.next_compile_time_args_offset()>();
++    const auto g_accessor = TensorAccessor(g_args, g_address, tile_bytes);
++    constexpr auto state_args = TensorAccessorArgs<g_args.next_compile_time_args_offset()>();
++    const auto state_accessor = TensorAccessor(state_args, state_address, tile_bytes);
++
++    CircularBuffer q_buffer(cb_q);
++    CircularBuffer k_buffer(cb_k);
++    CircularBuffer v_buffer(cb_v);
++    CircularBuffer beta_buffer(cb_beta);
++    CircularBuffer g_buffer(cb_g);
++    CircularBuffer state_buffer(cb_state);
++
++    q_buffer.reserve_back(key_tiles);
++    k_buffer.reserve_back(key_tiles);
++    v_buffer.reserve_back(val_tiles);
++    beta_buffer.reserve_back(1);
++    g_buffer.reserve_back(1);
++    state_buffer.reserve_back(state_tiles);
++
++    Noc noc;
++    const uint32_t q_offset = head * key_tiles;
++    const uint32_t v_offset = head * val_tiles;
++    const uint32_t scalar_offset = head;
++    const uint32_t state_offset = head * state_tiles;
++
++    for (uint32_t tile = 0; tile < key_tiles; tile++) {
++        noc.async_read(
++            q_accessor, q_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
++        noc.async_read(
++            k_accessor, k_buffer, tile_bytes, {.page_id = q_offset + tile}, {.offset_bytes = tile * tile_bytes});
++    }
++    for (uint32_t tile = 0; tile < val_tiles; tile++) {
++        noc.async_read(
++            v_accessor, v_buffer, tile_bytes, {.page_id = v_offset + tile}, {.offset_bytes = tile * tile_bytes});
++    }
++    noc.async_read(beta_accessor, beta_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
++    noc.async_read(g_accessor, g_buffer, tile_bytes, {.page_id = scalar_offset}, {.offset_bytes = 0});
++    for (uint32_t tile = 0; tile < state_tiles; tile++) {
++        noc.async_read(
++            state_accessor,
++            state_buffer,
++            tile_bytes,
++            {.page_id = state_offset + tile},
++            {.offset_bytes = tile * tile_bytes});
++    }
++    noc.async_read_barrier();
++
++    q_buffer.push_back(key_tiles);
++    k_buffer.push_back(key_tiles);
++    v_buffer.push_back(val_tiles);
++    beta_buffer.push_back(1);
++    g_buffer.push_back(1);
++    state_buffer.push_back(state_tiles);
++}
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/dataflow/writer_gated_delta_decode.cpp
+@@ -0,0 +1,60 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include <stdint.h>
++
++#include "api/dataflow/circular_buffer.h"
++#include "api/dataflow/dataflow_api.h"
++#include "api/dataflow/noc.h"
++#include "api/tensor/noc_traits.h"
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++
++    const uint32_t head = get_arg_val<uint32_t>(0);
++    const uint32_t output_address = get_arg_val<uint32_t>(1);
++    const uint32_t state_address = get_arg_val<uint32_t>(2);
++
++    constexpr uint32_t cb_output = tt::CBIndex::c_16;
++    constexpr uint32_t cb_state = tt::CBIndex::c_13;
++    constexpr uint32_t tile_bytes = get_tile_size(cb_output);
++
++    constexpr auto output_args = TensorAccessorArgs<2>();
++    const auto output_accessor = TensorAccessor(output_args, output_address, tile_bytes);
++    constexpr auto state_args = TensorAccessorArgs<output_args.next_compile_time_args_offset()>();
++    const auto state_accessor = TensorAccessor(state_args, state_address, tile_bytes);
++
++    CircularBuffer output_buffer(cb_output);
++    CircularBuffer state_buffer(cb_state);
++    Noc noc;
++
++    // Waiting for output first orders the writer after compute has finished
++    // reading the final-state CB for q @ state. The writer can then pop state.
++    output_buffer.wait_front(val_tiles);
++    const uint32_t output_offset = head * val_tiles;
++    for (uint32_t tile = 0; tile < val_tiles; tile++) {
++        noc.async_write(
++            output_buffer,
++            output_accessor,
++            tile_bytes,
++            {.offset_bytes = tile * tile_bytes},
++            {.page_id = output_offset + tile});
++    }
++    noc.async_write_barrier();
++    output_buffer.pop_front(val_tiles);
++
++    state_buffer.wait_front(state_tiles);
++    const uint32_t state_offset = head * state_tiles;
++    for (uint32_t tile = 0; tile < state_tiles; tile++) {
++        noc.async_write(
++            state_buffer,
++            state_accessor,
++            tile_bytes,
++            {.offset_bytes = tile * tile_bytes},
++            {.page_id = state_offset + tile});
++    }
++    noc.async_write_barrier();
++    state_buffer.pop_front(state_tiles);
++}
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.cpp
+@@ -0,0 +1,33 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include "ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.hpp"
++
++#include "ttnn/operations/core/core.hpp"
++#include "ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_device_operation.hpp"
++
++namespace ttnn::transformer {
++
++std::tuple<ttnn::Tensor, ttnn::Tensor> gated_delta_decode(
++    const ttnn::Tensor& q,
++    const ttnn::Tensor& k,
++    const ttnn::Tensor& v,
++    const ttnn::Tensor& beta,
++    const ttnn::Tensor& g,
++    const ttnn::Tensor& state,
++    const std::optional<ttnn::Tensor>& output_state,
++    const std::optional<ttnn::MemoryConfig>& memory_config,
++    const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config) {
++    const auto output_mem_config = memory_config.value_or(ttnn::L1_MEMORY_CONFIG);
++    const auto kernel_config = init_device_compute_kernel_config(
++        q.device()->arch(),
++        compute_kernel_config,
++        MathFidelity::HiFi4,
++        /*default_approx_mode=*/false,
++        /*default_fp32_acc=*/true,
++        /*default_l1_acc=*/false);
++    auto outputs = ttnn::prim::gated_delta_decode(q, k, v, beta, g, state, output_state, output_mem_config, kernel_config);
++    return {outputs[0], outputs[1]};
++}
++
++}  // namespace ttnn::transformer
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.hpp
+@@ -0,0 +1,32 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <optional>
++#include <tuple>
++
++#include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
++#include "ttnn/tensor/tensor.hpp"
++#include "ttnn/types.hpp"
++
++namespace ttnn::transformer {
++
++/**
++ * Fused fp32 single-token gated-delta recurrence.
++ *
++ * q/k are normalized and q is already scaled. g is the log decay.
++ * State may also be supplied as output_state for trace-safe in-place update.
++ */
++std::tuple<ttnn::Tensor, ttnn::Tensor> gated_delta_decode(
++    const ttnn::Tensor& q,
++    const ttnn::Tensor& k,
++    const ttnn::Tensor& v,
++    const ttnn::Tensor& beta,
++    const ttnn::Tensor& g,
++    const ttnn::Tensor& state,
++    const std::optional<ttnn::Tensor>& output_state = std::nullopt,
++    const std::optional<ttnn::MemoryConfig>& memory_config = std::nullopt,
++    const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config = std::nullopt);
++
++}  // namespace ttnn::transformer
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode_nanobind.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode_nanobind.cpp
+@@ -0,0 +1,55 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#include "ttnn/operations/transformer/gated_delta_decode/gated_delta_decode_nanobind.hpp"
++
++#include <nanobind/stl/optional.h>
++#include <nanobind/stl/tuple.h>
++
++#include "ttnn-nanobind/bind_function.hpp"
++#include "ttnn/operations/transformer/gated_delta_decode/gated_delta_decode.hpp"
++
++namespace ttnn::operations::transformer {
++
++void bind_gated_delta_decode(nb::module_& mod) {
++    const auto* doc = R"doc(
++        Fused fp32 single-token gated-delta recurrence.
++
++        q and k must be normalized, and q must include the model scale. g is
++        the log decay. output_state may alias state for trace-safe in-place
++        recurrent-state update.
++
++        Args:
++            q (ttnn.Tensor): [BH, 1, Dk] float32.
++            k (ttnn.Tensor): [BH, 1, Dk] float32.
++            v (ttnn.Tensor): [BH, 1, Dv] float32.
++            beta (ttnn.Tensor): [BH, 1, 1] float32.
++            g (ttnn.Tensor): [BH, 1, 1] float32 log decay.
++            state (ttnn.Tensor): [BH, Dk, Dv] float32.
++
++        Keyword Args:
++            output_state (ttnn.Tensor, optional): Preallocated state output.
++            memory_config (ttnn.MemoryConfig, optional): Output memory config.
++            compute_kernel_config (ttnn.DeviceComputeKernelConfig, optional).
++
++        Returns:
++            tuple[ttnn.Tensor, ttnn.Tensor]: output [BH, 1, Dv] and state [BH, Dk, Dv].
++        )doc";
++
++    ttnn::bind_function<"gated_delta_decode", "ttnn.transformer.">(
++        mod,
++        doc,
++        &ttnn::transformer::gated_delta_decode,
++        nb::arg("q").noconvert(),
++        nb::arg("k").noconvert(),
++        nb::arg("v").noconvert(),
++        nb::arg("beta").noconvert(),
++        nb::arg("g").noconvert(),
++        nb::arg("state").noconvert(),
++        nb::kw_only(),
++        nb::arg("output_state") = nb::none(),
++        nb::arg("memory_config") = nb::none(),
++        nb::arg("compute_kernel_config") = nb::none());
++}
++
++}  // namespace ttnn::operations::transformer
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode_nanobind.hpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/gated_delta_decode_nanobind.hpp
+@@ -0,0 +1,14 @@
++// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <nanobind/nanobind.h>
++
++namespace ttnn::operations::transformer {
++
++namespace nb = nanobind;
++
++void bind_gated_delta_decode(nb::module_& mod);
++
++}  // namespace ttnn::operations::transformer

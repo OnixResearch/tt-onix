@@ -1,3 +1,14 @@
+pub mod capacity;
+pub mod fused_wkv;
+pub mod fused_wkv_kernel_contract;
+mod generated_model_target_identity;
+pub mod persistent_decode_canary;
+pub mod persistent_decode_contract;
+pub mod persistent_decode_monitoring;
+pub mod serve;
+pub mod throughput;
+pub mod window16_parity;
+
 use half::bf16;
 use model_target_core::{TargetIdentity, TopologyIdentity};
 use serde::{Deserialize, Serialize};
@@ -8,22 +19,15 @@ use std::path::{Component, Path};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const SAFETY_SCHEMA_VERSION: u32 = 3;
-pub const TARGET_NAME: &str = env!("MODEL_TARGET_NAME");
-pub const MODEL_ID: &str = env!("MODEL_TARGET_MODEL_ID");
-pub const MODEL_REVISION: &str = env!("MODEL_TARGET_REVISION");
-pub const ARCHITECTURE_FAMILY: &str = env!("MODEL_TARGET_ARCHITECTURE_FAMILY");
-pub const STATE_KIND: &str = env!("MODEL_TARGET_STATE_KIND");
-pub const MODEL_PRECISION: &str = env!("MODEL_TARGET_PRECISION");
-pub const ARCHITECTURE_ADAPTER_ID: &str = env!("MODEL_TARGET_ARCHITECTURE_ADAPTER");
-pub const EVIDENCE_ADAPTER_ID: &str = env!("MODEL_TARGET_EVIDENCE_ADAPTER");
-pub const MODEL_ARTIFACT_BLAKE3_JSON: &str = env!("MODEL_TARGET_ARTIFACT_BLAKE3_JSON");
-pub const TOPOLOGY_ID: &str = env!("MODEL_TARGET_TOPOLOGY_ID");
-pub const MESH_SHAPE_JSON: &str = env!("MODEL_TARGET_MESH_SHAPE_JSON");
-pub const PHYSICAL_DEVICE_IDS_JSON: &str = env!("MODEL_TARGET_PHYSICAL_DEVICE_IDS_JSON");
-pub const REPLICATION: &str = env!("MODEL_TARGET_REPLICATION");
+pub use generated_model_target_identity::{
+    ARCHITECTURE_ADAPTER_ID, ARCHITECTURE_FAMILY, CONTROL_DIVERGENCE_FLOOR, EVIDENCE_ADAPTER_ID,
+    FINAL_HIDDEN_TOLERANCE, LOGIT_TOLERANCE, MESH_SHAPE_JSON, MODEL_BLAKE3, MODEL_ID,
+    MODEL_PRECISION, MODEL_REVISION, PHYSICAL_DEVICE_IDS_JSON, PROFILE_BLAKE3, REPLICATION,
+    STATE_KIND, TARGET_NAME, TOKENIZER_VOCAB_BLAKE3, TOPOLOGY_ID,
+};
+pub const MODEL_ARTIFACT_BLAKE3_JSON: &str = generated_model_target_identity::ARTIFACT_BLAKE3_JSON;
+pub const BUILT_PROFILE_BLAKE3: &str = env!("MODEL_TARGET_PROFILE_BLAKE3");
 pub const REQUIRED_OPERATIONS_JSON: &str = env!("MODEL_TARGET_REQUIRED_OPERATIONS_JSON");
-pub const MODEL_BLAKE3: &str = env!("MODEL_TARGET_CHECKPOINT_BLAKE3");
-pub const TOKENIZER_VOCAB_BLAKE3: &str = env!("MODEL_TARGET_TOKENIZER_VOCABULARY_BLAKE3");
 pub const EXPECTED_BOARD_SERIALS: [&str; EXPECTED_CARD_COUNT] =
     ["0000040331921011", "000004033192100e"];
 pub const EXPECTED_BOARD_BDFS: [&str; EXPECTED_CARD_COUNT] = ["0000:01:00.0", "0000:03:00.0"];
@@ -34,22 +38,21 @@ pub const EXPECTED_SECONDARY_OWNER_UNIT: &str =
     "llamacpp-server-vibethinker-britton-desktop.service";
 pub const EXPECTED_OWNER_COUNT: usize = 2;
 pub const EXPECTED_CARD_COUNT: usize = 2;
-pub const EXPECTED_LAYER_COUNT: usize = 12;
-pub const HIDDEN_ELEMENT_COUNT: usize = 768;
-pub const LOGIT_ELEMENT_COUNT: usize = 65_536;
-pub const COMPLETE_STATE_ELEMENT_COUNT: usize = 608_256;
+pub const EXPECTED_LAYER_COUNT: usize = generated_model_target_identity::MODEL_LAYER_COUNT;
+pub const HIDDEN_ELEMENT_COUNT: usize = generated_model_target_identity::HIDDEN_SIZE;
+pub const LOGIT_ELEMENT_COUNT: usize = generated_model_target_identity::VOCABULARY_SIZE;
+pub const COMPLETE_STATE_ELEMENT_COUNT: usize =
+    generated_model_target_identity::COMPLETE_STATE_ELEMENT_COUNT;
 pub const MINIMUM_GENERATED_TOKEN_COUNT: usize = 2;
 pub const MAXIMUM_GENERATED_TOKEN_COUNT: usize = 4;
-pub const MAXIMUM_PROMPT_TOKEN_COUNT: usize = 32;
+pub const MAXIMUM_PROMPT_TOKEN_COUNT: usize =
+    generated_model_target_identity::MAXIMUM_PROMPT_TOKENS;
 pub const MAXIMUM_MESSAGE_BYTE_COUNT: usize = 256;
 pub const GENERATION_EOS_TOKEN_ID: usize = 0;
 pub const TOKENIZER_WRAPPER_EOS_TOKEN_ID: usize = 65_530;
 pub const TOKENIZER_LAST_VOCAB_ID: usize = 65_529;
 pub const TOKENIZER_VOCAB_ENTRY_COUNT: usize = 65_529;
-pub const FINAL_HIDDEN_TOLERANCE: f32 = 0.5;
-pub const LOGIT_TOLERANCE: f32 = 1.0;
-pub const STATE_TOLERANCE: f32 = 1.0;
-pub const CONTROL_DIVERGENCE_FLOOR: f32 = 0.5;
+pub const STATE_TOLERANCE: f32 = generated_model_target_identity::RECURRENT_STATE_TOLERANCE;
 const F32_BYTE_WIDTH: usize = 4;
 const BF16_BYTE_WIDTH: usize = 2;
 const PYTHON_BYTE_HEX_DIGITS: usize = 2;
@@ -64,6 +67,13 @@ const ASCII_ALERT_BYTE: u8 = 0x07;
 const ASCII_BACKSPACE_BYTE: u8 = 0x08;
 const ASCII_FORM_FEED_BYTE: u8 = 0x0c;
 const ASCII_VERTICAL_TAB_BYTE: u8 = 0x0b;
+// Generated from quality/policy.ncl. r[impl tenstorrent.quality.parser_robustness]
+const JSON_MAX_BYTES: usize = 1_048_576;
+const YAML_MAX_BYTES: usize = 8_388_608;
+const CSV_MAX_BYTES: usize = 8_388_608;
+const CSV_MAX_ROWS: usize = 100_000;
+const CSV_MAX_FIELDS: usize = 256;
+const VOCABULARY_MAX_BYTES: usize = 16_777_216;
 const PROFILER_MINIMUM_COLUMN_COUNT: usize = 12;
 const PROFILER_CARD_COLUMN: usize = 0;
 const PROFILER_CYCLE_COLUMN: usize = 5;
@@ -406,6 +416,8 @@ pub fn classify_attempt3(
     safety_bytes: &[u8],
     terminal_bytes: &[u8],
 ) -> Result<Attempt3ClassificationReceipt, String> {
+    require_bounded_bytes(safety_bytes, JSON_MAX_BYTES, "attempt-3 safety receipt")?;
+    require_bounded_bytes(terminal_bytes, JSON_MAX_BYTES, "attempt-3 terminal outcome")?;
     let safety: SafetyReceipt = serde_json::from_slice(safety_bytes)
         .map_err(|error| format!("invalid attempt-3 safety receipt: {error}"))?;
     let terminal: Attempt3TerminalOutcome = serde_json::from_slice(terminal_bytes)
@@ -511,6 +523,7 @@ pub fn classify_attempt3(
 }
 
 pub fn parse_reference(bytes: &[u8]) -> Result<ReferenceManifest, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, "reference manifest")?;
     let manifest: ReferenceManifest = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid reference manifest: {error}"))?;
     require(
@@ -552,6 +565,11 @@ pub fn parse_reference(bytes: &[u8]) -> Result<ReferenceManifest, String> {
 
 // r[impl tenstorrent.model_targets.single_authority]
 pub fn expected_target_identity() -> Result<TargetIdentity, String> {
+    if BUILT_PROFILE_BLAKE3 != PROFILE_BLAKE3 {
+        return Err(format!(
+            "built profile identity mismatch: generated {PROFILE_BLAKE3}, package {BUILT_PROFILE_BLAKE3}"
+        ));
+    }
     let artifact_blake3 = serde_json::from_str(MODEL_ARTIFACT_BLAKE3_JSON)
         .map_err(|error| format!("invalid embedded artifact identity map: {error}"))?;
     Ok(TargetIdentity {
@@ -596,8 +614,10 @@ pub fn expected_topology_identity() -> Result<TopologyIdentity, String> {
 
 pub fn runtime_topology_identity(receipt: &RuntimeReceipt) -> Result<TopologyIdentity, String> {
     let mesh_shape = convert_u32_values(&receipt.mesh.shape, "runtime mesh shape")?;
-    let physical_device_ids =
-        convert_u32_values(&receipt.mesh.physical_device_ids, "runtime physical device IDs")?;
+    let physical_device_ids = convert_u32_values(
+        &receipt.mesh.physical_device_ids,
+        "runtime physical device IDs",
+    )?;
     Ok(TopologyIdentity {
         id: receipt.mesh.id.clone(),
         mesh_shape,
@@ -628,6 +648,7 @@ fn convert_u32_values(values: &[usize], name: &str) -> Result<Vec<u32>, String> 
 
 // r[verify tenstorrent.rwkv7_p150x2.full_device_runtime.invalid_mesh]
 pub fn parse_runtime(bytes: &[u8]) -> Result<RuntimeReceipt, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, "runtime receipt")?;
     let receipt: RuntimeReceipt = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid runtime receipt: {error}"))?;
     require(
@@ -977,6 +998,7 @@ pub fn validate_initial_zero_state(
 }
 
 fn yaml_sequence(bytes: &[u8], label: &str) -> Result<Vec<YamlValue>, String> {
+    require_bounded_bytes(bytes, YAML_MAX_BYTES, label)?;
     let value: YamlValue =
         serde_yaml::from_slice(bytes).map_err(|error| format!("invalid {label} YAML: {error}"))?;
     value
@@ -1143,13 +1165,20 @@ pub fn parse_inspector(
 }
 
 pub fn parse_profiler(bytes: &[u8]) -> Result<Vec<ProfilerRow>, String> {
+    require_bounded_bytes(bytes, CSV_MAX_BYTES, "profiler CSV")?;
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
         .from_reader(bytes);
     let mut rows = Vec::new();
-    for record in reader.records() {
+    for (row_index, record) in reader.records().enumerate() {
+        if row_index >= CSV_MAX_ROWS {
+            return Err(format!("profiler CSV row count exceeds {CSV_MAX_ROWS}"));
+        }
         let record = record.map_err(|error| format!("invalid profiler CSV: {error}"))?;
+        if record.len() > CSV_MAX_FIELDS {
+            return Err(format!("profiler CSV field count exceeds {CSV_MAX_FIELDS}"));
+        }
         if record.len() < PROFILER_MINIMUM_COLUMN_COUNT {
             continue;
         }
@@ -1551,6 +1580,7 @@ struct BoundedTokenizer {
 
 impl BoundedTokenizer {
     fn parse(vocabulary: &[u8]) -> Result<Self, String> {
+        require_bounded_bytes(vocabulary, VOCABULARY_MAX_BYTES, "tokenizer vocabulary")?;
         require(
             blake3::hash(vocabulary).to_hex().as_str() == TOKENIZER_VOCAB_BLAKE3,
             "tokenizer vocabulary BLAKE3 mismatch",
@@ -1656,23 +1686,44 @@ impl BoundedTokenizer {
     }
 }
 
-pub fn tokenize_request(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenizationLimits {
+    pub maximum_prompt_tokens: usize,
+    pub minimum_generated_tokens: usize,
+    pub maximum_generated_tokens: usize,
+}
+
+pub fn tokenize_request_with_limits(
     vocabulary: &[u8],
     user_message: String,
     max_prompt_tokens: usize,
     max_new_tokens: usize,
+    limits: TokenizationLimits,
 ) -> Result<TokenizedRequest, String> {
     require(
         user_message.len() <= MAXIMUM_MESSAGE_BYTE_COUNT,
         "user message exceeds the package byte cap",
     )?;
     require(
-        (1..=MAXIMUM_PROMPT_TOKEN_COUNT).contains(&max_prompt_tokens),
-        "prompt token bound is outside the package cap",
+        limits.maximum_prompt_tokens > 0,
+        "maximum prompt token limit must be positive",
     )?;
     require(
-        (MINIMUM_GENERATED_TOKEN_COUNT..=MAXIMUM_GENERATED_TOKEN_COUNT).contains(&max_new_tokens),
-        "generation bound is outside the full-device proof range",
+        limits.minimum_generated_tokens > 0,
+        "minimum generated token limit must be positive",
+    )?;
+    require(
+        limits.maximum_generated_tokens >= limits.minimum_generated_tokens,
+        "generated token limits are reversed",
+    )?;
+    require(
+        (1..=limits.maximum_prompt_tokens).contains(&max_prompt_tokens),
+        "prompt token bound is outside the caller limit",
+    )?;
+    require(
+        (limits.minimum_generated_tokens..=limits.maximum_generated_tokens)
+            .contains(&max_new_tokens),
+        "generation bound is outside the caller range",
     )?;
     let rendered_chat_prompt =
         format!("<|rwkv_tokenizer_end_of_text|>User: {user_message}\n\nAssistant:");
@@ -1682,7 +1733,11 @@ pub fn tokenize_request(
         prompt_token_ids.len() <= max_prompt_tokens,
         "encoded prompt exceeds the caller token bound",
     )?;
-    let mut token_bytes = Vec::with_capacity(prompt_token_ids.len() * size_of::<u32>());
+    let token_byte_capacity = prompt_token_ids
+        .len()
+        .checked_mul(size_of::<u32>())
+        .ok_or_else(|| "prompt token byte capacity overflows".to_owned())?;
+    let mut token_bytes = Vec::with_capacity(token_byte_capacity);
     for token in &prompt_token_ids {
         let token = u32::try_from(*token).map_err(|_| "prompt token ID overflows u32")?;
         token_bytes.extend_from_slice(&token.to_le_bytes());
@@ -1695,6 +1750,34 @@ pub fn tokenize_request(
         max_prompt_tokens,
         max_new_tokens,
         prompt_token_ids_blake3: blake3::hash(&token_bytes).to_hex().to_string(),
+    })
+}
+
+pub fn tokenize_request(
+    vocabulary: &[u8],
+    user_message: String,
+    max_prompt_tokens: usize,
+    max_new_tokens: usize,
+) -> Result<TokenizedRequest, String> {
+    tokenize_request_with_limits(
+        vocabulary,
+        user_message,
+        max_prompt_tokens,
+        max_new_tokens,
+        TokenizationLimits {
+            maximum_prompt_tokens: MAXIMUM_PROMPT_TOKEN_COUNT,
+            minimum_generated_tokens: MINIMUM_GENERATED_TOKEN_COUNT,
+            maximum_generated_tokens: MAXIMUM_GENERATED_TOKEN_COUNT,
+        },
+    )
+    .map_err(|error| {
+        if error == "generation bound is outside the caller range" {
+            "generation bound is outside the full-device proof range".to_owned()
+        } else if error == "prompt token bound is outside the caller limit" {
+            "prompt token bound is outside the package cap".to_owned()
+        } else {
+            error
+        }
     })
 }
 
@@ -1873,7 +1956,18 @@ fn parse_fixed_hex(
 }
 
 pub fn parse_json_value(bytes: &[u8], label: &str) -> Result<JsonValue, String> {
+    require_bounded_bytes(bytes, JSON_MAX_BYTES, label)?;
     serde_json::from_slice(bytes).map_err(|error| format!("invalid {label} JSON: {error}"))
+}
+
+fn require_bounded_bytes(bytes: &[u8], maximum: usize, label: &str) -> Result<(), String> {
+    if bytes.len() > maximum {
+        return Err(format!(
+            "{label} byte count {} exceeds {maximum}",
+            bytes.len()
+        ));
+    }
+    Ok(())
 }
 
 fn require(condition: bool, message: &str) -> Result<(), String> {
@@ -2227,12 +2321,61 @@ mod tests {
     }
 
     #[test]
+    fn saved_yaml_seed_and_repaired_document_use_the_inspector_parser() {
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/truncated.yaml");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/valid.yaml");
+        let error = yaml_sequence(invalid, "saved Inspector seed").unwrap_err();
+        assert!(
+            error.contains("invalid saved Inspector seed YAML:"),
+            "{error}"
+        );
+        let rows = yaml_sequence(valid, "repaired Inspector seed").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0]["root"]["child"][0]["incomplete"][0],
+            YamlValue::Bool(true)
+        );
+    }
+
+    #[test]
+    fn saved_csv_seed_and_valid_row_use_the_profiler_parser() {
+        let invalid = include_bytes!("../fixtures/fuzz-seeds/no-data.csv");
+        let valid = include_bytes!("../fixtures/fuzz-seeds/profiler.csv");
+        assert_eq!(
+            parse_profiler(invalid).unwrap_err(),
+            "device profiler CSV contains no data rows"
+        );
+        let rows = parse_profiler(valid).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].runtime_id, TEST_PROFILER_RUNTIME_ID);
+        assert_eq!(rows[0].card, PRIMARY_OWNER_INDEX);
+        assert_eq!(rows[0].zone, "KERNEL");
+    }
+
+    #[test]
     fn profiler_parser_accepts_complete_rows_and_rejects_empty_input() {
         let csv = b"ARCH: blackhole, CHIP_FREQ[MHz]: 1000\nPCIe slot,core_x,core_y,RISC processor type,timer_id,time[cycles since reset],data,run host ID,trace id,trace id counter,zone name,type,source line,source file,meta data\n0,1,1,BRISC,1,100,0,7,0,0,KERNEL,begin,1,kernel.cpp,\n0,1,1,BRISC,1,200,0,7,0,0,KERNEL,end,1,kernel.cpp,\n";
         let rows = parse_profiler(csv).expect("complete profiler rows must parse");
         assert_eq!(rows.len(), TEST_ELEMENT_COUNT);
         assert_eq!(rows[0].runtime_id, TEST_PROFILER_RUNTIME_ID);
         assert!(parse_profiler(b"header only\n").is_err());
+    }
+
+    #[test]
+    fn parser_boundaries_reject_oversized_and_over_field_inputs() {
+        let oversized_json = vec![b' '; JSON_MAX_BYTES + 1];
+        assert!(parse_reference(&oversized_json).is_err());
+        assert!(parse_runtime(&oversized_json).is_err());
+        assert!(parse_json_value(&oversized_json, "fixture").is_err());
+
+        let oversized_yaml = vec![b' '; YAML_MAX_BYTES + 1];
+        assert!(yaml_sequence(&oversized_yaml, "fixture").is_err());
+
+        let oversized_vocabulary = vec![b' '; VOCABULARY_MAX_BYTES + 1];
+        assert!(BoundedTokenizer::parse(&oversized_vocabulary).is_err());
+
+        let over_field_row = vec!["field"; CSV_MAX_FIELDS + 1].join(",");
+        assert!(parse_profiler(over_field_row.as_bytes()).is_err());
     }
 
     #[test]

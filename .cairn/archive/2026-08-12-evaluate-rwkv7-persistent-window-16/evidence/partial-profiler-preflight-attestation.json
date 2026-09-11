@@ -1,0 +1,27 @@
+{
+  "baseline_dual_run_id": null,
+  "baseline_single_run_id": null,
+  "dropped_profiler_markers": false,
+  "dual_physical_device_ids": [
+    0,
+    1
+  ],
+  "dual_run_id": "profiler-dual-0",
+  "primary_thread_cpu_affinities": [
+    2,
+    6
+  ],
+  "primary_thread_fifo_priority": 1,
+  "production_physically_admitted": true,
+  "profile_identity_blake3": "508ee5ab40010e5b8da49fc5a541958c06d5b75f951fbda2ec0cd863690c39e4",
+  "profiled_generated_token_count": 1,
+  "profiled_warmup_token_count": 1,
+  "program_signature_filename": "profiler-program-signature.json",
+  "schema_version": 1,
+  "single_physical_device_ids": [
+    0
+  ],
+  "single_run_id": "profiler-single-0",
+  "timed_samples_profiled": false,
+  "wkv_execution_policy": "production"
+}

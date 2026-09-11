@@ -1,0 +1,195 @@
+{
+  "admission_eligible": false,
+  "complete": false,
+  "diagnostic_only": true,
+  "events": [
+    {
+      "elapsed_seconds": 7.695984095335007e-06,
+      "stage": "command-start"
+    },
+    {
+      "elapsed_seconds": 3.2393550479901023,
+      "stage": "mesh-open-start"
+    },
+    {
+      "elapsed_seconds": 3.9868630230193958,
+      "stage": "mesh-open-complete"
+    },
+    {
+      "elapsed_seconds": 3.9896977589814924,
+      "stage": "model-load-start"
+    },
+    {
+      "elapsed_seconds": 84.0230742120184,
+      "stage": "model-load-complete"
+    },
+    {
+      "elapsed_seconds": 85.37980195402633,
+      "stage": "adapter-create-start"
+    },
+    {
+      "elapsed_seconds": 86.61008046998177,
+      "stage": "adapter-create-complete"
+    },
+    {
+      "elapsed_seconds": 86.61365735897562,
+      "stage": "pilot-start"
+    },
+    {
+      "elapsed_seconds": 86.61613946198486,
+      "stage": "target-prefill-start"
+    },
+    {
+      "elapsed_seconds": 88.20408247801242,
+      "stage": "target-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 88.20634360797703,
+      "stage": "draft-start"
+    },
+    {
+      "elapsed_seconds": 88.20905661402503,
+      "stage": "mtp-prefill-start"
+    },
+    {
+      "elapsed_seconds": 88.29162787197856,
+      "stage": "mtp-prefill-complete"
+    },
+    {
+      "elapsed_seconds": 88.29380978900008,
+      "stage": "rollback-context-start"
+    },
+    {
+      "elapsed_seconds": 88.31019320397172,
+      "stage": "rollback-context-complete"
+    },
+    {
+      "elapsed_seconds": 88.31312112201704,
+      "stage": "trace-run-start"
+    },
+    {
+      "elapsed_seconds": 88.31533916300396,
+      "stage": "trace-input-allocation-start"
+    },
+    {
+      "elapsed_seconds": 88.31952063197969,
+      "stage": "trace-input-allocation-complete"
+    },
+    {
+      "elapsed_seconds": 88.32161738397554,
+      "stage": "trace-capture-start"
+    },
+    {
+      "elapsed_seconds": 88.47074687597342,
+      "stage": "trace-capture-complete"
+    },
+    {
+      "elapsed_seconds": 88.47304699500091,
+      "stage": "trace-draft-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 88.48048347298754,
+      "stage": "trace-draft-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 88.48257560597267,
+      "stage": "trace-draft-replay-step-2-start"
+    },
+    {
+      "elapsed_seconds": 88.49053462600568,
+      "stage": "trace-draft-replay-step-2-complete"
+    },
+    {
+      "elapsed_seconds": 88.49265894497512,
+      "stage": "trace-run-complete"
+    },
+    {
+      "elapsed_seconds": 88.49475019599777,
+      "stage": "draft-complete"
+    },
+    {
+      "elapsed_seconds": 88.49671860400122,
+      "stage": "target-trace-start"
+    },
+    {
+      "elapsed_seconds": 89.50404724502005,
+      "stage": "target-trace-complete"
+    },
+    {
+      "elapsed_seconds": 89.50946992100216,
+      "stage": "target-sequential-start"
+    },
+    {
+      "elapsed_seconds": 89.74873558297986,
+      "stage": "target-sequential-complete"
+    },
+    {
+      "elapsed_seconds": 89.75804398197215,
+      "stage": "target-trace-release-complete"
+    },
+    {
+      "elapsed_seconds": 89.76349058700725,
+      "stage": "recovery-start"
+    },
+    {
+      "elapsed_seconds": 89.773440792982,
+      "stage": "recovery-queue-drain-start"
+    },
+    {
+      "elapsed_seconds": 89.78284325398272,
+      "stage": "recovery-queue-drain-complete"
+    },
+    {
+      "elapsed_seconds": 89.785369677993,
+      "stage": "recovery-restore-start"
+    },
+    {
+      "elapsed_seconds": 89.79751413600752,
+      "stage": "recovery-restore-complete"
+    },
+    {
+      "elapsed_seconds": 89.8062340170145,
+      "stage": "controlled-replay-start"
+    },
+    {
+      "elapsed_seconds": 89.81687991000945,
+      "stage": "controlled-replay-step-1-start"
+    },
+    {
+      "elapsed_seconds": 89.8325469159754,
+      "stage": "controlled-replay-step-1-complete"
+    },
+    {
+      "elapsed_seconds": 89.83930135401897,
+      "stage": "controlled-replay-complete"
+    },
+    {
+      "elapsed_seconds": 89.84836180397542,
+      "stage": "recovery-synchronize-start"
+    },
+    {
+      "elapsed_seconds": 89.85849176900228,
+      "stage": "recovery-synchronize-complete"
+    },
+    {
+      "elapsed_seconds": 89.8621531809913,
+      "stage": "recovery-state-readback-start"
+    },
+    {
+      "elapsed_seconds": 89.87270825798623,
+      "stage": "recovery-state-readback-complete"
+    },
+    {
+      "elapsed_seconds": 89.87513524800306,
+      "stage": "recovery-complete"
+    },
+    {
+      "elapsed_seconds": 89.87818524602335,
+      "stage": "target-reference-state-start"
+    }
+  ],
+  "last_stage": "target-reference-state-start",
+  "prompt_index": 2,
+  "route": "snapshot",
+  "schema_version": 1
+}

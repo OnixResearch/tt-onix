@@ -1,0 +1,53 @@
+{
+  "classification": "passed",
+  "date": "2026-08-20",
+  "execution": {
+    "fabric": "FABRIC_1D",
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "simulated": false
+  },
+  "model": {
+    "hf_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "name": "Qwen3.8-27B",
+    "upstream_commit": "d102e7f4512060e09e580e40cf26a870bfa88c55"
+  },
+  "non_claims": [
+    "Component PCC does not establish full 64-layer logits PCC against a CPU model",
+    "The paged contract comparison used eight representative layers",
+    "No long-context, TTFT, throughput, thermal, or profiler claim"
+  ],
+  "raw_log": {
+    "blake3": "8cd962a309176091486dfa0316a199642a5c154135b05819b63f7fe4be446662",
+    "path": "/home/brittonr/.local/state/tenstorrent-nix/qwen38-27b-tp2-pcc.log"
+  },
+  "results": {
+    "attention_component_minimum_pcc": 0.99993,
+    "gdn_component_minimum_pcc": 0.99999,
+    "gdn_recurrence_bf16_minimum_output_pcc": 0.999964,
+    "gdn_recurrence_bf16_minimum_state_pcc": 0.999995,
+    "gdn_recurrence_fp32_minimum_output_pcc": 0.999983,
+    "gdn_recurrence_fp32_minimum_state_pcc": 0.999995,
+    "masked_bucket_prefill_pcc": 0.9998459531124145,
+    "mlp_component_pcc": 0.9992400660601553,
+    "paged_contract_decode_minimum_pcc": 0.9999042691604841,
+    "paged_contract_prefill_pcc": 0.9998629502385343,
+    "policy_negative_pcc": -1.0,
+    "policy_positive_pcc": 1.0
+  },
+  "runtime": {
+    "firmware": "19.11.0",
+    "kmd": "2.10.0",
+    "qwen_package": "/nix/store/2hv1dgj6l7sci1dxndzkcng2jq5mp9n6-qwen36-0.1.0",
+    "sfpi": "7.70.0[847]",
+    "tt_metal": "0.74.0-rc6",
+    "tt_umd": "0.9.9"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,18 @@
+diff -ruN a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py	2026-08-19 18:53:42.142945481 -0400
++++ b/models/demos/blackhole/qwen36/tt/model.py	2026-08-19 18:53:55.102041355 -0400
+@@ -618,7 +618,13 @@
+     def reset_tp(self):
+         """Reset TP layer KV cache / GDN state for a new sequence."""
+         for layer in self.layers:
+-            layer.attention.reset_state()
++            attention = layer.attention
++            # Single-device full attention exposes reset_cache; GDN (and the
++            # TP attention wrappers) expose reset_state.
++            if hasattr(attention, "reset_state"):
++                attention.reset_state()
++            else:
++                attention.reset_cache()
+ 
+     def decode_tp(self, token_id, pos):
+         """Single-token TP decode at position `pos` (B=1). Uses KV + GDN from prefill/decode."""

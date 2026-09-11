@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016 # jq filters use their own $variables.
 # r[impl tenstorrent.rwkv7_dual_p150a.collectives]
 # Host-side orchestrator for the dual-P150A collective probe receipt.
 # Runs the focused mesh/all-reduce/barrier probe in the pinned container,
@@ -7,6 +9,8 @@ set -euo pipefail
 
 CORE=@core@/bin/rwkv7-lora-dual-p150a-core
 PLATFORM_CORE=@platform_core@/bin/training-platform-core
+PLATFORM_AUTHORITY=@platform_authority@
+WHEELS_DIR=@platform_wheelhouse@
 JQ=@jq@
 DOCKER=@docker@
 TTSMI=@ttsmi@
@@ -14,31 +18,20 @@ B3SUM=@b3sum@
 FUSER=@fuser@
 
 usage() {
-  echo "usage: rwkv7-lora-dual-p150a-collective --profile PATH --manifest PATH --config PATH --descriptor PATH --wheels-dir PATH --evidence-root PATH" >&2
+  echo "usage: rwkv7-lora-dual-p150a-collective --profile PATH --evidence-root PATH" >&2
   exit 2
 }
 
 PROFILE=""
-MANIFEST=""
-CONFIG=""
-DESCRIPTOR=""
-WHEELS_DIR=""
 EVIDENCE_ROOT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile) PROFILE="$2"; shift 2 ;;
-    --manifest) MANIFEST="$2"; shift 2 ;;
-    --config) CONFIG="$2"; shift 2 ;;
-    --descriptor) DESCRIPTOR="$2"; shift 2 ;;
-    --wheels-dir) WHEELS_DIR="$2"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
-[ -n "$PROFILE" ] && [ -n "$MANIFEST" ] && [ -n "$CONFIG" ] && [ -n "$DESCRIPTOR" ] \
-  && [ -n "$WHEELS_DIR" ] && [ -n "$EVIDENCE_ROOT" ] || usage
-
-DESCRIPTOR=$(readlink -f "$DESCRIPTOR")
+[ -n "$PROFILE" ] && [ -n "$EVIDENCE_ROOT" ] || usage
 
 for variable in PYTHONPATH PYTHONHOME TT_METAL_HOME TT_METAL_RUNTIME_ROOT; do
   if [ -n "${!variable:-}" ]; then
@@ -53,7 +46,8 @@ mkdir -p "$EVIDENCE_ROOT"
 PROFILE_IDENTITY=$("$JQ" -r '.identity_blake3' "$EVIDENCE_ROOT/profile-admission.json")
 TIMEOUT_SECONDS=$("$JQ" -r '.collective_timeout_seconds' "$EVIDENCE_ROOT/profile-admission.json")
 
-PLAN=$("$PLATFORM_CORE" launch-plan "$MANIFEST" "$CONFIG" "$DESCRIPTOR")
+PLAN=$("$PLATFORM_CORE" authorized-launch-plan "$PLATFORM_AUTHORITY")
+DESCRIPTOR=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].host')
 IMAGE=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.image')
 HUGEPAGE_MOUNT=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[0].host')
 DESCRIPTOR_CONTAINER=$(printf '%s' "$PLAN" | "$JQ" -r '.plan.mounts[1].container')

@@ -1,0 +1,314 @@
+--- a/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
+@@ -0,0 +1,46 @@
++"""Pure policy for the default-off GDN decode fusion candidate.
++
++``norm`` folds fixed Q/K scales into RMSNorm. ``state`` uses the TTNN
++ternary state update. ``full`` selects the fused fp32 recurrent kernel.
++``norm-state`` combines norm and state fusion without the custom kernel.
++
++This module imports no TTNN object and opens no device.
++"""
++
++import os
++
++# r[impl tenstorrent.qwen38_p150x2.gdn_decode_fusion]
++
++ENV_GATE = "QWEN35_GDN_DECODE_FUSION"
++MODE_OFF = "off"
++MODE_NORM = "norm"
++MODE_STATE = "state"
++MODE_NORM_STATE = "norm-state"
++MODE_FULL = "full"
++MODES = frozenset({MODE_OFF, MODE_NORM, MODE_STATE, MODE_NORM_STATE, MODE_FULL})
++
++
++def selected_mode(env=None):
++    """Return a closed mode. Missing or unknown values select ``off``."""
++    if env is None:
++        env = os.environ
++    value = env.get(ENV_GATE, MODE_OFF)
++    if not isinstance(value, str):
++        return MODE_OFF
++    mode = value.strip().lower()
++    return mode if mode in MODES else MODE_OFF
++
++
++def uses_fused_norm(mode):
++    """Return whether ``mode`` folds Q/K scale into RMSNorm."""
++    return mode in {MODE_NORM, MODE_NORM_STATE, MODE_FULL}
++
++
++def uses_fused_state_update(mode):
++    """Return whether ``mode`` uses one addcmul state-update kernel."""
++    return mode in {MODE_STATE, MODE_NORM_STATE}
++
++
++def uses_fused_recurrence(mode):
++    """Return whether ``mode`` uses the custom fp32 recurrence."""
++    return mode == MODE_FULL
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -14,6 +14,7 @@
+ import ttnn
+ from models.demos.blackhole.qwen36.tt import tp_common as tpc
+ from models.demos.blackhole.qwen36.tt.gdn import decode_layout_candidate as gdn_decode_candidate
++from models.demos.blackhole.qwen36.tt.gdn import decode_fusion_candidate
+ from models.demos.blackhole.qwen36.tt.gdn.weights import gdn_proj_dtype_and_tag
+ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import (
+     recurrent_gated_delta_rule_decode_ttnn,
+@@ -36,6 +37,18 @@
+     return ttnn.multiply(x, ttnn.silu(z, memory_config=memory_config), memory_config=memory_config)
+ 
+ 
++def _decode_norm_weight(mesh, width, value):
++    """Build one trace-stable float32 RMSNorm scale on every TP device."""
++    return ttnn.from_torch(
++        torch.full((1, 1, width), value, dtype=torch.float32),
++        dtype=ttnn.float32,
++        layout=ttnn.TILE_LAYOUT,
++        device=mesh,
++        memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
++    )
++
++
+ def load_gdn_weights_tp(mesh, sd, args, cache_dir=None):
+     """Shard one GDN layer's linear_attn.* weights across the mesh."""
+     tp = args.num_devices
+@@ -188,6 +201,12 @@
+         self._gdn_fuse_out = True
+         self.K = args.gdn_conv_kernel_size
+         self.scale = self.Dk**-0.5
++        self._decode_fusion_mode = decode_fusion_candidate.selected_mode()
++        self._decode_q_norm_weight = None
++        self._decode_k_norm_weight = None
++        if decode_fusion_candidate.uses_fused_norm(self._decode_fusion_mode):
++            self._decode_q_norm_weight = _decode_norm_weight(mesh, self.Dk, self.scale * self.scale)
++            self._decode_k_norm_weight = _decode_norm_weight(mesh, self.Dk, self.scale)
+         self.cfg = tpc.COMPUTE_HIFI2
+         # Must match load_gdn_weights_tp gates
+         self._dram_sharded = getattr(args, "gdn_qkvz_weight_memcfg", None) is not None
+@@ -1087,7 +1106,13 @@
+         g = ttnn.reshape(g, (B, 1, Nv))
+ 
+         # fp32 decode step by default (QWEN35_GDN_DECODE_BF16=1 reverts)
++        high_precision = os.environ.get("QWEN35_GDN_DECODE_BF16") != "1"
++        use_fused_norm = high_precision and decode_fusion_candidate.uses_fused_norm(self._decode_fusion_mode)
++        use_fused_recurrence = high_precision and decode_fusion_candidate.uses_fused_recurrence(
++            self._decode_fusion_mode
++        )
+         init_state = self.rec_state if B == Bmax else self._slice_along(self.rec_state, 0, 0, B)
++        stable_state_output = self.rec_state if (use_fused_recurrence and self._stable_state and B == Bmax) else None
+         o, new_rec = recurrent_gated_delta_rule_decode_ttnn(
+             q,
+             k,
+@@ -1097,15 +1122,21 @@
+             scale=self.scale,
+             initial_state=init_state,
+             device=self.mesh,
+-            high_precision=(os.environ.get("QWEN35_GDN_DECODE_BF16") != "1"),
++            high_precision=high_precision,
++            q_norm_weight=self._decode_q_norm_weight if use_fused_norm else None,
++            k_norm_weight=self._decode_k_norm_weight if use_fused_norm else None,
++            fuse_state_update=decode_fusion_candidate.uses_fused_state_update(self._decode_fusion_mode),
++            fused_recurrence=use_fused_recurrence,
++            state_output=stable_state_output,
+         )
+         if init_state is not self.rec_state:
+             ttnn.deallocate(init_state)
+         if self._stable_state:
+             # In-place update preserves rec_state address for decode trace replay
+             if B == Bmax:
+-                ttnn.copy(new_rec, self.rec_state)
+-                ttnn.deallocate(new_rec)
++                if new_rec is not self.rec_state:
++                    ttnn.copy(new_rec, self.rec_state)
++                    ttnn.deallocate(new_rec)
+             else:
+                 self._write_recurrent_state_prefix(new_rec, B)
+         else:
+--- a/models/experimental/gated_attention_gated_deltanet/tt/ttnn_delta_rule_ops.py
++++ b/models/experimental/gated_attention_gated_deltanet/tt/ttnn_delta_rule_ops.py
+@@ -15,6 +15,7 @@
+ # Wormhole tile size
+ _TILE_H = 32
+ _TILE_W = 32
++_DEFAULT_L2_NORM_EPS = 1e-6
+ 
+ # Cached identity matrices for forward substitution
+ _EYE_CACHE = {}
+@@ -225,7 +226,7 @@
+         return None
+ 
+ 
+-def l2_norm_ttnn(x, dim=-1, eps=1e-6):
++def l2_norm_ttnn(x, dim=-1, eps=_DEFAULT_L2_NORM_EPS):
+     """L2 norm along dim. Last dim: fused rms_norm path (~3 fewer kernels)."""
+     # L1 for T<=512; DRAM otherwise
+     T = x.shape[1] if len(x.shape) >= 3 else x.shape[0]
+@@ -248,16 +249,14 @@
+     beta_t,
+     device=None,
+     apply_decay=True,
++    fuse_state_update=False,
+ ):
+-    """State update: h = decay*h + beta*(k⊗delta). apply_decay=False if caller already decayed h."""
++    """State update: h = decay*h + beta*(k⊗delta)."""
+     B = h.shape[0]
+     H = h.shape[1]
+     K = h.shape[2]
+     V = h.shape[3]
+ 
+-    # decay_t: [B,H] -> [B,H,1,1] (already exp(g) in BF16)
+-    decay = ttnn.reshape(decay_t, [B, H, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
+-
+     # beta: [B,H] -> [B,H,1,1]
+     beta_expanded = ttnn.reshape(beta_t, [B, H, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
+ 
+@@ -284,17 +283,16 @@
+         program_config=None,
+     )
+ 
+-    # apply beta
+-    outer = ttnn.multiply(
+-        outer,
+-        beta_expanded,
+-        memory_config=_L1,
+-    )
+-
+     # apply_decay=False: h already decayed (decay->read->write order).
+     if apply_decay:
++        decay = ttnn.reshape(decay_t, [B, H, 1, 1], memory_config=_L1)
+         h = ttnn.multiply(h, decay, memory_config=_L1)
+-    h = ttnn.add(h, outer, memory_config=_L1)
++
++    if fuse_state_update:
++        h = ttnn.addcmul(h, outer, beta_expanded, memory_config=_L1)
++    else:
++        outer = ttnn.multiply(outer, beta_expanded, memory_config=_L1)
++        h = ttnn.add(h, outer, memory_config=_L1)
+ 
+     return h
+ 
+@@ -390,8 +388,13 @@
+     initial_state=None,
+     device=None,
+     high_precision=False,
++    q_norm_weight=None,
++    k_norm_weight=None,
++    fuse_state_update=False,
++    fused_recurrence=False,
++    state_output=None,
+ ):
+-    """T=1 decode path: no loop/slice overhead. Returns o [B,1,H,V], state [B,H,K,V]."""
++    """T=1 decode path with optional norm and recurrence fusion."""
+     B = q.shape[0]
+     H = q.shape[2]
+     K = q.shape[3]
+@@ -405,13 +408,29 @@
+         beta = ttnn.typecast(beta, ttnn.float32)
+         g = ttnn.typecast(g, ttnn.float32)
+ 
+-    # L2 norm
+-    q = l2_norm_ttnn(q, dim=-1)
+-    k = l2_norm_ttnn(k, dim=-1)
+-
+-    if scale is None:
+-        scale = K**-0.5
+-    q = ttnn.multiply(q, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
++    # Optional fixed weights fold the normalizer scale and Q attention scale
++    # into the two RMSNorm programs.
++    if (q_norm_weight is None) != (k_norm_weight is None):
++        raise ValueError("q_norm_weight and k_norm_weight must be provided together")
++    if q_norm_weight is None:
++        q = l2_norm_ttnn(q, dim=-1)
++        k = l2_norm_ttnn(k, dim=-1)
++        if scale is None:
++            scale = K**-0.5
++        q = ttnn.multiply(q, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
++    else:
++        q = ttnn.rms_norm(
++            q,
++            epsilon=_DEFAULT_L2_NORM_EPS / K,
++            weight=q_norm_weight,
++            memory_config=ttnn.L1_MEMORY_CONFIG,
++        )
++        k = ttnn.rms_norm(
++            k,
++            epsilon=_DEFAULT_L2_NORM_EPS / K,
++            weight=k_norm_weight,
++            memory_config=ttnn.L1_MEMORY_CONFIG,
++        )
+ 
+     # Reshape to matmul shapes; caller already TILE_LAYOUT.
+     # Decode opt: q_row/k_row in L1 with L1-resident state h.
+@@ -431,6 +450,52 @@
+     elif high_precision and h.dtype != ttnn.float32:
+         h = ttnn.typecast(h, ttnn.float32)
+ 
++    if fused_recurrence:
++        if not high_precision:
++            raise ValueError("fused recurrence requires fp32 decode")
++        if state_output is not None and state_output.shape != h.shape:
++            raise ValueError("state_output shape must match initial_state")
++        flat_heads = B * H
++        # The custom reader assigns one full tile row to each core and head.
++        # A metadata-only reshape keeps H packed inside tile rows and violates that ABI.
++        head_major_order = (0, 2, 1, 3)
++        q_head_major = ttnn.permute(q, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        k_head_major = ttnn.permute(k, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        v_head_major = ttnn.permute(v, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        beta_vector = ttnn.unsqueeze(beta, -1)
++        g_vector = ttnn.unsqueeze(g, -1)
++        beta_head_major = ttnn.permute(beta_vector, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        g_head_major = ttnn.permute(g_vector, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        q_flat = ttnn.reshape(q_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
++        k_flat = ttnn.reshape(k_head_major, [flat_heads, 1, K], memory_config=ttnn.L1_MEMORY_CONFIG)
++        v_flat = ttnn.reshape(v_head_major, [flat_heads, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG)
++        beta_flat = ttnn.reshape(beta_head_major, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        g_flat = ttnn.reshape(g_head_major, [flat_heads, 1, 1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        state_flat = ttnn.reshape(h, [flat_heads, K, V])
++        state_output_flat = ttnn.reshape(state_output, [flat_heads, K, V]) if state_output is not None else None
++        output_flat, new_state_flat = ttnn.transformer.gated_delta_decode(
++            q_flat,
++            k_flat,
++            v_flat,
++            beta_flat,
++            g_flat,
++            state_flat,
++            output_state=state_output_flat,
++            memory_config=ttnn.L1_MEMORY_CONFIG,
++            compute_kernel_config=ttnn.WormholeComputeKernelConfig(
++                math_fidelity=ttnn.MathFidelity.HiFi4,
++                math_approx_mode=False,
++                fp32_dest_acc_en=True,
++                packer_l1_acc=False,
++            ),
++        )
++        output_head_major = ttnn.reshape(
++            output_flat, [B, H, 1, V], memory_config=ttnn.L1_MEMORY_CONFIG
++        )
++        output = ttnn.permute(output_head_major, head_major_order, memory_config=ttnn.L1_MEMORY_CONFIG)
++        new_state = state_output if state_output is not None else ttnn.reshape(new_state_flat, [B, H, K, V])
++        return output, new_state
++
+     # Decode opt: keep [B,H,K,V] state in L1 (~0.8MB fp32 at B=1).
+     h = ttnn.to_memory_config(h, ttnn.L1_MEMORY_CONFIG)
+ 
+@@ -467,7 +519,14 @@
+     # decay_t is unused downstream (apply_decay=False -> h already decayed above); pass g_bhkv to
+     # satisfy the signature without recomputing a decay tensor.
+     h = fused_decay_and_write_ttnn(
+-        h=h, k_t=k_t, delta=delta, decay_t=g_bhkv, beta_t=beta_t, device=device, apply_decay=False
++        h=h,
++        k_t=k_t,
++        delta=delta,
++        decay_t=g_bhkv,
++        beta_t=beta_t,
++        device=device,
++        apply_decay=False,
++        fuse_state_update=fuse_state_update,
+     )
+ 
+     # o = q @ h

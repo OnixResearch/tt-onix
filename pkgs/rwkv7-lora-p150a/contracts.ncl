@@ -3,6 +3,11 @@
 # The admission core in core/src/ re-checks every rule in Rust before
 # compilation, device access, or evidence admission.
 
+let target_profiles = import "../../model-targets/profiles.ncl" in
+let target = std.array.first (std.array.filter
+  (fun profile => profile.target_name == "rwkv7-goose-world2.8-0.1b-p150x2")
+  target_profiles.profiles) in
+
 let NonEmptyC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.length value > 0
 ) in
@@ -37,11 +42,11 @@ let BundleIdC = std.contract.from_predicate (fun value =>
   value == admitted_bundle_id
 ) in
 
-let admitted_model_id = "RWKV/RWKV7-Goose-World2.8-0.1B-HF" in
+let admitted_model_id = target.model.id in
 
 let admitted_precision_class = "bf16_from_fp32_cpu" in
 
-let admitted_adapter_format = "safetensors-adapter-only" in
+let admitted_adapter_format = target.consumer.adapter_format in
 
 let admitted_hash_algorithm = "blake3" in
 
@@ -188,6 +193,82 @@ let OptimizerC = {
   clip_norm | PositiveC,
 } in
 
+let minimum_measurement_repeats = 3 in
+let measurement_metrics = ["stage_time_seconds", "loss"] in
+let measurement_machine_facts = [
+  "board_identity",
+  "firmware_version",
+  "mesh_descriptor_identity",
+  "pcie_link",
+  "power_state",
+] in
+let measurement_profile_fields = [
+  "profile_id",
+  "parity_profile_id",
+  "repeat_count",
+  "metric_set",
+  "machine_fact_set",
+] in
+let measurement_profile_field_count = std.array.length measurement_profile_fields in
+let RegressionMetricC = std.contract.from_predicate (fun value =>
+  std.array.elem value ["time_seconds.mean", "time_seconds.p99", "loss.mean"]
+) in
+
+let RegressionMetricBoundC = {
+  metric | RegressionMetricC,
+  direction | std.contract.from_predicate (fun value => value == "lower_is_better"),
+  maximum_regression_fraction | NonNegativeC,
+} in
+
+let DeterminismTolerancesC = {
+  time_seconds | NonNegativeC,
+  loss | NonNegativeC,
+} in
+
+let RegressionPolicyC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  profile_id | NonEmptyC,
+  metric_bounds | Array RegressionMetricBoundC,
+  determinism_tolerances | DeterminismTolerancesC,
+  hash_algorithm | std.contract.from_predicate (fun value => value == "blake3"),
+} in
+
+let StabilityPolicyC = {
+  schema_version | std.contract.from_predicate (fun value => value == 1),
+  profile_id | NonEmptyC,
+  parity_profile_id | NonEmptyC,
+  step_budget | PositiveIntC,
+  trajectory_cadence_steps | PositiveIntC,
+  thermal_cadence_steps | PositiveIntC,
+  maximum_loss | PositiveC,
+  maximum_gradient_norm | PositiveC,
+  maximum_temperature_celsius | PositiveC,
+  maximum_power_watts | PositiveC,
+  maximum_eval_loss_ratio | std.contract.from_predicate (fun value =>
+    std.is_number value && value > 0 && value <= 1
+  ),
+  thermal_source | NonEmptyC,
+  generalization_non_claim | NonEmptyC,
+  hash_algorithm | std.contract.from_predicate (fun value => value == "blake3"),
+} in
+
+let MeasurementProfileC = std.contract.from_predicate (fun value =>
+  std.is_record value
+  && std.array.length (std.record.fields value) == measurement_profile_field_count
+  && std.array.all
+    (fun field => std.array.elem field measurement_profile_fields)
+    (std.record.fields value)
+  && std.is_string value.profile_id
+  && std.string.length value.profile_id > 0
+  && std.is_string value.parity_profile_id
+  && std.string.length value.parity_profile_id > 0
+  && std.is_number value.repeat_count
+  && std.number.is_integer value.repeat_count
+  && value.repeat_count >= minimum_measurement_repeats
+  && value.metric_set == measurement_metrics
+  && value.machine_fact_set == measurement_machine_facts
+) in
+
 let ArtifactPolicyC = {
   format | std.contract.from_predicate (fun value => value == admitted_adapter_format),
   artifact_root | AbsolutePathC,
@@ -322,6 +403,9 @@ let profile_fields = [
 {
   Profile = ProfileC,
   ProfileClosed = ClosedRecordC profile_fields,
+  MeasurementProfile = MeasurementProfileC,
+  RegressionPolicy = RegressionPolicyC,
+  StabilityPolicy = StabilityPolicyC,
   Wheels = WheelsC,
   WheelsClosed = ClosedRecordC wheels_fields,
   HashHex = HashHexC,

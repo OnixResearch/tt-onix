@@ -1,0 +1,475 @@
+{
+  "admission_eligible": false,
+  "checked_program_median_sums": {
+    "candidate_median_sum_ns": 360131420.692155,
+    "candidate_to_eager_ratio": 1.0064446256760908,
+    "delta_ns": 2306050.567859769,
+    "eager_median_sum_ns": 357825370.12429523,
+    "wall_delta_fraction": 0.0022521929455787217
+  },
+  "checked_wall_prefill": {
+    "candidate_median_seconds": 2.587822357978439,
+    "candidate_to_eager_ratio": 1.6547142133287787,
+    "delta_seconds": 1.023913413984701,
+    "eager_median_seconds": 1.563908943993738
+  },
+  "coverage": {
+    "candidate_complete_signature_chip_count": 100,
+    "candidate_only_signature_chip_count": 0,
+    "common_signature_chip_count": 100,
+    "eager_complete_signature_chip_count": 100,
+    "eager_only_signature_chip_count": 0
+  },
+  "execution": {
+    "execution_order": [
+      "eager",
+      "candidate",
+      "candidate",
+      "eager"
+    ],
+    "measured_samples_per_root": 12,
+    "response_roots_per_path": 2,
+    "simulated": false
+  },
+  "identity": {
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "package_identity": "/nix/store/w0c80mbyz6lzvqih40ark0j0c1fxqhyw-qwen36-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "profile_id": "qwen38-p150x2-traced-decode-v1",
+    "runtime_identity": "/nix/store/mg0ha5nsvnir1y1ysiyyzmm4hk83z3m6-tt-metal-0.74.0"
+  },
+  "input_hashes": [
+    {
+      "blake3": "5d70e8064bd767e401fe050f54781a4e0c8f1b433a1966f3b54709baa2372fab",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "boundary-measured-1.json"
+    },
+    {
+      "blake3": "a64397e8d0e237eec2b250a0d52ca884fa3da5051e2d265e8471c2d5fb1050dc",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "boundary-measured-2.json"
+    },
+    {
+      "blake3": "05321dfe8ac2a3b0657af9c30da2bf050a9e2b26d3a3441f0083f029d2072ff8",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "boundary-measured-3.json"
+    },
+    {
+      "blake3": "89ddfb6e938ab67b3dd2cf79b57eb29429f79fd9a0db0e5b4d5cec60d96fc35a",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "cleanup-measured-1.json"
+    },
+    {
+      "blake3": "509d9d335257fe03ad9965f50a62554e1ea4c7f44631d704fdc8c106ab433e55",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "cleanup-measured-2.json"
+    },
+    {
+      "blake3": "1484a373a53c7854bfc534bbc6740cf4ed3849e3613140a092036df3d62e913e",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "cleanup-measured-3.json"
+    },
+    {
+      "blake3": "476aa07c590e818d7ca90b5a23ff3f067e915cb04466e461983b22c473fe8bec",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-1.json"
+    },
+    {
+      "blake3": "5566ebc25b0caddf4170409d2a4547225e5faf1b00ed0672432ac7d5ebff82ff",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-2.json"
+    },
+    {
+      "blake3": "94027733029a36274a6fd417e7d98a81e68a6efd199691aeca3c164abb8e0f93",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-3.json"
+    },
+    {
+      "blake3": "b3dfb9221078f9b4e007a6dd78dbd58a8a0d19531f644dd770bbde6a17244d87",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "france-measured-1.json"
+    },
+    {
+      "blake3": "220c6358bf3fe3380fb9466077cf6e66dbce22009b6cf5739b6a70e24cef25bd",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "france-measured-2.json"
+    },
+    {
+      "blake3": "a07d98ec3b7cb2f36c9ba2033dbf6f37d63bad831c6d801c9c1f6edd9c83d2c5",
+      "path": "eager",
+      "root_index": 0,
+      "sample": "france-measured-3.json"
+    },
+    {
+      "blake3": "259f288cd00052884a621154f212e416831b52bcfaff82edd8b53b59d30325be",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "boundary-measured-1.json"
+    },
+    {
+      "blake3": "58a6c1ea8d6f9956ac142dc1080c8a78cbc95e1e90afa8c23e220ea9fc7ecc58",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "boundary-measured-2.json"
+    },
+    {
+      "blake3": "2839e21d9d67beb99d119b8e8c651ff0580236b3eee90b3d1e24a6d70d236196",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "boundary-measured-3.json"
+    },
+    {
+      "blake3": "7a005e6ec3a32f3c6f02fd64328ad47ecf8adc37869d74caee07bf183021e1bd",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "cleanup-measured-1.json"
+    },
+    {
+      "blake3": "1019b449f0c171a9184beb6cf2093ac31e923f7b552f87560e25d11ccb0038a0",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "cleanup-measured-2.json"
+    },
+    {
+      "blake3": "c6abf209e817df6e4f523f6f69d0ad5f31a4c922e185d07b0c009b93ed08716d",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "cleanup-measured-3.json"
+    },
+    {
+      "blake3": "5156055eea95060119a9f4c7c14778403795b7786084c1eb323d20021f67ce7f",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-1.json"
+    },
+    {
+      "blake3": "1edc3dcce1839b3fdb61d00f7e226a34d0ad2207fcf4a3d8a681b378a7db0ebe",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-2.json"
+    },
+    {
+      "blake3": "17da1bf841d15150d4e1930688d52d29b2dcd274f82d75a85a1105f741c24000",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-3.json"
+    },
+    {
+      "blake3": "123a07648c663c2556daa3d04a56880edbd299e8baf49df67f7c584191f358a8",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "france-measured-1.json"
+    },
+    {
+      "blake3": "2a1b9a021799b14aa4d3f12feda5af07ad12a3fa923b08e1373fa557aeb7765b",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "france-measured-2.json"
+    },
+    {
+      "blake3": "07eb6903230c0f0c1906cf6b6bc0f1f38943924b360ed5b40e02ad1ac194b01a",
+      "path": "eager",
+      "root_index": 1,
+      "sample": "france-measured-3.json"
+    },
+    {
+      "blake3": "a4990e65dfdb4748aed2bcff2059977af33300e3f4d042b8c19678694503b3c4",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "boundary-measured-1.json"
+    },
+    {
+      "blake3": "3b977cef6affe983490aa5477b7a0e212b08b85e6a030670de189a94ad62db12",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "boundary-measured-2.json"
+    },
+    {
+      "blake3": "ac1fee80d517c4fa71c31650ffceced1480fecb8e231b57d59e9860733be1e52",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "boundary-measured-3.json"
+    },
+    {
+      "blake3": "d12fc4b056ae408f47a1c80c50718a75f4e6577b4d289fdfd7a7570777faf04f",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "cleanup-measured-1.json"
+    },
+    {
+      "blake3": "cefec5fdaee23db28279af6b7ca69df6cd9cb09eb2e04afa9b10a647e536ede2",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "cleanup-measured-2.json"
+    },
+    {
+      "blake3": "8519f2fe57c25574d17c8f1139f5746b23df237cfbc06d67070fae00d3388ece",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "cleanup-measured-3.json"
+    },
+    {
+      "blake3": "a4fad36468b6b0132829df2d6534b4d3a6f2f7f69c2e873cc48d2a91ed581788",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-1.json"
+    },
+    {
+      "blake3": "e3589220d4ca403623b11b75a5d5efb24004f23fac4887e3af3753d50def80cb",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-2.json"
+    },
+    {
+      "blake3": "211afa93d635d9cd38e3da0b32d55a98a79b9d2d912cf119b1f0e573e5ec6ffe",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "empty_fixture-measured-3.json"
+    },
+    {
+      "blake3": "0d54e5a45ba76b155d85432b6c3072ac481b7a074bd5d3e467418f850dacddd5",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "france-measured-1.json"
+    },
+    {
+      "blake3": "29c7cd203263d1a8ec757b42425285277097f0087b847a31837b605aee65ba19",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "france-measured-2.json"
+    },
+    {
+      "blake3": "fd4f81b99f569792e3fa674a472db225772a245c346468cf94f41ffd46e2775f",
+      "path": "candidate",
+      "root_index": 0,
+      "sample": "france-measured-3.json"
+    },
+    {
+      "blake3": "b5abb87719afe8422290d03955cac86860060764d584c0acc0d23c5f138bcdb0",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "boundary-measured-1.json"
+    },
+    {
+      "blake3": "021fc74c04d403dafa73505b7ec138150cc5e9521a08a8b21c5f73e06a218bdb",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "boundary-measured-2.json"
+    },
+    {
+      "blake3": "4e761c0c2a7133b7131e2d6b25e71482decd2058d02ad6f966a877dff3e0186e",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "boundary-measured-3.json"
+    },
+    {
+      "blake3": "05c5d3765b980294f330ac7a79c9b7e598213740615b655531f737c8b67457bf",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "cleanup-measured-1.json"
+    },
+    {
+      "blake3": "af07372ee204cdd8fa28cfb7c5e16c59e784f0d914a0143da79ffd627880a577",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "cleanup-measured-2.json"
+    },
+    {
+      "blake3": "75726862ec5bf927f736db306e150e8cecbda9e5900deea4436fc326f6e110cf",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "cleanup-measured-3.json"
+    },
+    {
+      "blake3": "ad171380ff722254f1ac4ee949953b2a7211138f897d24e5e9c9cfba3e944118",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-1.json"
+    },
+    {
+      "blake3": "027d6885203ed8ef79fda7e894a537e601578805bbcfebfc4507c3f64d660af6",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-2.json"
+    },
+    {
+      "blake3": "936c6487a84ffcf47c21e6726b24225944208c8779d0a6d4ba959b43235f418f",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "empty_fixture-measured-3.json"
+    },
+    {
+      "blake3": "cc78dd078d18bbcb0776a24cf536b8d2cb90983608130680b5ae85ece4979364",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "france-measured-1.json"
+    },
+    {
+      "blake3": "e271b34ec04b675a06dbf1c81b1e101fe7f1ad3eb05df55ec4ea32bc29bce9af",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "france-measured-2.json"
+    },
+    {
+      "blake3": "c7d4390d78e6cfe4b09b7f246f77c127cc2322fba2cf61eb8984121e305355fd",
+      "path": "candidate",
+      "root_index": 1,
+      "sample": "france-measured-3.json"
+    }
+  ],
+  "non_claims": [
+    "profiled responses are not TTFT admission evidence",
+    "program-duration sums are not wall-clock TTFT",
+    "the strongest signature difference is not an admitted optimization"
+  ],
+  "ranked_checked_differences": [
+    {
+      "candidate_median_total_duration_ns": 6592343.838415919,
+      "candidate_to_eager_ratio": 1.200212540490469,
+      "chip_id": 0,
+      "delta_duration_ns": 1099696.8146463241,
+      "eager_median_total_duration_ns": 5492647.023769595,
+      "kernel_sources": [
+        "tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduce_scatter_minimal_async_reader.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduce_scatter_minimal_async_writer.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduction.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 5273455.276122063,
+      "candidate_to_eager_ratio": 1.2423459574758893,
+      "chip_id": 0,
+      "delta_duration_ns": 1028699.4217734914,
+      "eager_median_total_duration_ns": 4244755.854348572,
+      "kernel_sources": [
+        "tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_reader.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_writer.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 447916.12498126656,
+      "candidate_to_eager_ratio": 1.3600021088974987,
+      "chip_id": 1,
+      "delta_duration_ns": 118566.5437924735,
+      "eager_median_total_duration_ns": 329349.58118879306,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/compute/transpose_xw_rm_single_tile_size.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/reader_permute_interleaved_rm_blocked_generic.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_rm_blocked_generic.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 447909.1359996492,
+      "candidate_to_eager_ratio": 1.3597821726177115,
+      "chip_id": 0,
+      "delta_duration_ns": 118511.42435192183,
+      "eager_median_total_duration_ns": 329397.71164772735,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/compute/transpose_xw_rm_single_tile_size.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/reader_permute_interleaved_rm_blocked_generic.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_rm_blocked_generic.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 19453843.387447253,
+      "candidate_to_eager_ratio": 1.0041628019512066,
+      "chip_id": 0,
+      "delta_duration_ns": 80646.78063594177,
+      "eager_median_total_duration_ns": 19373196.60681131,
+      "kernel_sources": [
+        "tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/compute.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp",
+        "ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in1_sender_out.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 1457708.505485226,
+      "candidate_to_eager_ratio": 1.0059319750674496,
+      "chip_id": 0,
+      "delta_duration_ns": 8596.09866717644,
+      "eager_median_total_duration_ns": 1449112.4068180495,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/kernel/dataflow/writer_unary_stick_layout_interleaved_start_id.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/concat/device/kernels/dataflow/reader_concat_stick_layout_interleaved_start_id.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 1457627.4430293236,
+      "candidate_to_eager_ratio": 1.0054537989891235,
+      "chip_id": 1,
+      "delta_duration_ns": 7906.48668621527,
+      "eager_median_total_duration_ns": 1449720.9563431083,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/kernel/dataflow/writer_unary_stick_layout_interleaved_start_id.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/concat/device/kernels/dataflow/reader_concat_stick_layout_interleaved_start_id.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 1305065.65379657,
+      "candidate_to_eager_ratio": 1.0032080921537398,
+      "chip_id": 0,
+      "delta_duration_ns": 4173.382289083907,
+      "eager_median_total_duration_ns": 1300892.271507486,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/operations/data_movement/transpose/device/kernels/compute/transpose_wh.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/transpose/device/kernels/dataflow/reader_unary_transpose_wh_interleaved_start_id.cpp",
+        "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 1305362.2861187942,
+      "candidate_to_eager_ratio": 1.0017569561935118,
+      "chip_id": 1,
+      "delta_duration_ns": 2289.441904239822,
+      "eager_median_total_duration_ns": 1303072.8442145544,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/operations/data_movement/transpose/device/kernels/compute/transpose_wh.cpp",
+        "ttnn/cpp/ttnn/operations/data_movement/transpose/device/kernels/dataflow/reader_unary_transpose_wh_interleaved_start_id.cpp",
+        "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp"
+      ]
+    },
+    {
+      "candidate_median_total_duration_ns": 529249.4522396269,
+      "candidate_to_eager_ratio": 1.0038963141312343,
+      "chip_id": 0,
+      "delta_duration_ns": 2054.1186282706913,
+      "eager_median_total_duration_ns": 527195.3336113562,
+      "kernel_sources": [
+        "ttnn/cpp/ttnn/operations/transformer/sdpa/device/kernels/compute/sdpa.cpp",
+        "ttnn/cpp/ttnn/operations/transformer/sdpa/device/kernels/dataflow/reader_interleaved.cpp",
+        "ttnn/cpp/ttnn/operations/transformer/sdpa/device/kernels/dataflow/writer_interleaved.cpp"
+      ]
+    }
+  ],
+  "schema": "qwen36.prefill-profile-attribution.v1",
+  "strongest_checked_difference": {
+    "candidate_median_total_duration_ns": 6592343.838415919,
+    "candidate_to_eager_ratio": 1.200212540490469,
+    "chip_id": 0,
+    "delta_duration_ns": 1099696.8146463241,
+    "eager_median_total_duration_ns": 5492647.023769595,
+    "kernel_sources": [
+      "tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp",
+      "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduce_scatter_minimal_async_reader.cpp",
+      "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduce_scatter_minimal_async_writer.cpp",
+      "ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/line_reduction.cpp"
+    ]
+  }
+}

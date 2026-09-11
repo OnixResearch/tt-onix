@@ -1,0 +1,87 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model_config.py b/models/demos/blackhole/qwen36/tt/model_config.py
+index a9ce3d3..28b3ade 100644
+--- a/models/demos/blackhole/qwen36/tt/model_config.py
++++ b/models/demos/blackhole/qwen36/tt/model_config.py
+@@ -14,6 +14,53 @@ from models.tt_transformers.tt.model_config import ModelArgs
+ 
+ # l1_small_size the GDN prefill depthwise ttnn.conv1d requires.
+ GDN_CONV1D_L1_SMALL_SIZE = 24576
++LINEAR_ATTENTION_TYPE = "linear_attention"
++FULL_ATTENTION_TYPE = "full_attention"
++SUPPORTED_ATTENTION_TYPES = frozenset((LINEAR_ATTENTION_TYPE, FULL_ATTENTION_TYPE))
++LEGACY_QWEN35_9B_LAYER_GROUP = (
++    LINEAR_ATTENTION_TYPE,
++    LINEAR_ATTENTION_TYPE,
++    LINEAR_ATTENTION_TYPE,
++    FULL_ATTENTION_TYPE,
++)
++LEGACY_QWEN35_9B_LAYER_GROUP_COUNT = 8
++LEGACY_QWEN35_9B_LAYER_TYPES = (
++    LEGACY_QWEN35_9B_LAYER_GROUP * LEGACY_QWEN35_9B_LAYER_GROUP_COUNT
++)
++
++
++class LayerTypeAuthorityError(ValueError):
++    """The checkpoint does not provide valid hybrid-layer authority."""
++
++
++# r[impl tenstorrent.qwen38_p150x2.layer_type_authority]
++def resolve_attention_type_list(layer_types, layer_count: int) -> tuple[str, ...]:
++    """Return complete checkpoint-owned mixer types or the exact legacy fallback."""
++    if not isinstance(layer_count, int) or isinstance(layer_count, bool) or layer_count <= 0:
++        raise LayerTypeAuthorityError("layer count must be a positive integer")
++
++    if layer_types is None:
++        if layer_count != len(LEGACY_QWEN35_9B_LAYER_TYPES):
++            raise LayerTypeAuthorityError(
++                "checkpoint layer_types is required when the declared layer count "
++                "does not match the legacy Qwen3.5-9B fallback"
++            )
++        resolved = LEGACY_QWEN35_9B_LAYER_TYPES
++    else:
++        if not isinstance(layer_types, (list, tuple)):
++            raise LayerTypeAuthorityError("checkpoint layer_types must be a list or tuple")
++        resolved = tuple(layer_types)
++
++    if len(resolved) != layer_count:
++        raise LayerTypeAuthorityError(
++            f"checkpoint layer_types has {len(resolved)} entries for {layer_count} layers"
++        )
++    for layer_index, layer_type in enumerate(resolved):
++        if layer_type not in SUPPORTED_ATTENTION_TYPES:
++            raise LayerTypeAuthorityError(
++                f"checkpoint layer_types[{layer_index}] has unknown type {layer_type!r}"
++            )
++    return resolved
+ 
+ 
+ class Qwen36ModelArgs(ModelArgs):
+@@ -75,9 +122,11 @@ class Qwen36ModelArgs(ModelArgs):
+         self.linear_value_head_dim = getattr(text_config, "linear_value_head_dim", 128)
+         self.linear_conv_kernel_dim = getattr(text_config, "linear_conv_kernel_dim", 4)
+ 
+-        # Full layer_types list for DeltaNet vs full-attn dispatch.
+-        self.attention_type_list = getattr(text_config, "layer_types", None) or (
+-            ["linear_attention", "linear_attention", "linear_attention", "full_attention"] * 8
++        # The checkpoint list owns DeltaNet vs full-attention dispatch. Only the
++        # exact 32-layer legacy model can use the fallback when the list is absent.
++        self.attention_type_list = resolve_attention_type_list(
++            getattr(text_config, "layer_types", None),
++            self.n_layers,
+         )
+ 
+         # Derived
+diff --git a/models/demos/blackhole/qwen36/tt/weight_mapping.py b/models/demos/blackhole/qwen36/tt/weight_mapping.py
+index ca954c7..0c4c822 100644
+--- a/models/demos/blackhole/qwen36/tt/weight_mapping.py
++++ b/models/demos/blackhole/qwen36/tt/weight_mapping.py
+@@ -17,9 +17,6 @@ from typing import Dict
+ 
+ import torch
+ 
+-# Layer indices that use full (softmax) attention
+-FULL_ATTENTION_LAYERS = {3, 7, 11, 15, 19, 23, 27, 31}
+-
+ # DeltaNet QKV split dimensions (used to split the combined conv1d.weight into
+ # per-stream Q/K/V conv weights — the QKV projection itself stays combined).
+ # Q: num_key_heads(16) × key_head_dim(128) = 2048

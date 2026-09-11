@@ -14,6 +14,19 @@ const USAGE_ERROR: u8 = 2;
 fn usage() -> String {
     "usage: rwkv7-lora-dual-p150a-core self-test\n\
      usage: rwkv7-lora-dual-p150a-core admit-profile PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-measurement-profile PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core bind-machine-facts VALUES_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core summarize-measurement RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-measurement RECEIPT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core summarize-utilization RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-utilization RECEIPT_JSON RAW_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core create-baseline RECEIPT_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-baseline STORE_JSON PROFILE_JSON RECEIPT_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core gate-regression RECEIPT_JSON PROFILE_JSON STORE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core compare-determinism LEFT_JSON RIGHT_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core normalize-thermal-snapshot SNAPSHOT_JSON PROFILE_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core summarize-stability RAW_JSON PROFILE_JSON POLICY_JSON\n\
+     usage: rwkv7-lora-dual-p150a-core admit-stability RECEIPT_JSON RAW_JSON PROFILE_JSON POLICY_JSON\n\
      usage: rwkv7-lora-dual-p150a-core plan-shards PROFILE_JSON BATCH_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-collective RECEIPT_JSON PROFILE_JSON\n\
      usage: rwkv7-lora-dual-p150a-core admit-step RECEIPT_JSON PROFILE_JSON\n\
@@ -120,6 +133,279 @@ fn run() -> Result<u8, String> {
             match rwkv7_lora_dual_p150a_core::self_test() {
                 Ok(line) => {
                     println!("{line}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-measurement-profile" => {
+            if args.len() != 2 {
+                return Err(usage());
+            }
+            let profile = read_json(&args[1])?;
+            match rwkv7_lora_dual_p150a_core::admit_measurement_profile(&profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "profile_id": admission.profile_id,
+                        "repeat_count": admission.repeat_count,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "bind-machine-facts" => {
+            if args.len() != 2 {
+                return Err(usage());
+            }
+            let values = read_json(&args[1])?;
+            match rwkv7_lora_dual_p150a_core::bind_machine_facts(&values) {
+                Ok(facts) => {
+                    println!("{facts}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-measurement" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::summarize_measurement(&raw, &profile) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-measurement" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::admit_measurement_receipt(&receipt, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "measurement_profile_id": admission.measurement_profile_id,
+                        "repeats": admission.repeats,
+                        "speedup_ratio": admission.speedup_ratio,
+                        "time_seconds": {
+                            "mean": admission.time_seconds.mean,
+                            "p50": admission.time_seconds.p50,
+                            "p99": admission.time_seconds.p99,
+                            "standard_deviation": admission.time_seconds.standard_deviation,
+                        },
+                        "loss": {
+                            "mean": admission.loss.mean,
+                            "p50": admission.loss.p50,
+                            "p99": admission.loss.p99,
+                            "standard_deviation": admission.loss.standard_deviation,
+                        },
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-utilization" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::summarize_utilization(&raw, &profile) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-utilization" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let raw = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::admit_utilization_receipt(&receipt, &raw, &profile) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "device_count": admission.device_count,
+                        "operation_count": admission.operation_count,
+                        "math_busy_fraction": admission.math_busy_fraction,
+                        "noc_idle_fraction": admission.noc_idle_fraction,
+                        "scaling_efficiency": admission.scaling_efficiency,
+                    });
+                    println!("{body}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "create-baseline" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let policy = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::create_baseline(&receipt, &profile, &policy) {
+                Ok(baseline) => {
+                    println!("{baseline}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-baseline" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let store = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let receipt = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::admit_baseline_store(&store, &profile, &receipt) {
+                Ok(baseline) => {
+                    println!("{baseline}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "gate-regression" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let store = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::gate_regression(&receipt, &profile, &store, &policy) {
+                Ok(gate_receipt) => {
+                    println!("{gate_receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "compare-determinism" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let left = read_json(&args[1])?;
+            let right = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::compare_determinism(&left, &right, &profile, &policy)
+            {
+                Ok(determinism_receipt) => {
+                    println!("{determinism_receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "normalize-thermal-snapshot" => {
+            if args.len() != 3 {
+                return Err(usage());
+            }
+            let snapshot = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            match rwkv7_lora_dual_p150a_core::normalize_tt_smi_snapshot(&snapshot, &profile) {
+                Ok(normalized) => {
+                    println!("{normalized}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "summarize-stability" => {
+            if args.len() != 4 {
+                return Err(usage());
+            }
+            let raw = read_json(&args[1])?;
+            let profile = read_json(&args[2])?;
+            let policy = read_json(&args[3])?;
+            match rwkv7_lora_dual_p150a_core::summarize_stability(&raw, &profile, &policy) {
+                Ok(receipt) => {
+                    println!("{receipt}");
+                    Ok(SUCCESS)
+                }
+                Err(rejection) => {
+                    print_rejection(&rejection);
+                    Ok(REJECTED)
+                }
+            }
+        }
+        "admit-stability" => {
+            if args.len() != 5 {
+                return Err(usage());
+            }
+            let receipt = read_json(&args[1])?;
+            let raw = read_json(&args[2])?;
+            let profile = read_json(&args[3])?;
+            let policy = read_json(&args[4])?;
+            match rwkv7_lora_dual_p150a_core::admit_stability_receipt(
+                &receipt, &raw, &profile, &policy,
+            ) {
+                Ok(admission) => {
+                    let body = json!({
+                        "status": "admitted",
+                        "identity_blake3": admission.identity_blake3,
+                        "completed_steps": admission.completed_steps,
+                        "trajectory_samples": admission.trajectory_samples,
+                        "thermal_samples": admission.thermal_samples,
+                        "eval_loss_ratio": admission.eval_loss_ratio,
+                    });
+                    println!("{body}");
                     Ok(SUCCESS)
                 }
                 Err(rejection) => {

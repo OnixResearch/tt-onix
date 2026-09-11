@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "simulated": false,
+  "requested_device_ids": [
+    0,
+    1
+  ],
+  "command_queue_count": 2,
+  "read_queue_id": 0,
+  "baseline_source": "/nix/store/acqd15fjnx3gcilph1vc80q7qkqw2m9h-qwen36-0.1.0/lib/python3.13/site-packages/qwen36_service/batch_decode_adapter.py",
+  "candidate_source": "/nix/store/fwn18myas65qx4wzx1c52sls5y8inbr8-qwen36-0.1.0/lib/python3.13/site-packages/qwen36_service/batch_decode_adapter.py",
+  "iterations_per_sample": 1000,
+  "execution_order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline"
+  ],
+  "nanoseconds_per_call": {
+    "baseline": [
+      129909.661,
+      109599.027
+    ],
+    "candidate": [
+      130266.541,
+      112442.354
+    ]
+  },
+  "speedup_ratio": 0.9868146282813408,
+  "exact_winner_parity": true,
+  "buffer_updates_and_ties_checked": true,
+  "failed_read_retry_passed": true,
+  "invalid_winner_rejected": true,
+  "non_claims": [
+    "not a full-model or end-to-end decode benchmark"
+  ]
+}

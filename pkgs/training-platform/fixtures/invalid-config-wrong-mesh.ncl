@@ -5,4 +5,4 @@ let platform = import "../platform.ncl" in
 platform
 & {
   mesh.name | force = "p150_x4",
-} | contracts.PlatformConfigClosed | contracts.PlatformConfig
+} | contracts.PlatformConfigClosed | contracts.PlatformConfigDeepClosed | contracts.PlatformConfig
