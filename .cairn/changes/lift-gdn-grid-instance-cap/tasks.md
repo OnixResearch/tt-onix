@@ -9,7 +9,7 @@
 
 ## Phase 2: Implementation
 
-- [ ] [serial] I1 Add the pure instance-assignment core with contiguous chunking and closed range validation. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
+- [x] [serial] I1 Add the pure instance-assignment core with contiguous chunking and closed range validation. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
 - [ ] [serial] I2 Lift the guard in the fused GDN decode program factory and pass `(bh_start, n_inst)` as runtime arguments. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] I3 Lift the guard in the GDN chunk-prefill phased program factory and keep its `BH * cand <= ncores` sub-split search bounded. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] I4 Keep each per-core instance loop bounded and the copy width dtype-generic, matching the layout fix the decode kernel already carries. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
@@ -18,8 +18,8 @@
 
 ## Phase 3: Verification
 
-- [ ] [parallel] V1 Add positive device-free probes for the overflow plan, the chunk boundaries, and the unchanged in-range mapping. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
-- [ ] [parallel] V2 Add negative probes for every rejected plan shape, including a gap, an overlap, and a short interior chunk. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
+- [x] [parallel] V1 Add positive device-free probes for the overflow plan, the chunk boundaries, and the unchanged in-range mapping. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
+- [x] [parallel] V2 Add negative probes for every rejected plan shape, including a gap, an overlap, and a short interior chunk. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
 - [ ] [serial] V3 Prove the in-range program mapping is unchanged against the pre-change build for both factories. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
 - [ ] [serial] V4 Confirm the full PR applies to the pinned source with zero hunk failures, and record the dry-run result. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V5 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]

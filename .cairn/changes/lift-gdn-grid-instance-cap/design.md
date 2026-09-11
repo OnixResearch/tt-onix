@@ -33,6 +33,21 @@ device-free core. Use it for the decode factory and the prefill factory.
 rules. One core keeps the two sites from drifting, and one negative test set
 covers both.
 
+### Decision: Use uniform ceiling chunks, not the ragged-front split
+
+**Choice:** Every active core takes `ceil(instances / ncores)` instances. Only
+the final chunk may be short. Chunk `i` starts at `i * chunk_length`.
+
+**Rationale:** The repository already fans work across the grid this way for the
+PREP phase in the same file, `distribute_prep`, which has no core-count guard
+because `P = min(total, max_cores)` and each core takes `base` or `base + 1`
+items. That is precedent for the idea but not for the arithmetic: its ragged
+split gives the first `rem` cores one extra item, so a chunk start is not
+`index * chunk_length`. The uniform-ceiling form is chosen here because it needs
+one forward pass, needs no running offset, and makes the kernel-side instance
+loop bounds a plain multiply. The prefill and decode factories must both use the
+uniform form so one assignment core describes both.
+
 ### Decision: Keep the in-range mapping byte-identical
 
 **Choice:** When `BH <= ncores`, each core keeps exactly one instance and the

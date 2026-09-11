@@ -6165,6 +6165,89 @@ def probe_mtp_serving_core():
             require(False, "invalid watchdog input was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+def probe_gdn_grid_instance_cap():
+    """Contiguous-chunk assignment above the compute-core count.
+
+    The fused GDN decode factory refuses any head count above the core count,
+    which bounds the admitted fast path at B=4 on a P150x2 mesh. This probe
+    covers the assignment that replaces that guard and the validation that
+    takes over the removed fatal's job.
+    """
+    from qwen36_service.gdn_grid_core import (
+        Chunk,
+        ChunkPlan,
+        GridAssignmentError,
+        plan_chunks,
+        validate_plan,
+    )
+
+    # P150x2 TP=2 decode: 24 local heads per device, so instances = 24 * B.
+    for batch, want_cores, want_length in ((1, 24, 1), (4, 96, 1), (8, 96, 2)):
+        plan = plan_chunks(24 * batch, 110)
+        require(plan.active_cores == want_cores, f"B={batch} used the wrong core count")
+        require(plan.chunk_length == want_length, f"B={batch} used the wrong chunk length")
+        require(
+            sum(chunk.count for chunk in plan.chunks) == 24 * batch,
+            f"B={batch} plan does not cover every instance",
+        )
+
+    # In-range case reproduces the pre-change one-instance-per-core mapping.
+    for instances in (1, 16, 24, 96, 110):
+        plan = plan_chunks(instances, 110)
+        require(plan.chunk_length == 1, "in-range plan used a chunk above one")
+        require(plan.active_cores == instances, "in-range plan did not use one core per instance")
+        require(
+            [chunk.start for chunk in plan.chunks] == list(range(instances)),
+            "in-range plan did not reproduce the one-instance-per-core mapping",
+        )
+
+    # Overflow case partitions the range with exactly one short final chunk.
+    for instances, cores in ((111, 110), (192, 110), (3072, 110)):
+        plan = plan_chunks(instances, cores)
+        require(plan.active_cores <= cores, "plan used more cores than available")
+        require(
+            all(
+                chunk.start == index * plan.chunk_length
+                for index, chunk in enumerate(plan.chunks)
+            ),
+            "chunk start is not core_index * chunk_length",
+        )
+        short = [index for index, c in enumerate(plan.chunks) if c.count < plan.chunk_length]
+        require(
+            short in ([], [len(plan.chunks) - 1]),
+            "a chunk other than the final one is short",
+        )
+
+    # Invalid inputs.
+    for bad in ((0, 110), (-1, 110), (1, 0), (1, -1), (1.5, 110), (110.0, 110), (True, 1)):
+        try:
+            plan_chunks(*bad)
+        except GridAssignmentError:
+            pass
+        else:
+            raise AssertionError(f"invalid instance count was accepted: {bad}")
+
+    # Malformed plans that must not survive validation.
+    malformed = {
+        "gap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 2, 1))),
+        "overlap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 0, 1))),
+        "short interior": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1), Chunk(2, 3, 1), Chunk(3, 4, 0))),
+        "over core count": ChunkPlan(2, 1, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+        "duplicate core": ChunkPlan(2, 4, 1, (Chunk(0, 0, 1), Chunk(0, 1, 1))),
+        "zero chunk length": ChunkPlan(2, 4, 0, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+        "empty": ChunkPlan(2, 4, 1, ()),
+        "undercover": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+    }
+    for name, plan in malformed.items():
+        try:
+            validate_plan(plan)
+        except GridAssignmentError:
+            pass
+        else:
+            raise AssertionError(f"malformed plan was accepted: {name}")
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -6205,6 +6288,7 @@ def main():
     probe("sampled-mode router", probe_sampled_mode_router)
     probe("sampled decode", probe_sampled_decode)
     probe("MTP serving round policy", probe_mtp_serving_core)
+    probe("GDN grid instance cap assignment", probe_gdn_grid_instance_cap)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
