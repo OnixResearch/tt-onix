@@ -340,9 +340,8 @@ def probe_p150x2_gate():
         "reset_tp lost its reset_state dispatch",
     )
 
-    # gdn-seq-fallback: fused_chunk_enabled must probe the runtime for the
-    # fused op instead of hardcoding True (the packaged 0.74 bindings lack
-    # ttnn.transformer.chunk_gated_delta_rule and must use the seq adapter).
+    # Runtime availability does not admit a new numerical prefill path.
+    # Keep the seq adapter until model-level evidence admits fused prefill.
     fused_chunk = (qwen36 / "tt" / "gdn" / "fused_chunk.py").read_text()
     require(
         'hasattr(ttnn.transformer, "chunk_gated_delta_rule")' in fused_chunk,
@@ -356,17 +355,38 @@ def probe_p150x2_gate():
     import ttnn as _ttnn
 
     require(
-        not hasattr(_ttnn.transformer, "chunk_gated_delta_rule"),
-        "packaged runtime unexpectedly exposes chunk_gated_delta_rule; revisit the seq fallback",
+        hasattr(_ttnn.transformer, "chunk_gated_delta_rule"),
+        "packaged 0.77 runtime lacks chunk_gated_delta_rule",
     )
+    from unittest import mock
+
+    from models.demos.blackhole.qwen36.tt.gdn import fused_chunk as fused_chunk_module
+
+    require(
+        not fused_chunk_module.FUSED_CHUNK_PREFILL_ADMITTED
+        and not fused_chunk_module.fused_chunk_enabled(),
+        "a runtime upgrade enabled unadmitted fused GDN prefill",
+    )
+    with mock.patch.object(fused_chunk_module, "FUSED_CHUNK_PREFILL_ADMITTED", True):
+        require(
+            fused_chunk_module.fused_chunk_enabled(),
+            "admitted fused GDN capability was rejected",
+        )
+        with mock.patch.object(
+            fused_chunk_module.ttnn, "transformer", SimpleNamespace()
+        ):
+            require(
+                not fused_chunk_module.fused_chunk_enabled(),
+                "missing fused GDN capability was admitted",
+            )
     require(
         hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
         "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
     )
 
     # tp2-runtime-compat: the TP=4-tuned fused GDN output reduction waits on
-    # P150x2. The packaged AGMM binding also rejects its newer fuse_swiglu
-    # keyword. Keep both safe fallbacks capability- and topology-gated.
+    # P150x2. The new AGMM keyword does not establish numerical admission.
+    # Keep the safe fallbacks admission-, capability-, and topology-gated.
     import models.demos.blackhole.qwen36.tt.gdn.tp as gdn_tp
     from models.demos.blackhole.qwen36.tt import tp_common
 
@@ -389,13 +409,29 @@ def probe_p150x2_gate():
         "fused-SwiGLU capability probe accepts a signature without fuse_swiglu",
     )
     require(
-        not tp_common._runtime_supports_fused_swiglu(),
-        "packaged 0.74 runtime unexpectedly advertises fuse_swiglu; revisit the fallback",
+        tp_common._runtime_supports_fused_swiglu(),
+        "packaged 0.77 runtime lacks the expected fuse_swiglu keyword",
     )
     require(
-        not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
-        "P150x2 enables MLP gate/up AGMM despite the missing runtime keyword",
+        not tp_common.FUSED_MLP_GATEUP_ADMITTED
+        and not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+        "a runtime upgrade enabled unadmitted MLP gate/up AGMM",
     )
+    with mock.patch.object(tp_common, "FUSED_MLP_GATEUP_ADMITTED", True):
+        require(
+            tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+            "admitted AGMM capability was rejected",
+        )
+        require(
+            not tp_common.mlp_gateup_agmm_enabled(1), "single-device AGMM was admitted"
+        )
+        with mock.patch.object(
+            tp_common, "_runtime_supports_fused_swiglu", return_value=False
+        ):
+            require(
+                not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+                "missing AGMM capability was admitted",
+            )
 
 
 # r[verify tenstorrent.qwen38_p150x2.traced_decode]
@@ -1199,6 +1235,106 @@ def probe_batch_admission():
 
 
 # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+def probe_tensor_binding_identity():
+    """Keep exact identities and failure behavior without temporary shard views."""
+    from types import SimpleNamespace
+
+    from qwen36_service import batch_decode_adapter as adapter_module
+
+    first_address = 4096
+    second_address = 8192
+    shard_count = 2
+    shard_reads = []
+
+    class FakeMeshTensor:
+        def __init__(self):
+            self.address = first_address
+            self.coords = tuple(range(shard_count))
+            self.fail_address = False
+            self.fail_coords = False
+
+        def buffer_address(self):
+            if self.fail_address:
+                raise RuntimeError("no shared address")
+            return self.address
+
+        def device_coords(self):
+            if self.fail_coords:
+                raise AttributeError("legacy API")
+            return self.coords
+
+    def shards(value):
+        shard_reads.append(value)
+        return (
+            SimpleNamespace(buffer_address=lambda: first_address),
+            SimpleNamespace(buffer_address=lambda: second_address),
+        )
+
+    original_ttnn = adapter_module.ttnn
+    adapter_module.ttnn = SimpleNamespace(
+        Tensor=FakeMeshTensor, get_device_tensors=shards
+    )
+    try:
+        tensor = FakeMeshTensor()
+        initial = adapter_module._tensor_identity(tensor)
+        require(
+            initial == f"FakeMeshTensor:device:[{first_address},{first_address}]",
+            "shared identity changed",
+        )
+        require(not shard_reads, "shared identity constructed shard views")
+        tensor.address = second_address
+        require(
+            adapter_module._tensor_identity(tensor) != initial,
+            "address mutation escaped validation",
+        )
+        tensor.address = first_address
+        tensor.coords = (0,)
+        require(
+            adapter_module._tensor_identity(tensor) != initial,
+            "shard-count mutation escaped validation",
+        )
+        tensor.coords = ()
+        require(
+            adapter_module._tensor_identity(tensor) == "FakeMeshTensor:device:[]",
+            "empty shard identity changed",
+        )
+        fallback = f"FakeMeshTensor:device:[{first_address},{second_address}]"
+        tensor.fail_address = True
+        require(
+            adapter_module._tensor_identity(tensor) == fallback,
+            "address failure lost shard identities",
+        )
+        tensor.fail_address = False
+        tensor.fail_coords = True
+        require(
+            adapter_module._tensor_identity(tensor) == fallback,
+            "legacy API lost shard identities",
+        )
+
+        class CustomMeshTensor(FakeMeshTensor):
+            pass
+
+        custom = CustomMeshTensor()
+        require(
+            adapter_module._tensor_identity(custom)
+            == f"CustomMeshTensor:device:[{first_address},{second_address}]",
+            "custom tensor type bypassed shard validation",
+        )
+        host = object()
+        adapter_module.ttnn.get_device_tensors = lambda value: (value,)
+        require(
+            adapter_module._tensor_identity(host) == f"object:host:{id(host)}",
+            "host fallback changed",
+        )
+        adapter_module.ttnn.get_device_tensors = None
+        require(
+            adapter_module._tensor_identity(host) == f"object:host:{id(host)}",
+            "unavailable shard API lost host fallback",
+        )
+    finally:
+        adapter_module.ttnn = original_ttnn
+
+
 def probe_trace_reuse_profile():
     """Positive and negative tests for closed trace-reuse activation policy."""
     from qwen36_service.trace_reuse_core import (
@@ -1433,6 +1569,8 @@ def probe_startup_readiness():
     require(failed.phase is StartupPhase.FAILED, "warm-up failure was not retained")
 
     class FakeWarmupAdapter:
+        fusion_mode = "off"
+
         def __init__(self):
             self.prefill_widths = []
             self.prepared_widths = []
@@ -5105,6 +5243,22 @@ def probe_gdn_decode_fusion_candidate():
         "state mode enabled norm fusion",
     )
     require(
+        candidate.selected_mode({candidate.ENV_GATE: " NORM-STATE "})
+        == candidate.MODE_NORM_STATE,
+        "combined mode was not normalized",
+    )
+    require(
+        candidate.uses_fused_norm(candidate.MODE_NORM_STATE)
+        and candidate.uses_fused_state_update(candidate.MODE_NORM_STATE)
+        and not candidate.uses_fused_recurrence(candidate.MODE_NORM_STATE),
+        "combined mode must retain the composite recurrence",
+    )
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: "norm_state"})
+        == candidate.MODE_OFF,
+        "unsupported combined-mode spelling did not fail closed",
+    )
+    require(
         candidate.uses_fused_norm(candidate.MODE_FULL)
         and not candidate.uses_fused_state_update(candidate.MODE_FULL)
         and candidate.uses_fused_recurrence(candidate.MODE_FULL),
@@ -5166,6 +5320,50 @@ def probe_gdn_decode_fusion_candidate():
     require(
         "q_norm_weight and k_norm_weight must be provided together" in delta_source,
         "norm fusion lost its paired-input failure",
+    )
+
+    import ast
+
+    def fused_call_uses_hifi4(source):
+        calls = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "gated_delta_decode"
+        ]
+        if len(calls) != 1:
+            return False
+        configs = [
+            item.value
+            for item in calls[0].keywords
+            if item.arg == "compute_kernel_config"
+        ]
+        if len(configs) != 1 or not isinstance(configs[0], ast.Call):
+            return False
+        fidelities = [
+            item.value for item in configs[0].keywords if item.arg == "math_fidelity"
+        ]
+        return (
+            len(fidelities) == 1
+            and isinstance(fidelities[0], ast.Attribute)
+            and fidelities[0].attr == "HiFi4"
+        )
+
+    require(
+        fused_call_uses_hifi4(delta_source), "fused recurrence lost its HiFi4 profile"
+    )
+    require(
+        not fused_call_uses_hifi4(
+            delta_source.replace("MathFidelity.HiFi4", "MathFidelity.HiFi2")
+        ),
+        "fused precision check admitted HiFi2",
+    )
+    require(
+        not fused_call_uses_hifi4(
+            delta_source.replace("compute_kernel_config=", "ignored_config=")
+        ),
+        "fused precision check admitted a missing config",
     )
 
 
@@ -5988,22 +6186,217 @@ def probe_mtp_serving_core():
     else:
         require(False, "list inputs were accepted")
 
+    # Watchdog: success passthrough, worker error re-raise, and hang
+    # detection fire the three outcomes the serving loop relies on.
+    import time as _time
 
-def probe_mtp_host_adapters():
-    """Require each host-adapter suite and propagate its test verdict."""
-    import unittest
-
-    test_root = Path(__file__).with_name("tests")
-    required_suites = (
-        "test_mtp_serving_adapter.py",
-        "test_mtp_watchdog.py",
-        "test_mtp_serving_lifecycle.py",
+    from qwen36_service.mtp_watchdog_adapter import (
+        MtpServingRoundTimeout,
+        run_with_watchdog,
     )
-    for pattern in required_suites:
-        suite = unittest.TestLoader().discover(str(test_root), pattern=pattern)
-        require(suite.countTestCases() > 0, f"required suite is empty: {pattern}")
-        result = unittest.TextTestRunner().run(suite)
-        require(result.wasSuccessful(), f"host-adapter suite failed: {pattern}")
+
+    require(
+        run_with_watchdog(lambda: 5, seconds=1.0, stage="probe") == 5,
+        "watchdog dropped a completed value",
+    )
+
+    def _probe_boom():
+        raise RuntimeError("probe worker failure")
+
+    try:
+        run_with_watchdog(_probe_boom, seconds=1.0, stage="probe")
+    except RuntimeError as error:
+        require("probe worker failure" in str(error), "worker error wrapped")
+    else:
+        require(False, "worker error was swallowed")
+
+    def _probe_hang():
+        _time.sleep(2.0)
+
+    hang_started = _time.monotonic()
+    try:
+        run_with_watchdog(_probe_hang, seconds=0.2, stage="probe-hang")
+    except MtpServingRoundTimeout as error:
+        require("probe-hang" in str(error), "wrong hang diagnostic")
+        require(
+            _time.monotonic() - hang_started < 1.5,
+            "watchdog fired late",
+        )
+    else:
+        require(False, "hanging stage was accepted")
+
+    for args, kwargs, needle in (
+        ((lambda: None,), dict(seconds=0, stage="probe"), "positive"),
+        ((lambda: None,), dict(seconds=-1, stage="probe"), "positive"),
+        ((None,), dict(seconds=1.0, stage="probe"), "callable"),
+    ):
+        try:
+            run_with_watchdog(*args, **kwargs)
+        except MtpServingPolicyError as error:
+            require(needle in str(error), "wrong watchdog diagnostic")
+        else:
+            require(False, "invalid watchdog input was accepted")
+
+
+# r[verify tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+def probe_gdn_grid_instance_cap():
+    """Contiguous-chunk assignment above the compute-core count.
+
+    The fused GDN decode factory refuses any head count above the core count,
+    which bounds the admitted fast path at B=4 on a P150x2 mesh. This probe
+    covers the assignment that replaces that guard and the validation that
+    takes over the removed fatal's job.
+    """
+    from qwen36_service.gdn_grid_core import (
+        Chunk,
+        ChunkPlan,
+        GridAssignmentError,
+        plan_chunks,
+        validate_plan,
+    )
+
+    # P150x2 TP=2 decode: 24 local heads per device, so instances = 24 * B.
+    for batch, want_cores, want_length in ((1, 24, 1), (4, 96, 1), (8, 96, 2)):
+        plan = plan_chunks(24 * batch, 110)
+        require(plan.active_cores == want_cores, f"B={batch} used the wrong core count")
+        require(plan.chunk_length == want_length, f"B={batch} used the wrong chunk length")
+        require(
+            sum(chunk.count for chunk in plan.chunks) == 24 * batch,
+            f"B={batch} plan does not cover every instance",
+        )
+
+    # In-range case reproduces the pre-change one-instance-per-core mapping.
+    for instances in (1, 16, 24, 96, 110):
+        plan = plan_chunks(instances, 110)
+        require(plan.chunk_length == 1, "in-range plan used a chunk above one")
+        require(plan.active_cores == instances, "in-range plan did not use one core per instance")
+        require(
+            [chunk.start for chunk in plan.chunks] == list(range(instances)),
+            "in-range plan did not reproduce the one-instance-per-core mapping",
+        )
+
+    # Overflow case partitions the range with exactly one short final chunk.
+    for instances, cores in ((111, 110), (192, 110), (3072, 110)):
+        plan = plan_chunks(instances, cores)
+        require(plan.active_cores <= cores, "plan used more cores than available")
+        require(
+            all(
+                chunk.start == index * plan.chunk_length
+                for index, chunk in enumerate(plan.chunks)
+            ),
+            "chunk start is not core_index * chunk_length",
+        )
+        short = [index for index, c in enumerate(plan.chunks) if c.count < plan.chunk_length]
+        require(
+            short in ([], [len(plan.chunks) - 1]),
+            "a chunk other than the final one is short",
+        )
+
+    # Invalid inputs.
+    for bad in ((0, 110), (-1, 110), (1, 0), (1, -1), (1.5, 110), (110.0, 110), (True, 1)):
+        try:
+            plan_chunks(*bad)
+        except GridAssignmentError:
+            pass
+        else:
+            raise AssertionError(f"invalid instance count was accepted: {bad}")
+
+    # Malformed plans that must not survive validation.
+    malformed = {
+        "gap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 2, 1))),
+        "overlap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 0, 1))),
+        "short interior": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1), Chunk(2, 3, 1), Chunk(3, 4, 0))),
+        "over core count": ChunkPlan(2, 1, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+        "duplicate core": ChunkPlan(2, 4, 1, (Chunk(0, 0, 1), Chunk(0, 1, 1))),
+        "zero chunk length": ChunkPlan(2, 4, 0, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+        "empty": ChunkPlan(2, 4, 1, ()),
+        "undercover": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
+    }
+    for name, plan in malformed.items():
+        try:
+            validate_plan(plan)
+        except GridAssignmentError:
+            pass
+        else:
+            raise AssertionError(f"malformed plan was accepted: {name}")
+# r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+def probe_mtp_head_load_core():
+    """Positive and negative tests for the head weight integrity verdicts."""
+    import torch
+
+    from qwen36_service.mtp_head_load_probe import evaluate_weight_integrity
+
+    expected = {
+        "fc": torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        "norm": torch.tensor([0.5, 1.5]),
+    }
+    verdicts = evaluate_weight_integrity(
+        expected, {k: v.clone() for k, v in expected.items()}
+    )
+    require(
+        all(verdict["passed"] for verdict in verdicts.values()),
+        f"identical weights reported drift: {verdicts}",
+    )
+    drifted = {k: v.clone() for k, v in expected.items()}
+    drifted["fc"][1, 1] += 0.5
+    verdicts = evaluate_weight_integrity(expected, drifted)
+    require(
+        not verdicts["fc"]["passed"] and verdicts["norm"]["passed"],
+        "integrity verdict flagged the wrong weight",
+    )
+    require(
+        verdicts["fc"]["max_abs_diff"] == 0.5,
+        "integrity verdict lost the drift magnitude",
+    )
+    try:
+        evaluate_weight_integrity(expected, {"fc": expected["fc"].clone()})
+    except ValueError as error:
+        require("key sets differ" in str(error), "wrong key-set diagnostic")
+    else:
+        require(False, "missing weight key was accepted")
+    reshaped = {k: v.clone() for k, v in expected.items()}
+    reshaped["norm"] = reshaped["norm"].reshape(1, 2)
+    verdicts = evaluate_weight_integrity(expected, reshaped)
+    require(
+        not verdicts["norm"]["passed"]
+        and verdicts["norm"]["reason"] == "shape mismatch",
+        "shape mismatch was not flagged",
+    )
+
+    from qwen36_service.mtp_drafter_adapter import mtp_cache_directory_name
+
+    require(
+        mtp_cache_directory_name(None) == "mtp_drafter_probe",
+        "missing runtime identity did not select the legacy cache directory",
+    )
+    require(
+        mtp_cache_directory_name("") == "mtp_drafter_probe",
+        "empty runtime identity did not select the legacy cache directory",
+    )
+    scoped = mtp_cache_directory_name(
+        "/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0"
+    )
+    require(
+        scoped
+        == "mtp_drafter_probe-runtime-dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0",
+        f"runtime-scoped cache directory changed: {scoped}",
+    )
+    require(
+        mtp_cache_directory_name("bad id with spaces/and:colons")
+        == "mtp_drafter_probe-runtime-bad_id_with_spaces_and_colons",
+        "runtime identity sanitization changed",
+    )
+    require(
+        mtp_cache_directory_name("a" * 100) == "mtp_drafter_probe-runtime-" + "a" * 64,
+        "runtime identity tail was not bounded to 64 characters",
+    )
+    require(
+        mtp_cache_directory_name(
+            "/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0"
+        )
+        != mtp_cache_directory_name("/nix/store/other-tt-metal-0.74.0"),
+        "distinct runtimes shared one cache directory",
+    )
 
 
 def main():
@@ -6024,6 +6417,7 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("batch admission policy", probe_batch_admission)
+    probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)
     probe("startup warm-up readiness", probe_startup_readiness)
     probe("prefill program profile", probe_prefill_program_profile)
@@ -6032,6 +6426,7 @@ def main():
     probe("MTP draft selection", probe_mtp_draft_selection)
     probe("MTP draft trace", probe_mtp_draft_trace)
     probe("MTP K/V rollback", probe_mtp_kv_rollback)
+    probe("MTP head load integrity core", probe_mtp_head_load_core)
     probe("MTP recovery stage progress", probe_mtp_recovery_stage)
     probe("MTP prewarmed recovery control", probe_mtp_recovery_prewarmed_control)
     probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
@@ -6045,7 +6440,7 @@ def main():
     probe("sampled-mode router", probe_sampled_mode_router)
     probe("sampled decode", probe_sampled_decode)
     probe("MTP serving round policy", probe_mtp_serving_core)
-    probe("MTP host adapters", probe_mtp_host_adapters)
+    probe("GDN grid instance cap assignment", probe_gdn_grid_instance_cap)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

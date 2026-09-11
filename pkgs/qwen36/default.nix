@@ -57,6 +57,7 @@ let
     ./gdn-decode-layout-candidate.patch
     ./prefill-device-staging.patch
     ./gdn-decode-fusion-candidate.patch
+    ./prefill-runtime-admission.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:
@@ -143,7 +144,7 @@ assert lib.assertMsg (
   toString executionIdentity != toString executionIdentityWithDrift
 ) "an execution input failed to change the Qwen execution identity";
 stdenvNoCC.mkDerivation {
-  pname = "qwen36";
+  pname = "qwen38";
   # Adopted upstream state: tt-metal PR 53543 head (Qwen3.8-27B on qwen36).
   version = "0.1.0";
 
@@ -173,7 +174,7 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"
-    cp -r ${./tests} "$out/share/qwen36/tests"
+    cp ${./mtp-kv-tail-device-check.py} "$out/share/qwen36/mtp-kv-tail-device-check.py"
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
@@ -259,6 +260,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-profile-k4.ncl} mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl
     nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl \
       > "$out/share/qwen36/mtp-drafter-profile-k4.json"
+    cp ${./mtp-drafter-profile-k2.ncl} mtp-drafter-profile-export/mtp-drafter-profile-k2.ncl
+    nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile-k2.ncl \
+      > "$out/share/qwen36/mtp-drafter-profile-k2.json"
     mkdir -p mtp-selection-profile-export
     cp ${./mtp-selection-profile.ncl} mtp-selection-profile-export/mtp-selection-profile.ncl
     cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-export/mtp-selection-contracts.ncl
@@ -272,6 +276,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-trace-profile-k4.ncl} mtp-trace-profile-export/mtp-trace-profile-k4.ncl
     nickel export --format json mtp-trace-profile-export/mtp-trace-profile-k4.ncl \
       > "$out/share/qwen36/mtp-trace-profile-k4.json"
+    cp ${./mtp-trace-profile-k2.ncl} mtp-trace-profile-export/mtp-trace-profile-k2.ncl
+    nickel export --format json mtp-trace-profile-export/mtp-trace-profile-k2.ncl \
+      > "$out/share/qwen36/mtp-trace-profile-k2.json"
     mkdir -p mtp-rollback-profile-export
     cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-export/mtp-rollback-profile.ncl
     cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-export/mtp-rollback-contracts.ncl
@@ -325,12 +332,28 @@ stdenvNoCC.mkDerivation {
     ttcp_dst="$out/libexec/tt-metalium/ttnn/cpp"
     rm -rf "$ttcp_dst"
     cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
-    # `${tt-metal.src}` is pre-patch. Restore the package-added GDN decode
-    # program and kernels from the installed runtime after the full-tree copy.
-    gdn_decode_src=${tt-metal}/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode
-    gdn_decode_dst="$ttcp_dst/ttnn/operations/transformer/gated_delta_decode"
-    rm -rf "$gdn_decode_dst"
-    cp -r --no-preserve=mode "$gdn_decode_src" "$gdn_decode_dst"
+    # `${tt-metal.src}` is pre-patch: `overrideAttrs` changes `patches`, not
+    # `src`. Any file the runtime JIT-compiles therefore has to be restored from
+    # the installed runtime after the full-tree copy, or the overlay silently
+    # reverts the patch while the host-side half of it stays compiled in.
+    #
+    # This list must stay in step with the patch list above. A patch that adds or
+    # changes a JIT kernel source MUST add its directory here; otherwise the
+    # factory would pass arguments the reverted kernel does not read.
+    for patched_jit_path in \
+      ttnn/operations/transformer/gated_delta_decode \
+      ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels
+    do
+      patched_jit_src="${tt-metal}/libexec/tt-metalium/ttnn/cpp/$patched_jit_path"
+      patched_jit_dst="$ttcp_dst/$patched_jit_path"
+      test -e "$patched_jit_src" || {
+        echo "patched JIT path is absent from the installed runtime: $patched_jit_path" >&2
+        exit 1
+      }
+      rm -rf "$patched_jit_dst"
+      mkdir -p "$(dirname "$patched_jit_dst")"
+      cp -r --no-preserve=mode "$patched_jit_src" "$patched_jit_dst"
+    done
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
     # Host-side Tracy CLI tools matching the packaged runtime. The packaged
     # `python -m tracy` module resolves them under
@@ -744,20 +767,39 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "vllm.entrypoints.openai.api_server"
 
+    # Public commands use the checkpoint version. Preserve old consumers with
+    # relative aliases, without renaming upstream modules or receipt schemas.
+    for legacy_command in "$out"/bin/qwen36*; do
+      canonical_name="qwen38''${legacy_command##*/qwen36}"
+      mv "$legacy_command" "$out/bin/$canonical_name"
+      ln -s "$canonical_name" "$legacy_command"
+    done
+
     # Positive: the overlay provides the JIT headers and kernel sources the
     # packaged runtime omits (matmul_custom.h for SDPA; the experimental CCL
     # all-gather-fused-matmul kernels for the qwen36 TP path).
     test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
     test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp"
     gdn_decode_compute="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp"
-    gdn_decode_compute_expected_lines=208
     test -f "$gdn_decode_compute"
-    test "$(wc -l < "$gdn_decode_compute")" -eq "$gdn_decode_compute_expected_lines"
     test "$(tail -n 1 "$gdn_decode_compute")" = '}'
     grep -Fq 'compute_kernel_hw_startup<SrcOrder::Reverse>' "$gdn_decode_compute"
     grep -Fq 'mul_tiles_bcast_scalar_init_short' "$gdn_decode_compute"
     grep -Fq 'sub_tiles_init' "$gdn_decode_compute"
     grep -Fq 'add_tiles_init' "$gdn_decode_compute"
+    # Assert what identifies the PATCHED kernels, not how many lines they have.
+    # A line count breaks on every edit and, worse, cannot tell a patched kernel
+    # from one the full-tree copy reverted. These markers only exist post-patch.
+    grep -Fq 'instance < head_count' "$gdn_decode_compute"
+    for gdn_scan_rel in \
+      dataflow/reader_chunk_gdn_scan.cpp \
+      dataflow/writer_chunk_gdn_scan.cpp \
+      compute/chunk_gdn_scan.cpp
+do
+      gdn_scan_path="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/$gdn_scan_rel"
+      test -f "$gdn_scan_path"
+      grep -Fq 'instance < wi_count' "$gdn_scan_path"
+done
 
     # Negative: reject newer API names that package-matched TRISC headers do not declare.
     if grep -Fq 'mul_bcast_scalar_init(' "$gdn_decode_compute" || \
@@ -783,6 +825,30 @@ stdenvNoCC.mkDerivation {
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
+
+    # Positive: each legacy command resolves to one executable canonical command.
+    test -x "$out/bin/qwen38-check"
+    test -x "$out/bin/qwen38-p150x2-serve"
+    for legacy_command in "$out"/bin/qwen36*; do
+      canonical_name="qwen38''${legacy_command##*/qwen36}"
+      test -L "$legacy_command"
+      test "$(readlink "$legacy_command")" = "$canonical_name"
+      test -x "$out/bin/$canonical_name"
+      test ! -L "$out/bin/$canonical_name"
+    done
+    "$out/bin/qwen38-p150x2-serve" --help > canonical-help.log
+    "$out/bin/qwen36-p150x2-serve" --help > legacy-help.log
+    cmp canonical-help.log legacy-help.log
+
+    # Negative: both command names reject malformed arguments before device I/O.
+    for command_name in qwen38-p150x2-serve qwen36-p150x2-serve; do
+      if "$out/bin/$command_name" --model-path /nonexistent-qwen-model \
+          --unknown-package-option > "$command_name-invalid.log" 2>&1; then
+        echo "$command_name accepted an unknown option" >&2
+        exit 1
+      fi
+      grep -F 'unrecognized arguments: --unknown-package-option' "$command_name-invalid.log"
+    done
 
     # Positive: installed layout is complete and hash-consistent.
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/model.py"
@@ -1237,17 +1303,21 @@ stdenvNoCC.mkDerivation {
     grep -F '"maximum_full_step_median_ratio": 0.97' gdn-decode-fusion-profile-first.json
     grep -F "\"authority_blake3\": \"$authority_blake3\"" gdn-decode-fusion-profile-first.json
 
-    # Negative: production eligibility must fail the fusion profile contract.
-    mkdir -p gdn-decode-fusion-profile-negative
+    # Negative: retain valid imports and require a contract error, not a parser error.
+    mkdir -p gdn-decode-fusion-profile-negative/fixtures
     cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-profile.ncl
     cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-contracts.ncl
-    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl
-    if nickel export --format json gdn-decode-fusion-profile-negative/invalid-gdn-decode-fusion-profile.ncl \
-        > invalid-gdn-decode-fusion-profile.json 2> invalid-gdn-decode-fusion-profile.log; then
-      echo "invalid GDN decode fusion profile exported" >&2
-      exit 1
-    fi
-    test -s invalid-gdn-decode-fusion-profile.log
+    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/fixtures/profile.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-modes.ncl} gdn-decode-fusion-profile-negative/fixtures/modes.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-parity.ncl} gdn-decode-fusion-profile-negative/fixtures/parity.ncl
+    for fixture in profile modes parity; do
+      if nickel export --format json "gdn-decode-fusion-profile-negative/fixtures/$fixture.ncl" \
+          > "invalid-gdn-decode-fusion-$fixture.json" 2> "invalid-gdn-decode-fusion-$fixture.log"; then
+        echo "invalid GDN decode fusion $fixture exported" >&2
+        exit 1
+      fi
+      grep -Fi "contract broken" "invalid-gdn-decode-fusion-$fixture.log"
+    done
 
     # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
     # Positive: the TTFT control profile exports deterministically and binds authority.
@@ -1304,6 +1374,15 @@ stdenvNoCC.mkDerivation {
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py}; do
+      PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+        TT_METAL_HOME="$out/libexec/tt-metalium" \
+        TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
+        ${pythonEnvironment}/bin/python "$probe"
+    done
+
+    PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
+      ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
 
     # Negative: env-gated BF4 cache names must never collide; the check script
     # itself rejects a missing .bfp4 distinction.
@@ -1325,7 +1404,7 @@ stdenvNoCC.mkDerivation {
     description = "Qwen3.8-27B on the qwen36 Blackhole path (tt-metal PR 53543, adopted)";
     homepage = "https://github.com/tenstorrent/tt-metal/pull/53543";
     license = lib.licenses.asl20;
-    mainProgram = "qwen36-check";
+    mainProgram = "qwen38-check";
     platforms = lib.platforms.linux;
   };
 }

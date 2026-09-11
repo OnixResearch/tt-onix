@@ -7,7 +7,7 @@ pub const RECEIPT_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 3_600;
 const MAXIMUM_RECEIPT_BYTES: usize = 1_048_576;
 const BLAKE3_HEX_LENGTH: usize = 64;
-pub const SUPPORTED_SIMULATOR_VERSION: &str = "1.10.1";
+pub const SUPPORTED_SIMULATOR_VERSION: &str = "1.10.6";
 const SUPPORTED_HOST_COUNT: usize = 2;
 const SUPPORTED_HOSTS: [&str; SUPPORTED_HOST_COUNT] = ["aarch64-linux", "x86_64-linux"];
 const REQUIRED_NON_CLAIM_COUNT: usize = 6;
@@ -379,10 +379,13 @@ mod tests {
 
     #[test]
     fn rejects_previous_simulator_version() {
-        let mut receipt = valid_receipt();
-        receipt.simulator_version = "1.9.2".to_owned();
-        let error = validate_receipt(&encode(&receipt), None).expect_err("version must fail");
-        assert!(error.contains("version is unsupported"));
+        const PREVIOUS_SIMULATOR_VERSIONS: &[&str] = &["1.9.2", "1.10.1", "1.10.2"];
+        for &version in PREVIOUS_SIMULATOR_VERSIONS {
+            let mut receipt = valid_receipt();
+            receipt.simulator_version = version.to_owned();
+            let error = validate_receipt(&encode(&receipt), None).expect_err("version must fail");
+            assert!(error.contains("version is unsupported"));
+        }
     }
 
     #[test]

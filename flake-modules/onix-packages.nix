@@ -235,6 +235,16 @@
       };
       qwenServiceInvalidModelPathRejected = hasFailedAssertion "modelPath must be an absolute path" qwenServiceInvalidModelPathEval;
       qwenServiceInvalidTokenLimitRejected = hasFailedAssertion "must not exceed maximumSequenceLength" qwenServiceInvalidTokenLimitEval;
+      qwenServiceSpeculativeEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.mtpSpeculation = true;
+      };
+      qwenServiceSpeculativeUnit = qwenServiceSpeculativeEval.config.systemd.services.qwen38-p150x2;
+      qwenServiceSpeculativeConflictingEval = qwenServiceEval {
+        hardware.tenstorrent.qwen38.mtpSpeculation = true;
+        hardware.tenstorrent.qwen38.sampledFusion = true;
+      };
+      qwenServiceSpeculativeConflictingRejected =
+        hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
       qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
       qwenServiceCheck =
         assert lib.assertMsg qwenServiceInvalidModelPathRejected
@@ -244,17 +254,50 @@
         assert lib.assertMsg (
           qwenServiceUnit.conflicts == qwenServiceConflictingUnits
         ) "the Qwen service must preserve device-owner conflicts";
-        assert lib.assertMsg (lib.hasInfix "qwen36-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
-          "the Qwen service must use the serialized package entry point";
+        assert lib.assertMsg (lib.hasInfix "qwen38-p150x2-serve" qwenServiceUnit.serviceConfig.ExecStart)
+          "the Qwen service must use the canonical serialized package entry point";
+        assert lib.assertMsg (
+          qwen38.pname == "qwen38" && qwen38.meta.mainProgram == "qwen38-check"
+        ) "the Qwen package identity must match the checkpoint version";
+        assert lib.assertMsg (
+          pkgs.qwen36.drvPath == pkgs.qwen38.drvPath
+        ) "the legacy Qwen package must alias the canonical derivation";
+        assert lib.assertMsg (
+          !(lib.hasInfix "/bin/qwen36-" qwenServiceUnit.serviceConfig.ExecStart)
+        ) "the default Qwen service must not select a legacy command";
         assert lib.assertMsg (
           qwenServiceUnit.serviceConfig.Type == "notify"
         ) "the Qwen service must remain activating until startup warm-up completes";
         assert lib.assertMsg (
           qwenServiceUnit.serviceConfig.NotifyAccess == "main"
         ) "the Qwen service must accept readiness only from its main process";
-        pkgs.runCommand "qwen36-nixos-service" { } ''
+        assert lib.assertMsg (
+          qwenServiceUnit.environment.QWEN36_MTP_SERVING or "" == "0"
+        ) "the Qwen service must default speculative serving off";
+        assert lib.assertMsg (
+          !(lib.hasInfix "--mtp-drafter-profile" qwenServiceUnit.serviceConfig.ExecStart)
+        ) "the default Qwen service must not enable speculative serving";
+        assert lib.assertMsg (
+          qwenServiceSpeculativeUnit.environment.QWEN36_MTP_SERVING or "" == "1"
+        ) "the speculative option must set the serving gate";
+        assert lib.assertMsg (
+          lib.hasInfix "--decode-mode eager" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must select the serialized eager route";
+        assert lib.assertMsg (
+          lib.hasInfix "--mtp-drafter-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-drafter-profile.json"
+            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must pass the packaged drafter profile";
+        assert lib.assertMsg (
+          lib.hasInfix "--mtp-trace-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-trace-profile.json"
+            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+        ) "speculative serving must pass the packaged trace profile";
+        assert lib.assertMsg qwenServiceSpeculativeConflictingRejected
+          "the Qwen service must reject speculative and sampled fusion together";
+        pkgs.runCommand "qwen38-nixos-service" { } ''
           set -euo pipefail
-          test -x ${qwen36}/bin/qwen36-p150x2-serve
+          test -x ${qwen38}/bin/qwen38-p150x2-serve
           exec_start=${pkgs.writeText "qwen-service-exec-start" qwenServiceUnit.serviceConfig.ExecStart}
           grep -F -- '--model-path ${qwenServiceModelPath}' "$exec_start"
           grep -F -- '--max-sequence-length ${toString qwenServiceMaximumSequenceLength}' "$exec_start"
@@ -264,6 +307,14 @@
           grep -Fx '${qwenServiceModelPath}' "$conditions"
           grep -Fx '/dev/tenstorrent/0' "$conditions"
           grep -Fx '/dev/tenstorrent/1' "$conditions"
+          if grep -F -q -- '--mtp-drafter-profile' "$exec_start"; then
+            echo "the default Qwen service must not enable speculative serving" >&2
+            exit 1
+          fi
+          speculative_exec_start=${pkgs.writeText "qwen-service-speculative-exec-start" qwenServiceSpeculativeUnit.serviceConfig.ExecStart}
+          grep -F -- '--decode-mode eager' "$speculative_exec_start"
+          grep -F -- '--mtp-drafter-profile ${qwen38}/share/qwen36/mtp-drafter-profile.json' "$speculative_exec_start"
+          grep -F -- '--mtp-trace-profile ${qwen38}/share/qwen36/mtp-trace-profile.json' "$speculative_exec_start"
           touch "$out"
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {
@@ -676,10 +727,22 @@
       ttMetalTracyTools = pkgs.callPackage ../pkgs/tt-metal-tracy-tools {
         inherit (pkgs) tt-metal;
       };
+      # Tracy tools matching the GDN grid variant, so the variant package carries a
+      # runtime and a profiler CLI built from the same tt-metal revision.
+      ttMetalGdnGridTracyTools = pkgs.callPackage ../pkgs/tt-metal-tracy-tools {
+        tt-metal = pkgs.tt-metal-gdn-grid;
+      };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       # r[impl tenstorrent.qwen36.deployable]
-      qwen36 = pkgs.callPackage ../pkgs/qwen36 {
+      qwen38 = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
+      };
+      # Same package on the GDN grid variant runtime. Device-free only: this is the
+      # gate that proves the chunked runtime still imports and still satisfies every
+      # pure contract. It carries no physical or admission claim.
+      qwen38GdnGrid = pkgs.callPackage ../pkgs/qwen36 {
+        "tt-metal-tracy-tools" = ttMetalTracyTools;
+        tt-metal = pkgs.tt-metal-gdn-grid;
       };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
       # Evaluation-time negative gate: a drifted adoption authority (wrong
@@ -687,8 +750,8 @@
       # the check fails to evaluate.
       qwen36AuthorityNegativeCheck =
         let
-          qwen36Validator = qwen36.passthru.authorityValidator;
-          qwen36Canonical = qwen36.passthru.canonicalAuthority;
+          qwen36Validator = qwen38.passthru.authorityValidator;
+          qwen36Canonical = qwen38.passthru.canonicalAuthority;
           driftedAuthority = qwen36Canonical // {
             upstream = qwen36Canonical.upstream // {
               commit = "0000000000000000000000000000000000000000";
@@ -697,11 +760,11 @@
           driftAdmission = builtins.tryEval (qwen36Validator.admit driftedAuthority);
         in
         if driftAdmission.success then
-          throw "qwen36 authority negative check: drifted adoption was admitted"
+          throw "qwen38 authority negative check: drifted adoption was admitted"
         else
-          pkgs.runCommand "qwen36-authority-negative" { } ''
+          pkgs.runCommand "qwen38-authority-negative" { } ''
             mkdir -p "$out"
-            printf '%s\n' "qwen36 authority negative check: PASS" > "$out/result"
+            printf '%s\n' "qwen38 authority negative check: PASS" > "$out/result"
           '';
       migrationBoundaryCheck = pkgs.callPackage ../checks/migration-boundary.nix { };
       rwkvArtifactBlake3 = lib.mapAttrs (_role: artifact: artifact.blake3) rwkvArtifacts;
@@ -987,8 +1050,13 @@
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
         tt-metal-tracy-tools = ttMetalTracyTools;
+        # Opt-in GDN grid instance cap lift; the shared tt-metal output is
+        # unchanged and stays the runtime for RWKV-7 and training.
+        tt-metal-gdn-grid = pkgs.tt-metal-gdn-grid;
+        qwen38-gdn-grid = qwen38GdnGrid;
         repository-quality = repositoryQuality.repositoryQualityPackage;
-        qwen36 = qwen36;
+        inherit qwen38;
+        qwen36 = qwen38; # Compatibility alias.
       };
 
       checks = lib.optionalAttrs isSupportedSystem {
@@ -1048,7 +1116,10 @@
         repository-quality = repositoryQualityAggregate;
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;
-        qwen36 = qwen36;
+        inherit qwen38;
+        qwen38-authority-negative = qwen36AuthorityNegativeCheck;
+        qwen38-nixos-service = qwenServiceCheck;
+        qwen36 = qwen38; # Compatibility aliases for existing check callers.
         qwen36-authority-negative = qwen36AuthorityNegativeCheck;
         qwen36-nixos-service = qwenServiceCheck;
         repository-quality-language-negative = repositoryQuality.negativeLanguageQuality;

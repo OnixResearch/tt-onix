@@ -849,6 +849,17 @@ class BatchedTracedDecodeAdapter:
 
 
 def _tensor_identity(value: Any) -> str:
+    # TT-Metal 0.77 shard views share one MeshBuffer. Read its address once
+    # without constructing temporary Tensor views for every binding check.
+    # Keep the shard count and exact legacy representation in the identity.
+    if type(value) is ttnn.Tensor:
+        try:
+            address = str(int(value.buffer_address()))
+            addresses = [address] * len(value.device_coords())
+            return f"{type(value).__name__}:device:[{','.join(addresses)}]"
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            # Host, unallocated, and older-API tensors retain the old path.
+            pass
     try:
         device_tensors = tuple(ttnn.get_device_tensors(value))
     except (AttributeError, RuntimeError, TypeError, ValueError):

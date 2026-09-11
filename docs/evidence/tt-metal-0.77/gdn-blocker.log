@@ -1,0 +1,1 @@
+ttsim-gdn-fp32-reference-smoke> [7467] ERROR: UnsupportedFunctionality: tensix_matmul_op: ALU_ACC_CTRL_Zero_Flag_disabled_src=1 (keep SrcB denormals) not modeled

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "candidate": "norm-state-sequence.json",
+  "reference": "../qwen-binding-identity/model/00-measured-0.json",
+  "candidate_batch_width": 1,
+  "reference_batch_width": 4,
+  "token_count": 64,
+  "token_parity": true,
+  "text_parity": true,
+  "controls_passed": true,
+  "admission_eligible": false,
+  "non_claims": ["one prompt only", "not a performance comparison", "not B=4 candidate acceptance"]
+}

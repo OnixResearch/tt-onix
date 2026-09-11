@@ -1,5 +1,5 @@
 let profile = import "../gdn-decode-fusion-profile.ncl" in
 
-profile with {
+profile & {
   diagnostic_only | force = false,
 }

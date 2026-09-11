@@ -34,10 +34,16 @@ let ExactlyFour = std.contract.from_predicate (fun value =>
   std.is_array value && std.array.length value == 4
 ) in
 
+let RequiredTrue = std.contract.from_predicate (fun value => value == true) in
+
+let SupportedModes = std.contract.from_predicate (fun value =>
+  value == [ "off", "norm", "state", "norm-state", "full" ]
+) in
+
 let ProfileContract = {
   schema_version | PositiveInt,
   profile_id | NonEmpty,
-  diagnostic_only = true,
+  diagnostic_only | RequiredTrue,
   identities = {
     authority_blake3 | Blake3,
     checkpoint_revision | Revision,
@@ -50,16 +56,16 @@ let ProfileContract = {
     mesh_columns | PositiveInt,
   },
   workload = {
-    modes | Array NonEmpty | ExactlyFour,
+    modes | Array NonEmpty | SupportedModes,
     execution_order | Array NonEmpty | ExactlyFour,
     samples_per_root | PositiveInt,
     warmup_runs | PositiveInt,
   },
   gates = {
-    require_exact_token_parity = true,
-    require_exact_text_parity = true,
-    require_clean_reset = true,
-    require_distinct_state_slices = true,
+    require_exact_token_parity | RequiredTrue,
+    require_exact_text_parity | RequiredTrue,
+    require_clean_reset | RequiredTrue,
+    require_distinct_state_slices | RequiredTrue,
     maximum_duplicate_spread_ratio | Positive,
     maximum_gdn_median_ratio | UnitFraction,
     maximum_full_step_median_ratio | UnitFraction,

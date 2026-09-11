@@ -44,6 +44,7 @@ from .decode_core import (
     request_deadline_expired,
 )
 from .mtp_drafter_core import MtpDrafterProfile
+from .mtp_serving_core import MTP_PREFILL_BUCKET
 from .mtp_trace_core import MtpTraceProfile
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
@@ -148,6 +149,14 @@ class QwenEngine:
         self.decode_profile = decode_profile
         self.sampled_serving_enabled = sampled_serving_enabled
         self.mtp_serving_enabled = mtp_serving_enabled
+        self._mtp_plain_step_seconds: float | None = None
+        if mtp_serving_enabled:
+            if decode_mode != DECODE_MODE_EAGER:
+                raise ValueError(
+                    "MTP serving requires serialized eager mode, not batch admission"
+                )
+            if mtp_drafter_profile is None or mtp_trace_profile is None:
+                raise ValueError("MTP serving requires drafter and trace profiles")
         self._mtp_drafter: Any | None = None
         self._mtp_drafter_profile = mtp_drafter_profile
         self._mtp_trace_profile = mtp_trace_profile
@@ -271,7 +280,19 @@ class QwenEngine:
     def readiness_payload(self) -> dict[str, Any]:
         state = self._startup_readiness
         if state is None:
+            speculative_status = (
+                {
+                    "speculative_decode": {
+                        "enabled": True,
+                        "candidate": True,
+                        "plain_step_seconds": self._mtp_plain_step_seconds,
+                    }
+                }
+                if self.mtp_serving_enabled
+                else {}
+            )
             return {
+                **speculative_status,
                 "ready": True,
                 "startup_warmup": {
                     "elapsed_seconds": None,
@@ -489,6 +510,7 @@ class QwenEngine:
                 model_path=self.model_path,
                 profile=self._mtp_drafter_profile,
                 trace_profile=self._mtp_trace_profile,
+                runtime_identity=self.runtime_identity,
             )
         return self._mtp_drafter
 
@@ -498,11 +520,26 @@ class QwenEngine:
         maximum_generation_tokens: int,
         request_deadline: float,
     ) -> tuple[list[int], dict[str, Any]]:
+        import statistics
+
         drafter = self._ensure_mtp_drafter()
+        if self._mtp_plain_step_seconds is None:
+            calibration_tokens = 8
+            _, calibration = self._run_persistent_generation(
+                token_ids,
+                calibration_tokens,
+                request_deadline,
+            )
+            if calibration["decode_path"] != "traced":
+                raise RuntimeError("MTP calibration requires the traced plain path")
+            self._mtp_plain_step_seconds = statistics.median(
+                calibration["token_latency_s"]
+            )
         result = drafter.run_speculative_completion(
             prompt_tokens=token_ids,
             maximum_generation_tokens=maximum_generation_tokens,
             request_deadline=request_deadline,
+            plain_step_seconds=self._mtp_plain_step_seconds,
         )
         generated_count = len(result["token_ids"])
         decode_seconds = max(result["elapsed_seconds"], 1.0e-9)
@@ -517,10 +554,18 @@ class QwenEngine:
             "mtp_prefill_seconds": result["prefill_seconds"],
             "mtp_rejected_rounds": result["rejected_rounds"],
             "mtp_rounds": result["rounds"],
+            "mtp_round_seconds": result.get("round_seconds", ()),
+            "mtp_round_stage_seconds": result.get("round_stage_seconds", ()),
+            "mtp_trace_capture_seconds": result.get("trace_capture_seconds", 0.0),
+            "mtp_plain_step_seconds": self._mtp_plain_step_seconds,
+            "mtp_minimum_verification_margin": result.get(
+                "minimum_verification_margin"
+            ),
             "profile_id": self.decode_profile.profile_id,
         }
         return list(result["token_ids"]), perf
 
+    @staticmethod
     def _decode_metrics(
         decode_durations: list[float],
         prefill_metrics: dict[str, Any],
@@ -564,12 +609,18 @@ class QwenEngine:
         request_id = f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
-        if self.mtp_serving_enabled and request.temperature in (None, 0.0):
-            generated, mtp_perf = self._run_mtp_generation(
-                token_ids,
-                request.max_tokens,
-                request_deadline,
-            )
+        if (
+            self.mtp_serving_enabled
+            and request.temperature in (None, 0.0)
+            and prompt_token_count < MTP_PREFILL_BUCKET
+            and request.max_tokens > self._mtp_drafter_profile.draft_token_count + 1
+        ):
+            with self._eager_lock:
+                generated, mtp_perf = self._run_mtp_generation(
+                    token_ids,
+                    request.max_tokens,
+                    request_deadline,
+                )
             generated_text = self.tokenizer.decode(
                 generated,
                 skip_special_tokens=True,
@@ -597,6 +648,13 @@ class QwenEngine:
                 "mtp_prefill_seconds": mtp_perf["mtp_prefill_seconds"],
                 "mtp_rejected_rounds": mtp_perf["mtp_rejected_rounds"],
                 "mtp_rounds": mtp_perf["mtp_rounds"],
+                "mtp_round_seconds": mtp_perf["mtp_round_seconds"],
+                "mtp_round_stage_seconds": mtp_perf["mtp_round_stage_seconds"],
+                "mtp_trace_capture_seconds": mtp_perf["mtp_trace_capture_seconds"],
+                "mtp_plain_step_seconds": mtp_perf["mtp_plain_step_seconds"],
+                "mtp_minimum_verification_margin": mtp_perf[
+                    "mtp_minimum_verification_margin"
+                ],
                 "simulated": False,
             }
             emit(
@@ -690,6 +748,9 @@ class QwenEngine:
                     )
 
     def close(self) -> None:
+        if self._mtp_drafter is not None:
+            self._mtp_drafter.close()
+            self._mtp_drafter = None
         if self._batch_coordinator is not None:
             self._batch_coordinator.close()
             self._batch_coordinator = None

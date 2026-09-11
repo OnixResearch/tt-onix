@@ -1,0 +1,1 @@
+{"cache_reuse_checked": true, "head_count": 2, "head_dim": 128, "negative_cases": 7, "post_rejection_retry": "passed", "recurrent_steps": 3, "state_max_abs_errors": [4.8765912652015686e-05, 6.871111690998077e-05, 7.927790284156799e-05], "status": "passed", "workload": "gdn-fp32-reference-state-carry"}

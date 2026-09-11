@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "diagnostic_only": true,
+  "admission_eligible": false,
+  "simulated": false,
+  "exact_token_and_text_parity": true,
+  "tokens_per_run": 64,
+  "steps_per_run": 63,
+  "order": ["off", "norm-state", "norm-state", "off"],
+  "runs": [
+    {
+      "receipt": "off-a.json",
+      "mode": "off",
+      "steps": 63,
+      "total_seconds": 3.5808481900021434,
+      "mean_seconds": 0.05683886015876418,
+      "median_seconds": 0.05634093703702092
+    },
+    {
+      "receipt": "norm-state-a.json",
+      "mode": "norm-state",
+      "steps": 63,
+      "total_seconds": 3.5216739027528092,
+      "mean_seconds": 0.055899585757981096,
+      "median_seconds": 0.05537566705606878
+    },
+    {
+      "receipt": "norm-state-b.json",
+      "mode": "norm-state",
+      "steps": 63,
+      "total_seconds": 3.504816919681616,
+      "mean_seconds": 0.05563201459812089,
+      "median_seconds": 0.055236645974218845
+    },
+    {
+      "receipt": "off-b.json",
+      "mode": "off",
+      "steps": 63,
+      "total_seconds": 3.5606044189771637,
+      "mean_seconds": 0.05651753045995498,
+      "median_seconds": 0.05632593296468258
+    }
+  ],
+  "baseline_median_step_seconds": 0.0563272429862991,
+  "candidate_median_step_seconds": 0.05533590755658224,
+  "candidate_time_ratio": 0.9824004269131728,
+  "speedup_ratio": 1.0179148670996891,
+  "reference_maximum_full_step_median_ratio": 0.97,
+  "met_reference_time_ratio_target": false,
+  "full_fusion_profile_evaluated": false,
+  "process_exit_status": 0,
+  "non_claims": [
+    "No production admission or default change.",
+    "No B=4 or full-fusion hardware acceptance.",
+    "No exact recurrent-state comparison.",
+    "No accuracy or throughput claim beyond this prompt and B=1 sequence.",
+    "No TTFT or model-load timing claim.",
+    "No evaluation of the complete five-sample-per-root fusion profile."
+  ]
+}

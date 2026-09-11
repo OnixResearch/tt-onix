@@ -1,86 +1,72 @@
-"""Host-thread watchdog for the gated MTP adapter.
+"""Bound host waits for speculative device stages outside the pure core."""
 
-A timeout does not stop work. The caller must not reuse device state while
-that worker remains active. This module does not implement process recovery.
-"""
-
+import math
+import os
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+from typing import NoReturn, TypeVar
 
 from .mtp_serving_core import MtpServingPolicyError
 
-ROUND_WATCHDOG_SECONDS = 60.0
-PENDING_WORK_ATTRIBUTE = "_mtp_pending_work"
+StageResult = TypeVar("StageResult")
+STANDARD_ERROR_FILENO = 2
+DEVICE_TIMEOUT_EXIT_CODE = os.EX_TEMPFAIL
 
 
-@dataclass(frozen=True)
-class PendingMtpWork:
-    """Keep the worker and its eventual result alive after an incomplete wait."""
-
-    worker: threading.Thread
-    result: dict[str, Any]
+class MtpServingRoundTimeout(RuntimeError):
+    """A device worker remains active. The process must terminate."""
 
 
-def pending_mtp_work(error: BaseException) -> PendingMtpWork | None:
-    candidate = getattr(error, PENDING_WORK_ATTRIBUTE, None)
-    return candidate if isinstance(candidate, PendingMtpWork) else None
+def run_with_watchdog(
+    work: Callable[[], StageResult], *, seconds: float, stage: str
+) -> StageResult:
+    """Return the stage result or reject a timeout without reusing the device.
 
-
-class MtpServingRoundTimeout(MtpServingPolicyError):
-    """A host watchdog expired, not a negative policy verdict.
-
-    Keep the existing exception base for caller compatibility. The caller
-    must exit the process before the supervisor can recover the device.
-    Retain the worker and its eventual result while the caller quarantines
-    the request. Exception retention does not cancel work or drain a device.
+    This host-thread bound cannot interrupt a vendor call that holds the GIL.
+    The process supervisor must also enforce an external runtime bound.
     """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        pending_work: PendingMtpWork | None = None,
-    ) -> None:
-        super().__init__(message)
-        setattr(self, PENDING_WORK_ATTRIBUTE, pending_work)
-
-
-def run_with_watchdog(work: Callable[[], Any], *, seconds: float, stage: str) -> Any:
-    """Return a completed value or forward the exact worker exception."""
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
         raise MtpServingPolicyError("seconds must be a number")
-    if not 0 < seconds <= threading.TIMEOUT_MAX:
-        raise MtpServingPolicyError(
-            "seconds must be positive, finite, and within the thread timeout limit"
-        )
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise MtpServingPolicyError("seconds must be positive and finite")
     if not callable(work):
         raise MtpServingPolicyError("work must be callable")
-    outcome: dict[str, Any] = {}
+    if not isinstance(stage, str) or not stage:
+        raise MtpServingPolicyError("stage must be a nonempty string")
+    outcome = {}
 
-    def runner() -> None:
+    def run() -> None:
         try:
             outcome["value"] = work()
-        # Forward control signals too. An Exception-only catch loses them.
-        except BaseException as error:  # noqa: BLE001 - Forward unchanged to the caller.
+        except BaseException as error:  # noqa: BLE001 -- propagate worker exits and interrupts to the caller
             outcome["error"] = error
 
-    worker = threading.Thread(target=runner, daemon=True)
-    pending = PendingMtpWork(worker=worker, result=outcome)
-    try:
-        worker.start()
-        worker.join(timeout=seconds)
-        if worker.is_alive():
-            raise MtpServingRoundTimeout(
-                f"speculative stage '{stage}' exceeded the {seconds:g}s watchdog. "
-                "The device worker thread remains active. The process must exit.",
-                pending_work=pending,
-            )
-    except BaseException as error:
-        # An incomplete start, wait, or liveness check cannot permit cleanup.
-        setattr(error, PENDING_WORK_ATTRIBUTE, pending)
-        raise
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout=seconds)
+    if worker.is_alive():
+        raise MtpServingRoundTimeout(
+            f"speculative stage '{stage}' exceeded the {seconds:.0f}s watchdog; "
+            "the process must exit without device cleanup"
+        )
     if "error" in outcome:
         raise outcome["error"]
     return outcome["value"]
+
+
+def run_device_stage(
+    work: Callable[[], StageResult],
+    *,
+    seconds: float,
+    stage: str,
+    exit_process: Callable[[int], NoReturn] = os._exit,
+) -> StageResult:
+    """Terminate before cleanup can race an abandoned device worker."""
+    try:
+        return run_with_watchdog(work, seconds=seconds, stage=stage)
+    except MtpServingRoundTimeout as error:
+        try:
+            os.write(STANDARD_ERROR_FILENO, f"{error}\n".encode())
+        finally:
+            exit_process(DEVICE_TIMEOUT_EXIT_CODE)
+        raise AssertionError("process termination returned")

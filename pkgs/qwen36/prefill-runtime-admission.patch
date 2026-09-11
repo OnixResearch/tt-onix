@@ -1,0 +1,50 @@
+--- a/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+@@ -8,8 +8,8 @@
+ + WY inverse + inter/intra-chunk scan -> o, final_state) but computed in ONE device op
+ instead of Python/ttnn preprocessing + the separate ``gated_delta_attn_seq`` scan kernel.
+ 
+-Always the GDN prefill path (``fused_chunk_enabled()`` is hardcoded on; the seq adapter is
+-decode-only). Handles masked buckets (``valid_len is not None``) by zeroing beta/g past valid_len
++The local package keeps fused prefill disabled until model-level admission.
++The seq adapter remains the default. Handles masked buckets (``valid_len is not None``) by zeroing beta/g past valid_len
+ before the op — padded positions become identity state updates, so o (causal) and final_state stay correct.
+ 
+ Notes:
+@@ -34,13 +34,13 @@
+ # The chunk size the fused op runs at (same math as 128, different internal tiling).
+ _FUSED_CHUNK_SIZE = 32
+ 
++# A new runtime symbol does not admit a new numerical prefill path.
++FUSED_CHUNK_PREFILL_ADMITTED = False
++
+ 
+ def fused_chunk_enabled():
+-    """Route GDN prefill through the fused ttnn.transformer.chunk_gated_delta_rule op (fast path).
+-    On runtimes that do not expose the fused op (the packaged 0.74 bindings),
+-    fall back to the seq adapter (gated_delta_attn_seq), which those runtimes
+-    do expose; tp.py already dispatches on this flag for prefill and decode."""
+-    return hasattr(ttnn.transformer, "chunk_gated_delta_rule")
++    """Require model admission and the fused runtime operation."""
++    return FUSED_CHUNK_PREFILL_ADMITTED and hasattr(ttnn.transformer, "chunk_gated_delta_rule")
+ 
+ 
+ def phased_enabled():
+--- a/models/demos/blackhole/qwen36/tt/tp_common.py
++++ b/models/demos/blackhole/qwen36/tt/tp_common.py
+@@ -394,9 +394,13 @@
+     return "fuse_swiglu" in (signature_doc or "")
+ 
+ 
++# Preserve the unfused path until a model-level check admits the new runtime op.
++FUSED_MLP_GATEUP_ADMITTED = False
++
++
+ def mlp_gateup_agmm_enabled(num_devices):
+-    """Use fused gate/up AGMM only when the runtime binding accepts it."""
+-    return num_devices > 1 and _runtime_supports_fused_swiglu()
++    """Require model admission, a TP mesh, and the fused runtime binding."""
++    return FUSED_MLP_GATEUP_ADMITTED and num_devices > 1 and _runtime_supports_fused_swiglu()
+ 
+ 
+ def all_gather_swiglu_prefill(

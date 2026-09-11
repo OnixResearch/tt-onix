@@ -198,13 +198,20 @@ class BatchGenerationCoordinator:
                     token_ids=prefill_result.first_token_ids,
                     positions=positions,
                 )
+                # Read the tail that prepare_width captured. A sampled trace
+                # contains top-K candidates, not one greedy winner per shard.
+                replay = (
+                    self.adapter.decode_traced_sampled
+                    if self.adapter.fusion_mode == ROUTE_SAMPLED
+                    else self.adapter.decode_traced
+                )
                 replay_started = time.monotonic()
-                replay_tokens = self.adapter.decode_traced(
+                replay_outputs = replay(
                     token_ids=prefill_result.first_token_ids,
                     positions=positions,
                 )
                 replay_seconds = time.monotonic() - replay_started
-                if len(replay_tokens) != width:
+                if len(replay_outputs) != width:
                     raise BatchDecodeAdapterError(
                         "startup warm-up replay width changed"
                     )

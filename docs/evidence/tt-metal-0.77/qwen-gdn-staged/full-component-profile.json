@@ -1,0 +1,60 @@
+{
+  "architecture": {
+    "full_attention_layer_count": 16,
+    "gdn_layer_count": 48,
+    "layer_count": 64,
+    "mlp_layer_count": 64
+  },
+  "closure": {
+    "maximum_ratio": 1.25,
+    "minimum_ratio": 0.8
+  },
+  "diagnostic_only": true,
+  "execution_path": "matched-component-trace-replay",
+  "identities": {
+    "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+    "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+    "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "maximum_spread_ratio": 1.25,
+  "profile_id": "qwen38-p150x2-decode-component-replay-gdn-full-v1",
+  "prompt": "The capital of France is",
+  "representatives": {
+    "full_attention": [
+      3,
+      31,
+      63
+    ],
+    "gdn": [
+      0,
+      32,
+      60
+    ],
+    "mlp": [
+      0,
+      31,
+      63
+    ]
+  },
+  "samples_per_group": 5,
+  "selection": {
+    "minimum_dominance_ratio": 1.25,
+    "minimum_weighted_share": 0.35
+  },
+  "topology": {
+    "expected_pcie_device_ids": [
+      0,
+      1
+    ],
+    "kv_block_size": 64,
+    "maximum_cpu": 31,
+    "maximum_sequence_length": 2048,
+    "mesh_columns": 2,
+    "mesh_rows": 1,
+    "minimum_cpu": 8,
+    "trace_region_size_bytes": 1073741824
+  },
+  "trace_capture_timeout_seconds": 300,
+  "warmup_replays": 1
+}

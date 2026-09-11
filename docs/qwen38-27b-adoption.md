@@ -4,6 +4,16 @@ This document records the repository adoption of
 [tenstorrent/tt-metal pull 53543](https://github.com/tenstorrent/tt-metal/pull/53543),
 "Enable Qwen3.8-27B on the existing qwen36 Blackhole path".
 
+## Current package names
+
+The canonical package is `qwen38`. Its commands use the `qwen38` prefix.
+The old `qwen36` names remain compatibility aliases. Upstream module paths,
+cache paths, and historical receipts keep their original names.
+
+The sections below retain the original adoption history. See the
+[TT-Metal 0.77 port](tt-metal-0.77-port.md) for the current runtime candidate
+and its acceptance limits.
+
 ## What the PR does
 
 The PR registers `Qwen/Qwen3.8-27B` as an `HF_MODEL` weight-swap on the
@@ -71,24 +81,22 @@ The adopted `weight_mapping.py` declared eight full-attention indices for the ol
 
 ## Deployable surface
 
-- `nix build .#qwen36` — the deployable; `qwen36`, `qwen36-check`,
-  `qwen36-serve` binaries, plus the installed `models/` tree.
-- `qwen36-check` — device-free adoption gate (no hardware).
-- `qwen36-serve` — text-only vLLM 0.10 entrypoint; fails closed when vLLM is
-  not importable.
-- `qwen36-p150x2-mtp-probe` — diagnostic target-verification probe; it cannot
-  admit MTP or change production behavior.
-- `qwen36-p150x2-mtp-drafter-probe` — diagnostic checkpoint drafter and rollback probe.
-- `qwen36-p150x2-mtp-selection-probe` — paired full-logit and bounded draft-selector control.
-- `qwen36-p150x2-mtp-trace-probe` — paired eager and persistent-trace MTP draft control.
-- `qwen36-p150x2-mtp-rollback-probe` — paired MTP cache re-prefill and bounded row-restore control.
-- `qwen36-p150x2-mtp-recovery-prewarmed-control` — full persistent recovery control after exact per-prompt target prewarm.
-- `qwen36-p150x2-decode-component-probe` — diagnostic component replay probe;
-  it cannot select production behavior.
-- `qwen36-p150x2-ttft-control` — diagnostic same-process TTFT control for
-  request-cache capacity and parked-trace effects; it cannot admit traced decode.
-- `nix build .#checks.x86_64-linux.qwen36` and
-  `.#checks.x86_64-linux.qwen36-authority-negative` — CI-shaped gates.
+- `nix build .#qwen38` builds the package and its `models/` tree.
+- `qwen38-check` runs the device-free adoption gate.
+- `qwen38-p150x2-serve` runs the serialized P150x2 service.
+- `qwen38-serve` runs the separate text-only vLLM 0.10 entry point. It rejects an absent vLLM dependency.
+- `qwen38-p150x2-mtp-probe` compares target verification paths.
+- `qwen38-p150x2-mtp-drafter-probe` runs the checkpoint drafter and rollback probe.
+- `qwen38-p150x2-mtp-selection-probe` compares full-logit and bounded draft selection.
+- `qwen38-p150x2-mtp-trace-probe` compares eager and persistent-trace MTP drafts.
+- `qwen38-p150x2-mtp-rollback-probe` compares cache re-prefill and bounded row restoration.
+- `qwen38-p150x2-mtp-recovery-prewarmed-control` runs the persistent recovery control after target prewarm.
+- `qwen38-p150x2-decode-component-probe` measures component replay. Its `--sequence-steps` option records bounded B=1 sequences.
+- `qwen38-p150x2-ttft-control` compares request-cache capacity and parked-trace effects.
+- `nix build .#checks.x86_64-linux.qwen38` runs the package gate.
+- `nix build .#checks.x86_64-linux.qwen38-authority-negative` runs the authority rejection gate.
+
+The diagnostic commands do not admit candidates or change production policy.
 
 ## Deployment (hardware)
 
