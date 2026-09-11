@@ -802,7 +802,7 @@
           model-target-profile-factory = modelTargetFactoryCheck;
           rwkv-layer-framework-parity = rwkvLayerHarness.passthru.frameworkParityCheck;
           training-platform = trainingPlatform;
-          qwen36 = qwen36;
+          qwen36 = qwen38;
           qwen36-authority-negative = qwen36AuthorityNegativeCheck;
           qwen36-nixos-service = qwenServiceCheck;
         };
