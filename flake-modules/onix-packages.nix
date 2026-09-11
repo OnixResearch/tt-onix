@@ -743,6 +743,7 @@
       qwen38GdnGrid = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
         tt-metal = pkgs.tt-metal-gdn-grid;
+        gdnGridRuntime = true;
       };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
       # Evaluation-time negative gate: a drifted adoption authority (wrong

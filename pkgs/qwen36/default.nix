@@ -10,6 +10,11 @@
   b3sum,
   tt-metal,
   tt-metal-tracy-tools,
+  # True only for the GDN grid variant runtime, whose kernels carry the
+  # per-core instance chunking. The kernel-content assertions below fail
+  # closed in both directions, so neither runtime can silently gain or lose
+  # the chunked shape without breaking its package build.
+  gdnGridRuntime ? false,
 }:
 let
   source = callPackage ./source.nix { inherit fetchFromGitHub; };
@@ -151,6 +156,9 @@ stdenvNoCC.mkDerivation {
   src = source;
   dontConfigure = true;
   dontBuild = true;
+  # Declares the expected kernel shape so the install assertions bind the
+  # package execution identity to the runtime it actually carries.
+  gdnGridRuntimeFlag = if gdnGridRuntime then "1" else "0";
   # Every patch can change measured execution and is part of the stable identity.
   patches = executionPatches;
   nativeBuildInputs = [
@@ -790,16 +798,49 @@ stdenvNoCC.mkDerivation {
     # Assert what identifies the PATCHED kernels, not how many lines they have.
     # A line count breaks on every edit and, worse, cannot tell a patched kernel
     # from one the full-tree copy reverted. These markers only exist post-patch.
-    grep -Fq 'instance < head_count' "$gdn_decode_compute"
+    # The block fails closed in BOTH directions: the variant runtime must carry
+    # the chunked markers and must have lost the decode grid guard, and the
+    # shared runtime must carry neither marker and must keep the guard. A
+    # reverted patch can therefore never build quietly on either side.
+    gdn_runtime_lib="${tt-metal}/lib/_ttnncpp.so"
+    test -f "$gdn_runtime_lib"
+    gdn_decode_guard_marker='num_heads exceeds the available compute grid'
     for gdn_scan_rel in \
       dataflow/reader_chunk_gdn_scan.cpp \
       dataflow/writer_chunk_gdn_scan.cpp \
       compute/chunk_gdn_scan.cpp
-do
+    do
       gdn_scan_path="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/$gdn_scan_rel"
       test -f "$gdn_scan_path"
-      grep -Fq 'instance < wi_count' "$gdn_scan_path"
-done
+      if [ "$gdnGridRuntimeFlag" = "1" ]; then
+        grep -Fq 'instance < wi_count' "$gdn_scan_path" || {
+          echo "GDN grid variant runtime lost the chunked scan kernel marker in $gdn_scan_rel" >&2
+          exit 1
+        }
+      elif grep -Fq 'instance < wi_count' "$gdn_scan_path"; then
+        echo "shared runtime carries a chunked scan kernel marker in $gdn_scan_rel" >&2
+        exit 1
+      fi
+    done
+    if [ "$gdnGridRuntimeFlag" = "1" ]; then
+      grep -Fq 'instance < head_count' "$gdn_decode_compute" || {
+        echo "GDN grid variant runtime lost the chunked decode kernel marker" >&2
+        exit 1
+      }
+      if grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib"; then
+        echo "GDN grid variant runtime still carries the one-instance-per-core decode guard" >&2
+        exit 1
+      fi
+    else
+      if grep -Fq 'instance < head_count' "$gdn_decode_compute"; then
+        echo "shared runtime carries a chunked decode kernel marker" >&2
+        exit 1
+      fi
+      grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib" || {
+        echo "shared runtime lost the pre-change decode grid guard its receipts rely on" >&2
+        exit 1
+      }
+    fi
 
     # Negative: reject newer API names that package-matched TRISC headers do not declare.
     if grep -Fq 'mul_bcast_scalar_init(' "$gdn_decode_compute" || \
