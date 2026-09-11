@@ -11,7 +11,7 @@
 
 - [x] [serial] I1 Add the pure instance-assignment core with contiguous chunking and closed range validation. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
 - [x] [serial] I2 Lift the guard in the fused GDN decode program factory and pass `(bh_start, n_inst)` as runtime arguments. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
-- [ ] [serial] I3 Lift the guard in the GDN chunk-prefill phased program factory and keep its `BH * cand <= ncores` sub-split search bounded. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [x] [serial] I3 Lift the guard in the GDN chunk-prefill phased program factory and keep its `BH * cand <= ncores` sub-split search bounded. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] I4 Keep each per-core instance loop bounded and the copy width dtype-generic, matching the layout fix the decode kernel already carries. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] I5 Add a tt-metal variant derivation carrying the change; leave the shared `tt-metal` 0.77 output untouched. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] I6 Bind the variant, the assignment core, and both factories into the package execution identity. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
@@ -23,6 +23,7 @@
 - [ ] [serial] V3 Prove the in-range program mapping is unchanged against the pre-change build for both factories. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
 - [x] [serial] V4 Confirm the full PR applies to the pinned source with zero hunk failures, and record the dry-run result. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V4a Build the tt-metal variant and confirm the chunked kernels and the `heads_per_core` field are shipped. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [ ] [serial] V4b Build the variant with both chunking patches and confirm the prefill `distribute_scan` guard is absent from the shipped source. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V5 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V6 Run the bounded Blackhole kernel hazard audits over both changed factories and their kernels. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V7 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
