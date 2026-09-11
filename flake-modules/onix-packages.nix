@@ -699,7 +699,7 @@
       # gate that proves the chunked runtime still imports and still satisfies every
       # pure contract. It carries no physical or admission claim.
       qwen38GdnGrid = pkgs.callPackage ../pkgs/qwen36 {
-        "tt-metal-tracy-tools" = ttMetalGdnGridTracyTools;
+        "tt-metal-tracy-tools" = ttMetalTracyTools;
         tt-metal = pkgs.tt-metal-gdn-grid;
       };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
