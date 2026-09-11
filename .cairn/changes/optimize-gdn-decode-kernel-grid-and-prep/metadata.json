@@ -1,0 +1,10 @@
+{
+  "depends_on": [
+    "adopt-fused-gdn-decode-verify-op"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}

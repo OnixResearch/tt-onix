@@ -1,0 +1,10 @@
+{
+  "depends_on": [
+    "lift-gdn-batched-prefill-grid-limit"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}
