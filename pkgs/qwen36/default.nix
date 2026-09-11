@@ -325,12 +325,28 @@ stdenvNoCC.mkDerivation {
     ttcp_dst="$out/libexec/tt-metalium/ttnn/cpp"
     rm -rf "$ttcp_dst"
     cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
-    # `${tt-metal.src}` is pre-patch. Restore the package-added GDN decode
-    # program and kernels from the installed runtime after the full-tree copy.
-    gdn_decode_src=${tt-metal}/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode
-    gdn_decode_dst="$ttcp_dst/ttnn/operations/transformer/gated_delta_decode"
-    rm -rf "$gdn_decode_dst"
-    cp -r --no-preserve=mode "$gdn_decode_src" "$gdn_decode_dst"
+    # `${tt-metal.src}` is pre-patch: `overrideAttrs` changes `patches`, not
+    # `src`. Any file the runtime JIT-compiles therefore has to be restored from
+    # the installed runtime after the full-tree copy, or the overlay silently
+    # reverts the patch while the host-side half of it stays compiled in.
+    #
+    # This list must stay in step with the patch list above. A patch that adds or
+    # changes a JIT kernel source MUST add its directory here; otherwise the
+    # factory would pass arguments the reverted kernel does not read.
+    for patched_jit_path in \
+      ttnn/operations/transformer/gated_delta_decode \
+      ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels
+    do
+      patched_jit_src="${tt-metal}/libexec/tt-metalium/ttnn/cpp/$patched_jit_path"
+      patched_jit_dst="$ttcp_dst/$patched_jit_path"
+      test -e "$patched_jit_src" || {
+        echo "patched JIT path is absent from the installed runtime: $patched_jit_path" >&2
+        exit 1
+      }
+      rm -rf "$patched_jit_dst"
+      mkdir -p "$(dirname "$patched_jit_dst")"
+      cp -r --no-preserve=mode "$patched_jit_src" "$patched_jit_dst"
+    done
     mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
     # Host-side Tracy CLI tools matching the packaged runtime. The packaged
     # `python -m tracy` module resolves them under
