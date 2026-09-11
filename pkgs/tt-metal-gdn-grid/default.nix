@@ -22,5 +22,14 @@
 tt-metal.overrideAttrs (old: {
   # `patches` are applied in list order, so this one sees the tree after
   # gdn-decode-fp32.patch has created the gated_delta_decode sources.
-  patches = (old.patches or [ ]) ++ [ ../tt-metal/gdn-decode-grid-chunk.patch ];
+  patches =
+    (old.patches or [ ])
+    ++ [
+      ../tt-metal/gdn-decode-grid-chunk.patch
+      # Same mechanism in the chunk-prefill phased factory: `distribute_scan`
+      # carried the same one-instance-per-core bound, and it is the recorded
+      # root cause of the B=8 TTFT rejection. This patch touches base sources,
+      # so its position relative to the decode patch is not significant.
+      ../tt-metal/gdn-prefill-scan-chunk.patch
+    ];
 })

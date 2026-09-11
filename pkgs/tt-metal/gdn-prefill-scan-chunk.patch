@@ -1,0 +1,220 @@
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/chunk_gdn_phased_program_factory.cpp b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/chunk_gdn_phased_program_factory.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/chunk_gdn_phased_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/chunk_gdn_phased_program_factory.cpp
+@@ -125,17 +125,19 @@
+ // with BH*NV <= cores. Each core runs one (head, v-block) => BH*NV independent scans vs BH today.
+ struct ScanWorkDist {
+     std::vector<CoreCoord> cores;
+-    std::vector<uint32_t> head;  // head index per core
+-    std::vector<uint32_t> vblk;  // v-block index per core
+-    uint32_t Vtl = 1;            // per-core v-block width (tiles) = Vt / NV
+-    uint32_t NV = 1;             // v-blocks per head
++    std::vector<uint32_t> wi_start;  // first (head, v-block) instance per core
++    std::vector<uint32_t> wi_count;  // instances per core
++    uint32_t Vtl = 1;                // per-core v-block width (tiles) = Vt / NV
++    uint32_t NV = 1;                 // v-blocks per head
+     CoreRangeSet core_set;
+ };
+ 
+ ScanWorkDist distribute_scan(CoreCoord grid, uint32_t BH, uint32_t Vt) {
+     const uint32_t ncores = grid.x * grid.y;
+-    TT_FATAL(BH <= ncores, "num_heads {} exceeds compute cores {}", BH, ncores);
++    TT_FATAL(ncores > 0, "scan work distribution needs at least one compute core");
+     // QWEN_GDN_SCAN_SERIAL=1 forces NV=1 (full V on 1 core/head, the old layout) for perf A/B only.
++    // The NV search keeps its original bound, so v-blocking is unchanged wherever
++    // it previously fit and the in-range program mapping stays identical.
+     const char* serial_env = std::getenv("QWEN_GDN_SCAN_SERIAL");
+     const bool force_serial = serial_env && serial_env[0] == '1';
+     uint32_t NV = 1;
+@@ -148,16 +150,23 @@
+     ScanWorkDist d;
+     d.NV = NV;
+     d.Vtl = Vt / NV;
++    // (head, v-block) instances can exceed the grid, so each active core takes a
++    // contiguous chunk of ceil(total / ncores) instances. For total <= ncores the
++    // chunk is one and core i maps to instance i, which is the original mapping.
+     const uint32_t total = BH * NV;
+-    d.cores.reserve(total);
+-    d.head.reserve(total);
+-    d.vblk.reserve(total);
++    const uint32_t per_core = (total + ncores - 1) / ncores;
++    const uint32_t active = (total + per_core - 1) / per_core;
++    d.cores.reserve(active);
++    d.wi_start.reserve(active);
++    d.wi_count.reserve(active);
+     std::set<CoreRange> crs;
+-    for (uint32_t i = 0; i < total; i++) {
++    for (uint32_t i = 0; i < active; i++) {
+         const CoreCoord core{i % grid.x, i / grid.x};  // row-major over the grid
++        const uint32_t start = i * per_core;
++        const uint32_t remaining = total - start;
+         d.cores.push_back(core);
+-        d.head.push_back(i / NV);  // heads' v-blocks grouped contiguously
+-        d.vblk.push_back(i % NV);
++        d.wi_start.push_back(start);
++        d.wi_count.push_back((per_core < remaining) ? per_core : remaining);
+         crs.insert(CoreRange{core, core});
+     }
+     d.core_set = CoreRangeSet{crs};
+@@ -461,12 +470,13 @@
+ 
+     for (uint32_t i = 0; i < n_used; i++) {
+         const auto& core = sdist.cores[i];
+-        const uint32_t h = sdist.head[i];
+-        const uint32_t vb = sdist.vblk[i];
++        const uint32_t wi_start = sdist.wi_start[i];
++        const uint32_t wi_count = sdist.wi_count[i];
+         reader.emplace_runtime_args(
+-            core, {h, vb, NC, vb_buf, kd_buf, qd_buf, it_buf, kdec_buf, dl_buf, ti_buf, s0_buf});
+-        writer.emplace_runtime_args(core, {h, vb, NC, o_buf, fs_buf});
+-        compute.emplace_runtime_args(core, {NC});
++            core,
++            {wi_start, wi_count, sdist.NV, NC, vb_buf, kd_buf, qd_buf, it_buf, kdec_buf, dl_buf, ti_buf, s0_buf});
++        writer.emplace_runtime_args(core, {wi_start, wi_count, sdist.NV, NC, o_buf, fs_buf});
++        compute.emplace_runtime_args(core, {wi_count, NC});
+     }
+ 
+     desc.kernels.push_back(std::move(reader));
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/compute/chunk_gdn_scan.cpp b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/compute/chunk_gdn_scan.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/compute/chunk_gdn_scan.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/compute/chunk_gdn_scan.cpp
+@@ -109,7 +109,8 @@
+     constexpr uint32_t Ct = get_compile_time_arg_val(0);
+     constexpr uint32_t Kt = get_compile_time_arg_val(1);
+     constexpr uint32_t Vt = get_compile_time_arg_val(2);
+-    const uint32_t NC = get_arg_val<uint32_t>(0);
++    const uint32_t wi_count = get_arg_val<uint32_t>(0);
++    const uint32_t NC = get_arg_val<uint32_t>(1);
+ 
+     constexpr uint32_t cc = Ct * Ct;
+     constexpr uint32_t ck = Ct * Kt;
+@@ -119,6 +120,9 @@
+ 
+     compute_kernel_hw_startup(cb_kd, cb_vbeta, cb_out);
+ 
++    // One core covers wi_count contiguous (head, v-block) instances. The
++    // hardware startup is per-core, so it stays outside the loop.
++    for (uint32_t instance = 0; instance < wi_count; instance++) {
+     for (uint32_t c = 0; c < NC; c++) {
+         // State uses THREE single-producer CBs so no CB is produced by both the reader and
+         // compute (that reader->compute producer switch desyncs CB page pointers and deadlocks):
+@@ -177,4 +181,5 @@
+         POP(cb_stmp, kv);
+         POP(cb_supd, kv);
+     }
++    }
+ }
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/reader_chunk_gdn_scan.cpp b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/reader_chunk_gdn_scan.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/reader_chunk_gdn_scan.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/reader_chunk_gdn_scan.cpp
+@@ -30,17 +30,18 @@
+     constexpr auto s0_a = TensorAccessorArgs<ti_a.next_compile_time_args_offset()>();
+ 
+     // This core handles head h, V-block vb (columns [vb*Vt, vb*Vt+Vt) of the full V dimension).
+-    const uint32_t h = get_arg_val<uint32_t>(0);
+-    const uint32_t vb = get_arg_val<uint32_t>(1);
+-    const uint32_t NC = get_arg_val<uint32_t>(2);
+-    const uint32_t vb_addr = get_arg_val<uint32_t>(3);
+-    const uint32_t kd_addr = get_arg_val<uint32_t>(4);
+-    const uint32_t qd_addr = get_arg_val<uint32_t>(5);
+-    const uint32_t it_addr = get_arg_val<uint32_t>(6);
+-    const uint32_t kc_addr = get_arg_val<uint32_t>(7);
+-    const uint32_t dl_addr = get_arg_val<uint32_t>(8);
+-    const uint32_t ti_addr = get_arg_val<uint32_t>(9);
+-    const uint32_t s0_addr = get_arg_val<uint32_t>(10);
++    const uint32_t wi_start = get_arg_val<uint32_t>(0);
++    const uint32_t wi_count = get_arg_val<uint32_t>(1);
++    const uint32_t NV = get_arg_val<uint32_t>(2);
++    const uint32_t NC = get_arg_val<uint32_t>(3);
++    const uint32_t vb_addr = get_arg_val<uint32_t>(4);
++    const uint32_t kd_addr = get_arg_val<uint32_t>(5);
++    const uint32_t qd_addr = get_arg_val<uint32_t>(6);
++    const uint32_t it_addr = get_arg_val<uint32_t>(7);
++    const uint32_t kc_addr = get_arg_val<uint32_t>(8);
++    const uint32_t dl_addr = get_arg_val<uint32_t>(9);
++    const uint32_t ti_addr = get_arg_val<uint32_t>(10);
++    const uint32_t s0_addr = get_arg_val<uint32_t>(11);
+ 
+     const uint32_t tb = get_tile_size(cb_vbeta);  // all inputs fp32 -> same tile size
+     const auto vb_acc = TensorAccessor(vb_a, vb_addr, tb);
+@@ -59,6 +60,11 @@
+ 
+     Noc noc;
+ 
++    // Instance index, updated per iteration. The lambdas below capture by
++    // reference, so vb must be readable here rather than declared in the loop.
++    uint32_t h = 0;
++    uint32_t vb = 0;
++
+     // Full (V-independent) read: n contiguous tiles from `base` into the CB.
+     auto read_into = [&](const auto& acc, uint32_t cb_id, uint32_t base, uint32_t n) {
+         CircularBuffer cb(cb_id);
+@@ -88,6 +94,12 @@
+     };
+ 
+     // initial state S [K, V] (once) — host always provides it (zeros if none). V-sliced.
++    // One core covers wi_count contiguous (head, v-block) instances.
++    for (uint32_t instance = 0; instance < wi_count; instance++) {
++        const uint32_t wi = wi_start + instance;
++        h = wi / NV;
++        vb = wi % NV;
++
+     read_vslice(s0_acc, cb_S, h * Kt * Vt_full, Kt);
+ 
+     for (uint32_t c = 0; c < NC; c++) {
+@@ -100,4 +112,5 @@
+         read_into(dl_acc, cb_dl, hc * 1, 1);
+         read_into(ti_acc, cb_Tinv, hc * cc, cc);
+     }
++    }
+ }
+diff -ruN a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/writer_chunk_gdn_scan.cpp b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/writer_chunk_gdn_scan.cpp
+--- a/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/writer_chunk_gdn_scan.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/dataflow/writer_chunk_gdn_scan.cpp
+@@ -23,11 +23,12 @@
+     constexpr auto o_a = TensorAccessorArgs<5>();
+     constexpr auto fs_a = TensorAccessorArgs<o_a.next_compile_time_args_offset()>();
+ 
+-    const uint32_t h = get_arg_val<uint32_t>(0);
+-    const uint32_t vb = get_arg_val<uint32_t>(1);
+-    const uint32_t NC = get_arg_val<uint32_t>(2);
+-    const uint32_t o_addr = get_arg_val<uint32_t>(3);
+-    const uint32_t fs_addr = get_arg_val<uint32_t>(4);
++    const uint32_t wi_start = get_arg_val<uint32_t>(0);
++    const uint32_t wi_count = get_arg_val<uint32_t>(1);
++    const uint32_t NV = get_arg_val<uint32_t>(2);
++    const uint32_t NC = get_arg_val<uint32_t>(3);
++    const uint32_t o_addr = get_arg_val<uint32_t>(4);
++    const uint32_t fs_addr = get_arg_val<uint32_t>(5);
+ 
+     // Mixed precision: o is bf16 (cb_out), the final state is fp32 (cb_final). Each write MUST use
+     // its own tile size, else the fp32 state written at the bf16 stride is garbage (and vice versa).
+@@ -41,6 +42,14 @@
+ 
+     Noc noc;
+     CircularBuffer cbout(cb_out);
++    CircularBuffer cbfs(cb_final);
++
++    // One core covers wi_count contiguous (head, v-block) instances. Everything
++    // above is per-core or address-derived, so only the instance index changes.
++    for (uint32_t instance = 0; instance < wi_count; instance++) {
++    const uint32_t wi = wi_start + instance;
++    const uint32_t h = wi / NV;
++    const uint32_t vb = wi % NV;
+ 
+     // o [BH, NC, C, V]: scatter this V-block back — row stride Vt_full, column offset vb*Vt.
+     for (uint32_t c = 0; c < NC; c++) {
+@@ -58,7 +67,6 @@
+     }
+ 
+     // final_state [BH, K, V]: same V-block slicing (row stride Vt_full over K rows).
+-    CircularBuffer cbfs(cb_final);
+     cbfs.wait_front(kv);
+     const uint32_t row_base = h * Kt * Vt_full;
+     auto src = use<CircularBuffer::AddrSelector::READ_PTR>(cbfs);
+@@ -70,4 +78,5 @@
+     }
+     noc.async_write_barrier();
+     cbfs.pop_front(kv);
++    }
+ }
