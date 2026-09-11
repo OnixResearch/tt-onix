@@ -774,14 +774,25 @@ stdenvNoCC.mkDerivation {
     test -f "$out/libexec/tt-metalium/tt_metal/hw/inc/api/compute/experimental/matmul_custom.h"
     test -f "$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/device/kernels/dm_in0_sender.cpp"
     gdn_decode_compute="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp"
-    gdn_decode_compute_expected_lines=208
     test -f "$gdn_decode_compute"
-    test "$(wc -l < "$gdn_decode_compute")" -eq "$gdn_decode_compute_expected_lines"
     test "$(tail -n 1 "$gdn_decode_compute")" = '}'
     grep -Fq 'compute_kernel_hw_startup<SrcOrder::Reverse>' "$gdn_decode_compute"
     grep -Fq 'mul_tiles_bcast_scalar_init_short' "$gdn_decode_compute"
     grep -Fq 'sub_tiles_init' "$gdn_decode_compute"
     grep -Fq 'add_tiles_init' "$gdn_decode_compute"
+    # Assert what identifies the PATCHED kernels, not how many lines they have.
+    # A line count breaks on every edit and, worse, cannot tell a patched kernel
+    # from one the full-tree copy reverted. These markers only exist post-patch.
+    grep -Fq 'instance < head_count' "$gdn_decode_compute"
+    for gdn_scan_rel in \
+      dataflow/reader_chunk_gdn_scan.cpp \
+      dataflow/writer_chunk_gdn_scan.cpp \
+      compute/chunk_gdn_scan.cpp
+do
+      gdn_scan_path="$out/libexec/tt-metalium/ttnn/cpp/ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels/$gdn_scan_rel"
+      test -f "$gdn_scan_path"
+      grep -Fq 'instance < wi_count' "$gdn_scan_path"
+done
 
     # Negative: reject newer API names that package-matched TRISC headers do not declare.
     if grep -Fq 'mul_bcast_scalar_init(' "$gdn_decode_compute" || \
