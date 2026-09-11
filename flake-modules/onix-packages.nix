@@ -685,10 +685,22 @@
       ttMetalTracyTools = pkgs.callPackage ../pkgs/tt-metal-tracy-tools {
         inherit (pkgs) tt-metal;
       };
+      # Tracy tools matching the GDN grid variant, so the variant package carries a
+      # runtime and a profiler CLI built from the same tt-metal revision.
+      ttMetalGdnGridTracyTools = pkgs.callPackage ../pkgs/tt-metal-tracy-tools {
+        tt-metal = pkgs.tt-metal-gdn-grid;
+      };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
       # r[impl tenstorrent.qwen36.deployable]
       qwen38 = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
+      };
+      # Same package on the GDN grid variant runtime. Device-free only: this is the
+      # gate that proves the chunked runtime still imports and still satisfies every
+      # pure contract. It carries no physical or admission claim.
+      qwen38GdnGrid = pkgs.callPackage ../pkgs/qwen36 {
+        "tt-metal-tracy-tools" = ttMetalGdnGridTracyTools;
+        tt-metal = pkgs.tt-metal-gdn-grid;
       };
       # r[verify tenstorrent.qwen36.upstream_authority.valid]
       # Evaluation-time negative gate: a drifted adoption authority (wrong
@@ -979,6 +991,7 @@
         # Opt-in GDN grid instance cap lift; the shared tt-metal output is
         # unchanged and stays the runtime for RWKV-7 and training.
         tt-metal-gdn-grid = pkgs.tt-metal-gdn-grid;
+        qwen38-gdn-grid = qwen38GdnGrid;
         repository-quality = repositoryQuality.repositoryQualityPackage;
         inherit qwen38;
         qwen36 = qwen38; # Compatibility alias.
