@@ -27,6 +27,7 @@
 - [x] [serial] V5 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V6 Run the bounded Blackhole kernel hazard audits over both changed factories and their kernels. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [ ] [serial] V7 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [x] [serial] V7a Run a bounded B=1 physical decode sequence with the fused path forced on, and confirm the chunked kernels accept the new runtime argument layout and reproduce the reference token prefix. This tests argument agreement, not chunking; at B=1 the chunk is one. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
 - [ ] [serial] V8 Run matched physical decode at B=8 on devices 0 and 1 and require exact output and recurrent-state parity. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
 - [ ] [serial] V9 Run matched physical prefill and require exact per-position parity against the serialized per-user reference. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
 - [ ] [serial] V10 Confirm the shared `tt-metal` 0.77 output is byte-identical and RWKV-7 and training checks still pass. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
@@ -38,6 +39,6 @@
 
 ## Verification Coverage
 
-- `Scenario: An instance count above the core count launches with exact parity` -> V1, V4, V5, V6, V7, V8, V9
+- `Scenario: An instance count above the core count launches with exact parity` -> V1, V4, V5, V6, V7a, V8, V9
 - `Scenario: The instance count stays within the core count` -> V1, V3, V10
 - `Scenario: A malformed instance assignment is rejected` -> I1, V2, V5, D1
