@@ -25,7 +25,7 @@
 - [x] [serial] V4a Build the tt-metal variant and confirm the chunked kernels and the `heads_per_core` field are shipped. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V4b Build the variant with both chunking patches and confirm the prefill `distribute_scan` guard is absent from the shipped source. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V5 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
-- [ ] [serial] V6 Run the bounded Blackhole kernel hazard audits over both changed factories and their kernels. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [x] [serial] V6 Run the bounded Blackhole kernel hazard audits over both changed factories and their kernels. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V7 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V7a Run a bounded B=1 physical decode sequence with the fused path forced on, and confirm the chunked kernels accept the new runtime argument layout and reproduce the reference token prefix. This tests argument agreement, not chunking; at B=1 the chunk is one. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
 - [ ] [serial] V8 Run matched physical decode at B=8 on devices 0 and 1 and require exact output and recurrent-state parity. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
