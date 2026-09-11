@@ -174,6 +174,7 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"
+    cp ${./mtp-kv-tail-device-check.py} "$out/share/qwen36/mtp-kv-tail-device-check.py"
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
     cp ${./generated/authority.json} "$out/share/qwen36/authority.json"
@@ -259,6 +260,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-drafter-profile-k4.ncl} mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl
     nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile-k4.ncl \
       > "$out/share/qwen36/mtp-drafter-profile-k4.json"
+    cp ${./mtp-drafter-profile-k2.ncl} mtp-drafter-profile-export/mtp-drafter-profile-k2.ncl
+    nickel export --format json mtp-drafter-profile-export/mtp-drafter-profile-k2.ncl \
+      > "$out/share/qwen36/mtp-drafter-profile-k2.json"
     mkdir -p mtp-selection-profile-export
     cp ${./mtp-selection-profile.ncl} mtp-selection-profile-export/mtp-selection-profile.ncl
     cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-export/mtp-selection-contracts.ncl
@@ -272,6 +276,9 @@ stdenvNoCC.mkDerivation {
     cp ${./mtp-trace-profile-k4.ncl} mtp-trace-profile-export/mtp-trace-profile-k4.ncl
     nickel export --format json mtp-trace-profile-export/mtp-trace-profile-k4.ncl \
       > "$out/share/qwen36/mtp-trace-profile-k4.json"
+    cp ${./mtp-trace-profile-k2.ncl} mtp-trace-profile-export/mtp-trace-profile-k2.ncl
+    nickel export --format json mtp-trace-profile-export/mtp-trace-profile-k2.ncl \
+      > "$out/share/qwen36/mtp-trace-profile-k2.json"
     mkdir -p mtp-rollback-profile-export
     cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-export/mtp-rollback-profile.ncl
     cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-export/mtp-rollback-contracts.ncl
@@ -1340,12 +1347,15 @@ stdenvNoCC.mkDerivation {
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
-    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py}; do
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py}; do
       PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
         TT_METAL_HOME="$out/libexec/tt-metalium" \
         TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
         ${pythonEnvironment}/bin/python "$probe"
     done
+
+    PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
+      ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
 
     # Negative: env-gated BF4 cache names must never collide; the check script
     # itself rejects a missing .bfp4 distinction.

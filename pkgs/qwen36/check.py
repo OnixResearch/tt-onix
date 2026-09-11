@@ -368,9 +368,17 @@ def probe_p150x2_gate():
         "a runtime upgrade enabled unadmitted fused GDN prefill",
     )
     with mock.patch.object(fused_chunk_module, "FUSED_CHUNK_PREFILL_ADMITTED", True):
-        require(fused_chunk_module.fused_chunk_enabled(), "admitted fused GDN capability was rejected")
-        with mock.patch.object(fused_chunk_module.ttnn, "transformer", SimpleNamespace()):
-            require(not fused_chunk_module.fused_chunk_enabled(), "missing fused GDN capability was admitted")
+        require(
+            fused_chunk_module.fused_chunk_enabled(),
+            "admitted fused GDN capability was rejected",
+        )
+        with mock.patch.object(
+            fused_chunk_module.ttnn, "transformer", SimpleNamespace()
+        ):
+            require(
+                not fused_chunk_module.fused_chunk_enabled(),
+                "missing fused GDN capability was admitted",
+            )
     require(
         hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
         "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
@@ -410,10 +418,20 @@ def probe_p150x2_gate():
         "a runtime upgrade enabled unadmitted MLP gate/up AGMM",
     )
     with mock.patch.object(tp_common, "FUSED_MLP_GATEUP_ADMITTED", True):
-        require(tp_common.mlp_gateup_agmm_enabled(p150x2_device_count), "admitted AGMM capability was rejected")
-        require(not tp_common.mlp_gateup_agmm_enabled(1), "single-device AGMM was admitted")
-        with mock.patch.object(tp_common, "_runtime_supports_fused_swiglu", return_value=False):
-            require(not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count), "missing AGMM capability was admitted")
+        require(
+            tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+            "admitted AGMM capability was rejected",
+        )
+        require(
+            not tp_common.mlp_gateup_agmm_enabled(1), "single-device AGMM was admitted"
+        )
+        with mock.patch.object(
+            tp_common, "_runtime_supports_fused_swiglu", return_value=False
+        ):
+            require(
+                not tp_common.mlp_gateup_agmm_enabled(p150x2_device_count),
+                "missing AGMM capability was admitted",
+            )
 
 
 # r[verify tenstorrent.qwen38_p150x2.traced_decode]
@@ -2567,7 +2585,9 @@ def probe_mtp_drafter():
 
     for rejected_width in (1, 7):
         try:
-            accepted_prefix_length(list(range(rejected_width)), list(range(rejected_width)))
+            accepted_prefix_length(
+                list(range(rejected_width)), list(range(rejected_width))
+            )
         except MtpDrafterPolicyError as error:
             require(
                 "outside the policy range" in str(error),
@@ -5190,7 +5210,10 @@ def probe_gdn_decode_fusion_candidate():
         decode_fusion_candidate as candidate,
     )
 
-    require(candidate.selected_mode({}) == candidate.MODE_OFF, "missing fusion gate did not select off")
+    require(
+        candidate.selected_mode({}) == candidate.MODE_OFF,
+        "missing fusion gate did not select off",
+    )
     require(
         candidate.selected_mode({candidate.ENV_GATE: "unknown"}) == candidate.MODE_OFF,
         "unknown fusion mode did not fail closed",
@@ -5260,12 +5283,24 @@ def probe_gdn_decode_fusion_candidate():
         / "tt"
         / "ttnn_delta_rule_ops.py"
     ).read_text()
-    require("decode_fusion_candidate.selected_mode" in tp_source, "GDN runtime does not consume fusion policy")
-    require("q_norm_weight=" in tp_source and "k_norm_weight=" in tp_source, "GDN runtime lost norm fusion inputs")
-    require("fuse_state_update=" in tp_source, "GDN runtime lost state fusion selection")
-    require("fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection")
+    require(
+        "decode_fusion_candidate.selected_mode" in tp_source,
+        "GDN runtime does not consume fusion policy",
+    )
+    require(
+        "q_norm_weight=" in tp_source and "k_norm_weight=" in tp_source,
+        "GDN runtime lost norm fusion inputs",
+    )
+    require(
+        "fuse_state_update=" in tp_source, "GDN runtime lost state fusion selection"
+    )
+    require(
+        "fused_recurrence=" in tp_source, "GDN runtime lost fused-recurrence selection"
+    )
     require("state_output=" in tp_source, "GDN runtime lost trace-stable state output")
-    require("ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel")
+    require(
+        "ttnn.addcmul" in delta_source, "state-update fusion lost its ternary kernel"
+    )
     require(
         "q_head_major = ttnn.permute" in delta_source
         and "beta_vector = ttnn.unsqueeze(beta, -1)" in delta_source
@@ -5291,30 +5326,43 @@ def probe_gdn_decode_fusion_candidate():
 
     def fused_call_uses_hifi4(source):
         calls = [
-            node for node in ast.walk(ast.parse(source))
+            node
+            for node in ast.walk(ast.parse(source))
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "gated_delta_decode"
         ]
         if len(calls) != 1:
             return False
-        configs = [item.value for item in calls[0].keywords if item.arg == "compute_kernel_config"]
+        configs = [
+            item.value
+            for item in calls[0].keywords
+            if item.arg == "compute_kernel_config"
+        ]
         if len(configs) != 1 or not isinstance(configs[0], ast.Call):
             return False
-        fidelities = [item.value for item in configs[0].keywords if item.arg == "math_fidelity"]
+        fidelities = [
+            item.value for item in configs[0].keywords if item.arg == "math_fidelity"
+        ]
         return (
             len(fidelities) == 1
             and isinstance(fidelities[0], ast.Attribute)
             and fidelities[0].attr == "HiFi4"
         )
 
-    require(fused_call_uses_hifi4(delta_source), "fused recurrence lost its HiFi4 profile")
     require(
-        not fused_call_uses_hifi4(delta_source.replace("MathFidelity.HiFi4", "MathFidelity.HiFi2")),
+        fused_call_uses_hifi4(delta_source), "fused recurrence lost its HiFi4 profile"
+    )
+    require(
+        not fused_call_uses_hifi4(
+            delta_source.replace("MathFidelity.HiFi4", "MathFidelity.HiFi2")
+        ),
         "fused precision check admitted HiFi2",
     )
     require(
-        not fused_call_uses_hifi4(delta_source.replace("compute_kernel_config=", "ignored_config=")),
+        not fused_call_uses_hifi4(
+            delta_source.replace("compute_kernel_config=", "ignored_config=")
+        ),
         "fused precision check admitted a missing config",
     )
 
@@ -5367,9 +5415,7 @@ def probe_kernel_distribution_admission():
             else control_tokens
         )
         control_probabilities = softmax(control_logits)
-        candidate_probabilities = (
-            [0.05] * 20 if break_tv else softmax(candidate_logits)
-        )
+        candidate_probabilities = [0.05] * 20 if break_tv else softmax(candidate_logits)
         control = tuple(
             (token, probability, logit)
             for token, probability, logit in zip(
@@ -5386,13 +5432,17 @@ def probe_kernel_distribution_admission():
 
     def build_evidence(**kwargs):
         position_kwargs = {
-            key: value for key, value in kwargs.items() if key in ("flip_stable", "break_tv", "break_shared")
+            key: value
+            for key, value in kwargs.items()
+            if key in ("flip_stable", "break_tv", "break_shared")
         }
         prompt_total = kwargs.get("prompt_override", prompt_count)
         prompts = tuple(
             PromptProbe(
                 positions=tuple(
-                    build_position(prompt_index * position_count + index, **position_kwargs)
+                    build_position(
+                        prompt_index * position_count + index, **position_kwargs
+                    )
                     for index in range(position_count)
                 )
             )
@@ -5435,7 +5485,10 @@ def probe_kernel_distribution_admission():
         "stable-position argmax flips were admitted",
     )
     require(
-        any("stable-position agreement" in reason for reason in stable_flip.rejection_reasons),
+        any(
+            "stable-position agreement" in reason
+            for reason in stable_flip.rejection_reasons
+        ),
         f"stable flip missed its bound: {stable_flip.rejection_reasons}",
     )
 
@@ -5452,9 +5505,7 @@ def probe_kernel_distribution_admission():
     require(not shared_break.admitted, "disjoint top-K sets were admitted")
 
     # Negative: corpus, root-order, and mode violations fail closed.
-    short_corpus = evaluate_distribution_admission(
-        build_evidence(prompt_override=4)
-    )
+    short_corpus = evaluate_distribution_admission(build_evidence(prompt_override=4))
     require(not short_corpus.admitted, "a four-prompt corpus was admitted")
     wrong_order = evaluate_distribution_admission(
         build_evidence(root_order=("candidate", "control", "control", "candidate"))
@@ -5516,7 +5567,10 @@ def probe_kernel_distribution_probe():
         position_total = overrides.get("position_count", position_count)
         return tuple(
             tuple(
-                (readback(index, "control"), readback(index, overrides.get("candidate_side", "candidate")))
+                (
+                    readback(index, "control"),
+                    readback(index, overrides.get("candidate_side", "candidate")),
+                )
                 for index in range(position_total)
             )
             for _prompt in range(prompt_total)
@@ -5529,7 +5583,10 @@ def probe_kernel_distribution_probe():
         corpus=corpus(),
         corpus_blake3=corpus_digest_hex,
     )
-    require(receipt["admitted"], f"probe receipt rejected a close candidate: {receipt['rejection_reasons']}")
+    require(
+        receipt["admitted"],
+        f"probe receipt rejected a close candidate: {receipt['rejection_reasons']}",
+    )
     require(
         receipt["eligible_modes"] == ["sampled"],
         f"probe receipt modes must be sampled-only: {receipt['eligible_modes']}",
@@ -5539,7 +5596,12 @@ def probe_kernel_distribution_probe():
         receipt["corpus_blake3"] == corpus_digest_hex,
         "receipt did not carry the shell-provided corpus digest",
     )
-    for metric in ("mean_logit_pcc", "min_logit_pcc", "mean_topk_tv", "stable_agreement"):
+    for metric in (
+        "mean_logit_pcc",
+        "min_logit_pcc",
+        "mean_topk_tv",
+        "stable_agreement",
+    ):
         require(
             receipt["metrics"][metric] is not None,
             f"receipt metric {metric} is missing",
@@ -5605,19 +5667,27 @@ def probe_kernel_distribution_probe():
         "duplicate token ids",
         corpus=(tuple(bad_pair for _ in range(position_count)),) + dup[1:],
     )
-    short_vocab = PositionReadback(tokens=tuple(range(TOP_K_CANDIDATES)), logits=tuple(1.0 for _ in range(TOP_K_CANDIDATES)))
+    short_vocab = PositionReadback(
+        tokens=tuple(range(TOP_K_CANDIDATES)),
+        logits=tuple(1.0 for _ in range(TOP_K_CANDIDATES)),
+    )
     short_pair = (short_vocab, short_vocab)
     expect_rejected(
         "top-K-sized readback",
         corpus=(tuple(short_pair for _ in range(position_count)),) + dup[1:],
     )
-    mismatched = PositionReadback(tokens=tokens[:-1], logits=tuple(1.0 for _ in range(vocab_size - 1)))
+    mismatched = PositionReadback(
+        tokens=tokens[:-1], logits=tuple(1.0 for _ in range(vocab_size - 1))
+    )
     mismatch_pair = (first_pair[0], mismatched)
     expect_rejected(
         "mismatched vocab lengths",
         corpus=(tuple(mismatch_pair for _ in range(position_count)),) + dup[1:],
     )
-    nonfinite = PositionReadback(tokens=tokens, logits=(float("inf"),) + tuple(1.0 for _ in range(vocab_size - 1)))
+    nonfinite = PositionReadback(
+        tokens=tokens,
+        logits=(float("inf"),) + tuple(1.0 for _ in range(vocab_size - 1)),
+    )
     nonfinite_pair = (nonfinite, first_pair[1])
     expect_rejected(
         "non-finite logit",
@@ -5737,7 +5807,9 @@ def probe_sampled_mode_router():
     else:
         raise AssertionError("an empty batch was routed")
     try:
-        resolve_batch_route((-1.0,), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC)
+        resolve_batch_route(
+            (-1.0,), sampled_admitted=True, current_mode=ROUTE_DETERMINISTIC
+        )
     except RouterPolicyError:
         pass
     else:
@@ -5834,10 +5906,7 @@ def probe_sampled_decode():
     first = sample_candidates(draw=0.1, **draw_inputs)
     second = sample_candidates(draw=0.1, **draw_inputs)
     require(first == second, "identical draws produced different tokens")
-    seen = {
-        sample_candidates(draw=draw / 100.0, **draw_inputs)
-        for draw in range(100)
-    }
+    seen = {sample_candidates(draw=draw / 100.0, **draw_inputs) for draw in range(100)}
     require(seen <= {10, 11, 12}, f"draws escaped the candidate set: {seen}")
     require(
         len(seen) > 1,
@@ -5885,9 +5954,7 @@ def probe_sampled_decode():
             return
         raise AssertionError(f"{label} was sampled")
 
-    base = dict(
-        temperature=0.6, top_k=DEFAULT_TOP_K, top_p=DEFAULT_TOP_P
-    )
+    base = dict(temperature=0.6, top_k=DEFAULT_TOP_K, top_p=DEFAULT_TOP_P)
     expect_error(
         "empty candidates",
         values=(),
@@ -5944,9 +6011,7 @@ def probe_sampled_decode():
         raise AssertionError("an empty shard list was merged")
     try:
         merge_shard_candidates(
-            (
-                ShardCandidates(values=(1.0, 1.0), token_ids=(5, 5)),
-            ),
+            (ShardCandidates(values=(1.0, 1.0), token_ids=(5, 5)),),
             top_k=DEFAULT_TOP_K,
         )
     except SampledDecodeError:
@@ -6018,11 +6083,15 @@ def probe_mtp_serving_core():
     # Scheduling negatives.
     for kwargs, needle in (
         (
-            dict(tokens_generated=-1, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=-1, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "tokens_generated must not be negative",
         ),
         (
-            dict(tokens_generated=65, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=65, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "exceeds maximum_generation_tokens",
         ),
         (
@@ -6034,7 +6103,9 @@ def probe_mtp_serving_core():
             "between 2 and 6",
         ),
         (
-            dict(tokens_generated=True, maximum_generation_tokens=64, draft_token_count=3),
+            dict(
+                tokens_generated=True, maximum_generation_tokens=64, draft_token_count=3
+            ),
             "must be an integer",
         ),
         (
@@ -6065,9 +6136,8 @@ def probe_mtp_serving_core():
                 continuation_token_ids=continuation,
             )
             expected_accept = width if corrupt is None else corrupt
-            expected = (
-                sequential[start : start + expected_accept]
-                + (sequential[start + expected_accept],)
+            expected = sequential[start : start + expected_accept] + (
+                sequential[start + expected_accept],
             )
             require(
                 commit.committed_token_ids == expected,
@@ -6117,7 +6187,7 @@ def probe_mtp_serving_core():
     # detection fire the three outcomes the serving loop relies on.
     import time as _time
 
-    from qwen36_service.mtp_serving_core import (
+    from qwen36_service.mtp_watchdog_adapter import (
         MtpServingRoundTimeout,
         run_with_watchdog,
     )
@@ -6165,6 +6235,86 @@ def probe_mtp_serving_core():
             require(False, "invalid watchdog input was accepted")
 
 
+# r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
+def probe_mtp_head_load_core():
+    """Positive and negative tests for the head weight integrity verdicts."""
+    import torch
+
+    from qwen36_service.mtp_head_load_probe import evaluate_weight_integrity
+
+    expected = {
+        "fc": torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        "norm": torch.tensor([0.5, 1.5]),
+    }
+    verdicts = evaluate_weight_integrity(
+        expected, {k: v.clone() for k, v in expected.items()}
+    )
+    require(
+        all(verdict["passed"] for verdict in verdicts.values()),
+        f"identical weights reported drift: {verdicts}",
+    )
+    drifted = {k: v.clone() for k, v in expected.items()}
+    drifted["fc"][1, 1] += 0.5
+    verdicts = evaluate_weight_integrity(expected, drifted)
+    require(
+        not verdicts["fc"]["passed"] and verdicts["norm"]["passed"],
+        "integrity verdict flagged the wrong weight",
+    )
+    require(
+        verdicts["fc"]["max_abs_diff"] == 0.5,
+        "integrity verdict lost the drift magnitude",
+    )
+    try:
+        evaluate_weight_integrity(expected, {"fc": expected["fc"].clone()})
+    except ValueError as error:
+        require("key sets differ" in str(error), "wrong key-set diagnostic")
+    else:
+        require(False, "missing weight key was accepted")
+    reshaped = {k: v.clone() for k, v in expected.items()}
+    reshaped["norm"] = reshaped["norm"].reshape(1, 2)
+    verdicts = evaluate_weight_integrity(expected, reshaped)
+    require(
+        not verdicts["norm"]["passed"]
+        and verdicts["norm"]["reason"] == "shape mismatch",
+        "shape mismatch was not flagged",
+    )
+
+    from qwen36_service.mtp_drafter_adapter import mtp_cache_directory_name
+
+    require(
+        mtp_cache_directory_name(None) == "mtp_drafter_probe",
+        "missing runtime identity did not select the legacy cache directory",
+    )
+    require(
+        mtp_cache_directory_name("") == "mtp_drafter_probe",
+        "empty runtime identity did not select the legacy cache directory",
+    )
+    scoped = mtp_cache_directory_name(
+        "/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0"
+    )
+    require(
+        scoped
+        == "mtp_drafter_probe-runtime-dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0",
+        f"runtime-scoped cache directory changed: {scoped}",
+    )
+    require(
+        mtp_cache_directory_name("bad id with spaces/and:colons")
+        == "mtp_drafter_probe-runtime-bad_id_with_spaces_and_colons",
+        "runtime identity sanitization changed",
+    )
+    require(
+        mtp_cache_directory_name("a" * 100) == "mtp_drafter_probe-runtime-" + "a" * 64,
+        "runtime identity tail was not bounded to 64 characters",
+    )
+    require(
+        mtp_cache_directory_name(
+            "/nix/store/dr9bj8qwflylq39zl5ajcx42cdrb1bv9-tt-metal-0.77.0"
+        )
+        != mtp_cache_directory_name("/nix/store/other-tt-metal-0.74.0"),
+        "distinct runtimes shared one cache directory",
+    )
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -6192,6 +6342,7 @@ def main():
     probe("MTP draft selection", probe_mtp_draft_selection)
     probe("MTP draft trace", probe_mtp_draft_trace)
     probe("MTP K/V rollback", probe_mtp_kv_rollback)
+    probe("MTP head load integrity core", probe_mtp_head_load_core)
     probe("MTP recovery stage progress", probe_mtp_recovery_stage)
     probe("MTP prewarmed recovery control", probe_mtp_recovery_prewarmed_control)
     probe("MTP target-validation prewarm", probe_mtp_target_validation_prewarm)
