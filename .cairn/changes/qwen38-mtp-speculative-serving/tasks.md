@@ -13,3 +13,5 @@
 The checked tasks record earlier implementation and bounded screens, not production acceptance. Cache regeneration restored the pilot golden, but the exact cache fault remains unknown. Later measurements and corrected counts are in `docs/qwen38-mtp-serving-progress.md`.
 
 The current implementation also leaves a gap against the rejected-KV restoration requirement: it relies on masks and rewrite-before-read. Task 4 is open again for that gap. Task 7 stays open. These bounded results do not permit production admission, spec sync, or archive.
+
+2026-09-11: the negative-zero blocker is root-caused at the platform level. Simulator and silicon agree that a negative zero is not observable on device after host conversion, so the bitwise restoration oracle is unattainable on this tt-metal 0.77 runtime by any rollback implementation. Task 4 now waits on the task 7 owner decision: normalize zero signs on both sides of the restoration comparison, or keep the path gated off. See `docs/qwen38-mtp-serving-progress.md`.

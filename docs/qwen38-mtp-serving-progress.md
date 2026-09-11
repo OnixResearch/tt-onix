@@ -178,6 +178,31 @@ The bitwise criterion remains unchanged. A valid restoration test must establish
 
 Private evidence: `kv-zero-stage-sim/`, `kv-zero-host-control.log`, and `kv-zero-host-matched-control.log` under `.pi/logs/qwen38-mtp-serving/`. The scope is `kv-zero-stage-scope.md`. No hardware test ran.
 
+## Transfer and sign discrimination
+
+The discriminating check ran twice on ttsim 1.10.6 blackhole-x1 and once on
+physical device 0, with the service isolated by `ttwkv7-owner-control` and
+restored afterwards (active, `/v1/models` 200). Host `from_torch` conversion
+preserves the injected `-0.0` bit. Uploaded to a 1x1 mesh, the bit is gone:
+readback reports zero negative zeros, and an on-device sign probe (`1/x < 0`,
+validated by a `-1.0` control at 262144 of 262144) reports zero as well. The
+same holds for a negative zero made on device (`0 * -1`): zero of 262144.
+Silicon and simulator agree on all four stages.
+
+Therefore the loss is a platform property of this tt-metal 0.77 stack: after
+host conversion, a negative zero is not observable anywhere on the device.
+The bitwise restoration oracle of task 4 cannot be satisfied by any rollback
+implementation, because the bit does not survive the first device residency.
+The blocker is now root-caused and owned by the task 7 decision: normalize
+zero signs on both sides of the restoration comparison, or keep the path
+gated off. The physical log's `"simulated": true` field is a probe label bug;
+the run opened the physical device.
+
+Private evidence: `kv-zero-transfer-probe.py`, `kv-zero-sign-probe.py`,
+`kv-zero-sign-sim.log`, `kv-zero-sign-hw.log`, and
+`kv-zero-transfer-evidence.blake3` under `.pi/logs/qwen38-mtp-serving/`. The
+scope and budget are `kv-zero-transfer-scope.md`.
+
 ## Upstream reference
 
 The README cites `sjettTT/tt-qwen-3.8-flash-next`, a different model and topology. Its near-tie observations are external claims, not local validation. The earlier review did not record an immutable source revision. The reference does not prove the local trace order or rollback contract.
