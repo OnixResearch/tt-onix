@@ -976,6 +976,9 @@
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
         tt-metal-tracy-tools = ttMetalTracyTools;
+        # Opt-in GDN grid instance cap lift; the shared tt-metal output is
+        # unchanged and stays the runtime for RWKV-7 and training.
+        tt-metal-gdn-grid = pkgs.tt-metal-gdn-grid;
         repository-quality = repositoryQuality.repositoryQualityPackage;
         inherit qwen38;
         qwen36 = qwen38; # Compatibility alias.

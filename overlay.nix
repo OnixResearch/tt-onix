@@ -19,6 +19,8 @@ final: prev: {
   tt-burnin = final.callPackage ./pkgs/tt-burnin { };
   tt-logger = final.callPackage ./pkgs/tt-logger { };
   tt-metal = final.callPackage ./pkgs/tt-metal { };
+  # GDN grid instance cap lifted; opt-in variant, not the shared runtime.
+  tt-metal-gdn-grid = final.callPackage ./pkgs/tt-metal-gdn-grid { };
   tt-smi = final.callPackage ./pkgs/tt-smi { };
   tt-system-tools = final.callPackage ./pkgs/tt-system-tools { };
   tt-topology = final.callPackage ./pkgs/tt-topology { };
