@@ -150,6 +150,7 @@ boundary and non-claims.
 ### Qwen3.8-27B adoption reference
 
 - [tenstorrent/tt-metal PR 53543](https://github.com/tenstorrent/tt-metal/pull/53543) — adopted Qwen3.8-27B-on-qwen36 change (closed-unmerged upstream). See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) and `pkgs/qwen36/authority.ncl` for the reviewed pin.
+- [sjettTT/tt-qwen-3.8-flash-next](https://github.com/sjettTT/tt-qwen-3.8-flash-next/tree/main/models/demos/blackhole/qwen38_flash_next) — independent Blackhole MTP serving reference for the Qwen3.8 family (different 51.2B Flash-Next checkpoint). Its pinned numerics show width-k verify rows breaking near-ties differently from 1-row decode; the local screen records margins to classify any divergence.
 
 ### Tenstorrent platform references
 
