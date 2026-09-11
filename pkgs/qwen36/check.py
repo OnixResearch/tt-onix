@@ -6319,6 +6319,136 @@ def probe_gdn_grid_instance_cap():
             pass
         else:
             raise AssertionError(f"malformed plan was accepted: {name}")
+
+
+# r[verify tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
+def probe_gdn_grid_mapping_unchanged():
+    """The in-range program mapping equals the pre-change factory mapping.
+
+    Both transcriptions follow the shipped C++ line by line: the decode
+    factory before `8bf9f35` and after it, and the prefill `distribute_scan`
+    in the pinned source versus the chunked variant. Every in-range launch
+    must produce the identical core-to-instance assignment, which is what
+    keeps every existing decode and prefill receipt valid.
+    """
+
+    def decode_pre(num_heads, grid_x, grid_y):
+        """Pre-change factory: one head per core, core {h/grid_y, h%grid_y}."""
+        if num_heads > grid_x * grid_y:
+            return None  # the removed TT_FATAL refused the launch
+        return {
+            (head // grid_y, head % grid_y): (head,)
+            for head in range(num_heads)
+        }
+
+    def decode_post(num_heads, grid_x, grid_y, ceil_div=True):
+        """Chunked factory: contiguous ceil(n/k) instances per active core."""
+        ncores = grid_x * grid_y
+        per_core = -(-num_heads // ncores) if ceil_div else num_heads // ncores
+        if per_core < 1:
+            return None
+        active = -(-num_heads // per_core)
+        return {
+            (i // grid_y, i % grid_y): tuple(
+                range(i * per_core, min(i * per_core + per_core, num_heads))
+            )
+            for i in range(active)
+        }
+
+    def scan_nv(bh, vt, ncores, bounded=True):
+        """The NV v-blocking search, identical source before and after."""
+        chosen = 1
+        for cand in range(vt, 0, -1):
+            if vt % cand == 0 and (bounded and bh * cand <= ncores or not bounded):
+                chosen = cand
+                break
+        return chosen
+
+    def scan_pre(bh, vt, grid_x, grid_y):
+        """Pre-change distribute_scan: one (head, v-block) pair per core."""
+        ncores = grid_x * grid_y
+        if bh > ncores:
+            return None  # the removed TT_FATAL refused the launch
+        nv = scan_nv(bh, vt, ncores)
+        total = bh * nv
+        return {
+            (i % grid_x, i // grid_x): ((i // nv, i % nv),)
+            for i in range(total)
+        }
+
+    def scan_post(bh, vt, grid_x, grid_y, bounded=True):
+        """Chunked distribute_scan with wi_start/wi_count per active core."""
+        ncores = grid_x * grid_y
+        if ncores < 1:
+            return None
+        nv = scan_nv(bh, vt, ncores, bounded=bounded)
+        total = bh * nv
+        per_core = -(-total // ncores)
+        active = -(-total // per_core)
+        mapping = {}
+        for i in range(active):
+            start = i * per_core
+            count = min(per_core, total - start)
+            instances = tuple(
+                (wi // nv, wi % nv) for wi in range(start, start + count)
+            )
+            mapping[(i % grid_x, i // grid_x)] = instances
+        return mapping
+
+    grids = ((13, 10), (11, 10))
+    head_counts = (1, 2, 4, 12, 24, 25, 48, 96, 100, 109, 110, 129)
+    value_tiles = (1, 2, 4, 8)
+
+    for grid_x, grid_y in grids:
+        ncores = grid_x * grid_y
+        for num_heads in head_counts:
+            if num_heads > ncores:
+                continue
+            require(
+                decode_pre(num_heads, grid_x, grid_y)
+                == decode_post(num_heads, grid_x, grid_y),
+                f"decode mapping changed in range at {num_heads} heads on {grid_x}x{grid_y}",
+            )
+            for vt in value_tiles:
+                require(
+                    scan_pre(num_heads, vt, grid_x, grid_y)
+                    == scan_post(num_heads, vt, grid_x, grid_y),
+                    f"prefill mapping changed in range at BH={num_heads}, Vt={vt} "
+                    f"on {grid_x}x{grid_y}",
+                )
+
+    # Both pre-change factories refuse the overflow launch; the chunked
+    # factories must accept it with a partition instead.
+    for grid_x, grid_y in grids:
+        require(
+            decode_pre(24 * 8, grid_x, grid_y) is None,
+            "pre-change decode factory accepted an overflow launch",
+        )
+        require(
+            scan_pre(24 * 8, 4, grid_x, grid_y) is None,
+            "pre-change scan factory accepted an overflow launch",
+        )
+        overflow = decode_post(24 * 8, grid_x, grid_y)
+        require(overflow is not None, "chunked decode factory refused B=8")
+        covered = sorted(instance for chunk in overflow.values() for instance in chunk)
+        require(
+            covered == list(range(24 * 8)),
+            "chunked decode mapping does not partition B=8 instances",
+        )
+
+    # Negative teeth: each mutation the equality could hide must be caught.
+    require(
+        decode_post(96, 11, 10, ceil_div=False) != decode_pre(96, 11, 10)
+        or decode_post(24, 11, 10, ceil_div=False) != decode_pre(24, 11, 10)
+        or decode_post(110, 11, 10, ceil_div=False) != decode_pre(110, 11, 10),
+        "floor-division chunking was not distinguished from the pre-change mapping",
+    )
+    require(
+        scan_post(25, 8, 13, 10, bounded=False) != scan_pre(25, 8, 13, 10)
+        or scan_post(48, 8, 13, 10, bounded=False) != scan_pre(48, 8, 13, 10),
+        "an unbounded NV search was not distinguished from the pre-change mapping",
+    )
+
 # r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
 def probe_mtp_head_load_core():
     """Positive and negative tests for the head weight integrity verdicts."""
@@ -6441,6 +6571,7 @@ def main():
     probe("sampled decode", probe_sampled_decode)
     probe("MTP serving round policy", probe_mtp_serving_core)
     probe("GDN grid instance cap assignment", probe_gdn_grid_instance_cap)
+    probe("GDN grid in-range mapping unchanged", probe_gdn_grid_mapping_unchanged)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

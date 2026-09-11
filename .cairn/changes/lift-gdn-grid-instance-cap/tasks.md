@@ -20,7 +20,7 @@
 
 - [x] [parallel] V1 Add positive device-free probes for the overflow plan, the chunk boundaries, and the unchanged in-range mapping. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.valid]
 - [x] [parallel] V2 Add negative probes for every rejected plan shape, including a gap, an overlap, and a short interior chunk. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.invalid]
-- [ ] [serial] V3 Prove the in-range program mapping is unchanged against the pre-change build for both factories. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
+- [x] [serial] V3 Prove the in-range program mapping is unchanged against the pre-change build for both factories. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap.unchanged]
 - [x] [serial] V4 Confirm the full PR applies to the pinned source with zero hunk failures, and record the dry-run result. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V4a Build the tt-metal variant and confirm the chunked kernels and the `heads_per_core` field are shipped. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 - [x] [serial] V4b Build the variant with both chunking patches and confirm the prefill `distribute_scan` guard is absent from the shipped source. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
