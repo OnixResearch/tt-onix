@@ -56,6 +56,10 @@ let
     hash = oppositeBlackhole.hash;
   };
 in
+# Reject a package bump that leaves emitted receipts on an older version.
+assert lib.hasInfix ''pub const SUPPORTED_SIMULATOR_VERSION: &str = "${ttsim.version}";'' (
+  builtins.readFile ../ttsim-runtime-validator/src/lib.rs
+);
 assert x86Blackhole.name == "libttsim_bh.so";
 assert armBlackhole.name == "libttsim_bh_aarch64.so";
 assert x86Blackhole.hash != armBlackhole.hash;
@@ -177,7 +181,7 @@ runCommand "ttsim-runtime-bundle-check"
     grep -Fx '1' "$TMPDIR/sfpu-wrapper-environment"
 
     jq -e '.schemaVersion == 1' ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
-    jq -e '.unsupported.quasar | contains("no package-matched Quasar")' \
+    jq -e '.unsupported.quasar | contains("no admitted Quasar simulator runtime")' \
       ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
     jq -e '.unsupported.multiChip | contains("packages no reviewed blackhole_P300 descriptor")' \
       ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null

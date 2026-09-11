@@ -1,0 +1,166 @@
+diff --git a/pkgs/qwen36/check.py b/pkgs/qwen36/check.py
+index 9388265..faebca7 100644
+--- a/pkgs/qwen36/check.py
++++ b/pkgs/qwen36/check.py
+@@ -1217,6 +1217,122 @@ def probe_batch_admission():
+ 
+ 
+ # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
++def probe_winner_readback_order():
++    import weakref
++    from types import SimpleNamespace
++
++    import torch
++    from qwen36_service import batch_decode_adapter as adapter_module
++
++    width = 4
++    device_count = 2
++    vocabulary_per_shard = 16
++    adapter = object.__new__(adapter_module.BatchedTracedDecodeAdapter)
++    adapter.mesh = object()
++    adapter._mesh_reader = object()
++    adapter.device_count = device_count
++    adapter.vocabulary_per_shard = vocabulary_per_shard
++    adapter.vocabulary_size = vocabulary_per_shard * device_count
++    indices = torch.arange(width).repeat(device_count, 1)
++    values = torch.tensor(((1, 0, 1, 0), (0, 1, 1, 0)), dtype=torch.bfloat16)
++    original_ttnn = adapter_module.ttnn
++
++    class HostBuffer:
++        def __init__(self, tensor):
++            self.tensor = tensor
++
++    def exercise(fail_at=None, failure=None, invalid_tokens=False):
++        events = []
++        pending = []
++        drained = False
++
++        def transfer(name, *, blocking, queue_id):
++            nonlocal drained
++            require(
++                queue_id == adapter_module.TRACE_COMMAND_QUEUE_ID, "read queue differs"
++            )
++            require(blocking is (name == "values"), "read blocking order differs")
++            events.append(name)
++            if name == fail_at:
++                raise failure
++            data = indices if name == "indices" else values
++            if invalid_tokens and name == "indices":
++                data = torch.full_like(indices, adapter.vocabulary_size)
++            host = HostBuffer(data)
++            pending.append(weakref.ref(host))
++            if blocking:
++                require(
++                    all(ref() is not None for ref in pending),
++                    "early host buffer release",
++                )
++                drained = True
++            return host
++
++        def synchronize(mesh, *, cq_id):
++            nonlocal drained
++            require(mesh is adapter.mesh, "error cleanup used another mesh")
++            require(
++                cq_id == adapter_module.TRACE_COMMAND_QUEUE_ID,
++                "error cleanup used another queue",
++            )
++            require(
++                all(ref() is not None for ref in pending),
++                "error released a pending buffer",
++            )
++            events.append("drain")
++            drained = True
++
++        def convert(host, *, mesh_composer):
++            require(drained, "host conversion preceded read completion")
++            require(mesh_composer is adapter._mesh_reader, "composer changed")
++            events.append("convert")
++            return host.tensor
++
++        adapter_module.ttnn = SimpleNamespace(
++            from_device=transfer, synchronize_device=synchronize, to_torch=convert
++        )
++        try:
++            result = adapter._read_global_winners("indices", "values", width)
++        except BaseException as error:
++            if fail_at is not None:
++                require(error is failure, "read failure was not preserved")
++                expected = (
++                    ["indices", "drain"]
++                    if fail_at == "indices"
++                    else ["indices", "values", "drain"]
++                )
++                require(events == expected, "read error did not drain before return")
++            elif invalid_tokens:
++                require(
++                    isinstance(error, adapter_module.BatchDecodeAdapterError),
++                    "invalid token error changed",
++                )
++            else:
++                raise
++        else:
++            require(
++                fail_at is None and not invalid_tokens, "invalid readback succeeded"
++            )
++            expected = tuple(
++                vocabulary_per_shard + column if column == 1 else column
++                for column in range(width)
++            )
++            require(result == expected, "winner or tie selection changed")
++            require(
++                events == ["indices", "values", "convert", "convert"],
++                "normal read order differs",
++            )
++
++    try:
++        exercise()
++        exercise(invalid_tokens=True)
++        exercise("indices", RuntimeError("first read failed"))
++        exercise("values", RuntimeError("second read failed"))
++        exercise("values", KeyboardInterrupt())
++    finally:
++        adapter_module.ttnn = original_ttnn
++
++
+ def probe_tensor_binding_identity():
+     """Keep exact identities and failure behavior without temporary shard views."""
+     from types import SimpleNamespace
+@@ -6159,6 +6275,7 @@ def main():
+     probe("traced decode pure core", probe_traced_decode_contract)
+     probe("batch decode scheduler", probe_batch_decode_scheduler)
+     probe("batch admission policy", probe_batch_admission)
++    probe("winner readback ordering", probe_winner_readback_order)
+     probe("tensor binding identity", probe_tensor_binding_identity)
+     probe("same-width trace-reuse profile", probe_trace_reuse_profile)
+     probe("startup warm-up readiness", probe_startup_readiness)
+diff --git a/pkgs/qwen36/service/qwen36_service/batch_decode_adapter.py b/pkgs/qwen36/service/qwen36_service/batch_decode_adapter.py
+index 071a047..e5cc8a2 100644
+--- a/pkgs/qwen36/service/qwen36_service/batch_decode_adapter.py
++++ b/pkgs/qwen36/service/qwen36_service/batch_decode_adapter.py
+@@ -769,12 +769,24 @@ class BatchedTracedDecodeAdapter:
+         values: Any,
+         width: int,
+     ) -> tuple[int, ...]:
++        # The blocking second read drains both transfers on the same queue.
++        # Keep the first host buffer alive until completion, including errors.
++        try:
++            host_indices_tensor = ttnn.from_device(
++                indices, blocking=False, queue_id=TRACE_COMMAND_QUEUE_ID
++            )
++            host_values_tensor = ttnn.from_device(
++                values, blocking=True, queue_id=TRACE_COMMAND_QUEUE_ID
++            )
++        except BaseException:
++            ttnn.synchronize_device(self.mesh, cq_id=TRACE_COMMAND_QUEUE_ID)
++            raise
+         host_indices = ttnn.to_torch(
+-            indices,
++            host_indices_tensor,
+             mesh_composer=self._mesh_reader,
+         ).reshape(self.device_count, width)
+         host_values = ttnn.to_torch(
+-            values,
++            host_values_tensor,
+             mesh_composer=self._mesh_reader,
+         ).reshape(self.device_count, width)
+         winning_devices = torch.argmax(host_values, dim=0)

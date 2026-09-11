@@ -1,6 +1,7 @@
 {
   runCommand,
   jq,
+  ttsim,
   ttsim-blackhole-smoke,
   ttsim-runtime-validator,
 }:
@@ -17,6 +18,8 @@ runCommand "ttsim-blackhole-single-chip-smoke"
     mkdir -p "$out"
     ttsim-blackhole-smoke --receipt "$out/receipt.json"
     ttsim-runtime-validator validate "$out/receipt.json"
+    jq -e --arg expected '${ttsim.version}' \
+      '.simulator_version == $expected' "$out/receipt.json" >/dev/null
     jq -e '.simulated == true' "$out/receipt.json" >/dev/null
     jq -e '.status == "passed"' "$out/receipt.json" >/dev/null
     jq -e '.observations.device_opened == true' "$out/receipt.json" >/dev/null

@@ -11,7 +11,7 @@ nixpkgs.overlays = [ tenstorrent.overlays.default ];
 ```
 
 Provides top-level `tt-umd`, `tt-logger`, `tt-metal`, `tt-smi`, `tt-burnin`,
-`tt-topology`, `tt-system-tools`, `luwen`, and `qwen36`. It extends every Python
+`tt-topology`, `tt-system-tools`, `luwen`, and `qwen38`. It extends every Python
 package set with `pyluwen`, `tt-flash`, and `tt-tools-common`. It also extends
 kernel package sets with `tt-kmd`.
 
@@ -64,6 +64,23 @@ metadata-only profile, bounded simulator verdict, and explicit non-claims.
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
 P150x2 path and serialized NixOS inference service.
 
+Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
+`qwen38` prefix, including `qwen38-check` and `qwen38-p150x2-serve`.
+The `qwen36` package and command names remain compatibility aliases.
+The implementation directory `pkgs/qwen36`, upstream Python imports, cache
+paths, and historical receipt schemas retain their existing names.
+See the [staged decode comparison](docs/qwen38-staged-decode-comparison.md)
+for the latest bounded timing result and its non-claims.
+
+See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
+an opt-in B=4 route with measured request-time savings and unchanged service defaults.
+The later [binding-identity optimization](docs/qwen-binding-identity-optimization.md)
+reduces accessor overhead without skipping binding checks.
+The [readback evaluation](docs/qwen-readback-evaluation.md) retains a rejected
+candidate and the bounded B=1 component measurements.
+The [staged GDN evaluation](docs/qwen-gdn-staged-evaluation.md) records the
+default-off `norm-state` candidate, its B=1 sequence check, and remaining limits.
+
 See [Qwen3.8 optimization research](docs/research/qwen38-p150x2-2026-09-04.md)
 for the source review, historical evidence limits, and the original nine Cairn packages.
 The research does not claim a new hardware result or deployment.
@@ -107,6 +124,7 @@ It does not acquire a Tenstorrent device. See
 
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
 See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
+The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
 
 On `x86_64-linux`, the flake also publishes:
 
@@ -140,6 +158,7 @@ boundary and non-claims.
 ### Qwen3.8-27B adoption reference
 
 - [tenstorrent/tt-metal PR 53543](https://github.com/tenstorrent/tt-metal/pull/53543) — adopted Qwen3.8-27B-on-qwen36 change (closed-unmerged upstream). See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) and `pkgs/qwen36/authority.ncl` for the reviewed pin.
+- [sjettTT/tt-qwen-3.8-flash-next](https://github.com/sjettTT/tt-qwen-3.8-flash-next/tree/main/models/demos/blackhole/qwen38_flash_next) — independent Blackhole MTP serving reference for the Qwen3.8 family (different 51.2B Flash-Next checkpoint). Its pinned numerics show width-k verify rows breaking near-ties differently from 1-row decode; the local screen records margins to classify any divergence.
 
 ### Tenstorrent platform references
 
@@ -171,6 +190,10 @@ boundary and non-claims.
 - [josStorer/RWKV-Runner](https://github.com/josStorer/RWKV-Runner) — desktop runner, model manager, and OpenAI-compatible RWKV service.
 - [JL-er/RWKV-PEFT](https://github.com/JL-er/RWKV-PEFT) — parameter-efficient fine-tuning reference for RWKV models.
 - [cgisky1980/ai00_rwkv_server](https://github.com/cgisky1980/ai00_rwkv_server) — Rust and Vulkan RWKV inference server with an OpenAI-compatible API.
+
+### vLLM Tenstorrent plugin
+
+- [tenstorrent/vllm-tt-plugin](https://github.com/tenstorrent/vllm-tt-plugin/tree/bef89e429e202caa38d3e3c8a24da4e8cc02405a) — standard vLLM platform plugin at `bef89e429e202caa38d3e3c8a24da4e8cc02405a`. This source targets vLLM 0.26.0 and replaces the deprecated Tenstorrent vLLM fork. See [the upgrade evaluation](docs/tenstorrent-upgrade-evaluation.md) for compatibility limits and local evidence.
 
 ### Qwen3.8 optimization research references
 

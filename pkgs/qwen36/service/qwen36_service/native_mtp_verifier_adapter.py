@@ -21,6 +21,7 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
 from models.tt_transformers.tt.ccl import tt_all_reduce
 from models.tt_transformers.tt.common import Mode, copy_host_to_device
 
+from qwen36_service.mtp_prefix_trace_adapter import MtpPrefixTraces
 from qwen36_service.mtp_trace_hygiene_core import (
     TraceCaptureProvenance,
     validate_trace_capture_provenance,
@@ -54,6 +55,7 @@ class NativeVerificationResult:
     device_seconds: float
     readback_seconds: float
     rollback_seconds: float
+    minimum_top_two_margin: float
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,10 @@ class NativeMtpVerifierAdapter:
         self._persistent_width = 0
         self._persistent_inputs: tuple[Any, ...] = ()
         self._persistent_logits: Any | None = None
-        self._persistent_prefix_snapshots: tuple[tuple[_GdnPrefixSnapshot, ...], ...] = ()
+        self._persistent_prefix_traces: MtpPrefixTraces | None = None
+        self._persistent_prefix_snapshots: tuple[
+            tuple[_GdnPrefixSnapshot, ...], ...
+        ] = ()
 
     def capture_persistent(
         self,
@@ -127,7 +132,9 @@ class NativeMtpVerifierAdapter:
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
         )
-        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        positions = torch.arange(
+            start_position, start_position + width, dtype=torch.int32
+        )
         aliased_page_table = page_table.repeat(width, MINIMUM_WIDTH)
         host_inputs = self.model.prepare_decode_inputs_host(
             tokens,
@@ -147,6 +154,7 @@ class NativeMtpVerifierAdapter:
         prefix_snapshots = self._clone_gdn_prefix_states(width)
         trace_id = None
         logits_device = None
+        prefix_traces = None
         try:
             capture_started = time.monotonic()
             warm_logits = self._forward_device(
@@ -162,9 +170,7 @@ class NativeMtpVerifierAdapter:
             capture_input_identities = tuple(id(tensor) for tensor in device_inputs)
             hygiene_reasons = validate_trace_capture_provenance(
                 TraceCaptureProvenance(
-                    resident_traces_before=1
-                    if self._hygiene_capture_resident
-                    else 0,
+                    resident_traces_before=1 if self._hygiene_capture_resident else 0,
                     warm_execution_completed=True,
                     capture_from_zeroed_priming=False,
                     trace_bound_addresses_stable=True,
@@ -192,8 +198,17 @@ class NativeMtpVerifierAdapter:
                 cq_id=TRACE_COMMAND_QUEUE_ID,
             )
             ttnn.synchronize_device(self.model.mesh_device)
-            self._restore_gdn_state(snapshots)
-            ttnn.synchronize_device(self.model.mesh_device)
+            prefix_traces = MtpPrefixTraces(
+                mesh=self.model.mesh_device,
+                prefixes=prefix_snapshots,
+                restore_prefix=self._restore_gdn_prefix_state,
+                binding_ids=lambda: self._prefix_trace_binding_ids(prefix_snapshots),
+            )
+            try:
+                prefix_traces.capture()
+            finally:
+                self._restore_gdn_state(snapshots)
+                ttnn.synchronize_device(self.model.mesh_device)
             capture_seconds = time.monotonic() - capture_started
             if (
                 not math.isfinite(capture_seconds)
@@ -203,7 +218,10 @@ class NativeMtpVerifierAdapter:
                 raise NativeMtpVerifierError(
                     "persistent verifier trace capture exceeded its bound"
                 )
-            if tuple(id(tensor) for tensor in device_inputs) != capture_input_identities:
+            if (
+                tuple(id(tensor) for tensor in device_inputs)
+                != capture_input_identities
+            ):
                 raise NativeMtpVerifierError(
                     "persistent verifier trace-bound input addresses drifted"
                 )
@@ -212,15 +230,18 @@ class NativeMtpVerifierAdapter:
             self._persistent_inputs = tuple(device_inputs)
             self._persistent_logits = logits_device
             self._persistent_prefix_snapshots = prefix_snapshots
+            self._persistent_prefix_traces = prefix_traces
             return capture_seconds
         except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
-            self._deallocate_gdn_snapshots(snapshots)
-            self._deallocate_gdn_prefix_states(prefix_snapshots)
+            if prefix_traces is not None:
+                prefix_traces.close()
             if trace_id is not None:
                 try:
                     ttnn.release_trace(self.model.mesh_device, trace_id)
                 except (AssertionError, OSError, RuntimeError, TypeError, ValueError):
                     pass
+            self._deallocate_gdn_snapshots(snapshots)
+            self._deallocate_gdn_prefix_states(prefix_snapshots)
             if logits_device is not None:
                 ttnn.deallocate(logits_device)
             for tensor in device_inputs:
@@ -230,6 +251,9 @@ class NativeMtpVerifierAdapter:
             self._persistent_inputs = ()
             self._persistent_logits = None
             self._persistent_prefix_snapshots = ()
+            self._persistent_prefix_traces = None
+            self._persistent_width = 0
+            self._hygiene_capture_resident = False
             raise
 
     def replay_round(
@@ -256,7 +280,9 @@ class NativeMtpVerifierAdapter:
         tokens = torch.tensor(input_token_ids, dtype=torch.int32).reshape(
             width, MINIMUM_WIDTH
         )
-        positions = torch.arange(start_position, start_position + width, dtype=torch.int32)
+        positions = torch.arange(
+            start_position, start_position + width, dtype=torch.int32
+        )
         host_inputs = self.model.prepare_decode_inputs_host(
             tokens,
             positions,
@@ -294,9 +320,12 @@ class NativeMtpVerifierAdapter:
             raise NativeMtpVerifierError("native verifier logits have the wrong shape")
         if not torch.isfinite(logits).all():
             raise NativeMtpVerifierError("native verifier logits are not finite")
-        token_ids = tuple(
-            int(torch.argmax(logits[row]).item()) for row in range(width)
-        )
+        token_ids = tuple(int(torch.argmax(logits[row]).item()) for row in range(width))
+        # Near-tie diagnostics: a width-k verify row can break a near-tie
+        # differently from the 1-row decode loop (pinned upstream evidence).
+        # The smallest top-two margin classifies any later stream divergence.
+        top_two = torch.topk(logits, 2, dim=-1).values
+        minimum_top_two_margin = float((top_two[:, 0] - top_two[:, 1]).min().item())
         rollback_seconds = ZERO_DURATION_SECONDS
         return NativeVerificationResult(
             token_ids=token_ids,
@@ -305,6 +334,7 @@ class NativeMtpVerifierAdapter:
             device_seconds=device_seconds,
             readback_seconds=readback_seconds,
             rollback_seconds=rollback_seconds,
+            minimum_top_two_margin=minimum_top_two_margin,
         )
 
     def rollback_to_prefix(self, accepted: int) -> None:
@@ -315,19 +345,22 @@ class NativeMtpVerifierAdapter:
         """
         if self._persistent_trace_id is None:
             raise NativeMtpVerifierError("persistent verifier is not captured")
-        self._restore_gdn_prefix_state(
-            self._persistent_prefix_snapshots[accepted]
-        )
-        ttnn.synchronize_device(self.model.mesh_device)
+        if self._persistent_prefix_traces is None:
+            raise NativeMtpVerifierError("persistent prefix traces are not captured")
+        self._persistent_prefix_traces.replay(accepted)
 
     def close_persistent(self) -> None:
-        """Release the persistent verification trace and its buffers."""
+        """Release dependent prefix traces before the verifier and its buffers."""
+        if self._persistent_prefix_traces is not None:
+            self._persistent_prefix_traces.close()
+            self._persistent_prefix_traces = None
         if self._persistent_trace_id is not None:
             ttnn.release_trace(
                 self.model.mesh_device,
                 self._persistent_trace_id,
             )
             self._persistent_trace_id = None
+        self._hygiene_capture_resident = False
         self._persistent_width = 0
         for tensor in self._persistent_inputs:
             if tensor is not None:
@@ -351,7 +384,9 @@ class NativeMtpVerifierAdapter:
             or not MINIMUM_TOKEN_ID <= token < self.model.args.vocab_size
             for token in input_token_ids
         ):
-            raise NativeMtpVerifierError("native verifier token is outside the vocabulary")
+            raise NativeMtpVerifierError(
+                "native verifier token is outside the vocabulary"
+            )
         if start_position < MINIMUM_TOKEN_ID:
             raise NativeMtpVerifierError("native verifier start position is negative")
         if start_position + len(input_token_ids) > self.model.args.max_seq_len:
@@ -359,8 +394,7 @@ class NativeMtpVerifierAdapter:
                 "native verifier exceeds the model sequence bound"
             )
         if page_table is not None and (
-            page_table.ndim != QK_STREAM_COUNT
-            or page_table.shape[0] != MINIMUM_WIDTH
+            page_table.ndim != QK_STREAM_COUNT or page_table.shape[0] != MINIMUM_WIDTH
         ):
             raise NativeMtpVerifierError("native verifier page table must have one row")
 
@@ -438,14 +472,10 @@ class NativeMtpVerifierAdapter:
             # (never zeroed buffers), no other trace may be resident, and the
             # trace-bound input tensors must keep stable identities across
             # capture and replay because the captured graph bakes them.
-            capture_input_identities = tuple(
-                id(tensor) for tensor in device_inputs
-            )
+            capture_input_identities = tuple(id(tensor) for tensor in device_inputs)
             hygiene_reasons = validate_trace_capture_provenance(
                 TraceCaptureProvenance(
-                    resident_traces_before=1
-                    if self._hygiene_capture_resident
-                    else 0,
+                    resident_traces_before=1 if self._hygiene_capture_resident else 0,
                     warm_execution_completed=True,
                     capture_from_zeroed_priming=False,
                     trace_bound_addresses_stable=True,
@@ -537,6 +567,8 @@ class NativeMtpVerifierAdapter:
             token_ids = tuple(
                 int(torch.argmax(logits[row]).item()) for row in range(width)
             )
+            top_two = torch.topk(logits, 2, dim=-1).values
+            minimum_top_two_margin = float((top_two[:, 0] - top_two[:, 1]).min().item())
             rollback_seconds = ZERO_DURATION_SECONDS
             if committed_width < width:
                 ttnn.release_trace(self.model.mesh_device, trace_id)
@@ -558,6 +590,7 @@ class NativeMtpVerifierAdapter:
                 device_seconds=device_seconds,
                 readback_seconds=readback_seconds,
                 rollback_seconds=rollback_seconds,
+                minimum_top_two_margin=minimum_top_two_margin,
             )
         finally:
             self._hygiene_capture_resident = False
@@ -687,6 +720,23 @@ class NativeMtpVerifierAdapter:
             ttnn.copy(snapshot.convolution_carry, snapshot.layer.conv_carry)
 
     @staticmethod
+    def _prefix_trace_binding_ids(
+        prefixes: tuple[tuple[_GdnPrefixSnapshot, ...], ...],
+    ) -> tuple[int, ...]:
+        return tuple(
+            id(tensor)
+            for prefix in prefixes
+            for snapshot in prefix
+            for tensor in (
+                snapshot.recurrent,
+                *snapshot.convolution,
+                snapshot.layer.rec_state,
+                *snapshot.layer.conv_states,
+                snapshot.layer.conv_carry,
+            )
+        )
+
+    @staticmethod
     def _restore_gdn_prefix_state(
         snapshots: tuple[_GdnPrefixSnapshot, ...],
     ) -> None:
@@ -809,6 +859,50 @@ def _verify_layer(
     return output
 
 
+def _verification_convolution_windows(layer: Any, qkv: Any, width: int):
+    """Yield ordered row references without rewriting persistent state per token.
+
+    The caller keeps qkv alive until the final window is committed. Initial
+    state rows remain unchanged while every prefix snapshot consumes its window.
+    """
+    states = tuple(layer.conv_states)
+    row_shape = (MINIMUM_WIDTH, MINIMUM_WIDTH, layer.qkv_dim_tp)
+    if width < MINIMUM_WIDTH or qkv.shape != (MINIMUM_WIDTH, width, layer.qkv_dim_tp):
+        raise NativeMtpVerifierError("native verifier convolution width is invalid")
+    if not states or len(states) != layer.K:
+        raise NativeMtpVerifierError("native verifier convolution state count changed")
+    if any(state.shape != row_shape or state.dtype != qkv.dtype for state in states):
+        raise NativeMtpVerifierError("native verifier convolution row contract changed")
+    for offset in range(width):
+        row = ttnn.slice(
+            qkv,
+            (0, offset, 0),
+            (MINIMUM_WIDTH, offset + MINIMUM_WIDTH, layer.qkv_dim_tp),
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+        states = (*states[MINIMUM_WIDTH:], row)
+        yield states
+
+
+def _commit_convolution_window(layer: Any, states: tuple[Any, ...]) -> None:
+    """Commit a forward-shifted suffix before its qkv source can be released.
+
+    Copy oldest to newest. Any retained persistent source is to the right of
+    its destination, so an earlier copy cannot destroy a later source.
+    """
+    if len(states) != layer.K or len(layer.conv_states) != layer.K:
+        raise NativeMtpVerifierError("native verifier convolution commit count changed")
+    if any(
+        source.shape != target.shape or source.dtype != target.dtype
+        for source, target in zip(states, layer.conv_states, strict=True)
+    ):
+        raise NativeMtpVerifierError(
+            "native verifier convolution commit contract changed"
+        )
+    for source, target in zip(states, layer.conv_states, strict=True):
+        ttnn.copy(source, target)
+
+
 def _verify_gdn(
     layer: Any,
     x: Any,
@@ -855,23 +949,10 @@ def _verify_gdn(
     decay = ttnn.reshape(decay, (MINIMUM_WIDTH, width, value_heads))
 
     output_rows = []
-    convolution_states = layer.conv_states
-    for offset in range(width):
-        for state_index in range(layer.K - MINIMUM_WIDTH):
-            ttnn.copy(
-                convolution_states[state_index + MINIMUM_WIDTH],
-                convolution_states[state_index],
-            )
-        qkv_row = ttnn.slice(
-            qkv,
-            (0, offset, 0),
-            (MINIMUM_WIDTH, offset + MINIMUM_WIDTH, qkv_width),
-            memory_config=ttnn.L1_MEMORY_CONFIG,
-        )
-        ttnn.copy(qkv_row, convolution_states[layer.K - MINIMUM_WIDTH])
-        # A full-width slice can alias qkv on TT-Metal 0.74. Do not force-free
-        # the view before later verifier positions consume the parent.
-
+    convolution_states = ()
+    for offset, convolution_states in enumerate(
+        _verification_convolution_windows(layer, qkv, width)
+    ):
         convolution = ttnn.multiply(
             convolution_states[0],
             tw["conv_taps"][0],
@@ -966,7 +1047,7 @@ def _verify_gdn(
                 )
             ttnn.copy(layer.rec_state, prefix_snapshot.recurrent)
             for source, target in zip(
-                layer.conv_states,
+                convolution_states,
                 prefix_snapshot.convolution,
                 strict=True,
             ):
@@ -975,6 +1056,8 @@ def _verify_gdn(
             ttnn.reshape(output_row, (MINIMUM_WIDTH, value_heads, value_width))
         )
 
+    _commit_convolution_window(layer, convolution_states)
+    # A full-width slice can alias qkv. Release it only after the final copies.
     ttnn.deallocate(qkv)
     ttnn.deallocate(beta)
     ttnn.deallocate(decay)

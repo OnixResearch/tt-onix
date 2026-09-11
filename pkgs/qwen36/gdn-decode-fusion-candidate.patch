@@ -1,10 +1,11 @@
 --- a/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
 +++ b/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,46 @@
 +"""Pure policy for the default-off GDN decode fusion candidate.
 +
 +``norm`` folds fixed Q/K scales into RMSNorm. ``state`` uses the TTNN
 +ternary state update. ``full`` selects the fused fp32 recurrent kernel.
++``norm-state`` combines norm and state fusion without the custom kernel.
 +
 +This module imports no TTNN object and opens no device.
 +"""
@@ -17,8 +18,9 @@
 +MODE_OFF = "off"
 +MODE_NORM = "norm"
 +MODE_STATE = "state"
++MODE_NORM_STATE = "norm-state"
 +MODE_FULL = "full"
-+MODES = frozenset({MODE_OFF, MODE_NORM, MODE_STATE, MODE_FULL})
++MODES = frozenset({MODE_OFF, MODE_NORM, MODE_STATE, MODE_NORM_STATE, MODE_FULL})
 +
 +
 +def selected_mode(env=None):
@@ -34,12 +36,12 @@
 +
 +def uses_fused_norm(mode):
 +    """Return whether ``mode`` folds Q/K scale into RMSNorm."""
-+    return mode in {MODE_NORM, MODE_FULL}
++    return mode in {MODE_NORM, MODE_NORM_STATE, MODE_FULL}
 +
 +
 +def uses_fused_state_update(mode):
 +    """Return whether ``mode`` uses one addcmul state-update kernel."""
-+    return mode == MODE_STATE
++    return mode in {MODE_STATE, MODE_NORM_STATE}
 +
 +
 +def uses_fused_recurrence(mode):
@@ -278,7 +280,7 @@
 +            output_state=state_output_flat,
 +            memory_config=ttnn.L1_MEMORY_CONFIG,
 +            compute_kernel_config=ttnn.WormholeComputeKernelConfig(
-+                math_fidelity=ttnn.MathFidelity.HiFi2,
++                math_fidelity=ttnn.MathFidelity.HiFi4,
 +                math_approx_mode=False,
 +                fp32_dest_acc_en=True,
 +                packer_l1_acc=False,

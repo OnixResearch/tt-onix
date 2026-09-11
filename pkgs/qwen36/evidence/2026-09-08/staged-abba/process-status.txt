@@ -1,0 +1,7 @@
+ActiveState=active
+SubState=exited
+Result=success
+ExecMainStartTimestamp=Tue 2026-09-08 12:59:49 EDT
+ExecMainExitTimestamp=Tue 2026-09-08 13:17:35 EDT
+ExecMainCode=1
+ExecMainStatus=0

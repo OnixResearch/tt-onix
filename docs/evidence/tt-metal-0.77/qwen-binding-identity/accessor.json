@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "simulated": false,
+  "requested_device_ids": [
+    0,
+    1
+  ],
+  "baseline_source": "/nix/store/qw9llks4k65np226xygfrmzx1qcbs6nz-qwen36-0.1.0/lib/python3.13/site-packages/qwen36_service/batch_decode_adapter.py",
+  "candidate_source": "/nix/store/acqd15fjnx3gcilph1vc80q7qkqw2m9h-qwen36-0.1.0/lib/python3.13/site-packages/qwen36_service/batch_decode_adapter.py",
+  "iterations_per_sample": 10000,
+  "nanoseconds_per_call": {
+    "baseline": [
+      998.4753,
+      1042.5529
+    ],
+    "candidate": [
+      522.7583,
+      494.0755
+    ]
+  },
+  "speedup_ratio": 2.0072387444241135,
+  "exact_identity_parity": true,
+  "replacement_detected": true,
+  "deallocation_detected": true,
+  "non_claims": [
+    "not a full-model correctness or decode-speed benchmark"
+  ]
+}

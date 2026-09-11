@@ -19,13 +19,6 @@ from .batch_admission_core import (
     BatchAdmissionPolicyError,
     BatchAdmissionProfile,
 )
-from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
-from .sampled_decode_core import (
-    DEFAULT_TOP_K,
-    DEFAULT_TOP_P,
-    merge_shard_candidates,
-    sample_candidates,
-)
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
@@ -35,6 +28,13 @@ from .core import CompletionRequest, build_completion_response
 from .decode_adapter import DecodeAdapterError
 from .decode_core import DecodeProfile, request_deadline_expired
 from .readiness_core import StartupWarmupPlan
+from .sampled_decode_core import (
+    DEFAULT_TOP_K,
+    DEFAULT_TOP_P,
+    merge_shard_candidates,
+    sample_candidates,
+)
+from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
 from .trace_reuse_core import TraceReuseProfile
 
 MAXIMUM_BATCH_WIDTH = 16
@@ -198,13 +198,20 @@ class BatchGenerationCoordinator:
                     token_ids=prefill_result.first_token_ids,
                     positions=positions,
                 )
+                # Read the tail that prepare_width captured. A sampled trace
+                # contains top-K candidates, not one greedy winner per shard.
+                replay = (
+                    self.adapter.decode_traced_sampled
+                    if self.adapter.fusion_mode == ROUTE_SAMPLED
+                    else self.adapter.decode_traced
+                )
                 replay_started = time.monotonic()
-                replay_tokens = self.adapter.decode_traced(
+                replay_outputs = replay(
                     token_ids=prefill_result.first_token_ids,
                     positions=positions,
                 )
                 replay_seconds = time.monotonic() - replay_started
-                if len(replay_tokens) != width:
+                if len(replay_outputs) != width:
                     raise BatchDecodeAdapterError(
                         "startup warm-up replay width changed"
                     )
