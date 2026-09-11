@@ -2,7 +2,7 @@
 
 ## Phase 1: Preconditions
 
-- [ ] [serial] A1 Confirm the sibling change `lift-gdn-batched-prefill-grid-limit` passed its physical parity screen and record its receipt identity. r[tenstorrent.qwen38_p150x2.b8_batched_prefill_readmission]
+- [ ] [serial] A1 Confirm the sibling change `lift-gdn-grid-instance-cap` passed its physical parity screen and record its receipt identity. r[tenstorrent.qwen38_p150x2.b8_batched_prefill_readmission]
 - [ ] [serial] A2 Re-read the rejected B=8 receipt and restate every bound, the corpus, and the root order without editing any value. r[tenstorrent.qwen38_p150x2.b8_batched_prefill_readmission]
 - [ ] [serial] A3 Confirm the profile export is deterministic and byte-identical to the pre-change export. r[tenstorrent.qwen38_p150x2.b8_batched_prefill_readmission.invalid]
 

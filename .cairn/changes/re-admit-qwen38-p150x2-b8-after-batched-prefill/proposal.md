@@ -17,7 +17,7 @@ The receipt also recorded an explicit non-claim: it did not measure B=8 under a
 runtime with faster or batched prefill. The rejection root cause names eight
 serialized per-user prefills as the dominant cost.
 
-The sibling change `lift-gdn-batched-prefill-grid-limit` removes the factory
+The sibling change `lift-gdn-grid-instance-cap` removes the factory
 guard that forces those serialized prefills. A fresh matched run is therefore
 the only way to decide whether the near miss was a prefill-scheduling artifact
 or a property of the served path.

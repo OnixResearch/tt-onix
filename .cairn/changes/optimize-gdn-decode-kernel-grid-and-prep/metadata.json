@@ -1,6 +1,6 @@
 {
   "depends_on": [
-    "adopt-fused-gdn-decode-verify-op"
+    "lift-gdn-grid-instance-cap"
   ],
   "workflow_profile": {
     "id": "spec-driven",
