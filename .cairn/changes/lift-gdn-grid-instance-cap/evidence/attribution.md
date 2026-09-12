@@ -48,13 +48,17 @@ the measured `compute_with_storage_grid_size()` is **13 x 10 = 130 cores**
 | ----: | ---------------: | ---------------- | ----------------- |
 | 1 | 24 | fits | fits (B=4 silicon admission proves >= 96) |
 | 4 | 96 | fits | fits (fresh B=4 fused admission passed) |
-| 8 | 192 | **exceeds** | **exceeds** (the B=8 fused path never ran) |
-| 16 | 384 | **exceeds** | **exceeds** |
+| 8 | 192 | **exceeds** | **exceeds** (measured 110; the B=8 fused path never ran) |
+| 16 | 384 | **exceeds** | **exceeds** (chunk 4, 96 active cores) |
 
-The exact physical harvested core count is measured during the V8 hardware
-session; it does not change where the guard first binds, because both 110
-(the planning constant used by the device-free probe) and 130 sit between 96
-and 192. B=8 is the first width where both guards bind on either grid.
+The exact physical harvested core count, measured during the V8 hardware
+session: **both physical P150s report 11 x 10 = 110 compute cores**
+(`grid-probe.py`, observation `compute_grid_measured`, devices 0 and 1). The
+simulated grid (13 x 10 = 130) differs from the harvested physical grid, so
+the physical measurement was required. It does not change where the guard
+first binds, because both 110 and 130 sit between 96 and 192. B=8 is the
+first width where both guards bind on either grid. The planning constant
+`110` in the device-free probe matches the measured physical value exactly.
 
 ## A3: the decode guard reproduced device-free at B=8
 
