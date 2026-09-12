@@ -2,14 +2,23 @@
 
 ## Phase 1: Attribution
 
-- [ ] [serial] A1 Re-measure the admitted GDN decode layer cost and the per-layer instance count, and record the derived occupancy at TP=2. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [ ] [serial] A2 Reconcile the local per-layer cost with the upstream composite and fused figures and record any mismatch. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [ ] [serial] A3 Enumerate the host preparation ops in the admitted decode path and record each launch cost. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [ ] [serial] A4 Confirm from the local profile that recurrent-state bandwidth is not the binding constraint. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [serial] A1 Re-measure the admitted GDN decode layer cost and the per-layer instance count, and record the derived occupancy at TP=2. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (evidence/a1-a4-attribution.md)
+- [x] [serial] A2 Reconcile the local per-layer cost with the upstream composite and fused figures and record any mismatch. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [serial] A3 Enumerate the host preparation ops in the admitted decode path and record each launch cost. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [serial] A4 Confirm from the local profile that recurrent-state bandwidth is not the binding constraint. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 
 ## Phase 2: Implementation
 
-- [ ] [serial] I1 Add the pure occupancy core: per-core state split, head-group schedule, and closed validation. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
+> **Attribution correction before I2/I3.** At TP=2 the admitted decode is idle at
+> B=1 (24 instances, 21.8 percent) and looping at B>=8 (2 and 4 instances per
+> core). The state split (I2) addresses only the idle case: once instances exceed
+> cores, splitting multiplies the instance count without reducing per-core work,
+> and it multiplies the per-instance fixed cost (the `K x K` transpose plus
+> reader, CB, and launch overhead). The per-user retention floor that blocks B=8
+> and B=16 needs the instance loop addressed, which is I3 (pipelining) or a lower
+> per-instance cost. See `evidence/a1-a4-attribution.md`.
+
+- [x] [serial] I1 Add the pure occupancy core: per-core state split, head-group schedule, and closed validation. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
 - [ ] [serial] I2 Split the 128x128 recurrent state across cores per value head. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] I3 Add head pipelining only where the measured occupancy stays below the floor. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] I4 Fold the fp32 typecasts, the L2 norms, and the query scale into the reader or compute kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
@@ -18,9 +27,9 @@
 
 ## Phase 3: Verification
 
-- [ ] [parallel] V1 Add positive device-free probes for valid state splits and head-group schedules. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
-- [ ] [parallel] V2 Add negative probes for every malformed plan shape. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
-- [ ] [serial] V3 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [parallel] V1 Add positive device-free probes for valid state splits and head-group schedules. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
+- [x] [parallel] V2 Add negative probes for every malformed plan shape. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
+- [x] [serial] V3 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V4 Run the bounded Blackhole kernel hazard audits over the changed reader and compute kernels. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V5 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V6 Run the matched physical screen and require exact decode and state parity before reading any timing. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]

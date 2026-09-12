@@ -6952,6 +6952,193 @@ def probe_grouped_prefill_routing():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
+def probe_gdn_occupancy_plan():
+    """Positive and negative tests for the pure decode-occupancy planner.
+
+    The planner must exploit idle cores by splitting a head's state and must refuse
+    to split once the grid is looping, because there the instance count already
+    exceeds the core count and per-core work cannot fall.
+    """
+    from qwen36_service.gdn_occupancy_core import (
+        GdnOccupancyPolicyError,
+        OccupancyPlan,
+        REASON_NO_SPLIT_IMPROVES_COST,
+        REASON_SPLIT_REFUSED_LOOPING_GRID,
+        REASON_SPLIT_SELECTED,
+        candidate_splits,
+        instance_coordinates,
+        plan_occupancy,
+        validate_plan,
+    )
+
+    tp2_heads = 24
+    compute_cores = 110
+    value_tiles = 4
+    fixed_share = 0.25
+    floor = 0.5
+
+    def plan(batch, share=fixed_share, occupancy=floor, tiles=value_tiles):
+        return plan_occupancy(
+            heads=tp2_heads,
+            batch=batch,
+            value_tiles=tiles,
+            cores=compute_cores,
+            fixed_cost_share=share,
+            minimum_occupancy=occupancy,
+        )
+
+    # Idle grid: B=1 uses 24 of 110 cores, so splitting fills the grid and lowers
+    # the estimated per-core cost.
+    idle = plan(1)
+    validate_plan(idle)
+    require(idle.split == value_tiles, f"B=1 chose split {idle.split}")
+    require(idle.reason == REASON_SPLIT_SELECTED, f"wrong B=1 reason: {idle.reason}")
+    require(idle.instances == tp2_heads * value_tiles, "B=1 instance count is wrong")
+    require(idle.instances_per_core == 1, "B=1 should keep one instance per core")
+    require(idle.active_cores == 96, f"B=1 used {idle.active_cores} cores, expected 96")
+    require(
+        abs(idle.occupancy - 96 / compute_cores) < 1e-12,
+        f"B=1 occupancy is {idle.occupancy}",
+    )
+    require(
+        idle.estimated_relative_cost < 1.0,
+        "splitting at B=1 did not lower the estimated cost",
+    )
+
+    # Near-full grid: B=4 leaves 14 idle cores and splitting would double the
+    # instance count, so the planner keeps the unsplit launch.
+    near_full = plan(4)
+    validate_plan(near_full)
+    require(near_full.split == 1, f"B=4 chose split {near_full.split}")
+    require(
+        near_full.reason == REASON_NO_SPLIT_IMPROVES_COST,
+        f"wrong B=4 reason: {near_full.reason}",
+    )
+
+    # Looping grid: B=8 and B=16 already run two and four instances per core, and
+    # a split multiplies instances without reducing any core's work.
+    for batch, per_core in ((8, 2), (16, 4)):
+        looping = plan(batch)
+        validate_plan(looping)
+        require(looping.split == 1, f"B={batch} split the state on a looping grid")
+        require(
+            looping.reason == REASON_SPLIT_REFUSED_LOOPING_GRID,
+            f"wrong B={batch} reason: {looping.reason}",
+        )
+        require(
+            looping.instances_per_core == per_core,
+            f"B={batch} has {looping.instances_per_core} instances per core",
+        )
+        require(
+            looping.estimated_relative_cost == float(per_core),
+            f"B={batch} cost is {looping.estimated_relative_cost}",
+        )
+
+    # A fixed cost share of zero makes splitting purely beneficial on an idle grid;
+    # an occupancy floor above what a split can reach keeps the unsplit launch.
+    free_split = plan(1, share=0.0)
+    require(free_split.split == value_tiles, "a zero fixed share did not split fully")
+    unreachable = plan(1, occupancy=0.99)
+    require(
+        unreachable.split == 1 and unreachable.reason == REASON_NO_SPLIT_IMPROVES_COST,
+        f"an unreachable floor still split: {unreachable.split}/{unreachable.reason}",
+    )
+
+    # Candidate splits divide the value width exactly.
+    require(candidate_splits(4) == (1, 2, 4), f"candidate splits: {candidate_splits(4)}")
+    require(candidate_splits(3) == (1, 3), f"candidate splits: {candidate_splits(3)}")
+    require(instance_coordinates(0, heads=2, split=2) == (0, 0, 0), "flat 0 maps wrong")
+    require(instance_coordinates(5, heads=2, split=2) == (1, 0, 1), "flat 5 maps wrong")
+
+    # Malformed plans must not survive validation: a split that does not divide
+    # the value width, a wrong instance count, a repeated instance, a missing one,
+    # a non-contiguous chunk, an over-long chunk, and mismatched occupancy or cost.
+    good = idle
+    malformed = {
+        "split does not divide": OccupancyPlan(
+            **{**good.__dict__, "split": 3}
+        ),
+        "wrong instance count": OccupancyPlan(
+            **{**good.__dict__, "instances": good.instances - 1}
+        ),
+        "missing instance": OccupancyPlan(
+            **{
+                **good.__dict__,
+                "per_core_instances": (tuple(range(0, 95)),),
+                "active_cores": 1,
+                "occupancy": 1 / good.cores,
+            }
+        ),
+        "repeated instance": OccupancyPlan(
+            **{**good.__dict__, "per_core_instances": ((0, 0), (1,))}
+        ),
+        "non-contiguous chunk": OccupancyPlan(
+            **{**good.__dict__, "per_core_instances": ((0,), (2,))}
+        ),
+        "over-long chunk": OccupancyPlan(
+            **{**good.__dict__, "per_core_instances": ((0, 1),)}
+        ),
+        "occupancy mismatch": OccupancyPlan(
+            **{**good.__dict__, "occupancy": good.occupancy / 2}
+        ),
+        "cost mismatch": OccupancyPlan(
+            **{**good.__dict__, "estimated_relative_cost": good.estimated_relative_cost * 2}
+        ),
+    }
+    for name, broken in malformed.items():
+        try:
+            validate_plan(broken)
+        except GdnOccupancyPolicyError:
+            pass
+        else:
+            raise AssertionError(f"malformed occupancy plan was accepted: {name}")
+
+    # Rejected inputs: non-positive geometry, a share outside [0, 1), a floor
+    # outside (0, 1], and non-numeric or boolean inputs.
+    rejected = (
+        dict(heads=0, batch=1, value_tiles=4, cores=110, fixed_cost_share=0.25),
+        dict(heads=1, batch=0, value_tiles=4, cores=110, fixed_cost_share=0.25),
+        dict(heads=1, batch=1, value_tiles=0, cores=110, fixed_cost_share=0.25),
+        dict(heads=1, batch=1, value_tiles=4, cores=0, fixed_cost_share=0.25),
+        dict(heads=1, batch=1, value_tiles=4, cores=110, fixed_cost_share=1.0),
+        dict(heads=1, batch=1, value_tiles=4, cores=110, fixed_cost_share=-0.1),
+        dict(heads=1, batch=1, value_tiles=4, cores=110, fixed_cost_share="half"),
+        dict(
+            heads=1,
+            batch=1,
+            value_tiles=4,
+            cores=110,
+            fixed_cost_share=0.25,
+            minimum_occupancy=0.0,
+        ),
+        dict(
+            heads=1,
+            batch=1,
+            value_tiles=4,
+            cores=110,
+            fixed_cost_share=0.25,
+            minimum_occupancy=1.5,
+        ),
+        dict(heads=True, batch=1, value_tiles=4, cores=110, fixed_cost_share=0.25),
+    )
+    for arguments in rejected:
+        try:
+            plan_occupancy(**arguments)
+        except GdnOccupancyPolicyError:
+            pass
+        else:
+            raise AssertionError(f"invalid occupancy request was accepted: {arguments}")
+
+    for bad in (0.5, -1, "x"):
+        try:
+            instance_coordinates(bad, heads=24, split=4)
+        except GdnOccupancyPolicyError:
+            pass
+        else:
+            raise AssertionError(f"invalid flat index was accepted: {bad!r}")
+
+
 # r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
 def probe_mtp_head_load_core():
     """Positive and negative tests for the head weight integrity verdicts."""
@@ -7077,6 +7264,7 @@ def main():
     probe("GDN grid in-range mapping unchanged", probe_gdn_grid_mapping_unchanged)
     probe("grouped prefill eligibility", probe_grouped_prefill_eligibility)
     probe("grouped prefill routing", probe_grouped_prefill_routing)
+    probe("GDN decode occupancy plan", probe_gdn_occupancy_plan)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
