@@ -1091,16 +1091,22 @@ stdenvNoCC.mkDerivation {
     grep -F '"candidate_width": 8' batch-admission-b8-profile-first.json
     grep -F '"minimum_aggregate_decode_speedup_ratio": 6' batch-admission-b8-profile-first.json
     grep -F '"maximum_ttft_ratio": 9' batch-admission-b8-profile-first.json
-    # The B=8 admission state is bound to the tracked receipt: an admitted
-    # profile must name a receipt that exists, whose digest matches, and whose
-    # own admission block says it passed. A rejection receipt cannot be paired
-    # with an admitted binding, and the exported digest cannot drift from the
-    # tracked artifact.
+    # The B=8 admission state is bound to the tracked receipt: the exported
+    # profile must name the tracked receipt's digest, and its admitted flag must
+    # equal what that receipt's own admission block says. A rejection receipt
+    # cannot sit behind an admitted binding, and a pass cannot be exported while
+    # the tracked receipt records a failure.
     b8_receipt=${./evidence/2026-09-12/qwen38-27b-batch-admission-b8-receipt.json}
     b8_receipt_blake3=$(b3sum "$b8_receipt" | cut -d' ' -f1)
-    grep -F '"admitted": true' "$b8_receipt"
-    grep -F '"physically_admitted": true' batch-admission-b8-profile-first.json
     grep -F "\"receipt_blake3\": \"$b8_receipt_blake3\"" batch-admission-b8-profile-first.json
+    if grep -F '"admitted": true' "$b8_receipt"; then
+      grep -F '"physically_admitted": true' batch-admission-b8-profile-first.json
+    elif grep -F '"admitted": false' "$b8_receipt"; then
+      grep -F '"physically_admitted": false' batch-admission-b8-profile-first.json
+    else
+      echo "tracked B=8 receipt carries no admission verdict" >&2
+      exit 1
+    fi
 
     # Negative: admitted B=8 without a receipt must fail.
     mkdir -p batch-admission-b8-profile-negative
