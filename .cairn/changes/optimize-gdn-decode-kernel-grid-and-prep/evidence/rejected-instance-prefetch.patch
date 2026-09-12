@@ -1,0 +1,48 @@
+Instance-loop prefetch depth in the fused GDN decode factory.
+
+Past the core count the chunked decode factory gives each active core
+`ceil(num_heads / ncores)` head-instances and the compute kernel runs them in a
+sequential loop. The reader serves that loop one instance at a time, and each
+iteration blocks until compute pops the previous instance, so every instance
+pays its own read latency on top of compute.
+
+This patch gives the reader-side circular buffers (q, k, v, beta, g, and the
+initial state) a second instance's worth of room when a core carries more than
+one instance. The reader can then reserve, read, and push instance i+1 while
+compute still works on instance i, which hides the per-instance read latency
+behind compute. With one instance per core the depth stays one, so the in-range
+program mapping, memory layout, and numerics are unchanged and every receipt
+produced under that mapping stays valid.
+
+The change is a scheduling change: output and recurrent state must remain
+bit-identical to the admitted kernel, which is what the matched physical screen
+checks before any timing is read.
+
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/gated_delta_decode_program_factory.cpp
+@@ -47,12 +47,19 @@
+         CreateCircularBuffer(program, cores, config);
+     };
+ 
+-    make_cb(0, key_tiles);    // q
+-    make_cb(1, key_tiles);    // k
+-    make_cb(2, val_tiles);    // v
+-    make_cb(3, 1);            // beta
+-    make_cb(4, 1);            // g
+-    make_cb(5, state_tiles);  // state input
++    // Reader prefetch depth. When a core loops over several head-instances
++    // (heads_per_core > 1) the reader-side buffers carry a second instance's
++    // worth of room, so the reader streams instance i+1 while compute works on
++    // instance i and the per-instance read latency is hidden behind compute. With
++    // one instance per core the depth is one, so every in-range receipt keeps the
++    // same memory layout and the same numerics.
++    const uint32_t instance_buffers = (heads_per_core > 1) ? 2 : 1;
++    make_cb(0, key_tiles * instance_buffers);    // q
++    make_cb(1, key_tiles * instance_buffers);    // k
++    make_cb(2, val_tiles * instance_buffers);    // v
++    make_cb(3, instance_buffers);                // beta
++    make_cb(4, instance_buffers);                // g
++    make_cb(5, state_tiles * instance_buffers);  // state input
+     make_cb(6, 1);            // exp(g)
+     make_cb(7, state_tiles);  // decayed state
+     make_cb(8, val_tiles);    // k @ state

@@ -852,6 +852,11 @@ stdenvNoCC.mkDerivation {
     grep -Fq 'mul_tiles_bcast_scalar_init_short' "$gdn_decode_compute"
     grep -Fq 'sub_tiles_init' "$gdn_decode_compute"
     grep -Fq 'add_tiles_init' "$gdn_decode_compute"
+    # The grouped-prefill assembly patch is shape-checked here (one file, the
+    # model's state assembly): an assertion under the variant derivation would
+    # cost a full tt-metal rebuild.
+    test "$(grep -c '^--- ' ${./grouped-prefill-row-assembly.patch})" -eq 1
+
     # Assert what identifies the PATCHED kernels, not how many lines they have.
     # A line count breaks on every edit and, worse, cannot tell a patched kernel
     # from one the full-tree copy reverted. These markers only exist post-patch.
