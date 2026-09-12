@@ -4,9 +4,12 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -23,6 +26,12 @@ from .batch_decode_core import (
 )
 from .decode_adapter import TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
 from .decode_core import DecodeProfile, required_page_table_blocks
+from .grouped_prefill_core import (
+    REASON_ELIGIBLE,
+    GroupedPrefillPolicyError,
+    RuntimeCapability,
+    plan_grouped_prefill,
+)
 from .sampled_decode_core import ShardCandidates
 from .sampled_mode_router_core import ROUTE_SAMPLED, ROUTES
 
@@ -34,6 +43,21 @@ TRACE_BLOCKING_REPLAY = False
 MUTABLE_INPUT_COUNT = 3
 EXPECTED_DECODE_INPUT_COUNT = 4
 MINIMUM_POSITION = 0
+
+# Grouped prefill stays opt-in until its own matched screen admits it, so the
+# default served path keeps the execution identity its receipts describe.
+GROUPED_PREFILL_ENV = "QWEN35_GROUPED_PREFILL"
+GROUPED_PREFILL_ENABLED_VALUES = frozenset({"1", "true", "yes", "on"})
+RUNTIME_CAPABILITY_RELATIVE_PATH = ("share", "qwen36", "runtime-capability.json")
+CAPABILITY_SCHEMA_VERSION = 1
+# Instances per core validated on silicon for the chunked scan: 192 instances
+# over 110 cores at chunk 2, bitwise equal to the serialized reference.
+CHUNKED_VALIDATED_INSTANCES_PER_CORE = 2
+ONE_INSTANCE_PER_CORE = 1
+NON_CHUNKED_CAPABILITY_SOURCE = "fallback-one-instance-per-core"
+PACKAGE_CAPABILITY_SOURCE = "package-runtime-capability"
+GRID_UNAVAILABLE_REASON = "compute-grid-unavailable"
+NON_POSITIONAL_DESTINATIONS_REASON = "non-positional-state-destinations"
 
 
 class BatchDecodeAdapterError(RuntimeError):
@@ -49,6 +73,8 @@ class BatchPrefillResult:
     state_install_seconds: float
     trace_reuse_planned: bool = False
     trace_transition_reason: str | None = None
+    prefill_route: str = "per-user"
+    prefill_route_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +102,45 @@ class _BatchTrace:
 # Per-shard candidate depth of the sampled trace tail. Matches the model's
 # recommended sampling top_k; the host merge keeps the best of both shards.
 SAMPLED_CANDIDATE_COUNT = 20
+
+
+@dataclass(frozen=True)
+class RuntimeCapabilityRecord:
+    """What the installed package says about its own linked runtime."""
+
+    gdn_scan_chunked_instances: bool
+    source: str
+
+
+def grouped_prefill_enabled(env: Any = None) -> bool:
+    """Return whether the caller opted into grouped prefill."""
+    if env is None:
+        env = os.environ
+    value = env.get(GROUPED_PREFILL_ENV, "")
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in GROUPED_PREFILL_ENABLED_VALUES
+
+
+def load_runtime_capability_record(package_root: Path | None = None) -> RuntimeCapabilityRecord:
+    """Read the package's own runtime capability record, failing closed.
+
+    A missing or malformed record yields the one-instance-per-core reading, so
+    an unreadable record can only make the planner more conservative.
+    """
+    if package_root is None:
+        package_root = Path(__file__).resolve().parents[4]
+    path = package_root.joinpath(*RUNTIME_CAPABILITY_RELATIVE_PATH)
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return RuntimeCapabilityRecord(False, NON_CHUNKED_CAPABILITY_SOURCE)
+    if not isinstance(record, dict) or record.get("schema_version") != CAPABILITY_SCHEMA_VERSION:
+        return RuntimeCapabilityRecord(False, NON_CHUNKED_CAPABILITY_SOURCE)
+    chunked = record.get("gdn_scan_chunked_instances")
+    if not isinstance(chunked, bool):
+        return RuntimeCapabilityRecord(False, NON_CHUNKED_CAPABILITY_SOURCE)
+    return RuntimeCapabilityRecord(chunked, PACKAGE_CAPABILITY_SOURCE)
 
 
 @dataclass(frozen=True)
@@ -135,6 +200,7 @@ class BatchedTracedDecodeAdapter:
         self._pending_trace_plan: TracePrefillPlan | None = None
         self._prior_reset_complete = True
         self._closed = False
+        self._capability_record = load_runtime_capability_record()
         self._allocate_persistent_state()
         self._gdn_zero_sources = self._capture_gdn_zero_sources()
 
@@ -337,6 +403,96 @@ class BatchedTracedDecodeAdapter:
         finally:
             self._deallocate_gdn_state(snapshots)
 
+    def _compute_cores(self) -> int | None:
+        """Measured compute-core count of one die, or None when unreadable."""
+        grid = None
+        try:
+            grid = self.mesh.compute_with_storage_grid_size()
+        except Exception:  # noqa: BLE001 - any API shape difference is unmeasurable
+            submeshes = getattr(self.mesh, "get_devices", None)
+            if callable(submeshes):
+                devices = submeshes()
+                if devices:
+                    try:
+                        grid = devices[0].compute_with_storage_grid_size()
+                    except Exception:  # noqa: BLE001
+                        grid = None
+        if grid is None:
+            return None
+        cores = int(getattr(grid, "x", 0)) * int(getattr(grid, "y", 0))
+        return cores if cores > 0 else None
+
+    def _local_value_heads(self) -> int:
+        for layer in self.model.layers:
+            if getattr(layer, "is_full_attention", False):
+                continue
+            attention = getattr(layer, "attention", None)
+            for candidate in (
+                getattr(attention, "Nv", None),
+                getattr(attention, "num_value_heads", None),
+                getattr(layer, "Nv", None),
+            ):
+                if isinstance(candidate, int) and candidate > 0:
+                    return candidate
+        raise BatchDecodeAdapterError("model exposes no local value-head count")
+
+    def plan_prefill_route(
+        self,
+        width: int,
+        valid_lengths: tuple[int, ...],
+        *,
+        grouped_enabled: bool | None = None,
+    ) -> tuple[bool, int, str]:
+        """Decide the prefill route with explicit, positional destinations.
+
+        Returns ``(grouped, group_size, reason)``. The grouped path installs
+        state by row, so it is used only when the destinations are exactly the
+        user rows in order; any other destination mapping falls back to the
+        per-user route that installs per slot.
+        """
+        if grouped_enabled is None:
+            grouped_enabled = grouped_prefill_enabled()
+        if not grouped_enabled:
+            return False, ONE_INSTANCE_PER_CORE, "grouped-prefill-disabled"
+        cores = self._compute_cores()
+        if cores is None:
+            return False, ONE_INSTANCE_PER_CORE, GRID_UNAVAILABLE_REASON
+        slots = tuple(range(width))
+        record = self._capability_record
+        capability = RuntimeCapability(
+            chunked_scan_instances=record.gdn_scan_chunked_instances,
+            compute_cores=cores,
+            instances_per_core=(
+                CHUNKED_VALIDATED_INSTANCES_PER_CORE
+                if record.gdn_scan_chunked_instances
+                else ONE_INSTANCE_PER_CORE
+            ),
+        )
+        bucket_chunk = int(self.model.args.gdn_chunk_size)
+        bucket = max(
+            bucket_chunk,
+            ((max(valid_lengths) + bucket_chunk - 1) // bucket_chunk) * bucket_chunk,
+        )
+        try:
+            plan = plan_grouped_prefill(
+                user_count=width,
+                user_lengths=tuple(valid_lengths),
+                slots=slots,
+                bucket=bucket,
+                local_value_heads=self._local_value_heads(),
+                gdn_bucket_chunk=bucket_chunk,
+                capability=capability,
+                capacity_units=self.maximum_width,
+                units_per_user=MINIMUM_ACTIVE_BATCH_WIDTH,
+            )
+        except GroupedPrefillPolicyError:
+            return False, ONE_INSTANCE_PER_CORE, NON_POSITIONAL_DESTINATIONS_REASON
+        if not plan.grouped:
+            return False, ONE_INSTANCE_PER_CORE, plan.reason
+        if plan.destinations != slots:
+            return False, ONE_INSTANCE_PER_CORE, NON_POSITIONAL_DESTINATIONS_REASON
+        return True, max(len(group) for group in plan.groups), REASON_ELIGIBLE
+
     def prefill_users(
         self,
         token_ids: tuple[torch.Tensor, ...],
@@ -410,6 +566,45 @@ class BatchedTracedDecodeAdapter:
             observed_first_tokens = tuple(first_token_ids)
             first_token_ready_seconds = time.monotonic() - started
 
+        grouping_enabled = grouped_prefill_enabled()
+        grouped, group_size, route_reason = self.plan_prefill_route(
+            width, tuple(valid_lengths), grouped_enabled=grouping_enabled
+        )
+        prefill_route = "grouped" if grouped else "per-user"
+        if grouped:
+            # The grouped path returns host logits for every user, so readiness
+            # is observed once it returns, and state installs by row == slot.
+            host_logits = self.model.prefill_paged_grouped(
+                list(token_ids),
+                bounded_page_table,
+                valid_lens=valid_lengths,
+                group_size=group_size,
+            )
+            if len(host_logits) != width:
+                raise BatchDecodeAdapterError(
+                    "grouped prefill output count differs from active width"
+                )
+            observe_first_tokens(host_logits)
+            ttnn.synchronize_device(self.mesh)
+            elapsed_seconds = time.monotonic() - started
+            if observed_first_tokens is None or first_token_ready_seconds is None:
+                raise BatchDecodeAdapterError(
+                    "grouped prefill did not report first-token readiness"
+                )
+            state_install_seconds = elapsed_seconds - first_token_ready_seconds
+            if state_install_seconds < 0:
+                raise BatchDecodeAdapterError("prefill phase timing regressed")
+            return BatchPrefillResult(
+                first_token_ids=observed_first_tokens,
+                elapsed_seconds=elapsed_seconds,
+                first_token_ready_seconds=first_token_ready_seconds,
+                page_table_blocks=page_table_blocks,
+                state_install_seconds=state_install_seconds,
+                trace_reuse_planned=trace_plan.reuse_after_prefill,
+                trace_transition_reason=trace_plan.reason,
+                prefill_route=prefill_route,
+                prefill_route_reason=route_reason,
+            )
         logits = self.model.prefill_paged_slots(
             list(token_ids),
             bounded_page_table,
@@ -438,6 +633,8 @@ class BatchedTracedDecodeAdapter:
             state_install_seconds=state_install_seconds,
             trace_reuse_planned=trace_plan.reuse_after_prefill,
             trace_transition_reason=trace_plan.reason,
+            prefill_route=prefill_route,
+            prefill_route_reason=route_reason,
         )
 
     def decode_traced(

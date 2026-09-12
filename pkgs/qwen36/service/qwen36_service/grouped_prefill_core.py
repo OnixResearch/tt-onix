@@ -148,8 +148,8 @@ def plan_grouped_prefill(
     local_value_heads: object,
     gdn_bucket_chunk: object,
     capability: RuntimeCapability,
-    scratch_bytes: object,
-    bytes_per_user: object,
+    capacity_units: object,
+    units_per_user: object,
 ) -> GroupPlan:
     """Decide whether these users may share one grouped prefill.
 
@@ -157,6 +157,9 @@ def plan_grouped_prefill(
     (``args.gdn_chunk_size``, 128), not the fused scan's internal chunk (32).
     The grouped path fits one bucket per forward, so a bucket above
     ``MAXIMUM_BUCKET_CHUNKS`` of that chunk is a per-user candidate.
+
+    ``capacity_units`` and ``units_per_user`` share one caller-chosen unit: the
+    adapter budgets rows of state, the fixtures budget bytes.
 
     ``slots`` names each user's persistent decode slot in request order, so the
     plan's destinations stay explicit: group row ``i`` installs into
@@ -169,8 +172,8 @@ def plan_grouped_prefill(
     heads = _require_positive(local_value_heads, "local_value_heads")
     chunk = _require_positive(gdn_bucket_chunk, "gdn_bucket_chunk")
     bucket_value = _require_positive(bucket, "bucket")
-    budget = _require_positive(scratch_bytes, "scratch_bytes")
-    per_user = _require_positive(bytes_per_user, "bytes_per_user")
+    budget = _require_positive(capacity_units, "capacity_units")
+    per_user = _require_positive(units_per_user, "units_per_user")
     capability.validate()
 
     if len(user_lengths) != users or len(slots) != users:

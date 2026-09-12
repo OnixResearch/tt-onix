@@ -6476,7 +6476,7 @@ def probe_grouped_prefill_eligibility():
     tp4_local_value_heads = 12
     gdn_bucket_chunk = 128
     single_pass_bucket = 128
-    per_user_scratch_bytes = 8 * 1024 * 1024
+    per_user_scratch_bytes = 8 * 1024 * 1024  # one unit = one byte in these fixtures
     four_users_scratch_bytes = 4 * per_user_scratch_bytes
     eight_users_scratch_bytes = 8 * per_user_scratch_bytes
     eight_lengths = (tp2_local_value_heads,) * 8
@@ -6502,8 +6502,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(plan.grouped, f"a legal TP2 group was rejected: {plan.reason}")
     require(plan.reason == REASON_ELIGIBLE, "legal group reported the wrong reason")
@@ -6520,8 +6520,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=chunked_scan,
-        scratch_bytes=eight_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=eight_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(chunked_plan.grouped, "the chunked scan did not admit a TP2 group of eight")
     require(
@@ -6542,8 +6542,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=eight_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=eight_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(split_plan.grouped, "eight TP2 users were not grouped at all")
     require(split_plan.head_bound == 4, f"TP2 split bound is {split_plan.head_bound}, expected 4")
@@ -6566,8 +6566,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=p150_compute_cores + tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(not over_subscribed.grouped, "users wider than the grid were grouped")
     require(
@@ -6587,8 +6587,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(not empty.grouped, "an empty group was planned as grouped")
     require(empty.reason == REASON_EMPTY_GROUP, f"wrong empty-group reason: {empty.reason}")
@@ -6602,8 +6602,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(not single.grouped, "a single user was planned as a group")
     require(single.reason == REASON_SINGLE_USER, f"wrong single-user reason: {single.reason}")
@@ -6618,8 +6618,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp4_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=one_instance_per_core,
-        scratch_bytes=eight_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=eight_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(tp4_plan.head_bound == 9, f"TP4 head bound is {tp4_plan.head_bound}, expected 9")
 
@@ -6632,8 +6632,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=chunked_scan,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(not long_bucket.grouped, "an oversized bucket was grouped")
     require(
@@ -6651,8 +6651,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=chunked_scan,
-        scratch_bytes=four_users_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=four_users_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(
         boundary_bucket.grouped,
@@ -6668,8 +6668,8 @@ def probe_grouped_prefill_eligibility():
         local_value_heads=tp2_local_value_heads,
         gdn_bucket_chunk=gdn_bucket_chunk,
         capability=chunked_scan,
-        scratch_bytes=per_user_scratch_bytes,
-        bytes_per_user=per_user_scratch_bytes,
+        capacity_units=per_user_scratch_bytes,
+        units_per_user=per_user_scratch_bytes,
     )
     require(not starved.grouped, "a single-user scratch budget was grouped")
     require(
@@ -6694,8 +6694,8 @@ def probe_grouped_prefill_eligibility():
             local_value_heads=tp2_local_value_heads,
             gdn_bucket_chunk=gdn_bucket_chunk,
             capability=one_instance_per_core,
-            scratch_bytes=four_users_scratch_bytes,
-            bytes_per_user=per_user_scratch_bytes,
+            capacity_units=four_users_scratch_bytes,
+            units_per_user=per_user_scratch_bytes,
         )
         arguments.update(overrides)
         try:
@@ -6716,6 +6716,143 @@ def probe_grouped_prefill_eligibility():
             pass
         else:
             raise AssertionError(f"contradictory capability was accepted: {contradictory}")
+
+
+# r[verify tenstorrent.qwen38_p150x2.grouped_prefill_state]
+def probe_grouped_prefill_routing():
+    """The adapter consults the planner and fails closed on every refusal."""
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from qwen36_service.batch_decode_adapter import (
+        CHUNKED_VALIDATED_INSTANCES_PER_CORE,
+        GRID_UNAVAILABLE_REASON,
+        GROUPED_PREFILL_ENV,
+        NON_CHUNKED_CAPABILITY_SOURCE,
+        PACKAGE_CAPABILITY_SOURCE,
+        BatchedTracedDecodeAdapter,
+        grouped_prefill_enabled,
+        load_runtime_capability_record,
+    )
+
+    grid = SimpleNamespace(x=11, y=10)
+    chunked_record = SimpleNamespace(
+        gdn_scan_chunked_instances=True, source=PACKAGE_CAPABILITY_SOURCE
+    )
+    one_instance_record = SimpleNamespace(
+        gdn_scan_chunked_instances=False, source=PACKAGE_CAPABILITY_SOURCE
+    )
+
+    def stub(record, mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid)):
+        value_heads = 24
+        layer = SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(Nv=value_heads))
+        full = SimpleNamespace(is_full_attention=True, attention=SimpleNamespace(Nv=0))
+
+        class RouteStub(BatchedTracedDecodeAdapter):
+            """The real route planner bound to stub device and model surfaces."""
+
+            def __init__(self):
+                self._capability_record = record
+                self.mesh = mesh
+                self.maximum_width = 8
+                self.model = SimpleNamespace(
+                    args=SimpleNamespace(gdn_chunk_size=128), layers=[full, layer]
+                )
+
+        return RouteStub()
+
+    plan = BatchedTracedDecodeAdapter.plan_prefill_route
+    eight_lengths = (128,) * 8
+
+    # The gate defaults off, so the served path keeps the admitted identity.
+    require(not grouped_prefill_enabled({}), "grouped prefill defaulted on")
+    for value in ("1", "true", "yes", "on", "TRUE"):
+        require(
+            grouped_prefill_enabled({GROUPED_PREFILL_ENV: value}),
+            f"grouped prefill did not accept {value}",
+        )
+    for value in ("", "0", "off", "maybe"):
+        require(
+            not grouped_prefill_enabled({GROUPED_PREFILL_ENV: value}),
+            f"grouped prefill accepted {value}",
+        )
+    grouped, size, reason = plan(stub(chunked_record), 8, eight_lengths, grouped_enabled=False)
+    require((not grouped) and reason == "grouped-prefill-disabled", "the gate did not hold")
+
+    # Chunked runtime: one group of eight at the validated per-core chunk.
+    grouped, size, reason = plan(stub(chunked_record), 8, eight_lengths, grouped_enabled=True)
+    require(grouped and size == 8, f"chunked route planned {grouped}/{size}/{reason}")
+    require(reason == "grouped-eligible", f"wrong grouped reason: {reason}")
+
+    # One-instance runtime: the same request splits into groups of four.
+    grouped, size, reason = plan(stub(one_instance_record), 8, eight_lengths, grouped_enabled=True)
+    require(grouped and size == 4, f"one-instance route planned {grouped}/{size}/{reason}")
+
+    # An unreadable grid refuses grouping rather than guessing a core count.
+    broken_mesh = SimpleNamespace(
+        compute_with_storage_grid_size=lambda: (_ for _ in ()).throw(RuntimeError("no grid"))
+    )
+    grouped, size, reason = plan(
+        stub(chunked_record, mesh=broken_mesh), 8, eight_lengths, grouped_enabled=True
+    )
+    require(
+        (not grouped) and reason == GRID_UNAVAILABLE_REASON,
+        f"an unreadable grid did not refuse grouping: {grouped}/{reason}",
+    )
+
+    # A prompt beyond the single-pass bucket is a per-user candidate.
+    grouped, size, reason = plan(
+        stub(chunked_record), 8, (1024,) * 8, grouped_enabled=True
+    )
+    require(
+        (not grouped) and reason == "bucket-above-single-pass",
+        f"an oversized bucket was grouped: {grouped}/{reason}",
+    )
+
+    # The capability record fails closed when absent, malformed, or mis-versioned.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        require(
+            load_runtime_capability_record(root).source == NON_CHUNKED_CAPABILITY_SOURCE,
+            "a missing capability record was not refused",
+        )
+        share = root / "share" / "qwen36"
+        share.mkdir(parents=True)
+        record_path = share / "runtime-capability.json"
+        record_path.write_text("{not json", encoding="utf-8")
+        require(
+            not load_runtime_capability_record(root).gdn_scan_chunked_instances,
+            "malformed capability JSON claimed a chunked scan",
+        )
+        record_path.write_text(json.dumps({"schema_version": 99}), encoding="utf-8")
+        require(
+            not load_runtime_capability_record(root).gdn_scan_chunked_instances,
+            "a mis-versioned capability record claimed a chunked scan",
+        )
+        record_path.write_text(
+            json.dumps({"schema_version": 1, "gdn_scan_chunked_instances": True}),
+            encoding="utf-8",
+        )
+        loaded = load_runtime_capability_record(root)
+        require(
+            loaded.gdn_scan_chunked_instances and loaded.source == PACKAGE_CAPABILITY_SOURCE,
+            "a valid capability record was not read",
+        )
+        record_path.write_text(
+            json.dumps({"schema_version": 1, "gdn_scan_chunked_instances": "yes"}),
+            encoding="utf-8",
+        )
+        require(
+            not load_runtime_capability_record(root).gdn_scan_chunked_instances,
+            "a non-boolean capability flag was accepted",
+        )
+
+    require(
+        CHUNKED_VALIDATED_INSTANCES_PER_CORE == 2,
+        "the validated chunked instance width changed without new evidence",
+    )
 
 
 # r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
@@ -6842,6 +6979,7 @@ def main():
     probe("GDN grid instance cap assignment", probe_gdn_grid_instance_cap)
     probe("GDN grid in-range mapping unchanged", probe_gdn_grid_mapping_unchanged)
     probe("grouped prefill eligibility", probe_grouped_prefill_eligibility)
+    probe("grouped prefill routing", probe_grouped_prefill_routing)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")
