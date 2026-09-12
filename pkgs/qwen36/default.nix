@@ -91,6 +91,10 @@ let
     (stableIdentityPath "qwen36-batch-admission-b8-policy-validated.ncl" ./batch-admission-b8-policy-validated.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-contracts.ncl" ./batch-admission-b8-contracts.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-profile.ncl" ./batch-admission-b8-profile.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b16-policy.ncl" ./batch-admission-b16-policy.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b16-policy-validated.ncl" ./batch-admission-b16-policy-validated.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b16-contracts.ncl" ./batch-admission-b16-contracts.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b16-profile.ncl" ./batch-admission-b16-profile.ncl)
     (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl)
     (stableIdentityPath "qwen36-trace-reuse-policy-validated.ncl" ./trace-reuse-policy-validated.ncl)
     (stableIdentityPath "qwen36-trace-reuse-contracts.ncl" ./trace-reuse-contracts.ncl)
@@ -200,6 +204,12 @@ stdenvNoCC.mkDerivation {
     cp ${./kernel-distribution-admission-policy.ncl} "$out/share/qwen36/kernel-distribution-admission-policy.ncl"
     cp ${./kernel-distribution-admission-policy-validated.ncl} "$out/share/qwen36/kernel-distribution-admission-policy-validated.ncl"
     cp ${./batch-admission-b8-profile.ncl} "$out/share/qwen36/batch-admission-b8-profile.ncl"
+    cp ${./batch-admission-b16-policy.ncl} "$out/share/qwen36/batch-admission-b16-policy.ncl"
+    cp ${./batch-admission-b16-policy-validated.ncl} "$out/share/qwen36/batch-admission-b16-policy-validated.ncl"
+    cp ${./batch-admission-b16-binding.ncl} "$out/share/qwen36/batch-admission-b16-binding.ncl"
+    cp ${./batch-admission-b16-binding-validated.ncl} "$out/share/qwen36/batch-admission-b16-binding-validated.ncl"
+    cp ${./batch-admission-b16-contracts.ncl} "$out/share/qwen36/batch-admission-b16-contracts.ncl"
+    cp ${./batch-admission-b16-profile.ncl} "$out/share/qwen36/batch-admission-b16-profile.ncl"
     cp ${./batch-admission-b8-policy.ncl} "$out/share/qwen36/batch-admission-b8-policy.ncl"
     cp ${./batch-admission-b8-policy-validated.ncl} "$out/share/qwen36/batch-admission-b8-policy-validated.ncl"
     cp ${./batch-admission-b8-binding.ncl} "$out/share/qwen36/batch-admission-b8-binding.ncl"
@@ -259,6 +269,15 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-export/batch-admission-b8-contracts.ncl
     nickel export --format json batch-admission-b8-profile-export/batch-admission-b8-profile.ncl \
       > "$out/share/qwen36/batch-admission-b8-profile.json"
+    mkdir -p batch-admission-b16-profile-export
+    cp ${./batch-admission-b16-profile.ncl} batch-admission-b16-profile-export/batch-admission-b16-profile.ncl
+    cp ${./batch-admission-b16-policy.ncl} batch-admission-b16-profile-export/batch-admission-b16-policy.ncl
+    cp ${./batch-admission-b16-policy-validated.ncl} batch-admission-b16-profile-export/batch-admission-b16-policy-validated.ncl
+    cp ${./batch-admission-b16-binding.ncl} batch-admission-b16-profile-export/batch-admission-b16-binding.ncl
+    cp ${./batch-admission-b16-binding-validated.ncl} batch-admission-b16-profile-export/batch-admission-b16-binding-validated.ncl
+    cp ${./batch-admission-b16-contracts.ncl} batch-admission-b16-profile-export/batch-admission-b16-contracts.ncl
+    nickel export --format json batch-admission-b16-profile-export/batch-admission-b16-profile.ncl \
+      > "$out/share/qwen36/batch-admission-b16-profile.json"
     mkdir -p trace-reuse-profile-export
     cp ${./trace-reuse-profile.ncl} trace-reuse-profile-export/trace-reuse-profile.ncl
     cp ${./trace-reuse-policy.ncl} trace-reuse-profile-export/trace-reuse-policy.ncl
@@ -491,6 +510,33 @@ stdenvNoCC.mkDerivation {
       --add-flags "candidate" \
       --add-flags "--batch-admission-profile" \
       --add-flags "$out/share/qwen36/batch-admission-b8-profile.json" \
+      --add-flags "--batch-admission" \
+      --add-flags "--trace-reuse-profile" \
+      --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
+      --add-flags "--runtime-identity" \
+      --add-flags ${lib.escapeShellArg tt-metal} \
+      --add-flags "--package-identity" \
+      --add-flags ${lib.escapeShellArg executionIdentity}
+
+    # r[impl tenstorrent.qwen38_p150x2.batch_b16_admission]
+    # Explicit B=16 physical evidence mode. Normal production stays ineligible.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-p150x2-b16-admission" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --set QWEN35_TEMP "0" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.server" \
+      --add-flags "--decode-profile" \
+      --add-flags "$out/share/qwen36/decode-profile.json" \
+      --add-flags "--decode-mode" \
+      --add-flags "candidate" \
+      --add-flags "--batch-admission-profile" \
+      --add-flags "$out/share/qwen36/batch-admission-b16-profile.json" \
       --add-flags "--batch-admission" \
       --add-flags "--trace-reuse-profile" \
       --add-flags "$out/share/qwen36/trace-reuse-profile.json" \
@@ -948,6 +994,18 @@ stdenvNoCC.mkDerivation {
     grep -F '"package_identity_kind": "nix-execution-artifact"' execution-wrapper-contract.json
     test -f "$out/share/qwen36/batch-admission-profile.json"
     test -f "$out/share/qwen36/batch-admission-b8-profile.json"
+    test -f "$out/share/qwen36/batch-admission-b16-profile.json"
+    ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
+import json
+with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
+    profile = json.load(handle)
+assert profile["workload"]["candidate_width"] == 16
+assert len(profile["workload"]["prompts"]) == 16
+assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
+assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
+assert profile["admission"]["maximum_ttft_ratio"] == 9.0
+assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
+PROFILE_CHECK
     test -f "$out/share/qwen36/batch-admission-policy.ncl"
     test -f "$out/share/qwen36/batch-admission-binding.ncl"
     test -f "$out/share/qwen36/trace-reuse-profile.json"
@@ -975,6 +1033,7 @@ stdenvNoCC.mkDerivation {
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-serve"
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-batch-admission"
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b8-admission"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b16-admission"
     grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-trace-reuse-admission"
     test -f "$out/share/qwen36/mtp-probe-profile.json"
     test -f "$out/share/qwen36/mtp-drafter-profile.json"

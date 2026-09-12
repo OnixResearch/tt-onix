@@ -1228,6 +1228,69 @@ def probe_batch_admission():
                 f"invalid B=8 profile was accepted: {diagnostic}",
             )
 
+    # r[verify tenstorrent.qwen38_p150x2.batch_b16_admission]
+    b16_profile_path = Path(__file__).with_name("batch-admission-b16-profile.json")
+    with b16_profile_path.open(encoding="utf-8") as b16_profile_file:
+        b16_profile_mapping = json.load(b16_profile_file)
+    b16_profile = BatchAdmissionProfile.from_mapping(b16_profile_mapping)
+    require(b16_profile.candidate_width == 16, "B=16 profile width changed")
+    require(
+        len(b16_profile.prompts) == 16,
+        "B=16 profile does not carry sixteen prompts",
+    )
+    require(
+        b16_profile.minimum_aggregate_decode_speedup_ratio == 6.0
+        and b16_profile.maximum_ttft_ratio == 9.0
+        and b16_profile.minimum_per_user_decode_retention_ratio == 0.75
+        and b16_profile.maximum_tail_latency_ratio == 1.5,
+        "B=16 profile bounds drifted from the shared policy",
+    )
+    b16_admission_mode, b16_admission_eligible = b16_profile.measurement(
+        enabled=True,
+        width=16,
+    )
+    require(
+        b16_admission_mode == ADMISSION_MEASUREMENT_MODE and b16_admission_eligible,
+        "explicit B=16 measurement did not become eligible",
+    )
+    b16_single_mode, b16_single_eligible = b16_profile.measurement(
+        enabled=True,
+        width=1,
+    )
+    require(
+        b16_single_mode == ADMISSION_MEASUREMENT_MODE and b16_single_eligible,
+        "B=16 single-stream width lost eligibility",
+    )
+    for invalid_b16_width in (4, 8, 17):
+        try:
+            b16_profile.measurement(enabled=True, width=invalid_b16_width)
+        except BatchAdmissionPolicyError as error:
+            require(
+                "outside the profile" in str(error),
+                f"wrong B=16 width diagnostic: {error}",
+            )
+        else:
+            require(False, f"invalid B=16 width was accepted: {invalid_b16_width!r}")
+
+    invalid_b16_mappings = []
+    b16_unsupported_width = json.loads(json.dumps(b16_profile_mapping))
+    b16_unsupported_width["workload"]["candidate_width"] = 32
+    invalid_b16_mappings.append((b16_unsupported_width, "workload widths"))
+    b16_admitted_without_receipt = json.loads(json.dumps(b16_profile_mapping))
+    b16_admitted_without_receipt["physically_admitted"] = True
+    b16_admitted_without_receipt["identities"]["receipt_blake3"] = "not-measured"
+    invalid_b16_mappings.append((b16_admitted_without_receipt, "no measured receipt"))
+    for invalid_b16_mapping, diagnostic in invalid_b16_mappings:
+        try:
+            BatchAdmissionProfile.from_mapping(invalid_b16_mapping)
+        except BatchAdmissionPolicyError as error:
+            require(
+                diagnostic in str(error),
+                f"wrong B=16 profile diagnostic: {error}",
+            )
+        else:
+            require(False, f"invalid B=16 profile was accepted: {diagnostic}")
+
     b4_still_valid = BatchAdmissionProfile.from_mapping(profile_mapping)
     require(
         b4_still_valid.candidate_width == CANDIDATE_WIDTH,
