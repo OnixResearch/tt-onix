@@ -6450,6 +6450,274 @@ def probe_gdn_grid_mapping_unchanged():
         "an unbounded NV search was not distinguished from the pre-change mapping",
     )
 
+# r[verify tenstorrent.qwen38_p150x2.grouped_prefill_eligibility]
+def probe_grouped_prefill_eligibility():
+    """Positive and negative tests for the derived grouped-prefill bound.
+
+    The planner must derive the group bound from the linked runtime and the
+    local head geometry. Copying the source's TP4 literal (8) into TP2 would
+    over-subscribe the grid: at TP2 the local value-head count is 24, so a
+    one-instance-per-core scan bounds a group at four users, not eight.
+    """
+    from qwen36_service.grouped_prefill_core import (
+        REASON_BUCKET_ABOVE_SINGLE_PASS,
+        REASON_ELIGIBLE,
+        REASON_EMPTY_GROUP,
+        REASON_HEAD_CAPACITY_EXCEEDED,
+        REASON_SCRATCH_BUDGET_EXCEEDED,
+        REASON_SINGLE_USER,
+        GroupedPrefillPolicyError,
+        RuntimeCapability,
+        plan_grouped_prefill,
+    )
+
+    p150_compute_cores = 110
+    tp2_local_value_heads = 24
+    tp4_local_value_heads = 12
+    gdn_bucket_chunk = 128
+    single_pass_bucket = 128
+    per_user_scratch_bytes = 8 * 1024 * 1024
+    four_users_scratch_bytes = 4 * per_user_scratch_bytes
+    eight_users_scratch_bytes = 8 * per_user_scratch_bytes
+    eight_lengths = (tp2_local_value_heads,) * 8
+    eight_slots = (5, 0, 7, 2, 6, 1, 3, 4)
+
+    one_instance_per_core = RuntimeCapability(
+        chunked_scan_instances=False,
+        compute_cores=p150_compute_cores,
+        instances_per_core=1,
+    )
+    chunked_scan = RuntimeCapability(
+        chunked_scan_instances=True,
+        compute_cores=p150_compute_cores,
+        instances_per_core=2,
+    )
+
+    # Positive: a TP2 group of four fits a one-instance-per-core scan.
+    plan = plan_grouped_prefill(
+        user_count=4,
+        user_lengths=(96, 128, 64, 128),
+        slots=(5, 0, 7, 2),
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(plan.grouped, f"a legal TP2 group was rejected: {plan.reason}")
+    require(plan.reason == REASON_ELIGIBLE, "legal group reported the wrong reason")
+    require(plan.head_bound == 4, f"TP2 head bound is {plan.head_bound}, expected 4")
+    require(plan.groups == ((0, 1, 2, 3),), "legal group planned the wrong members")
+    require(plan.destinations == (5, 0, 7, 2), "plan lost the explicit slot order")
+
+    # Positive: the chunked scan lifts the head bound on the same geometry.
+    chunked_plan = plan_grouped_prefill(
+        user_count=8,
+        user_lengths=eight_lengths,
+        slots=eight_slots,
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=chunked_scan,
+        scratch_bytes=eight_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(chunked_plan.grouped, "the chunked scan did not admit a TP2 group of eight")
+    require(
+        chunked_plan.head_bound == 9,
+        f"chunked TP2 head bound is {chunked_plan.head_bound}, expected 9",
+    )
+    require(chunked_plan.groups == (tuple(range(8)),), "chunked plan split an eight-user group")
+    require(chunked_plan.destinations == eight_slots, "chunked plan reordered the slots")
+
+    # Derived split: eight TP2 users on a one-instance scan exceed a single
+    # group of eight (110 // 24 = 4 per group), so the plan must split them
+    # rather than copy the TP4 literal and over-subscribe the grid.
+    split_plan = plan_grouped_prefill(
+        user_count=8,
+        user_lengths=eight_lengths,
+        slots=eight_slots,
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=eight_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(split_plan.grouped, "eight TP2 users were not grouped at all")
+    require(split_plan.head_bound == 4, f"TP2 split bound is {split_plan.head_bound}, expected 4")
+    require(
+        split_plan.groups == ((0, 1, 2, 3), (4, 5, 6, 7)),
+        f"TP2 split planned the wrong groups: {split_plan.groups}",
+    )
+    require(
+        split_plan.destinations == eight_slots,
+        "TP2 split lost the explicit slot order",
+    )
+
+    # Negative: a user wider than the whole grid cannot be grouped even alone,
+    # and an empty group and a single user are the per-user route by contract.
+    over_subscribed = plan_grouped_prefill(
+        user_count=2,
+        user_lengths=(64, 64),
+        slots=(3, 4),
+        bucket=single_pass_bucket,
+        local_value_heads=p150_compute_cores + tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(not over_subscribed.grouped, "users wider than the grid were grouped")
+    require(
+        over_subscribed.reason == REASON_HEAD_CAPACITY_EXCEEDED,
+        f"wrong refusal reason: {over_subscribed.reason}",
+    )
+    require(
+        over_subscribed.groups == ((0,), (1,)),
+        "refusal did not fall back to one user per group",
+    )
+
+    empty = plan_grouped_prefill(
+        user_count=0,
+        user_lengths=(),
+        slots=(),
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(not empty.grouped, "an empty group was planned as grouped")
+    require(empty.reason == REASON_EMPTY_GROUP, f"wrong empty-group reason: {empty.reason}")
+    require(empty.groups == (), "an empty group produced rows")
+
+    single = plan_grouped_prefill(
+        user_count=1,
+        user_lengths=(64,),
+        slots=(3,),
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(not single.grouped, "a single user was planned as a group")
+    require(single.reason == REASON_SINGLE_USER, f"wrong single-user reason: {single.reason}")
+
+    # Negative: the TP4 geometry the source literal was written for derives 9,
+    # so the bound may not be taken from the literal at either width.
+    tp4_plan = plan_grouped_prefill(
+        user_count=8,
+        user_lengths=(tp4_local_value_heads,) * 8,
+        slots=tuple(range(8)),
+        bucket=single_pass_bucket,
+        local_value_heads=tp4_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=one_instance_per_core,
+        scratch_bytes=eight_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(tp4_plan.head_bound == 9, f"TP4 head bound is {tp4_plan.head_bound}, expected 9")
+
+    # Negative: a bucket above the single-pass multiple is a per-user candidate.
+    long_bucket = plan_grouped_prefill(
+        user_count=4,
+        user_lengths=(96, 128, 64, 128),
+        slots=(5, 0, 7, 2),
+        bucket=4 * gdn_bucket_chunk,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=chunked_scan,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(not long_bucket.grouped, "an oversized bucket was grouped")
+    require(
+        long_bucket.reason == REASON_BUCKET_ABOVE_SINGLE_PASS,
+        f"wrong oversized-bucket reason: {long_bucket.reason}",
+    )
+
+    # Boundary: exactly the maximum multiple of the GDN bucket chunk is still
+    # one single-pass group; one chunk more is not.
+    boundary_bucket = plan_grouped_prefill(
+        user_count=4,
+        user_lengths=(96, 128, 64, 128),
+        slots=(5, 0, 7, 2),
+        bucket=2 * gdn_bucket_chunk,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=chunked_scan,
+        scratch_bytes=four_users_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(
+        boundary_bucket.grouped,
+        f"the single-pass bucket boundary was refused: {boundary_bucket.reason}",
+    )
+
+    # Negative: a scratch budget below one user is refused before allocation.
+    starved = plan_grouped_prefill(
+        user_count=4,
+        user_lengths=(96, 128, 64, 128),
+        slots=(5, 0, 7, 2),
+        bucket=single_pass_bucket,
+        local_value_heads=tp2_local_value_heads,
+        gdn_bucket_chunk=gdn_bucket_chunk,
+        capability=chunked_scan,
+        scratch_bytes=per_user_scratch_bytes,
+        bytes_per_user=per_user_scratch_bytes,
+    )
+    require(not starved.grouped, "a single-user scratch budget was grouped")
+    require(
+        starved.reason == REASON_SCRATCH_BUDGET_EXCEEDED,
+        f"wrong scratch reason: {starved.reason}",
+    )
+
+    # Rejected shapes: duplicated destinations, a short length list, a negative
+    # user count, and a bucket below the longest user.
+    rejected_calls = (
+        {"user_count": 2, "user_lengths": (64, 64), "slots": (1, 1)},
+        {"user_count": 2, "user_lengths": (64,), "slots": (1, 2)},
+        {"user_count": -1, "user_lengths": (), "slots": ()},
+        {"user_count": 2, "user_lengths": (256, 64), "slots": (1, 2), "bucket": 128},
+    )
+    for overrides in rejected_calls:
+        arguments = dict(
+            user_count=2,
+            user_lengths=(64, 64),
+            slots=(1, 2),
+            bucket=single_pass_bucket,
+            local_value_heads=tp2_local_value_heads,
+            gdn_bucket_chunk=gdn_bucket_chunk,
+            capability=one_instance_per_core,
+            scratch_bytes=four_users_scratch_bytes,
+            bytes_per_user=per_user_scratch_bytes,
+        )
+        arguments.update(overrides)
+        try:
+            plan_grouped_prefill(**arguments)
+        except GroupedPrefillPolicyError:
+            pass
+        else:
+            raise AssertionError(f"invalid grouped-prefill request was accepted: {overrides}")
+
+    for contradictory in (
+        {"chunked_scan_instances": False, "compute_cores": 110, "instances_per_core": 2},
+        {"chunked_scan_instances": True, "compute_cores": 110, "instances_per_core": 0},
+        {"chunked_scan_instances": True, "compute_cores": 0, "instances_per_core": 1},
+    ):
+        try:
+            RuntimeCapability(**contradictory).validate()
+        except GroupedPrefillPolicyError:
+            pass
+        else:
+            raise AssertionError(f"contradictory capability was accepted: {contradictory}")
+
+
 # r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
 def probe_mtp_head_load_core():
     """Positive and negative tests for the head weight integrity verdicts."""
@@ -6573,6 +6841,7 @@ def main():
     probe("MTP serving round policy", probe_mtp_serving_core)
     probe("GDN grid instance cap assignment", probe_gdn_grid_instance_cap)
     probe("GDN grid in-range mapping unchanged", probe_gdn_grid_mapping_unchanged)
+    probe("grouped prefill eligibility", probe_grouped_prefill_eligibility)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

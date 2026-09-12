@@ -211,6 +211,16 @@ stdenvNoCC.mkDerivation {
     cp ${./trace-reuse-binding-validated.ncl} "$out/share/qwen36/trace-reuse-binding-validated.ncl"
     cp ${./trace-reuse-contracts.ncl} "$out/share/qwen36/trace-reuse-contracts.ncl"
     ln -s ${executionIdentity} "$out/share/qwen36/execution-identity"
+    # The service derives grouped-prefill eligibility from what it actually
+    # links. Only the GDN grid variant carries the chunked scan instance loop,
+    # so this record is the one capability fact the package itself knows.
+    gdn_scan_chunked=false
+    if [ "$gdnGridRuntimeFlag" = "1" ]; then gdn_scan_chunked=true; fi
+    printf '%s\n' \
+      '{' \
+      '  "schema_version": 1,' \
+      "  \"gdn_scan_chunked_instances\": $gdn_scan_chunked" \
+      '}' > "$out/share/qwen36/runtime-capability.json"
     cp ${./mtp-probe-profile.ncl} "$out/share/qwen36/mtp-probe-profile.ncl"
     cp ${./mtp-probe-contracts.ncl} "$out/share/qwen36/mtp-probe-contracts.ncl"
     cp ${./mtp-drafter-profile.ncl} "$out/share/qwen36/mtp-drafter-profile.ncl"
