@@ -6728,8 +6728,10 @@ def probe_grouped_prefill_routing():
 
     from qwen36_service.batch_decode_adapter import (
         CHUNKED_VALIDATED_INSTANCES_PER_CORE,
+        DECODE_CAPACITY_MISMATCH_REASON,
         GRID_UNAVAILABLE_REASON,
         GROUPED_PREFILL_ENV,
+        MULTI_GROUP_ASSEMBLY_REASON,
         NON_CHUNKED_CAPABILITY_SOURCE,
         PACKAGE_CAPABILITY_SOURCE,
         BatchedTracedDecodeAdapter,
@@ -6745,7 +6747,7 @@ def probe_grouped_prefill_routing():
         gdn_scan_chunked_instances=False, source=PACKAGE_CAPABILITY_SOURCE
     )
 
-    def stub(record, mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid)):
+    def stub(record, mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid), capacity=8):
         value_heads = 24
         layer = SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(Nv=value_heads))
         full = SimpleNamespace(is_full_attention=True, attention=SimpleNamespace(Nv=0))
@@ -6756,7 +6758,7 @@ def probe_grouped_prefill_routing():
             def __init__(self):
                 self._capability_record = record
                 self.mesh = mesh
-                self.maximum_width = 8
+                self.maximum_width = capacity
                 self.model = SimpleNamespace(
                     args=SimpleNamespace(gdn_chunk_size=128), layers=[full, layer]
                 )
@@ -6786,9 +6788,14 @@ def probe_grouped_prefill_routing():
     require(grouped and size == 8, f"chunked route planned {grouped}/{size}/{reason}")
     require(reason == "grouped-eligible", f"wrong grouped reason: {reason}")
 
-    # One-instance runtime: the same request splits into groups of four.
-    grouped, size, reason = plan(stub(one_instance_record), 8, eight_lengths, grouped_enabled=True)
-    require(grouped and size == 4, f"one-instance route planned {grouped}/{size}/{reason}")
+    # A one-instance runtime derives a tighter split bound. That split is
+    # asserted in the eligibility probe; at the routing level it is refused
+    # because the assembly cannot write two partial groups into one buffer.
+    _, _, tight_reason = plan(stub(one_instance_record), 8, eight_lengths, grouped_enabled=True)
+    require(
+        tight_reason == MULTI_GROUP_ASSEMBLY_REASON,
+        f"the tighter split bound did not refuse at routing: {tight_reason}",
+    )
 
     # An unreadable grid refuses grouping rather than guessing a core count.
     broken_mesh = SimpleNamespace(
@@ -6810,6 +6817,29 @@ def probe_grouped_prefill_routing():
         (not grouped) and reason == "bucket-above-single-pass",
         f"an oversized bucket was grouped: {grouped}/{reason}",
     )
+
+    # The adopted grouped path cannot install a group narrower than the decode
+    # buffer, nor several groups into one buffer: both are measured failures.
+    narrower, _, narrow_reason = plan(
+        stub(chunked_record, capacity=16), 8, eight_lengths, grouped_enabled=True
+    )
+    require(
+        (not narrower) and narrow_reason == DECODE_CAPACITY_MISMATCH_REASON,
+        f"a width below the decode capacity was grouped: {narrower}/{narrow_reason}",
+    )
+    many_groups, _, groups_reason = plan(
+        stub(one_instance_record, capacity=8), 8, eight_lengths, grouped_enabled=True
+    )
+    require(
+        (not many_groups) and groups_reason == MULTI_GROUP_ASSEMBLY_REASON,
+        f"a multi-group plan reached the assembly: {many_groups}/{groups_reason}",
+    )
+
+    # A single group that fills the buffer is the only supported grouped shape.
+    matching, size, match_reason = plan(
+        stub(chunked_record, capacity=8), 8, eight_lengths, grouped_enabled=True
+    )
+    require(matching and size == 8, f"the supported grouped shape was refused: {match_reason}")
 
     # The capability record fails closed when absent, malformed, or mis-versioned.
     with tempfile.TemporaryDirectory() as directory:

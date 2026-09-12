@@ -58,6 +58,13 @@ NON_CHUNKED_CAPABILITY_SOURCE = "fallback-one-instance-per-core"
 PACKAGE_CAPABILITY_SOURCE = "package-runtime-capability"
 GRID_UNAVAILABLE_REASON = "compute-grid-unavailable"
 NON_POSITIONAL_DESTINATIONS_REASON = "non-positional-state-destinations"
+# The adopted grouped path assembles each group's GDN state with a same-shape
+# copy into the decode buffer, so it can only run when one group fills the
+# buffer exactly. Measured on silicon: passing four users against a sixteen-row
+# buffer fails the copy with Shape([4, 24, 128, 128]) vs
+# Shape([16, 24, 128, 128]) during startup warm-up.
+DECODE_CAPACITY_MISMATCH_REASON = "group-width-below-decode-capacity"
+MULTI_GROUP_ASSEMBLY_REASON = "multi-group-assembly-unsupported"
 
 
 class BatchDecodeAdapterError(RuntimeError):
@@ -491,7 +498,14 @@ class BatchedTracedDecodeAdapter:
             return False, ONE_INSTANCE_PER_CORE, plan.reason
         if plan.destinations != slots:
             return False, ONE_INSTANCE_PER_CORE, NON_POSITIONAL_DESTINATIONS_REASON
-        return True, max(len(group) for group in plan.groups), REASON_ELIGIBLE
+        if width != self.maximum_width:
+            # The buffer holds maximum_width rows and the grouped assembly copies
+            # a group-shaped block into it, so a narrower request cannot install.
+            return False, ONE_INSTANCE_PER_CORE, DECODE_CAPACITY_MISMATCH_REASON
+        if len(plan.groups) != 1:
+            # Several groups would each write a partial block into the buffer.
+            return False, ONE_INSTANCE_PER_CORE, MULTI_GROUP_ASSEMBLY_REASON
+        return True, len(plan.groups[0]), REASON_ELIGIBLE
 
     def prefill_users(
         self,
