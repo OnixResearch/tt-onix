@@ -207,3 +207,45 @@ candidate mechanisms are a transposed grid coordinate for one program family, or
 a CB laid out along a service-core column whose claim set does not cover it.
 Identifying which needs a program-level trace; python-side logging is unusable
 because trace capture rejects event synchronization.
+
+## V4: a bounded retry was implemented, measured, and reverted
+
+The failure pattern suggested one mitigation available on our side: a cold trace
+capture that fails once and succeeds on a retry. Since the harness's whole-group
+retry always recovered the matched runs, a bounded retry inside the service looked
+like the right shape, so it was implemented (`prepare_width_with_retry`, three
+attempts, releases traces before each retry, fails closed with the attempt count)
+and covered by a device-free probe.
+
+**It does not fix the defect.** On silicon the three attempts failed 80 ms apart
+in one burst, all with the same program:
+
+```
+17:16:00.042  TT_FATAL: Circular buffer core range [0-0 - 0-12] in program 1380 ...
+17:16:00.123  TT_FATAL: Circular buffer core range [0-0 - 0-12] in program 1380 ...
+17:16:00.205  TT_FATAL: Circular buffer core range [0-0 - 0-12] in program 1380 ...
+```
+
+The same session then failed the remaining widths (0/10, 1/11, 0/13, 0/16
+responses). So within a session the failure is **deterministic per capture
+attempt**, not intermittent per attempt. What the matched run's retries actually
+recovered was a *later group* whose capture produced a different program: in
+batch-1 the fatal groups were the sub-groups of width 11 and 13, and every
+width-16 group afterwards succeeded.
+
+Reverted, because a mitigation that does not mitigate is worse than none: it adds
+latency and implies a fix that does not exist. The honest state is:
+
+- width 16 executes, is numerically exact, and is unreliable whenever a capture
+  lands on the offending program family;
+- recovery requires the failing groups' requests to fail first, which the service
+  coordinator does not paper over;
+- the fix belongs to tt-metal: a program declares a circular-buffer core range
+  with a vertical extent of 11 or 13 rows against a ten-row worker grid, and 0.77
+  validates that range strictly unless every core is service-claimed.
+
+The remaining instrument for identifying the program is C++-side: `libtt_metal.so`
+carries the validator symbol but `_ttnncpp.so`, which holds the op program
+factories, is stripped and has no DWARF, and no logger environment exists in 0.77
+that would name the op. Identifying it therefore needs a build with symbols or a
+device-level program trace, not another service-side workaround.
