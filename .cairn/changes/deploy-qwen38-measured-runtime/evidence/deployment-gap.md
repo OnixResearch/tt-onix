@@ -80,6 +80,12 @@ there is no `/etc/nixos`, no registry entry names it, and a bounded search of
 and this repository's module name found nothing. The deployed generation's
 closure does not carry the configuration source.
 
+The host configuration lives in the sibling `../onix-core` repository (its
+`inventory/tags/tenstorrent*` entries reference this module). The switch is
+therefore a handoff: it belongs to that repository's deployment path, not to
+this change, and this change records the exact edit it needs rather than
+reaching into another repository's configuration.
+
 The edit the host needs is two lines in its module instantiation:
 
 ```nix
