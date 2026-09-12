@@ -117,3 +117,62 @@ So the TTFT-ratio failure is not explained by "prefill was never batched": the
 batched alternative is slower here at 384 scan instances over 110 cores, and it
 removes per-user pipelining by construction. The failure therefore stands on its
 own merits, with the mechanism measured rather than assumed.
+
+## V4 follow-up: the intermittent defect narrowed to a 0.77 validator interaction
+
+### What the validator actually checks
+
+`tt_metal/impl/program/program.cpp` (pinned 0.77 source, `validate_circular_buffer_core_ranges`):
+
+```cpp
+const bool in_worker_grid = cr.end_coord.x < grid_size.x && cr.end_coord.y < grid_size.y;
+TT_FATAL(in_worker_grid || entirely_on_service_cores(cr), ...);
+```
+
+`CoreRange::str()` renders `[start.x-start.y - end.x-end.y]`
+(`tt_metal/common/core_coord.cpp:115`). So the recorded ranges are **vertical**:
+`(0,0)-(0,10)` is eleven rows in column 0, and the physical worker grid is
+`11 x 10`, i.e. `y` may only reach 9. A CB range is exempt when *every* core in
+it is claimed through `ServiceCoreManager` — the exemption that collective ops
+rely on.
+
+### Why the width is not the trigger
+
+A clean single-server probe fired groups of 10, 11, 13 and 16 concurrent
+requests. The coordinator assembled groups of 3, 10, 10, 11 and 15 from those
+bursts and **all of them failed** with `BatchDecodeAdapterError`, while a
+width-1 request **passed**. Width 1 passed because its decode trace was already
+resident from warm-up (widths 1 and 4 are warmed); every other width needs a
+**new trace capture**, and the fatal happens inside that capture.
+
+So the trigger is trace capture at a width whose trace is not yet resident — not
+the width itself, and not a count proportional to the group size. That also
+explains the intermittency seen in the matched run: a capture attempt can fail
+and a later attempt at the same width can succeed, which is why the batch roots
+completed with whole-group retries.
+
+### What this points at
+
+- The model's own shard grids in the GDN attention path are **horizontal**
+  (`CoreRange(CoreCoord(0,0), CoreCoord(N-1, 0))`, two sites in
+  `ttnn_gated_attention.py`), so they are not the source of a vertical range.
+- The range is exactly `grid.x` (11) rows tall, which is the signature of a
+  transposed grid argument, or of a CB laid out over a *service-core column*.
+- The validator's exemption is claim-set based and, per its own comment, was
+  recently extended to flatten `MeshDevice` and query `ServiceCoreManager` per
+  chip. A layout that 0.74 accepted can therefore fail on 0.77 when the claim set
+  and the CB range disagree.
+
+The remaining step is C++-side: identify the op that creates program 1324 (or
+2360/2396 in the matched run). TTNN's op logging is not usable for this — it
+inserts event synchronization, which trace capture forbids
+(`TT_FATAL: Event Synchronization is not supported during trace capture`) — so the
+instrument has to be a device/program-level trace rather than python logging.
+
+### Practical consequence
+
+- Width 16 executes and is correct but is not reliable at new trace widths; the
+  binding stays unadmitted and the service coordinator does not retry, so serving
+  must not be enabled on it.
+- Any measurement of a new width should capture its trace before the measured
+  groups (the harness's group retry already absorbs the first-capture failure).
