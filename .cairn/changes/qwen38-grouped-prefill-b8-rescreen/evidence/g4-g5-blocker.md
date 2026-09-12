@@ -90,10 +90,24 @@ Measuring the baseline (gate off) on the identity created by the g3 wiring
 
 Batch TTFT was 13.988 s against 2.248 s single; batch aggregate 100.06 t/s.
 
-That receipt is already superseded, because adding the fail-closed preconditions
-changed the service source again and moved the identity to `dswrs8nv…`. The
-practical consequence for the repository: **any service edit invalidates the
-admission identity, and the tracked B=8 receipt currently names `z31p1j9w…`,
-which no longer exists.** Refreshing it requires a final matched run on an
-identity that will not move again, which is scheduled as the last step of this
-work rather than done on an identity already superseded.
+That receipt was already superseded when the fail-closed preconditions moved the
+identity again, so the refresh was repeated on the final identity and the
+tracked artifacts now name it:
+
+| Item | Value |
+| --- | --- |
+| receipt | `pkgs/qwen36/evidence/2026-09-12/qwen38-27b-batch-admission-b8-receipt.json` |
+| receipt BLAKE3 | `d542c05a9c82571976212c5b77530a9bd8cb55adfa0dcfc08625355626eb18e3` |
+| package identity | `dswrs8nvjcl4pc0vy79xrqwk6jly2yzi` (variant, runtime `6ccynlvv…`) |
+| gates | speedup 6.0492, retention 0.7562, TTFT ratio 7.0230, tail ratio 1.2986, all correctness true |
+| batch TTFT | 14.902 s against 2.122 s single; batch aggregate 100.16 t/s |
+
+The B=8 binding's `receipt_blake3` and the install-phase assertion both follow
+the new file, so the package can only build when the admitted binding and the
+tracked receipt agree. The superseded `2026-09-11` receipt and the archived
+`2026-08-26` rejection remain as history.
+
+The practical consequence for the repository: **any service edit invalidates
+the admission identity and requires a fresh matched run.** Keeping the identity
+stable across this change's remaining work is why the grouped route stays gated
+off, and why the refresh was deliberately the last measurement taken.

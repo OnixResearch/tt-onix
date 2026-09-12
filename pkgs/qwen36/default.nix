@@ -1095,7 +1095,7 @@ stdenvNoCC.mkDerivation {
     # own admission block says it passed. A rejection receipt cannot be paired
     # with an admitted binding, and the exported digest cannot drift from the
     # tracked artifact.
-    b8_receipt=${./evidence/2026-09-11/qwen38-27b-batch-admission-b8-receipt.json}
+    b8_receipt=${./evidence/2026-09-12/qwen38-27b-batch-admission-b8-receipt.json}
     b8_receipt_blake3=$(b3sum "$b8_receipt" | cut -d' ' -f1)
     grep -F '"admitted": true' "$b8_receipt"
     grep -F '"physically_admitted": true' batch-admission-b8-profile-first.json
