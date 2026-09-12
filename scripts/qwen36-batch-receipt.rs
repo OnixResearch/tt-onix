@@ -58,6 +58,10 @@ const SELF_TEST_CANDIDATE_TTFT: f64 = 4.0;
 const SELF_TEST_BASELINE_TAIL: f64 = 0.1;
 const SELF_TEST_CANDIDATE_TAIL: f64 = 0.12;
 const SELF_TEST_TRACE_PREPARE: f64 = 0.2;
+const ROUTE_COUNT_DIAGNOSTIC: &str = "exactly two single and two batch roots are required";
+const ARGUMENT_ORDER_DIAGNOSTIC: &str = "execution order must be single,batch,batch,single";
+const PROFILE_ORDER_DIAGNOSTIC: &str = "profile execution order differs from the command";
+const SAMPLE_COUNT_DIAGNOSTIC: &str = "measured samples, expected";
 const SELF_TEST_STATE_INSTALL: f64 = 0.3;
 const SELF_TEST_CLEANUP: f64 = 0.01;
 const SELF_TEST_MAXIMUM_TTFT_RATIO: f64 = 4.5;
@@ -800,7 +804,7 @@ fn run_self_test_case(case: &SelfTestCase) -> Result<(), String> {
         }
     }
     let config = Config {
-        profile: profile_path,
+        profile: profile_path.clone(),
         single_roots: vec![single_one.clone(), single_two.clone()],
         batch_roots: vec![batch_one.clone(), batch_two.clone()],
         execution_order: EXPECTED_EXECUTION_ORDER
@@ -849,8 +853,90 @@ fn run_self_test_case(case: &SelfTestCase) -> Result<(), String> {
     if !error.contains("not batch admission evidence") {
         return Err(format!("wrong ineligible diagnostic: {error}"));
     }
+
+    // Negative: a reduced root count is rejected before any measurement.
+    let mut reduced_arguments = vec![
+        PROFILE_FLAG.to_owned(),
+        profile_path.display().to_string(),
+        SINGLE_ROOT_FLAG.to_owned(),
+        single_one.display().to_string(),
+        SINGLE_ROOT_FLAG.to_owned(),
+        single_two.display().to_string(),
+        BATCH_ROOT_FLAG.to_owned(),
+        batch_one.display().to_string(),
+        EXECUTION_ORDER_FLAG.to_owned(),
+        EXPECTED_EXECUTION_ORDER.join(","),
+        OUTPUT_FLAG.to_owned(),
+        root.join("unused.json").display().to_string(),
+    ];
+    let error =
+        parse_config(&reduced_arguments).expect_err("a reduced root count was accepted");
+    require_diagnostic(&error, ROUTE_COUNT_DIAGNOSTIC, "reduced root count")?;
+
+    // Negative: a changed order is rejected at the argument layer.
+    let order_index = reduced_arguments
+        .iter()
+        .position(|argument| argument == EXECUTION_ORDER_FLAG)
+        .ok_or("the self-test order flag is missing")?;
+    reduced_arguments[order_index + 1] = ["single", "batch", "single", "batch"].join(",");
+    reduced_arguments.push(BATCH_ROOT_FLAG.to_owned());
+    reduced_arguments.push(batch_two.display().to_string());
+    let error =
+        parse_config(&reduced_arguments).expect_err("a changed order was accepted");
+    require_diagnostic(&error, ARGUMENT_ORDER_DIAGNOSTIC, "changed order argument")?;
+
+    // Negative: a changed order inside the profile is rejected before measurement.
+    let mut reordered: Value = read_json(&profile_path)?;
+    reordered["workload"]["execution_order"] =
+        json!(["single", "batch", "single", "batch"]);
+    let reordered_path = root.join("profile-reordered.json");
+    fs::write(
+        &reordered_path,
+        serde_json::to_vec(&reordered).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let reordered_config = Config {
+        profile: reordered_path,
+        single_roots: config.single_roots.clone(),
+        batch_roots: config.batch_roots.clone(),
+        execution_order: config.execution_order.clone(),
+        output: config.output.clone(),
+    };
+    let error = build_receipt(&reordered_config).expect_err("a reordered profile was accepted");
+    require_diagnostic(&error, PROFILE_ORDER_DIAGNOSTIC, "changed order profile")?;
+
+    // Negative: a shortened corpus cannot satisfy the frozen sample count.
+    let mut shortened: Value = read_json(&profile_path)?;
+    let prompts = shortened["workload"]["prompts"]
+        .as_array_mut()
+        .ok_or("the self-test profile carries no prompts")?;
+    prompts.pop();
+    let shortened_path = root.join("profile-short.json");
+    fs::write(
+        &shortened_path,
+        serde_json::to_vec(&shortened).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let shortened_config = Config {
+        profile: shortened_path,
+        single_roots: config.single_roots.clone(),
+        batch_roots: config.batch_roots.clone(),
+        execution_order: config.execution_order.clone(),
+        output: config.output.clone(),
+    };
+    let error = build_receipt(&shortened_config).expect_err("a shortened corpus was accepted");
+    require_diagnostic(&error, SAMPLE_COUNT_DIAGNOSTIC, "shortened corpus")?;
+
     fs::remove_dir_all(root).map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn require_diagnostic(error: &str, needle: &str, label: &str) -> Result<(), String> {
+    if error.contains(needle) {
+        Ok(())
+    } else {
+        Err(format!("wrong {label} diagnostic: {error}"))
+    }
 }
 
 fn write_profile(path: &Path, case: &SelfTestCase) -> Result<(), String> {

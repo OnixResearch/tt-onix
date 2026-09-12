@@ -33,6 +33,28 @@ let StringArrayC = std.contract.from_predicate (fun value =>
   && std.array.all std.is_string value
   && std.array.all (fun item => std.string.length item > 0) value
 ) in
+# Frozen predeclared protocol values. They mirror the named constants in
+# batch-admission-b8-policy.ncl. Pinning them here is what makes an edited
+# threshold or a shortened corpus fail to export instead of silently
+# measuring against a weaker gate.
+let frozen_baseline_width = 1 in
+let frozen_candidate_width = 8 in
+let frozen_generated_tokens = 64 in
+let frozen_measured_runs = 3 in
+let frozen_prompt_count = 8 in
+let frozen_warmup_runs = 1 in
+let frozen_minimum_aggregate_decode_speedup_ratio = 6.0 in
+let frozen_minimum_per_user_decode_retention_ratio = 0.75 in
+let frozen_maximum_ttft_ratio = 9.0 in
+let frozen_maximum_tail_latency_ratio = 1.5 in
+# The frozen corpus size. A shortened corpus cannot export: the predeclared
+# rejection protocol is eight prompts, one warmup, and three measured runs.
+let ExactlyNStringsC = fun count => std.contract.from_predicate (fun value =>
+  std.is_array value
+  && std.array.length value == count
+  && std.array.all std.is_string value
+  && std.array.all (fun item => std.string.length item > 0) value
+) in
 let RootOrderC = std.contract.from_predicate (fun value =>
   value == ["single", "batch", "batch", "single"]
 ) in
@@ -65,13 +87,13 @@ let IdentityClosedC = ClosedRecordC [
 ] in
 
 let WorkloadC = {
-  baseline_width | ExactC 1,
-  candidate_width | ExactC 8,
+  baseline_width | ExactC frozen_baseline_width,
+  candidate_width | ExactC frozen_candidate_width,
   execution_order | RootOrderC,
-  generated_tokens | PositiveIntC,
-  measured_runs | PositiveIntC,
-  prompts | StringArrayC,
-  warmup_runs | PositiveIntC,
+  generated_tokens | ExactC frozen_generated_tokens,
+  measured_runs | ExactC frozen_measured_runs,
+  prompts | ExactlyNStringsC frozen_prompt_count,
+  warmup_runs | ExactC frozen_warmup_runs,
 } in
 let WorkloadClosedC = ClosedRecordC [
   "baseline_width",
@@ -84,10 +106,10 @@ let WorkloadClosedC = ClosedRecordC [
 ] in
 
 let AdmissionC = {
-  maximum_tail_latency_ratio | PositiveNumberC,
-  maximum_ttft_ratio | PositiveNumberC,
-  minimum_aggregate_decode_speedup_ratio | PositiveNumberC,
-  minimum_per_user_decode_retention_ratio | UnitFractionC,
+  maximum_tail_latency_ratio | ExactC frozen_maximum_tail_latency_ratio,
+  maximum_ttft_ratio | ExactC frozen_maximum_ttft_ratio,
+  minimum_aggregate_decode_speedup_ratio | ExactC frozen_minimum_aggregate_decode_speedup_ratio,
+  minimum_per_user_decode_retention_ratio | ExactC frozen_minimum_per_user_decode_retention_ratio,
   require_active_prefix | ExactC true,
   require_clean_reset | ExactC true,
   require_distinct_state_slices | ExactC true,
