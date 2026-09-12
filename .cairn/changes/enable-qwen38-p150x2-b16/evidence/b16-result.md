@@ -176,3 +176,34 @@ instrument has to be a device/program-level trace rather than python logging.
   must not be enabled on it.
 - Any measurement of a new width should capture its trace before the measured
   groups (the harness's group retry already absorbs the first-capture failure).
+
+## V4 addendum: the measurement is genuine, and the failure does not scale with width
+
+Group widths actually observed in the matched roots:
+
+| Root | width-16 groups | sub-groups seen | program fatals |
+| --- | ---: | --- | ---: |
+| batch-1 | 64 | 10, 11 x3, 5 x3, 6, 7, 9 | 3 (all `(0,0)-(0,10)`) |
+| batch-2 | 64 | none | 0 |
+
+So the width-16 receipt is built from **64 genuine width-16 groups in each batch
+root** (64 = 16 warmup + 48 measured), and the earlier concern that the coordinator
+was silently serving smaller groups is excluded. The single roots never fataled.
+
+Two facts sharpen the defect and correct a first reading of it:
+
+1. The offending range was `(0,0)-(0,10)` in **every** fatal of the matched run —
+   eleven rows, which is exactly `grid.x` — while the failed group widths were
+   11, and in the separate probe 3, 10, 11 and 15. The range therefore does not
+   scale with the group width; it is a fixed eleven-core column (thirteen in one
+   probe instance).
+2. Failures and 64 successes interleave inside one process, so a fatal does not
+   always poison the session — but in the width probe it did (49 subsequent
+   request failures, one pass). Whether a session recovers appears to depend on
+   how the failing program is subsequently re-created.
+
+Combined with the trigger being a non-resident trace width, the remaining
+candidate mechanisms are a transposed grid coordinate for one program family, or
+a CB laid out along a service-core column whose claim set does not cover it.
+Identifying which needs a program-level trace; python-side logging is unusable
+because trace capture rejects event synchronization.
