@@ -249,3 +249,43 @@ carries the validator symbol but `_ttnncpp.so`, which holds the op program
 factories, is stripped and has no DWARF, and no logger environment exists in 0.77
 that would name the op. Identifying it therefore needs a build with symbols or a
 device-level program trace, not another service-side workaround.
+
+## V4 correction: the failing widths were policy rejections, and only width 16 captures
+
+Earlier text in this record said the failed group widths were 11 in the matched
+run and 3, 10, 11, 15 in a probe, and inferred a width-varying trigger. That
+reading was wrong, and a single-session-per-width probe settles it.
+
+Under the **B=16 profile** only widths 1 and 16 are eligible: `measurement()` in
+`batch_admission_core` accepts the profile's own baseline and candidate widths
+and rejects everything else, and `batch_service` raises
+`BatchDecodeAdapterError("batch admission measurement is outside policy")` before
+any device work. So:
+
+| Observation | What it really was |
+| --- | --- |
+| probe groups at 3, 10, 11, 15 failing | policy rejections: those widths are not 1 or 16 |
+| per-width probe at width 8 failing, `0` TT_FATALs in the whole session | policy rejection |
+| per-width probe at width 6 failing, `0` TT_FATALs | policy rejection |
+| `batch_width` 5, 6, 7, 9, 10, 11 entries in the matched run's log | sub-groups the coordinator formed from straggling arrivals, rejected by policy |
+| TT_FATAL `Circular buffer core range ...` | **only** the width-16 trace capture |
+
+So the device defect is narrower and more serious than first recorded: it is the
+**candidate width's own capture** that intermittently fails, not an exotic width
+that serving would never choose. Consequences:
+
+- The matched receipts stand: 64 genuine width-16 groups per batch root, and
+  every one of those groups needed a width-16 capture (the first succeeded and
+  later groups reused the resident trace).
+- The in-adapter retry did not recover it in that probe session: three attempts
+  80 ms apart all failed with the same program, so within one call the failure is
+  deterministic.
+- What recovered the matched run was a *fresh group* after the failing attempts
+  were dropped. That is the difference between a retry inside the same call and a
+  retry after the coordinator has unwound the group, and it is why the harness's
+  whole-group retry worked while the in-service retry did not.
+
+Corrected state: width 16 is numerically exact and unreliable at capture, the
+unreliability is in the candidate width itself, and the fix remains tt-metal-side
+(a program declares a vertical circular-buffer core range of 11 or 13 rows
+against a ten-row worker grid).
