@@ -1716,6 +1716,8 @@
       "class": "portable_evidence",
       "byte_count": 515,
       "blake3": "1708c5cd9df7d93824a9b9724f04cac5608dfb99c2feebd6fa37963a9937d555"
+    },
+    {
       "path": "pkgs/qwen36/evidence/2026-09-08/staged-abba/BLAKE3SUMS",
       "class": "portable_evidence",
       "byte_count": 489,

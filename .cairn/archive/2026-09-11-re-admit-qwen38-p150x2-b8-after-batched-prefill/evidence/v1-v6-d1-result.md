@@ -103,15 +103,21 @@ the old rejection state: it requires the tracked receipt to contain
 to equal the tracked receipt's `b3sum`. A rejection receipt can no longer be
 paired with an admitted binding, and the digest cannot drift from the artifact.
 
-Rebuilt after the move: `qwen38` = `/nix/store/inmzbg5r1wk1pjivmisxwjb6gqicrpd5-qwen38-0.1.0`,
-`qwen38-gdn-grid` = `/nix/store/4jrx0g3rafcypgn3ndssw5s3dnblwhm7-qwen38-0.1.0`; the
-deployed B=8 profile reports `physically_admitted: true` with the receipt
-digest, and the deployed B=4 profile is unchanged (`true`,
-`489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028`). The
-post-admission execution identity is
+Rebuilt after the move: `qwen38` (shared runtime) =
+`/nix/store/4jrx0g3rafcypgn3ndssw5s3dnblwhm7-qwen38-0.1.0` with runtime identity
+`dr9bj8qw…` and execution identity
 `/nix/store/3wnk77930rdz2nipxbzln47plnbkp2v6-qwen36-execution-identity-0.1.0`;
-the receipt deliberately records the identity that produced it
-(`z31p1j9w…`), exactly as the admitted B=4 receipt records its own.
+`qwen38-gdn-grid` (chunked runtime) =
+`/nix/store/inmzbg5r1wk1pjivmisxwjb6gqicrpd5-qwen38-0.1.0` with runtime identity
+`6ccynlvv…` and execution identity
+`/nix/store/z31p1j9wa4af27vakffyzqp9cyypsjr1-qwen36-execution-identity-0.1.0`.
+The admitted receipt records `z31p1j9w…`, which is still the variant package's
+identity after the binding move: receipt bindings are deliberately excluded
+from the execution identity (the package asserts that a receipt-only promotion
+cannot change it), so the admission continues to describe the artifact that
+exists now. The deployed B=8 profile reports `physically_admitted: true` with
+the receipt digest, and the deployed B=4 profile is unchanged (`true`,
+`489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028`).
 
 One probe needed a correctness fix when the binding moved:
 `probe_batch_admission` built its "admitted without a receipt" negative by
