@@ -16,11 +16,11 @@
 
 - [x] [serial] V1 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.b16_execution.valid]
 - [x] [serial] V2 Prove on silicon that sixteen concurrent requests execute at width 16. r[tenstorrent.qwen38_p150x2.b16_execution.valid]
-- [ ] [serial] V3 Run the matched four-root protocol at width 16 and record the receipt or the exact failing gate. r[tenstorrent.qwen38_p150x2.b16_execution.valid]
-- [ ] [serial] V4 Record the intermittent program error: diagnostic, program id, affected core range, and observed rate. r[tenstorrent.qwen38_p150x2.b16_execution.blocked]
-- [ ] [serial] V5 Confirm the B=4 and B=8 profiles, bindings, and receipts are unchanged, and that production still serves the single-stream route. r[tenstorrent.qwen38_p150x2.b16_execution]
+- [x] [serial] V3 Run the matched four-root protocol at width 16 and record the receipt or the exact failing gate. r[tenstorrent.qwen38_p150x2.b16_execution.valid]
+- [x] [serial] V4 Record the intermittent program error: diagnostic, program id, affected core range, and observed rate. r[tenstorrent.qwen38_p150x2.b16_execution.blocked]
+- [x] [serial] V5 Confirm the B=4 and B=8 profiles, bindings, and receipts are unchanged, and that production still serves the single-stream route. r[tenstorrent.qwen38_p150x2.b16_execution]
 
 ## Phase 4: Completion
 
-- [ ] [serial] D1 Record the result and every non-claim; move the B=16 binding only on a fully passing receipt. r[tenstorrent.qwen38_p150x2.b16_execution]
-- [ ] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.b16_execution]
+- [x] [serial] D1 Record the result and every non-claim; move the B=16 binding only on a fully passing receipt. r[tenstorrent.qwen38_p150x2.b16_execution]
+- [x] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.b16_execution]

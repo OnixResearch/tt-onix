@@ -995,16 +995,22 @@ stdenvNoCC.mkDerivation {
     test -f "$out/share/qwen36/batch-admission-profile.json"
     test -f "$out/share/qwen36/batch-admission-b8-profile.json"
     test -f "$out/share/qwen36/batch-admission-b16-profile.json"
+    b16_receipt=${./evidence/2026-09-12/qwen38-27b-batch-admission-b16-receipt.json}
+    b16_receipt_blake3=$(b3sum "$b16_receipt" | cut -d' ' -f1)
     ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
 import json
 with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
     profile = json.load(handle)
+with open("$b16_receipt") as handle:
+    receipt = json.load(handle)
 assert profile["workload"]["candidate_width"] == 16
 assert len(profile["workload"]["prompts"]) == 16
 assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
 assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
 assert profile["admission"]["maximum_ttft_ratio"] == 9.0
 assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
+assert profile["identities"]["receipt_blake3"] == "$b16_receipt_blake3"
+assert profile["physically_admitted"] == receipt["admission"]["admitted"]
 PROFILE_CHECK
     test -f "$out/share/qwen36/batch-admission-policy.ncl"
     test -f "$out/share/qwen36/batch-admission-binding.ncl"

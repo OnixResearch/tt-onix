@@ -45,8 +45,12 @@ const FAILURE_EXIT_CODE: u8 = 1;
 const SELF_TEST_BASELINE_WIDTH: usize = 1;
 const SELF_TEST_CANDIDATE_WIDTH: usize = 4;
 const SELF_TEST_B8_CANDIDATE_WIDTH: usize = 8;
-const ALLOWED_CANDIDATE_WIDTHS: [usize; 2] =
-    [SELF_TEST_CANDIDATE_WIDTH, SELF_TEST_B8_CANDIDATE_WIDTH];
+const SELF_TEST_B16_CANDIDATE_WIDTH: usize = 16;
+const ALLOWED_CANDIDATE_WIDTHS: [usize; 3] = [
+    SELF_TEST_CANDIDATE_WIDTH,
+    SELF_TEST_B8_CANDIDATE_WIDTH,
+    SELF_TEST_B16_CANDIDATE_WIDTH,
+];
 const SELF_TEST_PROMPT_COUNT: usize = 4;
 const SELF_TEST_MEASURED_RUNS: usize = 1;
 const SELF_TEST_GENERATED_TOKENS: usize = 2;
@@ -72,6 +76,10 @@ const SELF_TEST_B8_PROMPT_COUNT: usize = 8;
 const SELF_TEST_B8_AGGREGATE_RATE: f64 = 64.0;
 const SELF_TEST_B8_MINIMUM_AGGREGATE_SPEEDUP: f64 = 6.0;
 const SELF_TEST_B8_MAXIMUM_TTFT_RATIO: f64 = 9.0;
+const SELF_TEST_B16_PROMPT_COUNT: usize = 16;
+const SELF_TEST_B16_AGGREGATE_RATE: f64 = 128.0;
+const SELF_TEST_B16_MINIMUM_AGGREGATE_SPEEDUP: f64 = 6.0;
+const SELF_TEST_B16_MAXIMUM_TTFT_RATIO: f64 = 9.0;
 const SELF_TEST_TOKEN_BASE: i64 = 100;
 const SELF_TEST_FILE_INDEX_WIDTH: usize = 2;
 const SELF_TEST_FIRST_RESPONSE_NAME: &str = "00-measured-0.json";
@@ -761,6 +769,16 @@ fn self_test() -> Result<(), String> {
             minimum_aggregate_speedup: SELF_TEST_B8_MINIMUM_AGGREGATE_SPEEDUP,
             minimum_retention: SELF_TEST_MINIMUM_RETENTION,
             maximum_ttft_ratio: SELF_TEST_B8_MAXIMUM_TTFT_RATIO,
+            maximum_tail_ratio: SELF_TEST_MAXIMUM_TAIL_RATIO,
+        },
+        SelfTestCase {
+            width: SELF_TEST_B16_CANDIDATE_WIDTH,
+            prompt_count: SELF_TEST_B16_PROMPT_COUNT,
+            candidate_per_user_rate: SELF_TEST_CANDIDATE_RATE,
+            candidate_aggregate_rate: SELF_TEST_B16_AGGREGATE_RATE,
+            minimum_aggregate_speedup: SELF_TEST_B16_MINIMUM_AGGREGATE_SPEEDUP,
+            minimum_retention: SELF_TEST_MINIMUM_RETENTION,
+            maximum_ttft_ratio: SELF_TEST_B16_MAXIMUM_TTFT_RATIO,
             maximum_tail_ratio: SELF_TEST_MAXIMUM_TAIL_RATIO,
         },
     ];
