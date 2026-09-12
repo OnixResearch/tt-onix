@@ -34,8 +34,8 @@
 
 ## Phase 4: Completion
 
-- [ ] [serial] D1 Record both mechanism results, the parity tables, the chunk arithmetic, and every non-claim; do not move any admission binding. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
-- [ ] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [x] [serial] D1 Record both mechanism results, the parity tables, the chunk arithmetic, and every non-claim; do not move any admission binding. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
+- [x] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_grid_instance_cap]
 
 ## Verification Coverage
 
