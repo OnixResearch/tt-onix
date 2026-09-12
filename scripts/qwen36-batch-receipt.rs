@@ -386,9 +386,12 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "batch": root_hashes("batch", &batch_roots),
         },
         "non_claims": [
-            "this receipt does not admit B=8 or B=16",
-            "this receipt does not admit arbitrary continuous batching",
-            "this receipt does not replace the single-stream eager-versus-traced gate",
+            format!(
+                "this receipt admits only candidate width {} on the recorded execution identity and does not admit any other width",
+                profile.workload.candidate_width
+            ),
+            "this receipt does not admit arbitrary continuous batching".to_owned(),
+            "this receipt does not replace the single-stream eager-versus-traced gate".to_owned(),
         ],
     }))
 }

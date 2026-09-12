@@ -1212,6 +1212,7 @@ def probe_batch_admission():
     invalid_b8_mappings.append((b8_unsupported_width, "workload widths"))
     b8_admitted_without_receipt = json.loads(json.dumps(b8_profile_mapping))
     b8_admitted_without_receipt["physically_admitted"] = True
+    b8_admitted_without_receipt["identities"]["receipt_blake3"] = "not-measured"
     invalid_b8_mappings.append((b8_admitted_without_receipt, "no measured receipt"))
     for invalid_b8_mapping, diagnostic in invalid_b8_mappings:
         try:
