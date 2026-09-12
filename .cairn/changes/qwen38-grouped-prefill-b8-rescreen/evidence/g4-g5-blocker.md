@@ -173,3 +173,52 @@ The practical consequence for the repository: **any service edit invalidates
 the admission identity and requires a fresh matched run.** Keeping the identity
 stable across this change's remaining work is why the grouped route stays gated
 off, and why the refresh was deliberately the last measurement taken.
+
+# g5 follow-up: the route runs at width == capacity, and it is a regression
+
+Recorded 2026-09-12. The fail-closed guards allow the grouped route only when one
+group fills the decode buffer, so the only configuration the route can reach is
+width == adapter capacity. The width-16 change made exactly that configuration
+reachable (capacity 16), so the route could finally be measured instead of
+merely blocked.
+
+## It runs
+
+With `QWEN35_GROUPED_PREFILL=1` on the width-16 admission server: the service
+warms up, a sixteen-user group returns **16/16 responses**, and no program error
+occurs. The padding path is a no-op at exact fill, so the binding-discipline
+defect recorded above is not reached.
+
+## It is slower, not faster
+
+| Measurement | Per-user prefill (default) | Grouped prefill |
+| --- | ---: | ---: |
+| batch TTFT | 23.589 s (median over the matched run) | 33.095 s |
+| prefill first-token seconds | — | 33.095 s |
+| prefill state install | — | 2.983 s |
+| aggregate decode tokens/s | 168.89 | 166.90 |
+| per-user decode tokens/s | 10.56 | 10.43 |
+
+Two findings, one numeric and one structural:
+
+1. **The batched forward at width 16 is slower than sixteen serialized per-user
+   forwards.** Sixteen B=1 prefills cost about 21 s; the one batched forward
+   costs about 33 s. At this width the GDN chunk scan carries 384 instances over
+   110 cores (four per core, against the two per core validated at width 8), and
+   the state install alone is 2.98 s.
+2. **Grouping removes pipelining.** `prefill_first_token_seconds` equals
+   `ttft_seconds` exactly: no user gets a first token until the whole group's
+   forward and state install finish. The per-user route lets the first user start
+   after roughly 1.3 s. So even a *faster* group forward could only improve TTFT
+   if it beat the 1.3 s that the earliest user waits today — grouping trades
+   first-token latency for throughput by construction.
+
+## Consequence for both changes
+
+- This change's B=8 rescreen and its B=4 preservation run are moot: the candidate
+  is now measured, and its measured effect is negative at the only width it can
+  reach.
+- The width-16 change's TTFT failure is *not* explicable as "prefill was not
+  batched". Batching it makes TTFT worse here, so the TTFT bound as written is
+  hostile to this mechanism at TP2 and this bucket size. That is now a fact about
+  the mechanism and the bounds, not an unfinished optimisation.

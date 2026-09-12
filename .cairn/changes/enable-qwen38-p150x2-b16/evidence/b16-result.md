@@ -102,3 +102,18 @@ tracked receipt's `b3sum`.
 | `repository-quality-artifacts` | FAIL, pre-existing manifest drift |
 
 Production `qwen38-p150x2.service` is active and healthy after the run.
+
+## Follow-up: the batched-prefill alternative was measured and is worse
+
+Because the grouped-prefill route's guards allow it only at exact fill, width 16
+is the one configuration where it can run. With `QWEN35_GROUPED_PREFILL=1` the
+sixteen-user group returns 16/16 responses with no program error, and its batch
+TTFT is **33.095 s against the 23.589 s per-user baseline**. Aggregate decode
+throughput is unchanged (166.9 against 168.9 tokens/second), and
+`prefill_first_token_seconds` equals `ttft_seconds`, so every user waits for the
+whole group.
+
+So the TTFT-ratio failure is not explained by "prefill was never batched": the
+batched alternative is slower here at 384 scan instances over 110 cores, and it
+removes per-user pipelining by construction. The failure therefore stands on its
+own merits, with the mechanism measured rather than assumed.
