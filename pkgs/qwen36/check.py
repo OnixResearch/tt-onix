@@ -6788,13 +6788,14 @@ def probe_grouped_prefill_routing():
     require(grouped and size == 8, f"chunked route planned {grouped}/{size}/{reason}")
     require(reason == "grouped-eligible", f"wrong grouped reason: {reason}")
 
-    # A one-instance runtime derives a tighter split bound. That split is
-    # asserted in the eligibility probe; at the routing level it is refused
-    # because the assembly cannot write two partial groups into one buffer.
-    _, _, tight_reason = plan(stub(one_instance_record), 8, eight_lengths, grouped_enabled=True)
+    # A one-instance runtime derives a tighter split bound, which the assembly
+    # cannot install as one buffer-filling group.
+    split_grouped, _, tight_reason = plan(
+        stub(one_instance_record), 8, eight_lengths, grouped_enabled=True
+    )
     require(
-        tight_reason == MULTI_GROUP_ASSEMBLY_REASON,
-        f"the tighter split bound did not refuse at routing: {tight_reason}",
+        (not split_grouped) and tight_reason == MULTI_GROUP_ASSEMBLY_REASON,
+        f"the tighter split bound was not refused: {split_grouped}/{tight_reason}",
     )
 
     # An unreadable grid refuses grouping rather than guessing a core count.
@@ -6818,8 +6819,10 @@ def probe_grouped_prefill_routing():
         f"an oversized bucket was grouped: {grouped}/{reason}",
     )
 
-    # The adopted grouped path cannot install a group narrower than the decode
-    # buffer, nor several groups into one buffer: both are measured failures.
+    # The row-assembly patch keeps the copy shape-exact, but a partial-width
+    # group still corrupts the next per-user prefill (a padded group state block
+    # met the B=1 scratch as [4,24,128,128] against [1,24,128,128]), so the route
+    # stays limited to a single group that fills the decode buffer.
     narrower, _, narrow_reason = plan(
         stub(chunked_record, capacity=16), 8, eight_lengths, grouped_enabled=True
     )
@@ -6835,11 +6838,12 @@ def probe_grouped_prefill_routing():
         f"a multi-group plan reached the assembly: {many_groups}/{groups_reason}",
     )
 
-    # A single group that fills the buffer is the only supported grouped shape.
+    # A single group that exactly fills the buffer is the only grouped shape that
+    # installs without touching a partial tail.
     matching, size, match_reason = plan(
         stub(chunked_record, capacity=8), 8, eight_lengths, grouped_enabled=True
     )
-    require(matching and size == 8, f"the supported grouped shape was refused: {match_reason}")
+    require(matching and size == 8, f"the buffer-filling group was refused: {match_reason}")
 
     # The capability record fails closed when absent, malformed, or mis-versioned.
     with tempfile.TemporaryDirectory() as directory:

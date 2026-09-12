@@ -58,11 +58,16 @@ NON_CHUNKED_CAPABILITY_SOURCE = "fallback-one-instance-per-core"
 PACKAGE_CAPABILITY_SOURCE = "package-runtime-capability"
 GRID_UNAVAILABLE_REASON = "compute-grid-unavailable"
 NON_POSITIONAL_DESTINATIONS_REASON = "non-positional-state-destinations"
-# The adopted grouped path assembles each group's GDN state with a same-shape
-# copy into the decode buffer, so it can only run when one group fills the
-# buffer exactly. Measured on silicon: passing four users against a sixteen-row
-# buffer fails the copy with Shape([4, 24, 128, 128]) vs
-# Shape([16, 24, 128, 128]) during startup warm-up.
+# The adopted grouped path assembled each group's GDN state with a same-shape
+# copy into the decode buffer, so a group narrower than the buffer failed during
+# startup warm-up with Shape([4, 24, 128, 128]) against
+# Shape([16, 24, 128, 128]). grouped-prefill-row-assembly.patch keeps the copy
+# shape-exact by refusing a wider source; it is deliberately NOT used to write a
+# partial-width group, because the padded tail interacts with the persistent B=1
+# prefill scratch on the next per-user call (measured: warm-up at width 4 then
+# succeeded, and the following width-1 request failed with
+# Shape([4, 24, 128, 128]) against Shape([1, 24, 128, 128])). Until that is
+# fixed, a grouped run must fill the buffer in one group.
 DECODE_CAPACITY_MISMATCH_REASON = "group-width-below-decode-capacity"
 MULTI_GROUP_ASSEMBLY_REASON = "multi-group-assembly-unsupported"
 
@@ -499,8 +504,8 @@ class BatchedTracedDecodeAdapter:
         if plan.destinations != slots:
             return False, ONE_INSTANCE_PER_CORE, NON_POSITIONAL_DESTINATIONS_REASON
         if width != self.maximum_width:
-            # The buffer holds maximum_width rows and the grouped assembly copies
-            # a group-shaped block into it, so a narrower request cannot install.
+            # The grouped assembly cannot write a partial-width group into a wider
+            # decode buffer without corrupting the next per-user prefill.
             return False, ONE_INSTANCE_PER_CORE, DECODE_CAPACITY_MISMATCH_REASON
         if len(plan.groups) != 1:
             # Several groups would each write a partial block into the buffer.
@@ -598,6 +603,14 @@ class BatchedTracedDecodeAdapter:
                 raise BatchDecodeAdapterError(
                     "grouped prefill output count differs from active width"
                 )
+            # The grouped path returns replicated device logits, so read them back
+            # the same way the model does for its own per-user logits.
+            host_logits = [
+                ttnn.to_torch(logit, mesh_composer=self._mesh_reader)
+                .reshape(1, 1, -1)[:, :, : self.vocabulary_size]
+                .clone()
+                for logit in host_logits
+            ]
             observe_first_tokens(host_logits)
             ttnn.synchronize_device(self.mesh)
             elapsed_seconds = time.monotonic() - started

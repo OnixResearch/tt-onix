@@ -1,0 +1,85 @@
+Grouped prefill: extend assembled group state to the decode buffer's rows.
+
+The adopted _assemble_groups_gdn_dev concatenates the per-group GDN states to
+the active width and then copies that block into the persistent decode buffer,
+which is allocated at the model's full batch capacity. ttnn.copy requires equal
+logical shapes, so any active width below capacity fails during startup
+warm-up:
+
+  TT_FATAL: Input tensor shape Shape([4, 24, 128, 128]) does not match output
+  tensor shape Shape([16, 24, 128, 128])
+
+Grouping is therefore unusable whenever the service's decode buffer is wider
+than the prefill width, which is the normal case (capacity 16, widths 1..8).
+
+This patch extends the assembled block with a zero-filled device tail up to the
+destination row count before the copy, for the recurrent state (batch rows on
+dim 0) and for the convolution states (batch rows on dim 1). The tail is built
+with ttnn.zeros plus ttnn.concat on the model's device, so no host round trip
+and no pad-scalar ambiguity is involved.
+
+Correctness of the zero tail: the only caller in this repository is
+BatchedTracedDecodeAdapter.prefill_users, which calls reset_all() before
+prefill, so every row is already zero when the tail is written. A source wider
+than the buffer is refused rather than truncated, so a mistaken caller cannot
+silently drop state.
+
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -2929,10 +2929,42 @@
+         (group g = users [g*group_size : ...])."""
+         dn_layers = [layer.attention for layer in self.layers if not layer.is_full_attention]
+         ng = len(group_rec_dev)
++
++        def fit_rows(tensor, target_rows, dim):
++            """Extend a batch dim up to the decode buffer's row count.
++
++            The decode buffer is allocated at the model's full batch capacity while the
++            assembled block spans only the active width, and ttnn.copy requires equal
++            logical shapes. The tail is zero-filled, which is safe because the only
++            caller (BatchedTracedDecodeAdapter.prefill_users) resets every row before
++            prefill. A source wider than the buffer is refused rather than truncated,
++            so no state can be dropped silently.
++            """
++            rows = int(tensor.shape[dim])
++            if rows == target_rows:
++                return tensor, None
++            if rows > target_rows:
++                raise ValueError(
++                    f"grouped state has {rows} rows above the {target_rows}-row decode buffer"
++                )
++            pad_shape = list(tensor.shape)
++            pad_shape[dim] = target_rows - rows
++            pad = ttnn.zeros(
++                tuple(pad_shape),
++                dtype=tensor.dtype,
++                layout=tensor.layout,
++                device=self.device,
++            )
++            return ttnn.concat([tensor, pad], dim=dim), pad
++
+         for li, dn in enumerate(dn_layers):
+             rec_full = ttnn.concat([group_rec_dev[g][li] for g in range(ng)], dim=0)  # [B, Nv, Dk, Dv]
+             rec_src = rec_full if rec_full.dtype == dn.rec_state.dtype else ttnn.typecast(rec_full, dn.rec_state.dtype)
+-            ttnn.copy(rec_src, dn.rec_state)
++            rec_fit, rec_pad = fit_rows(rec_src, int(dn.rec_state.shape[0]), 0)
++            ttnn.copy(rec_fit, dn.rec_state)
++            if rec_pad is not None:
++                ttnn.deallocate(rec_fit)
++                ttnn.deallocate(rec_pad)
+             if rec_src is not rec_full:
+                 ttnn.deallocate(rec_src)
+             ttnn.deallocate(rec_full)
+@@ -2940,7 +2972,11 @@
+                 ttnn.deallocate(group_rec_dev[g][li])
+             for m in range(dn.K):
+                 conv_full = ttnn.concat([group_conv_dev[g][li][m] for g in range(ng)], dim=1)  # [1, B, D]
+-                ttnn.copy(conv_full, dn.conv_states[m])
++                conv_fit, conv_pad = fit_rows(conv_full, int(dn.conv_states[m].shape[1]), 1)
++                ttnn.copy(conv_fit, dn.conv_states[m])
++                if conv_pad is not None:
++                    ttnn.deallocate(conv_fit)
++                    ttnn.deallocate(conv_pad)
+                 ttnn.deallocate(conv_full)
+                 for g in range(ng):
+                     ttnn.deallocate(group_conv_dev[g][li][m])

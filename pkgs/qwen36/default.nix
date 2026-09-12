@@ -63,6 +63,7 @@ let
     ./prefill-device-staging.patch
     ./gdn-decode-fusion-candidate.patch
     ./prefill-runtime-admission.patch
+    ./grouped-prefill-row-assembly.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:

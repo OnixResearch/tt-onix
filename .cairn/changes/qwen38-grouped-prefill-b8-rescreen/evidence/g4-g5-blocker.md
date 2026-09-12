@@ -75,6 +75,68 @@ physical_devices: [0, 1] simulated: False
   The first is a deployment decision, the second touches adopted model source.
   Neither is part of this change.
 
+# g5 follow-up: the row-assembly patch and the second defect it exposed
+
+Recorded 2026-09-12 after attempting to enable the route with a targeted patch.
+
+## The patch
+
+`pkgs/qwen36/grouped-prefill-row-assembly.patch` touches only
+`_assemble_groups_gdn_dev`. It keeps the state copy shape-exact by refusing a
+source wider than the decode buffer, and it can extend an assembled block with a
+zero-filled device tail built from `ttnn.zeros` plus `ttnn.concat` (no host round
+trip). The patch applies cleanly to the patched model tree, ships in the package
+(`fit_rows` present in the installed `model.py`), and the device-free gate stays
+green.
+
+## What enabling it measured
+
+With the patch in place and the buffer-filling guards temporarily removed
+(`QWEN35_GROUPED_PREFILL=1`, capacity 16, active width 4):
+
+- **Startup warm-up passed** — `startup-warmup-passed`, widths `[1, 4]`,
+  elapsed 291.8 s. That is the padding path installing a four-row group state
+  into the sixteen-row decode buffer, which is exactly what failed before the
+  patch. The row-fitting fix works.
+- **The following width-1 request failed**:
+
+```
+TT_FATAL: Input tensor shape Shape([4, 24, 128, 128]) does not match output
+          tensor shape Shape([1, 24, 128, 128])
+{"batch_width": 1, "error_type": "RuntimeError", "stage": "batch-failed"}
+```
+
+So a partial-width grouped write leaves the model's GDN binding state
+incompatible with the next per-user prefill. The state machines differ:
+
+- per-user (`prefill_paged_slots`): binds the **persistent** B=1 prefill scratch
+  with `_bind_gdn_prefill_scratch()` for the duration and restores the batched
+  decode bindings with `_unbind_gdn_prefill_scratch(prev)` afterwards;
+- grouped (`prefill_paged_grouped`): allocates **throwaway** scratch per group
+  with `_alloc_gdn_scratch_b(Bg)` and calls `_restore_gdn_batched(prev)`, and
+  never binds the persistent scratch at all.
+
+The `[4, …]` source against a `[1, …]` destination is that mismatch: the padded
+group state meets the one-row prefill scratch on the next call.
+
+## What is kept and what is restored
+
+- The patch is kept: refusing a wider source and handling the exact-fill case
+  are safety improvements, and with the guards in place it is a no-op.
+- The guards are restored, so the route again requires **one group that fills
+  the decode buffer**. A partial-width grouped write must not be reachable until
+  the binding discipline is shared between the two paths.
+- The route remains opt-in and gated off, so served behavior is unchanged.
+
+## The remaining work, precisely
+
+Either bind the persistent B=1 prefill scratch around the grouped call the way
+`prefill_paged_slots` does (and restore the batched bindings afterwards), or make
+`_assemble_groups_gdn_dev` write through the same disciplined path. Then the
+buffer-filling guard can be relaxed and the B=4/B=8 screens become measurable.
+Until then, grouping is a planner, a capability record, a safety patch, and a
+recorded blocker — not a usable route.
+
 ## A separate finding: identity churn vs the tracked admission
 
 Measuring the baseline (gate off) on the identity created by the g3 wiring
