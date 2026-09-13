@@ -34,3 +34,33 @@ r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
 - **WHEN** the pure occupancy core validates the plan
 - **THEN** it MUST fail before any device work
 - **AND** the receipt MUST name the bounded rejection reason.
+
+### Requirement: Measurement policy rejection precedes device execution
+
+r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.measurement_preflight]
+
+The admission harness MUST validate the requested width against its existing profile before adapter effects.
+An unsupported width MUST fail without prefill, trace capture, decode, or state reset.
+The diagnostic MUST distinguish admission rejection from execution failure.
+This check MUST NOT restrict widths when admission measurement is disabled.
+It MUST NOT change the receipt order, latency statistic, or admission bounds.
+
+#### Scenario: An unsupported measurement width has no device effects
+
+r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.measurement_preflight.invalid]
+
+- **GIVEN** an enabled B4, B8, or B16 admission profile and an unsupported width
+- **WHEN** the coordinator selects the group
+- **THEN** the policy MUST reject before any adapter effect
+- **AND** the worker MUST report an admission-stage rejection without resetting untouched state
+- **AND** a later supported group MUST still run.
+
+#### Scenario: Valid and production widths retain their execution behavior
+
+r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.measurement_preflight.valid]
+
+- **GIVEN** a supported measurement width or a disabled admission profile
+- **WHEN** the coordinator executes the group
+- **THEN** it MUST preserve the existing adapter path
+- **AND** an execution failure MUST retain the existing reset behavior
+- **AND** the worker MUST identify that failure as execution, not admission.

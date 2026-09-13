@@ -10,8 +10,8 @@
 # This derivation appends a second patch that assigns each active core a
 # contiguous chunk of `ceil(num_heads / ncores)` instances. When the head count
 # is at or below the core count the chunk is one and the produced program
-# mapping is identical to the unpatched mapping, so every receipt produced under
-# that mapping stays valid.
+# mapping is identical to the unpatched mapping. A runtime change still changes
+# the execution identity; historical receipts do not admit the new runtime.
 #
 # The patch is appended rather than folded into `gdn-decode-fp32.patch` so the
 # shared `tt-metal` output stays byte-identical for RWKV-7 and the training
@@ -22,21 +22,18 @@
 tt-metal.overrideAttrs (old: {
   # `patches` are applied in list order, so this one sees the tree after
   # gdn-decode-fp32.patch has created the gated_delta_decode sources.
-  patches =
-    (old.patches or [ ])
-    ++ [
-      ../tt-metal/gdn-decode-grid-chunk.patch
-      # Applied after the grid-chunk patch, so it sees the instance loop that
-      # patch introduces. Batches the destination registers over each tile loop
-      # of the fused decode compute kernel: one sync round-trip per loop instead
-      # of one per tile. The per-tile operations and their order are unchanged,
-      # so any candidate built from this runtime must still show exact decode
-      # and state parity before it is read for timing.
-      ../tt-metal/gdn-decode-dst-batch.patch
-      # Same mechanism in the chunk-prefill phased factory: `distribute_scan`
-      # carried the same one-instance-per-core bound, and it is the recorded
-      # root cause of the B=8 TTFT rejection. This patch touches base sources,
-      # so its position relative to the decode patch is not significant.
-      ../tt-metal/gdn-prefill-scan-chunk.patch
-    ];
+  patches = (old.patches or [ ]) ++ [
+    ../tt-metal/gdn-decode-grid-chunk.patch
+    # Applied after the grid-chunk patch, so it sees the instance loop that
+    # patch introduces. Batches independent tiles within the LLK-derived Dst
+    # capacity. FP32 half-sync permits four destination tiles, not the full
+    # sixteen-tile state. The host bounds/order check is not hardware evidence;
+    # require exact decode and recurrent-state parity before reading timing.
+    ../tt-metal/gdn-decode-dst-batch.patch
+    # Same mechanism in the chunk-prefill phased factory: `distribute_scan`
+    # carried the same one-instance-per-core bound, and it is the recorded
+    # root cause of the B=8 TTFT rejection. This patch touches base sources,
+    # so its position relative to the decode patch is not significant.
+    ../tt-metal/gdn-prefill-scan-chunk.patch
+  ];
 })

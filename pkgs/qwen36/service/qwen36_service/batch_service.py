@@ -41,6 +41,11 @@ MAXIMUM_BATCH_WIDTH = 16
 BATCH_COLLECTION_SECONDS = 0.01
 WORKER_JOIN_TIMEOUT_SECONDS = 5.0
 EXPECTED_PROMPT_RANK = 2
+BATCH_ADMISSION_REJECTION_REASON = "batch-width-outside-admission-profile"
+
+
+class BatchMeasurementPolicyError(BatchDecodeAdapterError):
+    """Reject measurement work before any adapter effect."""
 
 
 @dataclass
@@ -308,6 +313,17 @@ class BatchGenerationCoordinator:
                     strict=True,
                 ):
                     pending.response = response
+            except BatchMeasurementPolicyError as error:
+                # No adapter work occurred, so there is no state to reset.
+                self.emitter(
+                    "batch-failed",
+                    batch_width=len(pending_batch),
+                    error_type=type(error).__name__,
+                    failure_stage="admission",
+                    error_reason=BATCH_ADMISSION_REJECTION_REASON,
+                )
+                for pending in pending_batch:
+                    pending.error = error
             except (
                 AssertionError,
                 BatchDecodeAdapterError,
@@ -334,6 +350,7 @@ class BatchGenerationCoordinator:
                     "batch-failed",
                     batch_width=len(pending_batch),
                     error_type=type(terminal_error).__name__,
+                    failure_stage="execution",
                 )
                 for pending in pending_batch:
                     pending.error = terminal_error
@@ -357,6 +374,24 @@ class BatchGenerationCoordinator:
             for pending in pending_batch
         ):
             raise BatchDecodeAdapterError("request timeout exceeded before batch start")
+
+        measurement_mode = PRODUCTION_MEASUREMENT_MODE
+        admission_eligible = False
+        evidence_profile_id = self.profile.profile_id
+        if self.batch_admission_profile is not None:
+            try:
+                measurement_mode, admission_eligible = (
+                    self.batch_admission_profile.measurement(
+                        enabled=self.batch_admission_enabled,
+                        width=width,
+                    )
+                )
+            except BatchAdmissionPolicyError as error:
+                raise BatchMeasurementPolicyError(
+                    "batch admission measurement is outside policy"
+                ) from error
+            if self.batch_admission_enabled:
+                evidence_profile_id = self.batch_admission_profile.profile_id
 
         trace_reuse_activation = None
         if self.trace_reuse_profile is not None:
@@ -468,23 +503,6 @@ class BatchGenerationCoordinator:
             aggregate_decode_rate = 0.0
             tail_token_latency_seconds = 0.0
 
-        measurement_mode = PRODUCTION_MEASUREMENT_MODE
-        admission_eligible = False
-        evidence_profile_id = self.profile.profile_id
-        if self.batch_admission_profile is not None:
-            try:
-                measurement_mode, admission_eligible = (
-                    self.batch_admission_profile.measurement(
-                        enabled=self.batch_admission_enabled,
-                        width=width,
-                    )
-                )
-            except BatchAdmissionPolicyError as error:
-                raise BatchDecodeAdapterError(
-                    "batch admission measurement is outside policy"
-                ) from error
-            if self.batch_admission_enabled:
-                evidence_profile_id = self.batch_admission_profile.profile_id
         if (
             trace_reuse_activation is not None
             and not self.batch_admission_enabled

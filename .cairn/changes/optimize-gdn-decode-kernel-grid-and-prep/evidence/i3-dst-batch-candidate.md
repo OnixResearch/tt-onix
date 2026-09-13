@@ -1,103 +1,85 @@
-# I3 candidate: batched destination registers in the fused GDN decode kernel
+# Dst batching: capacity correction
 
-Recorded 2026-09-12. Candidate built as a variant runtime patch. Nothing here is a
-measurement; the results section stays empty until the matched physical screen runs.
+Recorded 2026-09-13. This record corrects the earlier geometry and acceptance claims.
+The original candidate is rejected. The bounded replacement has no physical acceptance result.
 
-## Why this shape of change
+## Proven source defect
 
-`evidence/loop-cost-nature.md` bounds the loop's per-instance cost two to three
-orders of magnitude above its arithmetic, so the cost is the dependency chain, not
-the multiply-accumulates. The reader is not on that chain, which is why prefetching
-it changed nothing. The chain inside the compute kernel is the per-tile sync: each
-tile loop acquires the destination registers, runs one tile, commits, waits for the
-math, packs, and releases -- then repeats for the next tile.
+The factory requires `key_dim = val_dim = 128` and uses `32x32` tiles.
+Therefore `key_tiles = val_tiles = 4`, and `state_tiles = 16`.
+The earlier record incorrectly used two value tiles and eight state tiles.
 
-## The change
+The factory requires FP32 destination accumulation and rejects full destination synchronization.
+The default `ComputeConfig.dst_full_sync_en` is false.
+TT-Metal therefore generates `DST_ACCUM_MODE = true` and `DST_SYNC_MODE = DstSync::SyncHalf`.
 
-`pkgs/tt-metal/gdn-decode-dst-batch.patch`, applied after the grid-chunk patch so it
-sees the instance loop that patch introduces. Seven tile loops in the compute kernel
-batch the destination registers across the whole loop:
+Blackhole has 1024 rows of sixteen 16-bit values in Dst.
+Half synchronization and FP32 storage each halve that capacity.
+A `32x32` tile occupies 64 rows in the LLK address model.
+Thus the configured region holds `1024 / 2 / 2 / 64 = 4` tiles.
+Valid destination indices are `0..3`, not `0..15`.
 
-- `state_decay`, `outer_scaled`, and `state_new` (8 tiles each),
-- `outer` (4 key by 2 value tiles = 8),
-- `v_read` and `output` (2 value tiles each, with 4 key tiles accumulated per
-  value tile),
-- `delta` (2 tiles).
+The original patch sends indices through 15 in four stages:
+`state_decay`, `outer`, `outer_scaled`, and `state_new`.
+The other batched stages use indices through three.
+The host reproduction rejects the original installed kernel at the first invalid index.
 
-Each loop now acquires once, issues every tile into its own destination register,
-commits once, waits once, then packs every register. The per-tile operations, their
-operands, and their order are unchanged; only the synchronisation granularity
-changes. The transpose loop and the single-tile `exp(g)` keep their original shape.
+### Source chain
 
-Guard rails:
+- `pkgs/tt-metal/gdn-decode-fp32.patch`: head dimensions, precision validation, tile counts, and compute configuration.
+- TT-Metal 0.77 source `tt_metal/api/tt-metalium/kernel_types.hpp`: the half-sync default.
+- `tt_metal/jit_build/genfiles.cpp`: generated accumulation and synchronization macros.
+- `tt_metal/hw/inc/internal/tt-1xx/blackhole/tensix_types.h`: Dst geometry.
+- `tt_metal/tt-llk/tt_llk_blackhole/common/inc/ckernel.h`: `get_dest_max_tiles`.
+- `tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_math_binary_api.h`: the destination-index contract.
+- Pinned ISA source `BlackholeA0/TensixTile/TensixCoprocessor/Dst.md` at `b7738d9ac14a34a4033d60dde9463466b23082e1`: physical Dst storage.
 
-- the patch touches exactly one file, the decode compute kernel;
-- the variant package asserts the deployed kernel carries the batched markers and
-  that exactly two `tile_regs_acquire()` calls remain (the single-tile `exp` and the
-  transpose loop);
-- the shared runtime asserts it carries **neither** the chunked-loop marker nor the
-  batched marker, so a reverted patch cannot build quietly on either side.
+The source tree is `/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source`.
+A separate read-only review reproduced the capacity calculation and found no applicable override.
+This calculation is not a complete hazard audit.
 
-## What would make this wrong
+## Bounded replacement
 
-- **Parity.** The accumulation order per destination register is unchanged, but a
-  mistake in a destination index would silently permute tiles. Exact token parity at
-  width 8 is therefore read before any timing, per the plan's V6 rule.
-- **Destination capacity.** `key_tiles = 4`, `val_tiles = 2`, `state_tiles = 8` at
-  this geometry, so the widest batch uses 8 of the 16 destination registers. If a
-  future geometry raised `state_tiles` above 16 the batched form would not fit and
-  the guard's sync-count assertion would need revisiting rather than relaxing.
-- **Instruction issue depth.** The math thread now issues eight operations between
-  syncs instead of one. If the instruction queue cannot hold that, kernels would
-  fault rather than run slowly, which the screen would show immediately.
+`pkgs/tt-metal/gdn-decode-dst-batch.patch` now obtains capacity from the pinned LLK helper.
+Each state stage processes chunks of at most `dst_batch_tiles`.
+Each chunk uses local destination indices and retains the original global CB tile indices.
+The final partial chunk also stays within the state extent.
 
-## Acceptance
+The value stages retain batching, with a compile-time assertion that their tile count fits Dst.
+The transpose and `exp(g)` stages retain their original form.
+The replacement does not change reader or writer kernels, precision, or the per-value reduction order.
 
-Screened with `scripts/qwen38-step-probe.sh` at width 8 against the reference
-variant package in this order:
+This remains within-instance batching. It does not implement cross-instance pipelining or state splitting.
 
-1. exact token parity for all eight prompts;
-2. median step at or below **78.0 ms**, the width-8 retention bound, against the
-   reference median of 78.9 ms.
+## Host regression evidence
 
-The candidate is rejected on either failure, and the admitted kernel stays the
-served route.
+`pkgs/qwen36/gdn-dst-capacity-check.cpp` executes the actual kernel body through a bounded symbolic API.
+The fixture derives the FP32 half-sync capacity from package-matched headers.
+It compares every stored tile expression with the per-tile control for one, two, and four instances.
 
-## Result: exact parity, and a repeatable win at width 8
+- Original installed candidate: rejected with `Dst index exceeds configured capacity`.
+- Bounded replacement: capacity and symbolic expression comparison pass.
+- Negative control: a destination region smaller than the required value batch rejects.
+- Compilation uses `-Wall -Wextra -Werror`.
 
-Two paired rounds, each one reference session followed immediately by one candidate
-session, eight prompts released together, 64 generated tokens, interior samples only
-(the first sample is prefill-adjacent and the last is the tail spike). 480 samples
-per session.
+The package check reverses only the Dst patch to recover its control kernel.
+It does not depend on a sibling checkout or an old store output.
+The fixture does not model SFPU numerics, concurrent TRISC execution, CB credits, or NoC ordering.
 
-| Round | Reference median | Candidate median | Median change | Mean change | Token parity |
-| --- | ---: | ---: | ---: | ---: | --- |
-| 1 | 81.874 ms | 79.748 ms | -2.60% | -3.69% | exact |
-| 2 | 85.540 ms | 80.073 ms | -6.39% | -7.28% | exact |
+## Historical screens: not replacement evidence
 
-Parity is exact in both rounds and both directions: generated token ids, decoded
-text, eight distinct state slices, and a clean reset on every response. The
-destination-index change therefore did not permute any tile.
+The previous sessions reported these token-level comparisons:
 
-Two honest notes on the numbers:
+| Round | Reference median | Original candidate median | Median change | Mean change |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 81.874 ms | 79.748 ms | -2.60% | -3.69% |
+| 2 | 85.540 ms | 80.073 ms | -6.39% | -7.28% |
 
-- **The absolute values drift.** The same reference package measured 77.8 ms earlier
-  in the day, 81.9 ms in round 1, and 85.5 ms in round 2. That is a five percent
-  band, larger than the 1.8 percent the bound needs, so only the paired change is
-  read as a result. The earlier claim that the screen resolves this question in
-  three minutes was wrong in the direction that mattered: it resolves *large*
-  effects, and a small one needs the paired design.
-- **The two rounds disagree in size** (-2.6 and -6.4 percent) even though they agree
-  in sign. Both are consistent with a real improvement of a few percent, and neither
-  alone would have been enough to trust.
+These were reference-then-candidate sessions, not the required kernel ABBA screen.
+Their response fields compare tokens, text, state-slice labels, and reset status.
+They do not compare recurrent tensor contents or prove that every destination index is valid.
+The capacity defect invalidates the earlier inference that token parity proved tile placement.
+No timing result transfers to the bounded replacement.
 
-Against the width-8 retention bound the paired change is sufficient on the screen:
-the bound needs a 1.8 percent step reduction and both rounds exceeded it. That is a
-screen result, not an admission result; the four-root receipt decides.
-
-## Screen reliability
-
-The first group after startup can be rejected, which cost one round its reference
-session while the candidate session succeeded. The probe now retries the group
-before reading anything as a result, matching the four-root harness, and the round
-above was taken with retries in place.
+The original patch remains in `rejected-unbounded-dst-batch.patch` for reproduction.
+The full kernel audits, representative simulator execution, and physical recurrence comparison remain open.
