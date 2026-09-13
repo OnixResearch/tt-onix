@@ -47,37 +47,68 @@ fraction of a percent. Two passes are consistent with a real improvement *and* w
 a low tail that still dips below on a bad day, and the decision rule here is that
 the admission follows the same three-run standard that reversed it.
 
-A third matched run was taken, and it **failed**: speedup 5.5761, retention 0.6970,
-TTFT ratio 20.4056, tail 1.6614. Every metric missed, and TTFT missed by more than
-double, which is not the shape of a candidate regression -- it is the shape of a
-session whose batch roots were re-issued.
+## The fourth round is clean, and it fails
 
-That is what happened. The third session's logs carry eight `batch-failed` lines
-against zero in both passing rounds, seven of them inside one batch root. The frozen
-harness retries a group up to five times, and each failed attempt still spends
-prefill, so the surviving measurements are not a clean reading of anything.
+Round 4 fixed the contamination at its source. The shell harness released eight
+separate `curl` processes, which under load arrive spread out; the service's
+collection window is `BATCH_COLLECTION_SECONDS = 0.01`, so it dispatched partial
+groups of width 3, 5, 6 and 7, and those widths have no warmed trace. A new driver
+(`scripts/qwen38-batch-group.py`) opens every connection first and releases the
+requests from a barrier.
 
-## Decision: the binding stays `false`, and the third round does not count either way
+That worked as intended: **zero group rejections** against eight in round 3, and all
+four roots complete.
 
-- Two clean passes are not the three-run standard that reversed the earlier
-  admission, so the binding does not move.
-- The failing round cannot be counted against the candidate either: it is a
-  contaminated session, and its TTFT ratio is a signature of re-issued groups rather
-  than of a slower kernel.
-- What the failure *does* establish is that the group-rejection mode is frequent
-  enough to poison a thirty-minute measurement session, which no earlier record
-  captured. It appeared without the candidate as well (ten `batch-failed` lines in a
-  reference screen, and a reference session that failed entirely during the screen
-  rounds), so it is pre-existing rather than introduced here, but its rate is now on
-  the critical path for every measurement and it deserves its own diagnosis.
+The receipt still fails:
 
-The next measurement step is a clean third round rerun, and if clean sessions keep
-rejecting groups, the rejection mode is the thing to fix first -- not the kernel.
+| Round | Driver | Group rejections | speedup | retention | TTFT ratio | tail | verdict |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | curl | 0 | 6.0338 | 0.7542 | 7.4895 | 1.2990 | admitted |
+| 2 | curl | 0 | 6.1401 | 0.7675 | 6.0018 | 1.2846 | admitted |
+| 3 | curl | 8 | 5.5761 | 0.6970 | 20.4056 | 1.6614 | contaminated |
+| 4 | barrier | 0 | 5.8395 | 0.7299 | 13.6542 | 1.4619 | rejected |
 
-## What the failure does not touch
+So the candidate's width-8 admission is **two passes in four**, and the clean
+failing round is not explained by group rejections. Round 4's decode metrics
+(5.8395 and 0.7299) are also slightly *worse* than the admitted kernel's median,
+which no uniform improvement would produce.
 
-The two clean rounds' parity and timing results stand. The candidate's parity was
-exact in every run, including the contaminated one.
+## What this actually establishes
+
+The kernel change is real: exact parity throughout, and paired screens show the step
+2.6 and 6.4 percent below the reference. What is *not* established is that the
+four-root protocol can see it. Across four rounds the TTFT ratio moved between 6.00
+and 20.41, and retention between 0.6970 and 0.7675, while every bound sits within
+about two percent of where the kernel actually performs.
+
+The protocol's own spread therefore exceeds the margin being tested, and an
+admission verdict at width 8 is decided by the weather. That is also the honest
+reading of the earlier history: three matched runs straddled both bounds, and the
+binding was reverted for exactly that reason.
+
+This reframes the remaining work. More kernel work at width 8 cannot be evaluated
+here until the measurement can resolve a two percent difference, so the next step is
+not another candidate:
+
+1. **Widen the protocol.** More roots, interleaved in the order
+   `single,batch,single,batch,...` so the single and batch halves share the same
+drift, and enough roots that the median is stable at the bound.
+2. **Or reduce the dominant variance.** The TTFT ratio swings by more than a factor
+   of two, and the batch TTFT is the slowest of eight serialized per-user prefills,
+   which is where the variance concentrates.
+
+Only when the protocol resolves two percent is a width-8 admission verdict
+meaningful.
+
+## Decision: the binding stays `false`
+
+Two passes in four, with the clean failing round failing every metric, is not an
+admission. The admitted kernel stays the served route, and the batch-destination
+candidate stays available as a variant runtime for whoever widens the protocol.
+
+The harness improvement stands on its own merit: it removed the group-rejection
+contamination from measurement entirely, and it is now the only way this measurement
+has produced four complete roots with no rejected group.
 
 ## What is established either way
 
