@@ -39,6 +39,7 @@
 ## Phase 4: Completion
 
 - [x] [serial] D1 Record the parity table, the occupancy derivation, the step-time result, and every non-claim. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [ ] [serial] V9 Widen the admission protocol so it resolves a two percent difference: interleaved root order, per-user first-token statistics instead of the group maximum, and enough roots for a stable median. Blocks any further width-8 admission verdict; evidence/protocol-measurement-power.md. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
 - [x] [serial] D2 Reject the candidate on any failed gate and keep the admitted kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]
 - [ ] [serial] D3 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 
