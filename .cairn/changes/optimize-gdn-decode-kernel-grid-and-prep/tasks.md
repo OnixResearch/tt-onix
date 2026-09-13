@@ -23,7 +23,7 @@
 - [ ] [serial] I3 Add head pipelining only where the measured occupancy stays below the floor. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (reader-prefetch variant implemented, exact parity at B=8/B=16, neutral-to-negative step time, rejected: evidence/i3-candidate-verdict.md; compute-side interleaving is the untried form)
 - [ ] [serial] I4 Fold the fp32 typecasts, the L2 norms, and the query scale into the reader or compute kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] I5 Preserve the exact reader and compute numerics when the preparation ops move; verify the fold does not change the recurrence order. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [ ] [serial] I6 Bind the kernel variant, the occupancy plan, and the profile into the package execution identity. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [serial] I6 Bind the kernel variant, the occupancy plan, and the profile into the package execution identity. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (occupancy policy is an identity input and fail-closed at not-measured)
 
 ## Phase 3: Verification
 

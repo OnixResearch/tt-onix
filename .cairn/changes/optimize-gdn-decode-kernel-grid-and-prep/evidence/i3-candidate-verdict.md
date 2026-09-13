@@ -89,3 +89,40 @@ The loop is compute-side, so the remaining candidates are:
 2. **Reduce per-instance arithmetic** (I4's prep folding, or replacing the
    per-instance `k` transpose with one transpose per head group), which attacks the
    fixed per-instance cost the model in `evidence/a1-a4-attribution.md` identified.
+
+## I6: the occupancy policy is identity-bound and fail-closed
+
+The split planner needs one measurement that does not exist yet: the share of a
+single instance's cost that does not divide with the value width. Instead of
+guessing it, `pkgs/qwen36/gdn-occupancy-policy.ncl` records it as
+`not-measured`, the file is part of the package execution identity, and the
+planner refuses a non-numeric share. So:
+
+- the policy that would drive a split travels with the package identity;
+- a split **cannot** be selected from the shipped policy until the share is
+  measured and recorded there;
+- the package asserts the deployed policy carries `not-measured`, and the
+  device-free gate proves both halves: the placeholder is refused, and the same
+  geometry with a measured share plans a split.
+
+That closes I6 in the honest direction. A kernel candidate can only consume the
+planner once the cost model behind it is measured.
+
+## The next attempt, with its budget stated
+
+The remaining lever for the retention bound is **compute-side interleaving of the
+GDN instance loop**, and the attribution says it is the whole gap: at B=8 the
+measured step grows 64 -> 87 ms while the GDN mixer grows 26.3 -> ~52 ms if its
+per-instance cost is constant, which accounts for the growth; the per-user
+marginal of 2.2-5.4 ms is the loop, and A4 rules out bandwidth.
+
+Getting there has a cost that should be planned for rather than discovered:
+
+- a kernel rewrite of a 212-line compute kernel into a two-instance software
+  pipeline, with paired reader and writer changes;
+- a full tt-metal rebuild per iteration (multi-hour under current load);
+- two matched physical screens per iteration (B=8 exact parity first, then timing).
+
+Before that, measuring the fixed-cost share would make the split path and the
+loop decision quantitative rather than modelled, and it is the input the shipped
+policy already demands.

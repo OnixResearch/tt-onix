@@ -7139,6 +7139,71 @@ def probe_gdn_occupancy_plan():
             raise AssertionError(f"invalid flat index was accepted: {bad!r}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.plan]
+def probe_gdn_occupancy_policy_binding():
+    """The occupancy policy is identity-bound and cannot drive a split unmeasured.
+
+    The planner needs the measured share of a single instance's cost that does not
+    divide with the value width. Until that is measured the policy records
+    ``not-measured`` and the planner must refuse it, so no split can be selected
+    from an unmeasured cost model.
+    """
+    from qwen36_service.gdn_occupancy_core import (
+        GdnOccupancyPolicyError,
+        plan_occupancy,
+    )
+
+    policy_path = Path(__file__).with_name("gdn-occupancy-policy.json")
+    with policy_path.open(encoding="utf-8") as policy_file:
+        policy = json.load(policy_file)
+    require(policy.get("schema_version") == 1, "occupancy policy schema changed")
+    require(
+        policy.get("profile_id") == "qwen38-p150x2-gdn-occupancy-v1",
+        "occupancy policy identity changed",
+    )
+    require(
+        policy.get("value_tiles") == 4,
+        f"occupancy policy value_tiles is {policy.get('value_tiles')}",
+    )
+    require(
+        isinstance(policy.get("minimum_occupancy"), (int, float)),
+        "occupancy policy minimum_occupancy is not a number",
+    )
+    share = policy.get("fixed_cost_share")
+    require(
+        share == "not-measured",
+        f"the occupancy policy carries an unmeasured share as {share!r}",
+    )
+
+    # Fail closed: the planner must refuse the policy's own placeholder, so the
+    # shipped policy cannot select a split before the share is measured.
+    try:
+        plan_occupancy(
+            heads=24,
+            batch=1,
+            value_tiles=int(policy["value_tiles"]),
+            cores=110,
+            fixed_cost_share=share,
+            minimum_occupancy=float(policy["minimum_occupancy"]),
+        )
+    except GdnOccupancyPolicyError:
+        pass
+    else:
+        raise AssertionError("an unmeasured occupancy policy selected a split")
+
+    # The same call with a measured share plans a split, so the refusal above is
+    # the placeholder and not the geometry.
+    measured = plan_occupancy(
+        heads=24,
+        batch=1,
+        value_tiles=int(policy["value_tiles"]),
+        cores=110,
+        fixed_cost_share=0.25,
+        minimum_occupancy=float(policy["minimum_occupancy"]),
+    )
+    require(measured.split > 1, "a measured share did not plan a split")
+
+
 # r[verify tenstorrent.qwen38_p150x2.mtp_serving_rounds]
 def probe_mtp_head_load_core():
     """Positive and negative tests for the head weight integrity verdicts."""
@@ -7265,6 +7330,7 @@ def main():
     probe("grouped prefill eligibility", probe_grouped_prefill_eligibility)
     probe("grouped prefill routing", probe_grouped_prefill_routing)
     probe("GDN decode occupancy plan", probe_gdn_occupancy_plan)
+    probe("GDN occupancy policy binding", probe_gdn_occupancy_policy_binding)
 
     if FAILURES:
         print("qwen36 device-free check: FAIL")

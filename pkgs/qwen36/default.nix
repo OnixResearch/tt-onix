@@ -101,6 +101,7 @@ let
     (stableIdentityPath "qwen36-trace-reuse-profile.ncl" ./trace-reuse-profile.ncl)
     (stableIdentityPath "qwen36-gdn-decode-fusion-contracts.ncl" ./gdn-decode-fusion-contracts.ncl)
     (stableIdentityPath "qwen36-gdn-decode-fusion-profile.ncl" ./gdn-decode-fusion-profile.ncl)
+    (stableIdentityPath "qwen36-gdn-occupancy-policy.ncl" ./gdn-occupancy-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
@@ -246,6 +247,9 @@ stdenvNoCC.mkDerivation {
     cp ${./decode-component-contracts.ncl} "$out/share/qwen36/decode-component-contracts.ncl"
     cp ${./gdn-decode-fusion-profile.ncl} "$out/share/qwen36/gdn-decode-fusion-profile.ncl"
     cp ${./gdn-decode-fusion-contracts.ncl} "$out/share/qwen36/gdn-decode-fusion-contracts.ncl"
+    cp ${./gdn-occupancy-policy.ncl} "$out/share/qwen36/gdn-occupancy-policy.ncl"
+    nickel export --format json ${./gdn-occupancy-policy.ncl} \
+      > "$out/share/qwen36/gdn-occupancy-policy.json"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -856,6 +860,15 @@ stdenvNoCC.mkDerivation {
     # model's state assembly): an assertion under the variant derivation would
     # cost a full tt-metal rebuild.
     test "$(grep -c '^--- ' ${./grouped-prefill-row-assembly.patch})" -eq 1
+
+    # The occupancy policy is identity-bound and fail-closed: a split cannot be
+    # driven from it until the fixed-cost share is measured, because the planner
+    # refuses a non-numeric share. Assert both halves here.
+    occupancy_policy="$out/share/qwen36/gdn-occupancy-policy.json"
+    test -f "$occupancy_policy"
+    grep -Fq '"fixed_cost_share": "not-measured"' "$occupancy_policy"
+    grep -Fq '"minimum_occupancy": 0.5' "$occupancy_policy"
+    grep -Fq '"value_tiles": 4' "$occupancy_policy"
 
     # Assert what identifies the PATCHED kernels, not how many lines they have.
     # A line count breaks on every edit and, worse, cannot tell a patched kernel
