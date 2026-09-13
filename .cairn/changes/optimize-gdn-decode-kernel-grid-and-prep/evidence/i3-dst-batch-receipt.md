@@ -23,23 +23,32 @@ tokens/second, single 16.601. Receipt blake3
 For comparison, the same protocol on the admitted kernel measured 5.898-6.049
 speedup and 0.7373-0.7580 retention across three runs -- straddling both bounds.
 
-## Why this receipt does not move the binding by itself
+## Two consecutive passes
 
-The margin is inside the measured spread. Speedup is 0.6 percent above its bound and
-retention 0.6 percent above its bound, while the same protocol on the *unchanged*
-kernel produced retention across a band of 0.021. A single passing run is therefore
-consistent with both a real few-percent improvement and an unchanged kernel on a good
-day, and the earlier B=8 decision was correctly reversed on exactly that reasoning:
-three matched runs straddled the bounds and the binding went back to `false`.
+| Round | speedup | bound | retention | bound | TTFT | tail | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 6.0338 | >= 6.0 | 0.7542 | >= 0.75 | 7.4895 | 1.2990 | admitted |
+| 2 | 6.1401 | >= 6.0 | 0.7675 | >= 0.75 | 6.0018 | 1.2846 | admitted |
 
-The candidate's own screen supports the real-improvement reading: two paired rounds
-showed the width-8 step 2.6 and 6.4 percent below the reference package with exact
-parity. But a screen is not an admission measurement, and the decision rule recorded
-for this work is that a passing receipt over a *single* run does not admit.
+Receipts `9aefac99e6009f7b633a2207bbeb638bb887ed0345783fb28e1f98feb2224f2c` and
+`edeebc8f9ad5c58129d62e027524f64543a183b7f2bb08c9e07d81e87a0c5f54`.
 
-So the sequence from here is: repeat the frozen protocol for further matched runs,
-and move `physically_admitted` to `true` only when the passes repeat outside the
-band, exactly as the rejection was recorded.
+Against the admitted kernel's three matched runs, the candidate's *worst* result
+beats the old kernel's worst on both bound metrics: speedup 6.0338 against 5.898,
+retention 0.7542 against 0.7373, and the old kernel's whole band straddled both
+bounds while two candidate rounds sit above them.
+
+## Why two passes still do not move the binding
+
+Because the old kernel's band straddled the bound, a uniform few-percent shift moves
+most of the band above it but not necessarily its low tail: the old speedup floor
+(5.898) times a two percent improvement is 6.02, which is above the bound by a
+fraction of a percent. Two passes are consistent with a real improvement *and* with
+a low tail that still dips below on a bad day, and the decision rule here is that
+the admission follows the same three-run standard that reversed it.
+
+A third matched run is therefore in flight. The binding moves to `true`, with the
+receipt hash bound into the profile, only if it passes as well.
 
 ## What is established either way
 
