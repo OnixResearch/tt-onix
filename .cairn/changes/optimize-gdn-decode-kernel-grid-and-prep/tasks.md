@@ -32,8 +32,8 @@
 - [x] [serial] V3 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V4 Run the bounded Blackhole kernel hazard audits over the changed reader and compute kernels. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V5 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [x] [serial] V6 Run the matched physical screen and require exact decode and state parity before reading any timing. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (exact parity at B=8 and B=16 for the rejected reader-prefetch candidate)
-- [ ] [serial] V7 Measure derived occupancy and the step-time ratio against the admitted kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (measured for the rejected candidate: no ratio win to claim. Acceptance target at width 8 is a 78.0 ms step or below, from the 0.75 retention bound; `scripts/qwen38-step-probe.sh` measures it with 480 samples in about three minutes)
+- [x] [serial] V6 Run the matched physical screen and require exact decode and state parity before reading any timing. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (exact parity at B=8 for the reader-prefetch and batched-destination candidates; exact in the contaminated round as well)
+- [x] [serial] V7 Measure derived occupancy and the step-time ratio against the admitted kernel.  (batched-destination candidate: width-8 step 2.6% and 6.4% below the reference in two paired rounds; two of three frozen-protocol rounds admitted width 8, the third was contaminated by group rejections) r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (measured for the rejected candidate: no ratio win to claim. Acceptance target at width 8 is a 78.0 ms step or below, from the 0.75 retention bound; `scripts/qwen38-step-probe.sh` measures it with 480 samples in about three minutes)
 - [x] [serial] V8 Verify the disabled state keeps the admitted kernel as the served route. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]
 
 ## Phase 4: Completion

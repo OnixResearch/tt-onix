@@ -47,8 +47,37 @@ fraction of a percent. Two passes are consistent with a real improvement *and* w
 a low tail that still dips below on a bad day, and the decision rule here is that
 the admission follows the same three-run standard that reversed it.
 
-A third matched run is therefore in flight. The binding moves to `true`, with the
-receipt hash bound into the profile, only if it passes as well.
+A third matched run was taken, and it **failed**: speedup 5.5761, retention 0.6970,
+TTFT ratio 20.4056, tail 1.6614. Every metric missed, and TTFT missed by more than
+double, which is not the shape of a candidate regression -- it is the shape of a
+session whose batch roots were re-issued.
+
+That is what happened. The third session's logs carry eight `batch-failed` lines
+against zero in both passing rounds, seven of them inside one batch root. The frozen
+harness retries a group up to five times, and each failed attempt still spends
+prefill, so the surviving measurements are not a clean reading of anything.
+
+## Decision: the binding stays `false`, and the third round does not count either way
+
+- Two clean passes are not the three-run standard that reversed the earlier
+  admission, so the binding does not move.
+- The failing round cannot be counted against the candidate either: it is a
+  contaminated session, and its TTFT ratio is a signature of re-issued groups rather
+  than of a slower kernel.
+- What the failure *does* establish is that the group-rejection mode is frequent
+  enough to poison a thirty-minute measurement session, which no earlier record
+  captured. It appeared without the candidate as well (ten `batch-failed` lines in a
+  reference screen, and a reference session that failed entirely during the screen
+  rounds), so it is pre-existing rather than introduced here, but its rate is now on
+  the critical path for every measurement and it deserves its own diagnosis.
+
+The next measurement step is a clean third round rerun, and if clean sessions keep
+rejecting groups, the rejection mode is the thing to fix first -- not the kernel.
+
+## What the failure does not touch
+
+The two clean rounds' parity and timing results stand. The candidate's parity was
+exact in every run, including the contaminated one.
 
 ## What is established either way
 
