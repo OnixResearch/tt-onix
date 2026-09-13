@@ -26,6 +26,13 @@ tt-metal.overrideAttrs (old: {
     (old.patches or [ ])
     ++ [
       ../tt-metal/gdn-decode-grid-chunk.patch
+      # Applied after the grid-chunk patch, so it sees the instance loop that
+      # patch introduces. Batches the destination registers over each tile loop
+      # of the fused decode compute kernel: one sync round-trip per loop instead
+      # of one per tile. The per-tile operations and their order are unchanged,
+      # so any candidate built from this runtime must still show exact decode
+      # and state parity before it is read for timing.
+      ../tt-metal/gdn-decode-dst-batch.patch
       # Same mechanism in the chunk-prefill phased factory: `distribute_scan`
       # carried the same one-instance-per-core bound, and it is the recorded
       # root cause of the B=8 TTFT rejection. This patch touches base sources,

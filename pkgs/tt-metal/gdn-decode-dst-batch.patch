@@ -1,0 +1,170 @@
+--- a/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
++++ b/ttnn/cpp/ttnn/operations/transformer/gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp
+@@ -82,14 +82,16 @@
+         g_exp_buffer.wait_front(1);
+         state_decay_buffer.reserve_back(state_tiles);
+         mul_tiles_bcast_scalar_init_short(cb_state, cb_g_exp);
++        tile_regs_acquire();
+         for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-            tile_regs_acquire();
+-            mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_state_decay, tile);
+-            tile_regs_release();
++            mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, tile);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            pack_tile(tile, cb_state_decay, tile);
+         }
++        tile_regs_release();
+         state_decay_buffer.push_back(state_tiles);
+         state_buffer.pop_front(state_tiles);
+         g_exp_buffer.pop_front(1);
+@@ -98,30 +100,34 @@
+         state_decay_buffer.wait_front(state_tiles);
+         v_read_buffer.reserve_back(val_tiles);
+         matmul_init(cb_k, cb_state_decay);
++        tile_regs_acquire();
+         for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+-            tile_regs_acquire();
+             for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
+-                matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, 0);
++                matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, val_tile);
+             }
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_v_read, val_tile);
+-            tile_regs_release();
+         }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            pack_tile(val_tile, cb_v_read, val_tile);
++        }
++        tile_regs_release();
+         v_read_buffer.push_back(val_tiles);
+ 
+         // delta = v - v_read.
+         v_read_buffer.wait_front(val_tiles);
+         delta_buffer.reserve_back(val_tiles);
+         sub_tiles_init(cb_v, cb_v_read);
++        tile_regs_acquire();
+         for (uint32_t tile = 0; tile < val_tiles; tile++) {
+-            tile_regs_acquire();
+-            sub_tiles(cb_v, cb_v_read, tile, tile, 0);
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_delta, tile);
+-            tile_regs_release();
++            sub_tiles(cb_v, cb_v_read, tile, tile, tile);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            pack_tile(tile, cb_delta, tile);
+         }
++        tile_regs_release();
+         delta_buffer.push_back(val_tiles);
+         v_buffer.pop_front(val_tiles);
+         v_read_buffer.pop_front(val_tiles);
+@@ -145,16 +151,20 @@
+         delta_buffer.wait_front(val_tiles);
+         outer_buffer.reserve_back(state_tiles);
+         matmul_init(cb_k_col, cb_delta);
++        tile_regs_acquire();
++        for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++            for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++                matmul_tiles(cb_k_col, cb_delta, key_tile, val_tile, key_tile * val_tiles + val_tile);
++            }
++        }
++        tile_regs_commit();
++        tile_regs_wait();
+         for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
+             for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+-                tile_regs_acquire();
+-                matmul_tiles(cb_k_col, cb_delta, key_tile, val_tile, 0);
+-                tile_regs_commit();
+-                tile_regs_wait();
+-                pack_tile(0, cb_outer, key_tile * val_tiles + val_tile);
+-                tile_regs_release();
++                pack_tile(key_tile * val_tiles + val_tile, cb_outer, key_tile * val_tiles + val_tile);
+             }
+         }
++        tile_regs_release();
+         outer_buffer.push_back(state_tiles);
+         k_col_buffer.pop_front(key_tiles);
+         delta_buffer.pop_front(val_tiles);
+@@ -163,14 +173,16 @@
+         outer_buffer.wait_front(state_tiles);
+         outer_scaled_buffer.reserve_back(state_tiles);
+         mul_tiles_bcast_scalar_init_short(cb_outer, cb_beta);
++        tile_regs_acquire();
+         for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-            tile_regs_acquire();
+-            mul_tiles_bcast_scalar(cb_outer, cb_beta, tile, 0, 0);
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_outer_scaled, tile);
+-            tile_regs_release();
++            mul_tiles_bcast_scalar(cb_outer, cb_beta, tile, 0, tile);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            pack_tile(tile, cb_outer_scaled, tile);
+         }
++        tile_regs_release();
+         outer_scaled_buffer.push_back(state_tiles);
+         outer_buffer.pop_front(state_tiles);
+         beta_buffer.pop_front(1);
+@@ -179,14 +191,16 @@
+         outer_scaled_buffer.wait_front(state_tiles);
+         state_new_buffer.reserve_back(state_tiles);
+         add_tiles_init(cb_state_decay, cb_outer_scaled);
++        tile_regs_acquire();
+         for (uint32_t tile = 0; tile < state_tiles; tile++) {
+-            tile_regs_acquire();
+-            add_tiles(cb_state_decay, cb_outer_scaled, tile, tile, 0);
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_state_new, tile);
+-            tile_regs_release();
++            add_tiles(cb_state_decay, cb_outer_scaled, tile, tile, tile);
+         }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            pack_tile(tile, cb_state_new, tile);
++        }
++        tile_regs_release();
+         state_new_buffer.push_back(state_tiles);
+         state_decay_buffer.pop_front(state_tiles);
+         outer_scaled_buffer.pop_front(state_tiles);
+@@ -196,16 +210,18 @@
+         state_new_buffer.wait_front(state_tiles);
+         output_buffer.reserve_back(val_tiles);
+         matmul_init(cb_q, cb_state_new);
++        tile_regs_acquire();
+         for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
+-            tile_regs_acquire();
+             for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
+-                matmul_tiles(cb_q, cb_state_new, key_tile, key_tile * val_tiles + val_tile, 0);
++                matmul_tiles(cb_q, cb_state_new, key_tile, key_tile * val_tiles + val_tile, val_tile);
+             }
+-            tile_regs_commit();
+-            tile_regs_wait();
+-            pack_tile(0, cb_output, val_tile);
+-            tile_regs_release();
+         }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            pack_tile(val_tile, cb_output, val_tile);
++        }
++        tile_regs_release();
+         output_buffer.push_back(val_tiles);
+         q_buffer.pop_front(key_tiles);
+     }

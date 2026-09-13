@@ -902,6 +902,23 @@ stdenvNoCC.mkDerivation {
         echo "GDN grid variant runtime lost the chunked decode kernel marker" >&2
         exit 1
       }
+      # The destination-register batching is shape-checked by what it removes:
+      # each batched loop syncs once instead of once per tile, so only the
+      # single-tile exp and the transpose loop still acquire per tile.
+      grep -Fq 'pack_tile(tile, cb_state_decay, tile)' "$gdn_decode_compute" || {
+        echo "GDN grid variant runtime lost the batched destination registers" >&2
+        exit 1
+      }
+      grep -Fq 'matmul_tiles(cb_k, cb_state_decay, key_tile, key_tile * val_tiles + val_tile, val_tile)' "$gdn_decode_compute" || {
+        echo "GDN grid variant runtime lost the batched accumulate destination" >&2
+        exit 1
+      }
+      test "$(grep -c 'tile_regs_acquire()' "$gdn_decode_compute")" -eq 2 || {
+        echo "GDN grid variant runtime has an unexpected per-tile sync count" >&2
+        exit 1
+      }
+      test "$(grep -c '^--- ' ${../tt-metal/gdn-decode-dst-batch.patch})" -eq 1
+      grep -Fq 'gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp' ${../tt-metal/gdn-decode-dst-batch.patch}
       if grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib"; then
         echo "GDN grid variant runtime still carries the one-instance-per-core decode guard" >&2
         exit 1
@@ -909,6 +926,10 @@ stdenvNoCC.mkDerivation {
     else
       if grep -Fq 'instance < head_count' "$gdn_decode_compute"; then
         echo "shared runtime carries a chunked decode kernel marker" >&2
+        exit 1
+      fi
+      if grep -Fq 'pack_tile(tile, cb_state_decay, tile)' "$gdn_decode_compute"; then
+        echo "shared runtime carries the batched destination registers" >&2
         exit 1
       fi
       grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib" || {
