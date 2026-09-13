@@ -98,3 +98,22 @@ Two ways to reach it, in order of preference:
    admission policy does not want.
 
 Option 1 is the next step.
+
+## Paths checked and closed for the boundary point
+
+Recorded so the next attempt does not repeat the search:
+
+- **Device open cannot shrink the grid.** `ttnn.distributed.open_mesh_device` takes
+  `mesh_shape`, `l1_small_size`, `trace_region_size`, `num_command_queues`,
+  `dispatch_core_config`, `offset`, `physical_device_ids`, and `worker_l1_size`.
+  There is no compute-grid or worker-grid override, so the GDN factory's
+  `compute_with_storage_grid_size()` cannot be reduced from the host.
+- **The instance formula is confirmed by the patched source.** The grid-chunk patch
+  carries the comment "decode head count is B * heads, e.g. 192 head-instances on a
+  ~110-core die", which fixes `instances = 24 * W` and therefore `k = ceil(24W/110)`:
+  one per core at W=4, two at W=8, four at W=16. That matches the recorded occupancy
+  (87.3 percent at W=4, 100 percent at W=8 and W=16).
+- **A grid cap needs a diagnostic tt-metal variant**, because the cap belongs in the
+  vendored factory. A new runtime patch changes the runtime identity, so it must be
+  built as a variant package that no service selects; the served runtime and its
+  receipts stay untouched.
