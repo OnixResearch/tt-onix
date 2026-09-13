@@ -902,9 +902,12 @@ stdenvNoCC.mkDerivation {
         echo "GDN grid variant runtime lost the chunked decode kernel marker" >&2
         exit 1
       }
-      # The destination-register batching is shape-checked by what it removes:
-      # each batched loop syncs once instead of once per tile, so only the
-      # single-tile exp and the transpose loop still acquire per tile.
+      # The destination-register batching is shape-checked directionally. The
+      # batched form moves the sync out of the tile loop, so the unbatched
+      # destination-zero operand call is what must be gone, and the batched
+      # per-tile destination calls are what must be present. Counting
+      # `tile_regs_acquire()` cannot tell them apart: both forms acquire once
+      # per loop, the batched form simply does it outside the loop.
       grep -Fq 'pack_tile(tile, cb_state_decay, tile)' "$gdn_decode_compute" || {
         echo "GDN grid variant runtime lost the batched destination registers" >&2
         exit 1
@@ -913,10 +916,10 @@ stdenvNoCC.mkDerivation {
         echo "GDN grid variant runtime lost the batched accumulate destination" >&2
         exit 1
       }
-      test "$(grep -c 'tile_regs_acquire()' "$gdn_decode_compute")" -eq 2 || {
-        echo "GDN grid variant runtime has an unexpected per-tile sync count" >&2
+      if grep -Fq 'mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);' "$gdn_decode_compute"; then
+        echo "GDN grid variant runtime still carries a per-tile destination-zero operand" >&2
         exit 1
-      }
+      fi
       test "$(grep -c '^--- ' ${../tt-metal/gdn-decode-dst-batch.patch})" -eq 1
       grep -Fq 'gated_delta_decode/device/kernels/compute/gated_delta_decode.cpp' ${../tt-metal/gdn-decode-dst-batch.patch}
       if grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib"; then
@@ -932,6 +935,10 @@ stdenvNoCC.mkDerivation {
         echo "shared runtime carries the batched destination registers" >&2
         exit 1
       fi
+      grep -Fq 'mul_tiles_bcast_scalar(cb_state, cb_g_exp, tile, 0, 0);' "$gdn_decode_compute" || {
+        echo "shared runtime lost its per-tile destination-zero operand" >&2
+        exit 1
+      }
       grep -Fq "$gdn_decode_guard_marker" "$gdn_runtime_lib" || {
         echo "shared runtime lost the pre-change decode grid guard its receipts rely on" >&2
         exit 1

@@ -39,6 +39,8 @@ startup_attempts=60
 startup_interval_seconds=10
 health_timeout_seconds=2
 request_timeout_seconds=360
+group_retry_maximum=4
+group_retry_interval_seconds=2
 active_server_pid=
 
 export PYTHONPATH="$package/lib/python3.13/site-packages:/nix/store/6ccynlvv46p54pmp2lb7dbs65hkyj5w9-tt-metal-0.77.0/lib/python3.13/site-packages"
@@ -95,22 +97,34 @@ for width in "${widths[@]}"; do
   fi
 
   barrier="$root/.start"
-  rm -f "$barrier"
-  pids=()
-  for prompt in $(seq 0 $((width - 1))); do
-    request="$corpus/request-$(printf '%02d' "$prompt").json"
-    output="$root/response-$prompt.json"
-    rm -f "$output"
-    (
-      while [[ ! -e "$barrier" ]]; do sleep 0.01; done
-      curl -fsS --max-time "$request_timeout_seconds" -H 'Content-Type: application/json' \
-        --data-binary "@$request" "$listen_url/v1/completions" > "$output" || true
-    ) &
-    pids+=("$!")
+  # The first group after startup can be rejected (the four-root admission
+  # harness carries the same retry for the same reason), so re-issue the group
+  # before reading anything as a result.
+  attempt=1
+  while (( attempt <= group_retry_maximum )); do
+    rm -f "$barrier"
+    pids=()
+    for prompt in $(seq 0 $((width - 1))); do
+      request="$corpus/request-$(printf '%02d' "$prompt").json"
+      output="$root/response-$prompt.json"
+      rm -f "$output"
+      (
+        while [[ ! -e "$barrier" ]]; do sleep 0.01; done
+        curl -fsS --max-time "$request_timeout_seconds" -H 'Content-Type: application/json' \
+          --data-binary "@$request" "$listen_url/v1/completions" > "$output" || true
+      ) &
+      pids+=("$!")
+    done
+    touch "$barrier"
+    for pid in "${pids[@]}"; do wait "$pid"; done
+    rm -f "$barrier"
+    if python3 -c "import json,sys;[json.load(open(f'$root/response-{p}.json')) for p in range($width)]" 2>/dev/null; then
+      break
+    fi
+    echo "width $width: group attempt $attempt produced no usable responses, retrying"
+    sleep "$group_retry_interval_seconds"
+    attempt=$((attempt + 1))
   done
-  touch "$barrier"
-  for pid in "${pids[@]}"; do wait "$pid"; done
-  rm -f "$barrier"
 
   fatals=$(grep -c "exceeds device compute grid" "$root/serve.log" 2>/dev/null || true)
   complete=$(ls "$root"/response-*.json 2>/dev/null | wc -l)

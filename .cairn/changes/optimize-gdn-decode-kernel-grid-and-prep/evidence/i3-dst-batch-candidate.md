@@ -62,3 +62,42 @@ variant package in this order:
 
 The candidate is rejected on either failure, and the admitted kernel stays the
 served route.
+
+## Result: exact parity, and a repeatable win at width 8
+
+Two paired rounds, each one reference session followed immediately by one candidate
+session, eight prompts released together, 64 generated tokens, interior samples only
+(the first sample is prefill-adjacent and the last is the tail spike). 480 samples
+per session.
+
+| Round | Reference median | Candidate median | Median change | Mean change | Token parity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 81.874 ms | 79.748 ms | -2.60% | -3.69% | exact |
+| 2 | 85.540 ms | 80.073 ms | -6.39% | -7.28% | exact |
+
+Parity is exact in both rounds and both directions: generated token ids, decoded
+text, eight distinct state slices, and a clean reset on every response. The
+destination-index change therefore did not permute any tile.
+
+Two honest notes on the numbers:
+
+- **The absolute values drift.** The same reference package measured 77.8 ms earlier
+  in the day, 81.9 ms in round 1, and 85.5 ms in round 2. That is a five percent
+  band, larger than the 1.8 percent the bound needs, so only the paired change is
+  read as a result. The earlier claim that the screen resolves this question in
+  three minutes was wrong in the direction that mattered: it resolves *large*
+  effects, and a small one needs the paired design.
+- **The two rounds disagree in size** (-2.6 and -6.4 percent) even though they agree
+  in sign. Both are consistent with a real improvement of a few percent, and neither
+  alone would have been enough to trust.
+
+Against the width-8 retention bound the paired change is sufficient on the screen:
+the bound needs a 1.8 percent step reduction and both rounds exceeded it. That is a
+screen result, not an admission result; the four-root receipt decides.
+
+## Screen reliability
+
+The first group after startup can be rejected, which cost one round its reference
+session while the candidate session succeeded. The probe now retries the group
+before reading anything as a result, matching the four-root harness, and the round
+above was taken with retries in place.
