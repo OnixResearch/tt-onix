@@ -60,7 +60,8 @@ UnsupportedFunctionality: tensix_matmul_op: ALU_ACC_CTRL_Zero_Flag_disabled_src=
 This is a simulator feature gap, not a passing recurrence test.
 The run supplies device compilation evidence but no numerical, state-carry, placement, or performance acceptance.
 No hardware attempt followed.
-The hazard audit awaits the source-coverage choice in [hazard-source-preflight.md](hazard-source-preflight.md).
+The user approved source access, but Confluence authentication remains unavailable.
+See [hazard-source-preflight.md](hazard-source-preflight.md).
 
 ## Existing repository blockers
 

@@ -9,7 +9,7 @@ The full audit has not started.
 | --- | --- | --- | --- | --- |
 | tt-isa-docs MCP | Primary ISA | WH/BH hardware semantics | No | The available MCP tools contain no ISA server. |
 | DeepWiki MCP | Equivalent ISA corpus | WH/BH hardware semantics | Yes | `deepwiki_read_wiki_structure` returned the `tenstorrent/tt-isa-documentation` index. |
-| Confluence / Atlassian MCP | Internal workaround authority | BH NoC and dataflow-CB | No | No corresponding tool is available. The required opaque pointer is `1001357404`. |
+| Confluence / Atlassian MCP | Internal workaround authority | BH NoC and dataflow-CB | No | No connector is available. Direct browser access reaches Atlassian login. The required opaque pointer is `1001357404`. |
 | Pinned sfpi-gcc | Compiler scheduling authority | BH instruction latency | Yes | GitHub API access timed out for a timing file. Direct public-source fetches reached all three required files. |
 | Dataflow API source | Issued operations | BH NoC and dataflow-CB | Yes | The package-matched `tt_metal/hw/inc/api/dataflow/dataflow_api.h` is present. |
 | LLK source | Issued operations and software contracts | BH, all applicable classes | Yes | The package-matched Blackhole LLK tree is present. |
@@ -39,15 +39,26 @@ The source chain is:
 Reachability does not establish a latency verdict.
 The later audit must read the exact source text, not Markdown-transformed compiler code.
 
-## Required choice
+## Access approved, authentication still blocked
 
-`.pi/skills/ttllk-race-audit-all/SKILL.md` requires:
+The user approved source access on 2026-09-13.
+This approval does not establish authentication or authorize reduced audit coverage.
 
-> Do not begin auditing until the user chooses
+A fresh MCP status check reports only `deepwiki` and `wiki`.
+Tool searches return no Confluence or Atlassian connector.
+The public TT-Metal documentation supplies the host `tenstorrent.atlassian.net`.
+Direct access to the required page uses:
 
-The user can authorize a bounded audit, supply access to the missing source, or add another source.
-Until that choice, V4 stays open.
-No full hazard pass, hardware test, integration, or physical admission follows from this preflight.
+`https://tenstorrent.atlassian.net/wiki/pages/viewpage.action?pageId=1001357404`
+
+The HTTP scrape returned no content.
+The browser showed an Atlassian error page.
+A separate browser check recorded origin `https://id.atlassian.com`, path `/login`, and title `Log in with Atlassian account`.
+It returned no content from the required document.
+
+V4 now awaits authenticated source access, not another permission approval.
+The session needs an authenticated Confluence connector or an authorized export of the required page.
+No full hazard pass, hardware test, integration, or physical admission follows from the access approval.
 
 The separate capacity and symbolic-order reviews concern source/API contracts only.
 Their runner produced a report but reached its process timeout before a clean exit.

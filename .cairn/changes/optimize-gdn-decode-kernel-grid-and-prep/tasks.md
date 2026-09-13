@@ -32,7 +32,7 @@
 - [x] [serial] V3 Run the package build and the device-free check. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
   The bounded replacement and installed host checks pass. See evidence/reliability-checks.md.
 - [ ] [serial] V4 Run the bounded Blackhole kernel hazard audits over the changed reader and compute kernels. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-  The audit awaits the source-coverage choice. See evidence/hazard-source-preflight.md.
+  The user approved source access. The audit awaits authenticated Confluence access. See evidence/hazard-source-preflight.md.
 - [ ] [serial] V5 Run a fresh Blackhole simulator smoke before hardware. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
   The fresh run compiles the kernel, then rejects unmodeled SrcB denormal behavior. No numerical pass. See evidence/reliability-checks.md.
 - [ ] [serial] V6 Run the matched physical screen and require exact decode and state parity before reading any timing. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid] (Reopened: old token receipts did not compare recurrent tensor contents. The bounded Dst replacement has no physical result.)
