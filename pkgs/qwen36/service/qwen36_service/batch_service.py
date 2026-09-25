@@ -24,7 +24,7 @@ from .batch_decode_adapter import (
     BatchedTracedDecodeAdapter,
 )
 from .batch_decode_core import ActiveDecodeUser, plan_decode_batch
-from .core import CompletionRequest, build_completion_response
+from .core import CompletionRequest, build_completion_response, finish_generation
 from .decode_adapter import DecodeAdapterError
 from .decode_core import DecodeProfile, request_deadline_expired
 from .readiness_core import StartupWarmupPlan
@@ -34,7 +34,11 @@ from .sampled_decode_core import (
     merge_shard_candidates,
     sample_candidates,
 )
-from .sampled_mode_router_core import ROUTE_SAMPLED, resolve_batch_route
+from .sampled_mode_router_core import (
+    ROUTE_SAMPLED,
+    deterministic_route_for_mode,
+    resolve_batch_route,
+)
 from .trace_reuse_core import TraceReuseProfile
 
 MAXIMUM_BATCH_WIDTH = 16
@@ -90,6 +94,7 @@ class BatchGenerationCoordinator:
         trace_reuse_profile: TraceReuseProfile | None = None,
         trace_reuse_admission_enabled: bool = False,
         sampled_admission_enabled: bool = False,
+        stop_token_ids: frozenset[int] = frozenset(),
     ) -> None:
         self.adapter = adapter
         self.tokenizer = tokenizer
@@ -104,6 +109,12 @@ class BatchGenerationCoordinator:
         self.emitter = emitter
         self.batch_admission_profile = batch_admission_profile
         self.sampled_admission_enabled = sampled_admission_enabled
+        # A batch stops once every user has emitted one of these; an empty set generates
+        # exactly max_tokens (admission measurements need the fixed length).
+        self.stop_token_ids = stop_token_ids
+        # Greedy requests stay on the mode the GDN layers started in when that
+        # mode is the fused decode step; otherwise on the exact-parity route.
+        self.deterministic_route = deterministic_route_for_mode(adapter.fusion_mode)
         self.batch_admission_enabled = batch_admission_enabled
         self.trace_reuse_profile = trace_reuse_profile
         self.trace_reuse_admission_enabled = trace_reuse_admission_enabled
@@ -261,6 +272,27 @@ class BatchGenerationCoordinator:
                     "startup warm-up reset failed"
                 ) from reset_error
             raise BatchDecodeAdapterError("startup warm-up failed") from error
+        # Masked prefill traces come last: their capture must follow every program the
+        # worker can run. A capture failure leaves eager prefill in service.
+        routes = (self.deterministic_route,) + (
+            (ROUTE_SAMPLED,) if self.sampled_admission_enabled else ()
+        )
+        traces_started = time.monotonic()
+        try:
+            buckets = self.adapter.prepare_masked_prefill_traces(
+                int(token_ids[0, 0]), routes
+            )
+        except (AssertionError, BatchDecodeAdapterError, RuntimeError, ValueError) as error:
+            self.adapter.model.release_masked_prefill_traces()
+            self.adapter.reset_all()
+            self.emitter("masked-prefill-traces-failed", error_type=type(error).__name__)
+        else:
+            if buckets:
+                self.emitter(
+                    "masked-prefill-traces-captured",
+                    buckets=list(buckets),
+                    elapsed_seconds=time.monotonic() - traces_started,
+                )
 
         with self._condition:
             self._accepting_requests = True
@@ -293,6 +325,10 @@ class BatchGenerationCoordinator:
                 if remaining <= 0 or self._closing:
                     break
                 self._condition.wait(timeout=remaining)
+            # Decode shards one user per core as a grid rectangle; a width with no
+            # rectangle (13 on an 11x10 grid) returns its newest requests to the queue.
+            while len(selected) > 1 and not self.adapter.decode_width_supported(len(selected)):
+                self._queue.appendleft(selected.pop())
             return tuple(selected)
 
     def _worker_loop(self) -> None:
@@ -373,6 +409,7 @@ class BatchGenerationCoordinator:
             tuple(pending.request.temperature for pending in pending_batch),
             sampled_admitted=self.sampled_admission_enabled,
             current_mode=self.adapter.fusion_mode,
+            deterministic_route=self.deterministic_route,
         )
         if route_decision.switch_required:
             self.adapter.switch_fusion_mode(route_decision.route)
@@ -382,6 +419,8 @@ class BatchGenerationCoordinator:
             generation_tokens=maximum_generation_tokens,
             trace_reuse_enabled=trace_reuse_enabled,
         )
+        if prefill_result.masked_traces_released:
+            self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
         first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
         positions = [pending.prompt_token_count for pending in pending_batch]
@@ -402,7 +441,35 @@ class BatchGenerationCoordinator:
         ]
 
         decode_durations = []
-        while len(generated[0]) < maximum_generation_tokens:
+        stopped = [token in self.stop_token_ids for token in prefill_result.first_token_ids]
+        remaining_steps = maximum_generation_tokens - len(generated[0])
+        if route_decision.route != ROUTE_SAMPLED and remaining_steps > 0 and not all(stopped):
+            # Greedy batches stream: the device feeds each step's tokens into the next step,
+            # and the host reads step k while step k + 1 runs.
+            stream = self.adapter.decode_greedy_stream(
+                token_ids=tuple(tokens[-1] for tokens in generated),
+                positions=tuple(positions),
+                steps=remaining_steps,
+            )
+            try:
+                step_started = time.monotonic()
+                for next_tokens in stream:
+                    decode_durations.append(time.monotonic() - step_started)
+                    for row_index, next_token in enumerate(next_tokens):
+                        generated[row_index].append(next_token)
+                        positions[row_index] += 1
+                        stopped[row_index] = stopped[row_index] or next_token in self.stop_token_ids
+                    if all(stopped):
+                        break
+                    if any(
+                        request_deadline_expired(time.monotonic(), pending.deadline)
+                        for pending in pending_batch
+                    ):
+                        raise BatchDecodeAdapterError("request timeout exceeded")
+                    step_started = time.monotonic()
+            finally:
+                stream.close()
+        while len(generated[0]) < maximum_generation_tokens and not all(stopped):
             if any(
                 request_deadline_expired(time.monotonic(), pending.deadline)
                 for pending in pending_batch
@@ -450,6 +517,7 @@ class BatchGenerationCoordinator:
             for row, next_token in zip(plan.rows, next_tokens, strict=True):
                 generated[row.row_index].append(next_token)
                 positions[row.row_index] = row.next_position
+                stopped[row.row_index] = stopped[row.row_index] or next_token in self.stop_token_ids
 
         cleanup_started = time.monotonic()
         self.adapter.reset_all()
@@ -498,6 +566,7 @@ class BatchGenerationCoordinator:
         for state_slice, (pending, user_tokens) in enumerate(
             zip(pending_batch, generated, strict=True)
         ):
+            user_tokens, finish_reason = finish_generation(user_tokens, self.stop_token_ids)
             generated_text = self.tokenizer.decode(
                 user_tokens,
                 skip_special_tokens=True,
@@ -509,6 +578,7 @@ class BatchGenerationCoordinator:
                 generated_text=generated_text,
                 prompt_token_count=pending.prompt_token_count,
                 generated_token_count=len(user_tokens),
+                finish_reason=finish_reason,
             )
             queue_seconds = prefill_started - pending.started
             ttft_seconds = first_token_ready - prefill_started

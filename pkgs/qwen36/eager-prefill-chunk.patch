@@ -1,0 +1,28 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -20,6 +20,9 @@ from models.demos.blackhole.qwen36.tt.model_config import Qwen36ModelArgs
+ from models.demos.blackhole.qwen36.tt.rope import Qwen36RoPESetup
+ from models.tt_transformers.tt.common import Mode, get_block_size, num_blocks_in_seq
+ 
++# Eager (untraced) prefill chunk length; see prefill_traced_chunked.
++EAGER_PREFILL_CHUNK_TOKENS = 1024
++
+ 
+ class Qwen36Model:
+     """Qwen3.5-9B text LM on Blackhole P150. HF_MODEL env var selects checkpoint."""
+@@ -2339,10 +2342,10 @@ class Qwen36Model:
+         hidden on host in _set_vision_merge, placed along seq, then re-sharded — see
+         _alloc_vision_merge_buffers).
+         """
+-        # Default to the standard 2048-token chunk when no trace is captured (e.g. the TP MVP,
+-        # which serves <=2048 prompts entirely via the masked bucket below and so needs no chunk
+-        # trace). The chunk trace is only required once there is at least one full chunk to replay.
+-        chunk_size = self._chunked_chunk_size or 2048
++        # Without a captured chunk trace, eager prefill works in EAGER_PREFILL_CHUNK_TOKENS chunks
++        # with a masked tail. On P150x2 a 2048-row masked bucket overflows L1 beside the resident
++        # decode buffers (GDN FIR conv OOM, MLP circular-buffer clash); 1024-row chunks fit.
++        chunk_size = self._chunked_chunk_size or EAGER_PREFILL_CHUNK_TOKENS
+         B, T = token_ids.shape
+         assert 1 <= actual_len <= T, f"actual_len {actual_len} not in [1, {T}]"
+         block_size = get_block_size(self._paged_kv_caches)

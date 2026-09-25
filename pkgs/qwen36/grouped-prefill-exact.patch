@@ -1,0 +1,205 @@
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -1101,17 +1101,32 @@ class TPGatedDeltaNet:
+         else:
+             self.conv_states = new_conv
+ 
+-        # ---- output (gated RMSNorm + SiLU(z) gate + row-parallel out proj + all-reduce) ----
++        # ---- output (gated RMSNorm + SiLU(z) gate + row-parallel out proj + reduction) ----
++        # Rows flatten to [1, B*T, *] and take forward_prefill's exact output ops, so a grouped
++        # prefill produces the per-user prefill's numbers.
+         out_n = ttnn.rms_norm(o, weight=tw["norm_w"], epsilon=1e-6)
+         ttnn.deallocate(o)
+-        out_f = ttnn.reshape(out_n, (B, T, self.value_dim_tp))
++        out_f = ttnn.reshape(out_n, (1, B * T, self.value_dim_tp))
+         ttnn.deallocate(out_n)
+-        gated = ttnn.multiply(out_f, ttnn.silu(z))
++        z_f = ttnn.reshape(z, (1, B * T, z.shape[-1]))
++        gated = _silu_mul(out_f, z_f, ttnn.DRAM_MEMORY_CONFIG)
+         ttnn.deallocate(out_f)
+         ttnn.deallocate(z)
+-        partial = ttnn.linear(gated, tw["out"], compute_kernel_config=self.cfg, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++        if self._fuse_out_mmrs_prefill:
++            out = tpc.matmul_reduce_scatter_prefill(
++                ttnn.reshape(gated, (1, 1, B * T, gated.shape[-1])),
++                tw["out"],
++                self.tt_ccl,
++                self.cfg,
++                self.args.ccl_topology(),
++                self.args.num_devices,
++                ttnn.float32,
++            )
++            ttnn.deallocate(gated)
++            return out
++        partial = self._row_proj(gated, tw["out"])
+         ttnn.deallocate(gated)
+-        partial = ttnn.reshape(partial, (1, B, T, partial.shape[-1]))
++        partial = ttnn.reshape(partial, (1, 1, B * T, partial.shape[-1]))
+         return tt_all_reduce(
+             partial,
+             self.mesh,
+diff --git a/models/demos/blackhole/qwen36/tt/layer.py b/models/demos/blackhole/qwen36/tt/layer.py
+--- a/models/demos/blackhole/qwen36/tt/layer.py
++++ b/models/demos/blackhole/qwen36/tt/layer.py
+@@ -150,21 +150,8 @@ class Qwen36DecoderLayer:
+             )
+         return norm
+ 
+-    def forward(
+-        self,
+-        x,
+-        cos=None,
+-        sin=None,
+-        mode="decode",
+-        chunk_size=128,  # = GDN long_prefill_chunk_size; the only size the chunk-seq prefill kernel supports
+-        position_tensor=None,
+-        page_table=None,
+-        chunk_page_table=None,
+-        chunk_start_idx=None,
+-        chunk_start_idx_tensor=None,
+-        valid_len=None,
+-        gdn_collect=False,
+-    ):
++    def norm_configs(self, mode):
++        """(attention-norm, ffn-norm) configs for `mode`; shared by forward and grouped prefill."""
+         _norm_mode = Mode.PREFILL if mode == "prefill" else Mode.DECODE
+         if self.num_devices > 1:
+             # TP: DistributedNorm uses the framework's per-norm memory configs.
+@@ -185,6 +172,25 @@ class Qwen36DecoderLayer:
+             _attn_norm_config = _ff_norm_config = (
+                 {"output_mem_config": ttnn.L1_MEMORY_CONFIG} if mode == "decode" else None
+             )
++        return _attn_norm_config, _ff_norm_config
++
++    def forward(
++        self,
++        x,
++        cos=None,
++        sin=None,
++        mode="decode",
++        chunk_size=128,  # = GDN long_prefill_chunk_size; the only size the chunk-seq prefill kernel supports
++        position_tensor=None,
++        page_table=None,
++        chunk_page_table=None,
++        chunk_start_idx=None,
++        chunk_start_idx_tensor=None,
++        valid_len=None,
++        gdn_collect=False,
++    ):
++        _norm_mode = Mode.PREFILL if mode == "prefill" else Mode.DECODE
++        _attn_norm_config, _ff_norm_config = self.norm_configs(mode)
+         attn_input = self.attention_norm(x, mode=_norm_mode, norm_config=_attn_norm_config)
+ 
+         if self.num_devices > 1:
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -1273,6 +1273,8 @@ class Qwen36Model:
+                     dn.conv_carry,
+                     dn._zero_conv0,
+                     dn._stable_state,
++                    dn._zero_rec,
++                    dn._zero_conv_carry,
+                 )
+             )
+             # reset_state allocates against self.B, so set B=1 first.
+@@ -1283,8 +1285,17 @@ class Qwen36Model:
+ 
+     def _restore_gdn_batched(self, prev):
+         """Restore the batched [B,...] GDN bindings saved by _alloc_gdn_scratch_b1 and free
+-        the B=1 scratch, so decode reads the assembled batched state."""
+-        for dn, B_b, rec_b, conv_b, carry_b, zero0_b, stable_b in prev:
++        the B=1 scratch, so decode reads the assembled batched state.
++
++        reset_state also replaced the layer's zero sources (_zero_rec, _zero_conv_carry) with
++        scratch-shaped ones; free those and restore the originals, or the next
++        reset_state_inplace copies a [bg,...] zero into a differently shaped state."""
++        for dn, B_b, rec_b, conv_b, carry_b, zero0_b, stable_b, zero_rec_b, zero_carry_b in prev:
++            for zero_src, zero_prev in ((dn._zero_rec, zero_rec_b), (dn._zero_conv_carry, zero_carry_b)):
++                if zero_src is not None and zero_src is not zero_prev:
++                    ttnn.deallocate(zero_src)
++            dn._zero_rec = zero_rec_b
++            dn._zero_conv_carry = zero_carry_b
+             # Free the B=1 scratch allocated for the prefill trace.
+             if dn.rec_state is not None:
+                 ttnn.deallocate(dn.rec_state)
+@@ -2917,7 +2928,19 @@ class Qwen36Model:
+             if layer.is_full_attention:
+                 continue
+             dn = layer.attention
+-            prev.append((dn, dn.B, dn.rec_state, dn.conv_states, dn.conv_carry, dn._zero_conv0, dn._stable_state))
++            prev.append(
++                (
++                    dn,
++                    dn.B,
++                    dn.rec_state,
++                    dn.conv_states,
++                    dn.conv_carry,
++                    dn._zero_conv0,
++                    dn._stable_state,
++                    dn._zero_rec,
++                    dn._zero_conv_carry,
++                )
++            )
+             dn.B = bg
+             dn.reset_state()  # builds rec_state [bg,Nv,Dk,Dv], conv_states[*] [1,bg,D], carry, zero0
+             dn._stable_state = True  # forward_prefill_batched writes state in place under this flag
+@@ -3025,6 +3048,9 @@ class Qwen36Model:
+ 
+         dn_layers = [layer.attention for layer in self.layers if not layer.is_full_attention]
+         rep = ttnn.ReplicateTensorToMesh(self.device)
++        # Text-only group: clear any staged per-request (M-)RoPE to ordinary 1D RoPE, as the
++        # per-user path does, so cos/sin and later decode offsets match it.
++        self._build_request_rope(token_ids_list[0][:, : vlens[0]], None)
+         # cos/sin for absolute positions [0, bucket) — shared by all users (single pass from pos 0).
+         cos_t, sin_t = self._rope_tp_cos_sin_torch(0, bucket)
+         cos = ttnn.from_torch(cos_t, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=self.device, mesh_mapper=rep)
+@@ -3078,7 +3104,11 @@ class Qwen36Model:
+                 for layer in self.layers:
+                     # The DistributedNorm all-gathers to the FULL hidden dim for the module (dn), so
+                     # attn_in's last dim is the full dim (!= d, the fractured residual-stream dim).
+-                    attn_in = layer.attention_norm(x, mode=Mode.PREFILL)  # [1, 1, Bg*bucket, full]
++                    # The per-user forward's norm configs, so each row's numbers match it.
++                    attn_norm_config, ff_norm_config = layer.norm_configs("prefill")
++                    attn_in = layer.attention_norm(
++                        x, mode=Mode.PREFILL, norm_config=attn_norm_config
++                    )  # [1, 1, Bg*bucket, full]
+                     full = attn_in.shape[-1]
+                     if layer.is_full_attention:
+                         attn_in_b = ttnn.reshape(attn_in, (1, Bg, bucket, full))  # split users for slicing
+@@ -3113,26 +3143,25 @@ class Qwen36Model:
+                     h = ttnn.add(x, attn_out)  # both [1, 1, Bg*bucket, d]
+                     ttnn.deallocate(x)
+                     ttnn.deallocate(attn_out)
+-                    ff_in = layer.ffn_norm(h, mode=Mode.PREFILL)
++                    ff_in = layer.ffn_norm(h, mode=Mode.PREFILL, norm_config=ff_norm_config)
+                     ff_out = layer.feed_forward.forward(ff_in)
+                     ttnn.deallocate(ff_in)
+                     x = ttnn.add(h, ff_out)
+                     ttnn.deallocate(h)
+                     ttnn.deallocate(ff_out)
+ 
+-                # Final norm + per-user next-token logit at valid_len-1, read to host immediately.
+-                xn = self.norm(x, mode=Mode.PREFILL)  # [1, 1, Bg*bucket, full]
+-                ttnn.deallocate(x)
+-                xn_b = ttnn.reshape(xn, (1, Bg, bucket, xn.shape[-1]))
++                # Per-user next-token logit at valid_len-1 through the per-user path's own
++                # select + norm + LM head, read to host immediately.
++                x_b = ttnn.reshape(x, (1, Bg, bucket, x.shape[-1]))
+                 for i, u in enumerate(grp):
+-                    x_last = xn_b[:, i : i + 1, vlens[u] - 1 : vlens[u], :]  # [1,1,1,full] (slice copy)
+-                    lg = ttnn.linear(x_last, self.lm_head_weight)
+-                    ttnn.deallocate(x_last)
++                    x_u = ttnn.reshape(x_b[:, i : i + 1, :, :], (1, 1, bucket, x.shape[-1]))
++                    lg = self._masked_bucket_logits_tp(x_u, vlens[u], bucket)
++                    ttnn.deallocate(x_u)
+                     host_logits[u] = (
+                         ttnn.to_torch(lg, mesh_composer=comp).reshape(1, 1, -1)[:, :, : self.args.vocab_size].clone()
+                     )
+                     ttnn.deallocate(lg)
+-                ttnn.deallocate(xn)
++                ttnn.deallocate(x)
+                 for t in full_pts + chunk_pts:
+                     ttnn.deallocate(t)
+ 

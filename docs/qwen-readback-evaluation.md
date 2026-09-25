@@ -26,7 +26,7 @@ The [receipt](evidence/tt-metal-0.77/qwen-readback/receipt.json) records a physi
 
 The synthetic fixture uses row-major tensors with four winners per device. It checks ties, buffer updates at unchanged addresses, invalid tokens, and retry after a rejected second transfer. It does not reproduce the full-model output layout or measure end-to-end decode.
 
-The diagnostic source is `pkgs/qwen36/readback-probe.py`. The [rejected patch](evidence/tt-metal-0.77/qwen-readback/rejected-candidate.patch) preserves the candidate and its ordering tests. It is not part of the package patch list.
+The diagnostic source was `pkgs/qwen36/readback-probe.py`. It was removed on 2026-09-25, when the greedy trace tail began combining the shard winners on device (`.cairn/changes/stream-qwen38-greedy-decode`); the two-read readback it compared no longer exists. The [rejected patch](evidence/tt-metal-0.77/qwen-readback/rejected-candidate.patch) preserves the candidate and its ordering tests. It is not part of the package patch list.
 
 Candidate package checks passed. Tests covered transfer order, host-buffer lifetime, first-read errors, second-read errors, interruption, tie selection, and vocabulary rejection. Baseline package checks passed again after removal of the candidate.
 

@@ -1,0 +1,1372 @@
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py b/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py
+@@ -3,6 +3,8 @@
+ ``norm`` folds fixed Q/K scales into RMSNorm. ``state`` uses the TTNN
+ ternary state update. ``full`` selects the fused fp32 recurrent kernel.
+ ``norm-state`` combines norm and state fusion without the custom kernel.
++``step`` replaces the whole decode chain between the in and out projections
++with two custom programs (conv prep, then recurrence with the gated norm).
+ 
+ This module imports no TTNN object and opens no device.
+ """
+@@ -17,7 +19,8 @@ MODE_NORM = "norm"
+ MODE_STATE = "state"
+ MODE_NORM_STATE = "norm-state"
+ MODE_FULL = "full"
+-MODES = frozenset({MODE_OFF, MODE_NORM, MODE_STATE, MODE_NORM_STATE, MODE_FULL})
++MODE_STEP = "step"
++MODES = frozenset({MODE_OFF, MODE_NORM, MODE_STATE, MODE_NORM_STATE, MODE_FULL, MODE_STEP})
+ 
+ 
+ def selected_mode(env=None):
+@@ -44,3 +47,8 @@ def uses_fused_state_update(mode):
+ def uses_fused_recurrence(mode):
+     """Return whether ``mode`` uses the custom fp32 recurrence."""
+     return mode == MODE_FULL
++
++
++def uses_fused_step(mode):
++    """Return whether ``mode`` runs the fused conv-prep and recurrence programs."""
++    return mode == MODE_STEP
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/decode_step.py stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/decode_step.py
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/decode_step.py
+@@ -0,0 +1,365 @@
++"""Fused GDN decode step for the TP qwen36 decode path.
++
++Two custom programs replace the composite decode chain between the qkvzab projection and the
++out projection:
++
++* ``conv_prep``: depthwise causal conv + SiLU over the q/k/v channels, SiLU over the gate, and
++  an fp32 copy of the a/b logits, into one persistent fp32 prep buffer. It also shifts the
++  conv state in place.
++* ``recurrence``: per (batch, value head) L2 norms, beta/decay scalars, the gated delta rule
++  state update, the output read, and the gated RMSNorm, into one persistent bf16 buffer laid out
++  as the out projection's input. It updates the recurrent state in place.
++
++Both programs run through ``ttnn.generic_op`` with kernels JIT-compiled from ``kernels/``.
++"""
++
++# r[impl tenstorrent.qwen38_p150x2.gdn_decode_step]
++
++from __future__ import annotations
++
++import struct
++from dataclasses import dataclass
++from pathlib import Path
++
++import torch
++import ttnn
++
++KERNEL_DIR = Path(__file__).resolve().parent / "kernels"
++TILE = 32
++FP32_TILE_BYTES = TILE * TILE * 4
++BF16_TILE_BYTES = TILE * TILE * 2
++
++
++def _f32_bits(value: float) -> int:
++    return struct.unpack("<I", struct.pack("<f", value))[0]
++
++
++@dataclass(frozen=True)
++class GdnDecodeGeometry:
++    num_k_heads: int
++    num_v_heads: int
++    head_k_dim: int
++    head_v_dim: int
++    max_batch: int
++
++    @property
++    def key_dim(self) -> int:
++        return self.num_k_heads * self.head_k_dim
++
++    @property
++    def value_dim(self) -> int:
++        return self.num_v_heads * self.head_v_dim
++
++    @property
++    def qkv_dim(self) -> int:
++        return 2 * self.key_dim + self.value_dim
++
++    @property
++    def qkvzab_dim(self) -> int:
++        return self.qkv_dim + self.value_dim + 2 * self.num_v_heads
++
++    @property
++    def prep_tiles(self) -> int:
++        return -(-self.qkvzab_dim // TILE)
++
++    def validate(self) -> None:
++        if self.head_k_dim != 128 or self.head_v_dim != 128:
++            raise ValueError("fused GDN decode step requires 128-wide key and value heads")
++        if self.num_v_heads % self.num_k_heads:
++            raise ValueError("value heads must be a multiple of key heads")
++        if not 1 <= self.max_batch <= TILE:
++            raise ValueError("fused GDN decode step supports 1..32 batch rows")
++        if self.qkv_dim % TILE or self.value_dim % TILE:
++            raise ValueError("q/k/v and gate widths must be tile aligned")
++        if (self.qkv_dim + self.value_dim) // TILE + 2 < self.prep_tiles:
++            raise ValueError("a/b logits must fit in two tiles after the gate")
++
++
++def _cores(mesh, count: int) -> list[ttnn.CoreCoord]:
++    grid = mesh.compute_with_storage_grid_size()
++    if count > grid.x * grid.y:
++        raise ValueError("requested more cores than the compute grid")
++    return [ttnn.CoreCoord(index // grid.y, index % grid.y) for index in range(count)]
++
++
++def _core_range_set(cores: list[ttnn.CoreCoord]) -> ttnn.CoreRangeSet:
++    """Column-major core list as rectangles, so dispatch multicasts instead of unicasting."""
++    columns: dict[int, list[int]] = {}
++    for core in cores:
++        columns.setdefault(core.x, []).append(core.y)
++    ranges = []
++    full = [x for x, ys in columns.items() if ys == list(range(len(ys))) and len(ys) == max(map(len, columns.values()))]
++    if full:
++        ranges.append(ttnn.CoreRange(ttnn.CoreCoord(min(full), 0), ttnn.CoreCoord(max(full), len(columns[full[0]]) - 1)))
++    for x, ys in columns.items():
++        if x not in full:
++            ranges.append(ttnn.CoreRange(ttnn.CoreCoord(x, min(ys)), ttnn.CoreCoord(x, max(ys))))
++    return ttnn.CoreRangeSet(ranges)
++
++
++def _cb(index: int, pages: int, dtype, page_bytes: int, cores: ttnn.CoreRangeSet) -> ttnn.CBDescriptor:
++    return ttnn.CBDescriptor(
++        total_size=pages * page_bytes,
++        core_ranges=cores,
++        format_descriptors=[ttnn.CBFormatDescriptor(buffer_index=index, data_format=dtype, page_size=page_bytes)],
++    )
++
++
++def _accessor_args(*tensors) -> list[int]:
++    args: list[int] = []
++    for tensor in tensors:
++        args.extend(ttnn.TensorAccessorArgs(tensor).get_compile_time_args())
++    return args
++
++
++NUM_CIRCULAR_BUFFERS = 64
++
++
++def _compute_config(exact_cbs: tuple[int, ...] = ()) -> ttnn.ComputeConfigDescriptor:
++    config = ttnn.ComputeConfigDescriptor(
++        math_fidelity=ttnn.MathFidelity.HiFi4,
++        math_approx_mode=False,
++        fp32_dest_acc_en=True,
++    )
++    if exact_cbs:
++        modes = [ttnn.UnpackToDestMode.Default] * NUM_CIRCULAR_BUFFERS
++        for index in exact_cbs:
++            modes[index] = ttnn.UnpackToDestMode.UnpackToDestFp32
++        config.unpack_to_dest_mode = modes
++    return config
++
++
++# Step CBs unpacked straight to fp32 DEST (never through the tf32 source registers).
++EXACT_STEP_CBS = (2, 3, 8, 9, 11, 12, 20, 26, 27)
++
++
++class GdnDecodeStep:
++    """Persistent buffers and program builders for one mesh and batch capacity.
++
++    The prep and gated buffers are shared by every GDN layer on the mesh: each layer consumes
++    them before the next layer's programs run on the same queue.
++    """
++
++    def __init__(self, mesh, geometry: GdnDecodeGeometry):
++        geometry.validate()
++        self.mesh = mesh
++        self.geometry = geometry
++        replicate = ttnn.ReplicateTensorToMesh(mesh)
++        # DRAM, not L1: 0.5 us per layer slower in decode, but it keeps this resident
++        # buffer out of the L1 that prefill intermediates need.
++        self.prep = ttnn.from_torch(
++            torch.zeros(1, geometry.max_batch, geometry.prep_tiles * TILE, dtype=torch.float32),
++            dtype=ttnn.float32,
++            layout=ttnn.TILE_LAYOUT,
++            device=mesh,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            mesh_mapper=replicate,
++        )
++        # Zero padding rows are part of the contract: the kernel only writes rows < batch.
++        self.gated = ttnn.from_torch(
++            torch.zeros(1, geometry.max_batch, geometry.value_dim, dtype=torch.bfloat16),
++            dtype=ttnn.bfloat16,
++            layout=ttnn.TILE_LAYOUT,
++            device=mesh,
++            memory_config=ttnn.L1_MEMORY_CONFIG,
++            mesh_mapper=replicate,
++        )
++
++    def gated_rows(self, batch: int):
++        """The gated output as [1, batch, value_dim]: a view, since padding keeps one tile row."""
++        if batch == self.geometry.max_batch:
++            return self.gated
++        padded = list(self.gated.padded_shape)
++        return ttnn.reshape(self.gated, [1, batch, self.geometry.value_dim], padded)
++
++    def layer_constants(self, tw) -> dict:
++        """fp32 per-head scalars and a row-broadcast gated-norm weight for one layer."""
++        g = self.geometry
++        norm_w = ttnn.to_torch(ttnn.get_device_tensors(tw["norm_w"])[0]).float().reshape(-1)[: g.head_v_dim]
++        return {
++            "dt": ttnn.typecast(tw["dt_bias"], ttnn.float32),
++            "neg_exp_a": ttnn.typecast(tw["neg_exp_A"], ttnn.float32),
++            "norm_w": ttnn.from_torch(
++                norm_w.reshape(1, 1, g.head_v_dim).expand(1, TILE, g.head_v_dim).contiguous(),
++                dtype=ttnn.float32,
++                layout=ttnn.TILE_LAYOUT,
++                device=self.mesh,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh),
++            ),
++        }
++
++    def conv_prep(self, qkvzab, conv_states, conv_taps):
++        g = self.geometry
++        tiles = g.prep_tiles
++        grid = self.mesh.compute_with_storage_grid_size()
++        per_core = -(-tiles // (grid.x * grid.y))
++        cores = _cores(self.mesh, -(-tiles // per_core))
++        core_set = _core_range_set(cores)
++        reader_rt = ttnn.RuntimeArgs()
++        compute_rt = ttnn.RuntimeArgs()
++        writer_rt = ttnn.RuntimeArgs()
++        addresses = [qkvzab.buffer_address()] + [t.buffer_address() for t in conv_states] + [
++            t.buffer_address() for t in conv_taps
++        ]
++        for index, core in enumerate(cores):
++            start = index * per_core
++            count = min(per_core, tiles - start)
++            reader_rt[core.x][core.y] = addresses + [start, count]
++            compute_rt[core.x][core.y] = [start, count]
++            writer_rt[core.x][core.y] = [self.prep.buffer_address(), start, count]
++        conv_tiles = g.qkv_dim // TILE
++        gate_end = (g.qkv_dim + g.value_dim) // TILE
++        reader = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "conv_reader.cpp"),
++            core_ranges=core_set,
++            compile_time_args=[conv_tiles] + _accessor_args(qkvzab, *conv_states, *conv_taps),
++            runtime_args=reader_rt,
++            config=ttnn.ReaderConfigDescriptor(),
++        )
++        compute = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "conv_compute.cpp"),
++            core_ranges=core_set,
++            compile_time_args=[conv_tiles, gate_end],
++            runtime_args=compute_rt,
++            config=_compute_config(),
++        )
++        writer = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "conv_writer.cpp"),
++            core_ranges=core_set,
++            compile_time_args=_accessor_args(self.prep),
++            runtime_args=writer_rt,
++            config=ttnn.WriterConfigDescriptor(),
++        )
++        cbs = [_cb(index, 2, ttnn.bfloat16, BF16_TILE_BYTES, core_set) for index in range(8)]
++        cbs.append(_cb(16, 2, ttnn.float32, FP32_TILE_BYTES, core_set))
++        program = ttnn.ProgramDescriptor(kernels=[reader, compute, writer], semaphores=[], cbs=cbs)
++        return ttnn.generic_op([qkvzab, *conv_states, *conv_taps, self.prep], program)
++
++    def recurrence(self, state, constants, batch: int):
++        g = self.geometry
++        if not 1 <= batch <= g.max_batch:
++            raise ValueError("decode width exceeds the fused step batch capacity")
++        instances = batch * g.num_v_heads
++        grid = self.mesh.compute_with_storage_grid_size()
++        per_core = -(-instances // (grid.x * grid.y))
++        cores = _cores(self.mesh, -(-instances // per_core))
++        core_set = _core_range_set(cores)
++        reader_rt = ttnn.RuntimeArgs()
++        compute_rt = ttnn.RuntimeArgs()
++        writer_rt = ttnn.RuntimeArgs()
++        reader_addresses = [
++            self.prep.buffer_address(),
++            state.buffer_address(),
++            constants["dt"].buffer_address(),
++            constants["neg_exp_a"].buffer_address(),
++            constants["norm_w"].buffer_address(),
++        ]
++        for index, core in enumerate(cores):
++            start = index * per_core
++            count = min(per_core, instances - start)
++            reader_rt[core.x][core.y] = reader_addresses + [start, count]
++            compute_rt[core.x][core.y] = [count]
++            writer_rt[core.x][core.y] = [self.gated.buffer_address(), state.buffer_address(), start, count]
++        key_tiles = g.head_k_dim // TILE
++        val_tiles = g.head_v_dim // TILE
++        reader = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "step_reader.cpp"),
++            core_ranges=core_set,
++            compile_time_args=[
++                key_tiles,
++                val_tiles,
++                g.num_v_heads // g.num_k_heads,
++                g.num_v_heads,
++                0,
++                g.key_dim // TILE,
++                2 * g.key_dim // TILE,
++                g.qkv_dim // TILE,
++                g.qkv_dim + g.value_dim,
++                g.qkv_dim + g.value_dim + g.num_v_heads,
++            ]
++            + _accessor_args(self.prep, state, constants["dt"], constants["neg_exp_a"], constants["norm_w"]),
++            runtime_args=reader_rt,
++            config=ttnn.ReaderConfigDescriptor(),
++        )
++        compute = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "step_compute.cpp"),
++            core_ranges=core_set,
++            compile_time_args=[
++                key_tiles,
++                val_tiles,
++                _f32_bits(g.head_k_dim**-0.5),
++                _f32_bits(1.0 / g.head_v_dim),
++            ],
++            runtime_args=compute_rt,
++            config=_compute_config(EXACT_STEP_CBS),
++        )
++        writer = ttnn.KernelDescriptor(
++            kernel_source=str(KERNEL_DIR / "step_writer.cpp"),
++            core_ranges=core_set,
++            compile_time_args=[key_tiles, val_tiles, g.num_v_heads] + _accessor_args(self.gated, state),
++            runtime_args=writer_rt,
++            config=ttnn.WriterConfigDescriptor(),
++        )
++        state_tiles = key_tiles * val_tiles
++        fp32_cbs = {
++            0: key_tiles, 1: key_tiles, 2: val_tiles, 3: val_tiles,  # q k v silu(z)
++            4: 1, 5: 1, 6: 1, 7: 1,  # a b dt -exp(A)
++            8: state_tiles, 9: val_tiles, 10: 1,  # state, norm weight, scratch
++            11: 1, 12: 1, 13: 1, 14: 1,  # beta decay 1/|k| scale/|q|
++            15: key_tiles, 17: key_tiles, 18: key_tiles,  # k q k^T
++            19: state_tiles, 20: val_tiles, 21: val_tiles, 22: state_tiles,  # S' v_read delta*beta S
++            23: val_tiles, 24: 1, 26: state_tiles, 27: val_tiles,  # o 1/rms(o) exact S' exact o
++        }
++        cbs = [_cb(index, pages, ttnn.float32, FP32_TILE_BYTES, core_set) for index, pages in fp32_cbs.items()]
++        cbs.append(_cb(16, val_tiles, ttnn.bfloat16, BF16_TILE_BYTES, core_set))
++        program = ttnn.ProgramDescriptor(kernels=[reader, compute, writer], semaphores=[], cbs=cbs)
++        io = [self.prep, state, constants["dt"], constants["neg_exp_a"], constants["norm_w"], self.gated]
++        return ttnn.generic_op(io, program)
++
++
++_STEPS: dict[tuple[int, GdnDecodeGeometry], GdnDecodeStep] = {}
++
++
++def shared_step(mesh, geometry: GdnDecodeGeometry) -> GdnDecodeStep:
++    """One set of persistent buffers per mesh and geometry."""
++    key = (id(mesh), geometry)
++    step = _STEPS.get(key)
++    if step is None:
++        step = GdnDecodeStep(mesh, geometry)
++        _STEPS[key] = step
++    return step
++
++
++def reference_step(qkvzab, conv_states, taps, state, dt, neg_exp_a, norm_w, geometry, batch):
++    """float64 reference of one fused decode step. Returns (gated, new_conv_states, new_state)."""
++    g = geometry
++    x = qkvzab[:batch].double()
++    qkv = x[:, : g.qkv_dim]
++    z = x[:, g.qkv_dim : g.qkv_dim + g.value_dim]
++    a = x[:, g.qkv_dim + g.value_dim : g.qkv_dim + g.value_dim + g.num_v_heads]
++    b = x[:, g.qkv_dim + g.value_dim + g.num_v_heads : g.qkvzab_dim]
++    s = [c[:batch].double() for c in conv_states]
++    t = [tap.double() for tap in taps]
++    conv = torch.nn.functional.silu(s[1] * t[0] + s[2] * t[1] + s[3] * t[2] + qkv * t[3])
++    new_conv = [s[1], s[2], s[3], qkv]
++    kd = g.key_dim
++    rf = g.num_v_heads // g.num_k_heads
++    q = conv[:, :kd].reshape(batch, g.num_k_heads, g.head_k_dim).repeat_interleave(rf, dim=1)
++    k = conv[:, kd : 2 * kd].reshape(batch, g.num_k_heads, g.head_k_dim).repeat_interleave(rf, dim=1)
++    v = conv[:, 2 * kd :].reshape(batch, g.num_v_heads, g.head_v_dim)
++    q = q * torch.rsqrt((q * q).sum(-1, keepdim=True) + 1e-6) * g.head_k_dim**-0.5
++    k = k * torch.rsqrt((k * k).sum(-1, keepdim=True) + 1e-6)
++    beta = torch.sigmoid(b)
++    decay = torch.exp(neg_exp_a.double() * torch.nn.functional.softplus(a + dt.double()))
++    h = state[:batch].double() * decay[..., None, None]
++    v_read = torch.einsum("bhk,bhkv->bhv", k, h)
++    delta = (v - v_read) * beta[..., None]
++    h = h + torch.einsum("bhk,bhv->bhkv", k, delta)
++    o = torch.einsum("bhk,bhkv->bhv", q, h)
++    o = o * torch.rsqrt((o * o).mean(-1, keepdim=True) + 1e-6) * norm_w.double()
++    gated = (o * torch.nn.functional.silu(z.reshape(batch, g.num_v_heads, g.head_v_dim))).reshape(batch, -1)
++    return gated, new_conv, h
++
++
++__all__ = ["GdnDecodeGeometry", "GdnDecodeStep", "shared_step", "reference_step"]
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_compute.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_compute.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_compute.cpp
+@@ -0,0 +1,86 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode conv prep compute. Conv channel tiles: silu(s1*t0 + s2*t1 + s3*t2 + x*t3) with the
++// taps broadcast along the batch rows. Gate tiles: silu(z). Remaining tiles: copy. All results are
++// accumulated and packed in fp32.
++
++#include <cstdint>
++
++#include "api/compute/common.h"
++#include "api/compute/bcast.h"
++#include "api/compute/compute_kernel_api.h"
++#include "api/compute/eltwise_binary_sfpu.h"
++#include "api/compute/tile_move_copy.h"
++
++void kernel_main() {
++    constexpr uint32_t conv_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t gate_end_tile = get_compile_time_arg_val(1);
++
++    const uint32_t tile_start = get_arg_val<uint32_t>(0);
++    const uint32_t tile_count = get_arg_val<uint32_t>(1);
++
++    constexpr uint32_t cb_x = 0;
++    constexpr uint32_t cb_s1 = 1;
++    constexpr uint32_t cb_s2 = 2;
++    constexpr uint32_t cb_s3 = 3;
++    constexpr uint32_t cb_t0 = 4;
++    constexpr uint32_t cb_t1 = 5;
++    constexpr uint32_t cb_t2 = 6;
++    constexpr uint32_t cb_t3 = 7;
++    constexpr uint32_t cb_out = 16;
++
++    compute_kernel_hw_startup(cb_s1, cb_t0, cb_out);
++
++    for (uint32_t tile = tile_start; tile < tile_start + tile_count; tile++) {
++        cb_wait_front(cb_x, 1);
++        cb_reserve_back(cb_out, 1);
++        if (tile < conv_tiles) {
++            cb_wait_front(cb_s1, 1);
++            cb_wait_front(cb_s2, 1);
++            cb_wait_front(cb_s3, 1);
++            cb_wait_front(cb_t0, 1);
++            cb_wait_front(cb_t1, 1);
++            cb_wait_front(cb_t2, 1);
++            cb_wait_front(cb_t3, 1);
++            tile_regs_acquire();
++            mul_bcast_rows_init(cb_s1, cb_t0);
++            mul_tiles_bcast_rows(cb_s1, cb_t0, 0, 0, 0);
++            mul_bcast_rows_init(cb_s2, cb_t1);
++            mul_tiles_bcast_rows(cb_s2, cb_t1, 0, 0, 1);
++            mul_bcast_rows_init(cb_s3, cb_t2);
++            mul_tiles_bcast_rows(cb_s3, cb_t2, 0, 0, 2);
++            mul_bcast_rows_init(cb_x, cb_t3);
++            mul_tiles_bcast_rows(cb_x, cb_t3, 0, 0, 3);
++            add_binary_tile_init();
++            add_binary_tile(0, 1, 0);
++            add_binary_tile(2, 3, 2);
++            add_binary_tile(0, 2, 0);
++            silu_tile_init();
++            silu_tile(0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_out);
++            tile_regs_release();
++            cb_pop_front(cb_s1, 1);
++            cb_pop_front(cb_s2, 1);
++            cb_pop_front(cb_s3, 1);
++            cb_pop_front(cb_t0, 1);
++            cb_pop_front(cb_t1, 1);
++            cb_pop_front(cb_t2, 1);
++            cb_pop_front(cb_t3, 1);
++        } else {
++            tile_regs_acquire();
++            copy_tile_init(cb_x);
++            copy_tile(cb_x, 0, 0);
++            if (tile < gate_end_tile) {
++                silu_tile_init();
++                silu_tile(0);
++            }
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_out);
++            tile_regs_release();
++        }
++        cb_push_back(cb_out, 1);
++        cb_pop_front(cb_x, 1);
++    }
++}
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_reader.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_reader.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_reader.cpp
+@@ -0,0 +1,99 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode conv prep reader: loads the projection tile, and for conv channels the three
++// previous inputs and the four taps. It also performs the conv-state shift for its exclusive
++// channel tiles: st0 <- st1, st1 <- st2, st2 <- st3, st3 <- x.
++
++#include <stdint.h>
++
++#include "api/dataflow/dataflow_api.h"
++
++void kernel_main() {
++    constexpr uint32_t conv_tiles = get_compile_time_arg_val(0);
++
++    constexpr auto x_args = TensorAccessorArgs<1>();
++    constexpr auto s0_args = TensorAccessorArgs<x_args.next_compile_time_args_offset()>();
++    constexpr auto s1_args = TensorAccessorArgs<s0_args.next_compile_time_args_offset()>();
++    constexpr auto s2_args = TensorAccessorArgs<s1_args.next_compile_time_args_offset()>();
++    constexpr auto s3_args = TensorAccessorArgs<s2_args.next_compile_time_args_offset()>();
++    constexpr auto t0_args = TensorAccessorArgs<s3_args.next_compile_time_args_offset()>();
++    constexpr auto t1_args = TensorAccessorArgs<t0_args.next_compile_time_args_offset()>();
++    constexpr auto t2_args = TensorAccessorArgs<t1_args.next_compile_time_args_offset()>();
++    constexpr auto t3_args = TensorAccessorArgs<t2_args.next_compile_time_args_offset()>();
++
++    uint32_t arg = 0;
++    const uint32_t x_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t s0_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t s1_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t s2_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t s3_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t t0_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t t1_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t t2_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t t3_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t tile_start = get_arg_val<uint32_t>(arg++);
++    const uint32_t tile_count = get_arg_val<uint32_t>(arg++);
++
++    constexpr uint32_t cb_x = 0;
++    constexpr uint32_t cb_s1 = 1;
++    constexpr uint32_t cb_s2 = 2;
++    constexpr uint32_t cb_s3 = 3;
++    constexpr uint32_t cb_t0 = 4;
++    constexpr uint32_t cb_t1 = 5;
++    constexpr uint32_t cb_t2 = 6;
++    constexpr uint32_t cb_t3 = 7;
++    const uint32_t tile_bytes = get_tile_size(cb_x);
++
++    const auto x = TensorAccessor(x_args, x_addr, tile_bytes);
++    const auto s0 = TensorAccessor(s0_args, s0_addr, tile_bytes);
++    const auto s1 = TensorAccessor(s1_args, s1_addr, tile_bytes);
++    const auto s2 = TensorAccessor(s2_args, s2_addr, tile_bytes);
++    const auto s3 = TensorAccessor(s3_args, s3_addr, tile_bytes);
++    const auto t0 = TensorAccessor(t0_args, t0_addr, tile_bytes);
++    const auto t1 = TensorAccessor(t1_args, t1_addr, tile_bytes);
++    const auto t2 = TensorAccessor(t2_args, t2_addr, tile_bytes);
++    const auto t3 = TensorAccessor(t3_args, t3_addr, tile_bytes);
++
++    for (uint32_t tile = tile_start; tile < tile_start + tile_count; tile++) {
++        // State-shift writes issued from the previous iteration read these CB pages.
++        noc_async_write_barrier();
++        cb_reserve_back(cb_x, 1);
++        const uint32_t x_l1 = get_write_ptr(cb_x);
++        noc_async_read(x.get_noc_addr(tile), x_l1, tile_bytes);
++        if (tile < conv_tiles) {
++            cb_reserve_back(cb_s1, 1);
++            cb_reserve_back(cb_s2, 1);
++            cb_reserve_back(cb_s3, 1);
++            cb_reserve_back(cb_t0, 1);
++            cb_reserve_back(cb_t1, 1);
++            cb_reserve_back(cb_t2, 1);
++            cb_reserve_back(cb_t3, 1);
++            const uint32_t s1_l1 = get_write_ptr(cb_s1);
++            const uint32_t s2_l1 = get_write_ptr(cb_s2);
++            const uint32_t s3_l1 = get_write_ptr(cb_s3);
++            noc_async_read(s1.get_noc_addr(tile), s1_l1, tile_bytes);
++            noc_async_read(s2.get_noc_addr(tile), s2_l1, tile_bytes);
++            noc_async_read(s3.get_noc_addr(tile), s3_l1, tile_bytes);
++            noc_async_read(t0.get_noc_addr(tile), get_write_ptr(cb_t0), tile_bytes);
++            noc_async_read(t1.get_noc_addr(tile), get_write_ptr(cb_t1), tile_bytes);
++            noc_async_read(t2.get_noc_addr(tile), get_write_ptr(cb_t2), tile_bytes);
++            noc_async_read(t3.get_noc_addr(tile), get_write_ptr(cb_t3), tile_bytes);
++            noc_async_read_barrier();
++            // Shift the conv state for this channel tile. Each tile is owned by one core.
++            noc_async_write(s1_l1, s0.get_noc_addr(tile), tile_bytes);
++            noc_async_write(s2_l1, s1.get_noc_addr(tile), tile_bytes);
++            noc_async_write(s3_l1, s2.get_noc_addr(tile), tile_bytes);
++            noc_async_write(x_l1, s3.get_noc_addr(tile), tile_bytes);
++            cb_push_back(cb_s1, 1);
++            cb_push_back(cb_s2, 1);
++            cb_push_back(cb_s3, 1);
++            cb_push_back(cb_t0, 1);
++            cb_push_back(cb_t1, 1);
++            cb_push_back(cb_t2, 1);
++            cb_push_back(cb_t3, 1);
++        } else {
++            noc_async_read_barrier();
++        }
++        cb_push_back(cb_x, 1);
++    }
++    noc_async_write_barrier();
++}
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_writer.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_writer.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/conv_writer.cpp
+@@ -0,0 +1,24 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode conv prep writer: stores each fp32 prep tile.
++
++#include <stdint.h>
++
++#include "api/dataflow/dataflow_api.h"
++
++void kernel_main() {
++    constexpr auto out_args = TensorAccessorArgs<0>();
++    const uint32_t out_addr = get_arg_val<uint32_t>(0);
++    const uint32_t tile_start = get_arg_val<uint32_t>(1);
++    const uint32_t tile_count = get_arg_val<uint32_t>(2);
++
++    constexpr uint32_t cb_out = 16;
++    const uint32_t tile_bytes = get_tile_size(cb_out);
++    const auto out = TensorAccessor(out_args, out_addr, tile_bytes);
++
++    for (uint32_t tile = tile_start; tile < tile_start + tile_count; tile++) {
++        cb_wait_front(cb_out, 1);
++        noc_async_write(get_read_ptr(cb_out), out.get_noc_addr(tile), tile_bytes);
++        noc_async_write_barrier();
++        cb_pop_front(cb_out, 1);
++    }
++}
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_compute.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_compute.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/step_compute.cpp
+@@ -0,0 +1,369 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode step compute, one (batch, value-head) instance at a time:
++//   beta = sigmoid(b); decay = exp(-exp(A) * softplus(a + dt_bias))
++//   k = k / ||k||; q = q / ||q|| * scale
++//   S' = decay * S; delta = (v - k S') * beta; S = S' + k^T delta; o = q S
++//   out = rmsnorm(o) * norm_w * silu(z)        (silu(z) arrives precomputed)
++// Vectors live in row 0 of zero-padded fp32 tiles; the reader guarantees zero padding.
++//
++// Precision: the recurrent state never passes through the 19-bit source registers. It is unpacked
++// straight to fp32 DEST, decayed with an fp32 SFPU multiply, and the outer-product update is
++// accumulated on top of it in fp32 DEST. Only matmul operands (k, q, delta, and the read-side copies
++// of the state) are rounded to tf32. CBs marked "exact" below are unpacked to DEST in fp32.
++
++#include <cstdint>
++
++#include "api/compute/common.h"
++#include "api/compute/bcast.h"
++#include "api/compute/compute_kernel_api.h"
++#include "api/compute/eltwise_binary_sfpu.h"
++#include "api/compute/eltwise_unary/binop_with_scalar.h"
++#include "api/compute/eltwise_unary/exp.h"
++#include "api/compute/eltwise_unary/rsqrt.h"
++#include "api/compute/eltwise_unary/softplus.h"
++#include "api/compute/matmul.h"
++#include "api/compute/pack.h"
++#include "api/compute/reconfig_data_format.h"
++#include "api/compute/tile_move_copy.h"
++#include "api/compute/transpose.h"
++
++namespace {
++
++constexpr uint32_t kOne = 0x3F800000u;      // 1.0f
++constexpr uint32_t kTwenty = 0x41A00000u;   // 20.0f
++constexpr uint32_t kL2Eps = 0x358637BDu;    // 1e-6f
++constexpr uint32_t kNormEps = 0x358637BDu;  // 1e-6f
++
++// Inputs from the reader.
++constexpr uint32_t cb_q = 0;
++constexpr uint32_t cb_k = 1;
++constexpr uint32_t cb_v = 2;      // exact
++constexpr uint32_t cb_z = 3;      // exact
++constexpr uint32_t cb_a = 4;
++constexpr uint32_t cb_b = 5;
++constexpr uint32_t cb_dt = 6;
++constexpr uint32_t cb_na = 7;
++constexpr uint32_t cb_state = 8;  // exact
++constexpr uint32_t cb_nw = 9;     // exact
++// Intermediates.
++constexpr uint32_t cb_beta = 11;   // exact
++constexpr uint32_t cb_decay = 12;  // exact
++constexpr uint32_t cb_invk = 13;
++constexpr uint32_t cb_invq = 14;
++constexpr uint32_t cb_kn = 15;
++constexpr uint32_t cb_out = 16;  // bf16
++constexpr uint32_t cb_qn = 17;
++constexpr uint32_t cb_kcol = 18;
++constexpr uint32_t cb_sd = 19;    // S' for the matmul read
++constexpr uint32_t cb_vr = 20;    // exact
++constexpr uint32_t cb_db = 21;
++constexpr uint32_t cb_sn = 22;
++constexpr uint32_t cb_o = 23;
++constexpr uint32_t cb_invo = 24;
++constexpr uint32_t cb_sdx = 26;   // exact S' for the state update
++constexpr uint32_t cb_ox = 27;    // exact o for the gated norm
++
++// dst[0] = rsqrt(sum_j x[0, j]^2 * pre_scale + eps) * post_scale, packed to `out_cb`.
++template <uint32_t tiles>
++ALWI void inverse_norm(uint32_t in_cb, uint32_t out_cb, uint32_t pre_scale, uint32_t eps, uint32_t post_scale) {
++    cb_reserve_back(out_cb, 1);
++    reconfig_data_format(in_cb, in_cb);
++    tile_regs_acquire();
++    matmul_init(in_cb, in_cb, 1);
++    for (uint32_t tile = 0; tile < tiles; tile++) {
++        matmul_tiles(in_cb, in_cb, tile, tile, 0);
++    }
++    binop_with_scalar_tile_init();
++    if (pre_scale != kOne) {
++        mul_unary_tile(0, pre_scale);
++    }
++    add_unary_tile(0, eps);
++    rsqrt_tile_init();
++    rsqrt_tile(0);
++    if (post_scale != kOne) {
++        binop_with_scalar_tile_init();
++        mul_unary_tile(0, post_scale);
++    }
++    tile_regs_commit();
++    tile_regs_wait();
++    pack_tile(0, out_cb);
++    tile_regs_release();
++    cb_push_back(out_cb, 1);
++}
++
++// out[i] = in[i] * scalar(0, 0) for `tiles` tiles (tf32 operands).
++template <uint32_t tiles>
++ALWI void scale_rows(uint32_t in_cb, uint32_t scalar_cb, uint32_t out_cb) {
++    cb_reserve_back(out_cb, tiles);
++    reconfig_data_format(in_cb, scalar_cb);
++    tile_regs_acquire();
++    mul_bcast_scalar_init(in_cb, scalar_cb);
++    for (uint32_t tile = 0; tile < tiles; tile++) {
++        mul_tiles_bcast_scalar(in_cb, scalar_cb, tile, 0, tile);
++    }
++    tile_regs_commit();
++    tile_regs_wait();
++    for (uint32_t tile = 0; tile < tiles; tile++) {
++        pack_tile(tile, out_cb, tile);
++    }
++    tile_regs_release();
++    cb_push_back(out_cb, tiles);
++}
++
++// dst[idst] = broadcast of element (0, 0) of a tf32 (default-mode) CB. Unpack-to-DEST broadcast is
++// unreliable once SFPU state has been programmed, so scalars always take the source-register path;
++// every scalar broadcast here is bf16-exact or only scales a bf16 output.
++ALWI void broadcast_scalar(uint32_t cb, uint32_t idst) {
++    reconfig_data_format(cb, cb);
++    unary_bcast_init<BroadcastType::SCALAR>(cb);
++    unary_bcast<BroadcastType::SCALAR>(cb, 0, idst);
++    unary_bcast_uninit<BroadcastType::SCALAR>(cb);
++}
++
++// dst[idst] = exact copy of tile `tile` of an exact CB.
++ALWI void copy_exact(uint32_t cb, uint32_t tile, uint32_t idst) {
++    reconfig_data_format_srca(cb);
++    copy_tile_init(cb);
++    copy_tile(cb, tile, idst);
++}
++
++}  // namespace
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t q_scale = get_compile_time_arg_val(2);    // fp32 bits of Dk^-0.5
++    constexpr uint32_t inv_width = get_compile_time_arg_val(3);  // fp32 bits of 1 / Dv
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++    static_assert(key_tiles == 4 && val_tiles == 4, "dst batching assumes 4x4 state tiles");
++
++    const uint32_t instance_count = get_arg_val<uint32_t>(0);
++
++    compute_kernel_hw_startup<SrcOrder::Reverse>(cb_k, cb_sd, cb_kn);
++
++    cb_wait_front(cb_nw, val_tiles);
++
++    for (uint32_t instance = 0; instance < instance_count; instance++) {
++        // beta = sigmoid(b) and decay = exp(-exp(A) * softplus(a + dt_bias)), as full fp32 tiles.
++        cb_wait_front(cb_a, 1);
++        cb_wait_front(cb_b, 1);
++        cb_wait_front(cb_dt, 1);
++        cb_wait_front(cb_na, 1);
++        cb_reserve_back(cb_beta, 1);
++        cb_reserve_back(cb_decay, 1);
++        tile_regs_acquire();
++        broadcast_scalar(cb_b, 0);
++        broadcast_scalar(cb_a, 1);
++        broadcast_scalar(cb_dt, 2);
++        broadcast_scalar(cb_na, 3);
++        sigmoid_tile_init();
++        sigmoid_tile(0);
++        add_binary_tile_init();
++        add_binary_tile(1, 2, 1);
++        softplus_tile_init();
++        softplus_tile(1, kOne, kOne, kTwenty);
++        mul_binary_tile_init();
++        mul_binary_tile(1, 3, 1);
++        exp_tile_init<false>();
++        exp_tile<false>(1);
++        tile_regs_commit();
++        tile_regs_wait();
++        pack_tile(0, cb_beta);
++        pack_tile(1, cb_decay);
++        tile_regs_release();
++        cb_push_back(cb_beta, 1);
++        cb_push_back(cb_decay, 1);
++        cb_pop_front(cb_a, 1);
++        cb_pop_front(cb_b, 1);
++        cb_pop_front(cb_dt, 1);
++        cb_pop_front(cb_na, 1);
++
++        // k = k / ||k||, k_col = transpose(k).
++        cb_wait_front(cb_k, key_tiles);
++        inverse_norm<key_tiles>(cb_k, cb_invk, kOne, kL2Eps, kOne);
++        cb_wait_front(cb_invk, 1);
++        scale_rows<key_tiles>(cb_k, cb_invk, cb_kn);
++        cb_pop_front(cb_invk, 1);
++        cb_pop_front(cb_k, key_tiles);
++        cb_wait_front(cb_kn, key_tiles);
++        cb_reserve_back(cb_kcol, key_tiles);
++        reconfig_data_format_srca(cb_kn);
++        tile_regs_acquire();
++        transpose_init(cb_kn);
++        for (uint32_t tile = 0; tile < key_tiles; tile++) {
++            transpose_tile(cb_kn, tile, tile);
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < key_tiles; tile++) {
++            pack_tile(tile, cb_kcol, tile);
++        }
++        tile_regs_release();
++        cb_push_back(cb_kcol, key_tiles);
++
++        // q = q / ||q|| * scale.
++        cb_wait_front(cb_q, key_tiles);
++        inverse_norm<key_tiles>(cb_q, cb_invq, kOne, kL2Eps, q_scale);
++        cb_wait_front(cb_invq, 1);
++        scale_rows<key_tiles>(cb_q, cb_invq, cb_qn);
++        cb_pop_front(cb_invq, 1);
++        cb_pop_front(cb_q, key_tiles);
++
++        // S' = decay * S in fp32, kept twice: tf32-readable for the matmul, exact for the update.
++        cb_wait_front(cb_state, state_tiles);
++        cb_wait_front(cb_decay, 1);
++        cb_reserve_back(cb_sd, state_tiles);
++        cb_reserve_back(cb_sdx, state_tiles);
++        for (uint32_t first = 0; first < state_tiles; first += 3) {
++            const uint32_t count = state_tiles - first < 3 ? state_tiles - first : 3;
++            tile_regs_acquire();
++            copy_exact(cb_decay, 0, 3);
++            copy_exact(cb_state, first, 0);
++            for (uint32_t tile = 1; tile < count; tile++) {
++                copy_tile(cb_state, first + tile, tile);
++            }
++            mul_binary_tile_init();
++            for (uint32_t tile = 0; tile < count; tile++) {
++                mul_binary_tile(tile, 3, tile);
++            }
++            tile_regs_commit();
++            tile_regs_wait();
++            for (uint32_t tile = 0; tile < count; tile++) {
++                pack_tile(tile, cb_sd, first + tile);
++                pack_tile(tile, cb_sdx, first + tile);
++            }
++            tile_regs_release();
++        }
++        cb_push_back(cb_sd, state_tiles);
++        cb_push_back(cb_sdx, state_tiles);
++        cb_pop_front(cb_state, state_tiles);
++        cb_pop_front(cb_decay, 1);
++
++        // v_read = k S'.
++        cb_wait_front(cb_sd, state_tiles);
++        cb_reserve_back(cb_vr, val_tiles);
++        reconfig_data_format(cb_sd, cb_kn);
++        tile_regs_acquire();
++        matmul_init(cb_kn, cb_sd);
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++                matmul_tiles(cb_kn, cb_sd, key_tile, key_tile * val_tiles + val_tile, val_tile);
++            }
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            pack_tile(tile, cb_vr, tile);
++        }
++        tile_regs_release();
++        cb_push_back(cb_vr, val_tiles);
++        cb_pop_front(cb_kn, key_tiles);
++        cb_pop_front(cb_sd, state_tiles);
++
++        // delta = (v - v_read) * beta in fp32.
++        cb_wait_front(cb_v, val_tiles);
++        cb_wait_front(cb_vr, val_tiles);
++        cb_wait_front(cb_beta, 1);
++        cb_reserve_back(cb_db, val_tiles);
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            tile_regs_acquire();
++            copy_exact(cb_v, tile, 0);
++            copy_exact(cb_vr, tile, 1);
++            copy_exact(cb_beta, 0, 2);
++            sub_binary_tile_init();
++            sub_binary_tile(0, 1, 0);
++            mul_binary_tile_init();
++            mul_binary_tile(0, 2, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_tile(0, cb_db, tile);
++            tile_regs_release();
++        }
++        cb_push_back(cb_db, val_tiles);
++        cb_pop_front(cb_v, val_tiles);
++        cb_pop_front(cb_vr, val_tiles);
++        cb_pop_front(cb_beta, 1);
++
++        // S = S' + k_col delta: exact S' in DEST, the rank-1 update accumulated on top.
++        cb_wait_front(cb_kcol, key_tiles);
++        cb_wait_front(cb_db, val_tiles);
++        cb_wait_front(cb_sdx, state_tiles);
++        cb_reserve_back(cb_sn, state_tiles);
++        for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++            tile_regs_acquire();
++            copy_exact(cb_sdx, key_tile * val_tiles, 0);
++            for (uint32_t val_tile = 1; val_tile < val_tiles; val_tile++) {
++                copy_tile(cb_sdx, key_tile * val_tiles + val_tile, val_tile);
++            }
++            reconfig_data_format(cb_db, cb_kcol);
++            matmul_init(cb_kcol, cb_db);
++            for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++                matmul_tiles(cb_kcol, cb_db, key_tile, val_tile, val_tile);
++            }
++            tile_regs_commit();
++            tile_regs_wait();
++            for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++                pack_tile(val_tile, cb_sn, key_tile * val_tiles + val_tile);
++            }
++            tile_regs_release();
++        }
++        cb_push_back(cb_sn, state_tiles);
++        cb_pop_front(cb_sdx, state_tiles);
++        cb_pop_front(cb_kcol, key_tiles);
++        cb_pop_front(cb_db, val_tiles);
++
++        // o = q S. The writer pops cb_sn after it observes the output.
++        cb_wait_front(cb_qn, key_tiles);
++        cb_wait_front(cb_sn, state_tiles);
++        cb_reserve_back(cb_o, val_tiles);
++        cb_reserve_back(cb_ox, val_tiles);
++        reconfig_data_format(cb_sn, cb_qn);
++        tile_regs_acquire();
++        matmul_init(cb_qn, cb_sn);
++        for (uint32_t val_tile = 0; val_tile < val_tiles; val_tile++) {
++            for (uint32_t key_tile = 0; key_tile < key_tiles; key_tile++) {
++                matmul_tiles(cb_qn, cb_sn, key_tile, key_tile * val_tiles + val_tile, val_tile);
++            }
++        }
++        tile_regs_commit();
++        tile_regs_wait();
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            pack_tile(tile, cb_o, tile);
++            pack_tile(tile, cb_ox, tile);
++        }
++        tile_regs_release();
++        cb_push_back(cb_o, val_tiles);
++        cb_push_back(cb_ox, val_tiles);
++        cb_pop_front(cb_qn, key_tiles);
++
++        // out = o * rsqrt(mean(o^2) + eps) * norm_w * silu(z), packed to bf16.
++        cb_wait_front(cb_o, val_tiles);
++        inverse_norm<val_tiles>(cb_o, cb_invo, inv_width, kNormEps, kOne);
++        cb_pop_front(cb_o, val_tiles);
++        cb_wait_front(cb_invo, 1);
++        cb_wait_front(cb_ox, val_tiles);
++        cb_wait_front(cb_z, val_tiles);
++        cb_reserve_back(cb_out, val_tiles);
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            tile_regs_acquire();
++            copy_exact(cb_ox, tile, 0);
++            copy_exact(cb_nw, tile, 1);
++            copy_exact(cb_z, tile, 2);
++            broadcast_scalar(cb_invo, 3);
++            mul_binary_tile_init();
++            mul_binary_tile(0, 3, 0);
++            mul_binary_tile(0, 1, 0);
++            mul_binary_tile(0, 2, 0);
++            tile_regs_commit();
++            tile_regs_wait();
++            pack_reconfig_data_format(cb_out);
++            pack_tile(0, cb_out, tile);
++            pack_reconfig_data_format(cb_ox);
++            tile_regs_release();
++        }
++        cb_push_back(cb_out, val_tiles);
++        cb_pop_front(cb_invo, 1);
++        cb_pop_front(cb_ox, val_tiles);
++        cb_pop_front(cb_z, val_tiles);
++    }
++}
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_reader.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_reader.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/step_reader.cpp
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode step reader. For instance (b, h) it copies batch row b of the fp32 prep tiles into row 0
++// of zeroed CB tiles (q and k from key head h / rf, v and gate from value head h), places the
++// a/b/dt_bias/-exp(A) scalars at element (0, 0), and streams the 16 fp32 recurrent-state tiles.
++
++#include <stdint.h>
++
++#include "api/dataflow/dataflow_api.h"
++
++namespace {
++
++constexpr uint32_t kFaceBytes = 16 * 16 * 4;  // fp32 face
++constexpr uint32_t kRowSegmentBytes = 16 * 4;
++
++FORCE_INLINE uint32_t row_offset(uint32_t row) { return (row >= 16 ? 2 * kFaceBytes : 0) + (row & 15) * kRowSegmentBytes; }
++
++FORCE_INLINE uint32_t element_offset(uint32_t row, uint32_t col) {
++    const uint32_t face = (row >= 16 ? 2 : 0) + (col >= 16 ? 1 : 0);
++    return face * kFaceBytes + ((row & 15) * 16 + (col & 15)) * 4;
++}
++
++template <typename Accessor>
++FORCE_INLINE void read_row(const Accessor& src, uint32_t tile, uint32_t row, uint32_t dst_l1) {
++    const uint64_t base = src.get_noc_addr(tile);
++    const uint32_t offset = row_offset(row);
++    noc_async_read(base + offset, dst_l1, kRowSegmentBytes);
++    noc_async_read(base + offset + kFaceBytes, dst_l1 + kFaceBytes, kRowSegmentBytes);
++}
++
++template <typename Accessor>
++FORCE_INLINE void read_element(const Accessor& src, uint32_t tile, uint32_t row, uint32_t col, uint32_t scratch_l1,
++                               uint32_t dst_l1) {
++    const uint32_t offset = element_offset(row, col);
++    const uint32_t aligned = offset & ~63u;
++    noc_async_read(src.get_noc_addr(tile) + aligned, scratch_l1, 64);
++    noc_async_read_barrier();
++    *reinterpret_cast<volatile uint32_t*>(dst_l1) =
++        *reinterpret_cast<volatile uint32_t*>(scratch_l1 + (offset - aligned));
++}
++
++FORCE_INLINE void zero_pages(uint32_t cb, uint32_t pages, uint32_t page_bytes) {
++    cb_reserve_back(cb, pages);
++    const uint64_t zeros = get_noc_addr(MEM_ZEROS_BASE);
++    uint32_t dst = get_write_ptr(cb);
++    for (uint32_t byte = 0; byte < pages * page_bytes; byte += MEM_ZEROS_SIZE) {
++        noc_async_read(zeros, dst + byte, MEM_ZEROS_SIZE);
++    }
++}
++
++}  // namespace
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t head_ratio = get_compile_time_arg_val(2);
++    constexpr uint32_t num_v_heads = get_compile_time_arg_val(3);
++    constexpr uint32_t q_tile_base = get_compile_time_arg_val(4);
++    constexpr uint32_t k_tile_base = get_compile_time_arg_val(5);
++    constexpr uint32_t v_tile_base = get_compile_time_arg_val(6);
++    constexpr uint32_t z_tile_base = get_compile_time_arg_val(7);
++    constexpr uint32_t a_column = get_compile_time_arg_val(8);
++    constexpr uint32_t b_column = get_compile_time_arg_val(9);
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++
++    constexpr auto prep_args = TensorAccessorArgs<10>();
++    constexpr auto state_args = TensorAccessorArgs<prep_args.next_compile_time_args_offset()>();
++    constexpr auto dt_args = TensorAccessorArgs<state_args.next_compile_time_args_offset()>();
++    constexpr auto na_args = TensorAccessorArgs<dt_args.next_compile_time_args_offset()>();
++    constexpr auto nw_args = TensorAccessorArgs<na_args.next_compile_time_args_offset()>();
++
++    uint32_t arg = 0;
++    const uint32_t prep_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t state_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t dt_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t na_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t nw_addr = get_arg_val<uint32_t>(arg++);
++    const uint32_t instance_start = get_arg_val<uint32_t>(arg++);
++    const uint32_t instance_count = get_arg_val<uint32_t>(arg++);
++
++    constexpr uint32_t cb_q = 0;
++    constexpr uint32_t cb_k = 1;
++    constexpr uint32_t cb_v = 2;
++    constexpr uint32_t cb_z = 3;
++    constexpr uint32_t cb_a = 4;
++    constexpr uint32_t cb_b = 5;
++    constexpr uint32_t cb_dt = 6;
++    constexpr uint32_t cb_na = 7;
++    constexpr uint32_t cb_state = 8;
++    constexpr uint32_t cb_nw = 9;
++    constexpr uint32_t cb_scratch = 10;
++    const uint32_t tile_bytes = get_tile_size(cb_state);
++
++    const auto prep = TensorAccessor(prep_args, prep_addr, tile_bytes);
++    const auto state = TensorAccessor(state_args, state_addr, tile_bytes);
++    const auto dt = TensorAccessor(dt_args, dt_addr, tile_bytes);
++    const auto na = TensorAccessor(na_args, na_addr, tile_bytes);
++    const auto nw = TensorAccessor(nw_args, nw_addr, tile_bytes);
++
++    // Zero every page that receives partial rows, once. The reader only ever rewrites row 0
++    // (or element (0, 0)), so the padding stays zero for every instance on this core.
++    zero_pages(cb_q, key_tiles, tile_bytes);
++    zero_pages(cb_k, key_tiles, tile_bytes);
++    zero_pages(cb_v, val_tiles, tile_bytes);
++    zero_pages(cb_z, val_tiles, tile_bytes);
++    zero_pages(cb_a, 1, tile_bytes);
++    zero_pages(cb_b, 1, tile_bytes);
++    zero_pages(cb_dt, 1, tile_bytes);
++    zero_pages(cb_na, 1, tile_bytes);
++    noc_async_read_barrier();
++
++    cb_reserve_back(cb_scratch, 1);
++    const uint32_t scratch = get_write_ptr(cb_scratch);
++
++    // Persistent gated-norm weight (host broadcasts it across all 32 rows).
++    cb_reserve_back(cb_nw, val_tiles);
++    for (uint32_t tile = 0; tile < val_tiles; tile++) {
++        noc_async_read(nw.get_noc_addr(tile), get_write_ptr(cb_nw) + tile * tile_bytes, tile_bytes);
++    }
++    noc_async_read_barrier();
++    cb_push_back(cb_nw, val_tiles);
++
++    for (uint32_t instance = instance_start; instance < instance_start + instance_count; instance++) {
++        const uint32_t batch = instance / num_v_heads;
++        const uint32_t head = instance % num_v_heads;
++        const uint32_t key_head = head / head_ratio;
++
++        cb_reserve_back(cb_q, key_tiles);
++        cb_reserve_back(cb_k, key_tiles);
++        cb_reserve_back(cb_v, val_tiles);
++        cb_reserve_back(cb_z, val_tiles);
++        cb_reserve_back(cb_a, 1);
++        cb_reserve_back(cb_b, 1);
++        cb_reserve_back(cb_dt, 1);
++        cb_reserve_back(cb_na, 1);
++        cb_reserve_back(cb_state, state_tiles);
++
++        for (uint32_t tile = 0; tile < key_tiles; tile++) {
++            read_row(prep, q_tile_base + key_head * key_tiles + tile, batch, get_write_ptr(cb_q) + tile * tile_bytes);
++            read_row(prep, k_tile_base + key_head * key_tiles + tile, batch, get_write_ptr(cb_k) + tile * tile_bytes);
++        }
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            read_row(prep, v_tile_base + head * val_tiles + tile, batch, get_write_ptr(cb_v) + tile * tile_bytes);
++            read_row(prep, z_tile_base + head * val_tiles + tile, batch, get_write_ptr(cb_z) + tile * tile_bytes);
++        }
++        const uint32_t state_base = instance * state_tiles;
++        const uint32_t state_l1 = get_write_ptr(cb_state);
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            noc_async_read(state.get_noc_addr(state_base + tile), state_l1 + tile * tile_bytes, tile_bytes);
++        }
++        read_element(prep, (a_column + head) / 32, batch, (a_column + head) % 32, scratch, get_write_ptr(cb_a));
++        read_element(prep, (b_column + head) / 32, batch, (b_column + head) % 32, scratch, get_write_ptr(cb_b));
++        read_element(dt, head / 32, 0, head % 32, scratch, get_write_ptr(cb_dt));
++        read_element(na, head / 32, 0, head % 32, scratch, get_write_ptr(cb_na));
++        noc_async_read_barrier();
++
++        cb_push_back(cb_q, key_tiles);
++        cb_push_back(cb_k, key_tiles);
++        cb_push_back(cb_v, val_tiles);
++        cb_push_back(cb_z, val_tiles);
++        cb_push_back(cb_a, 1);
++        cb_push_back(cb_b, 1);
++        cb_push_back(cb_dt, 1);
++        cb_push_back(cb_na, 1);
++        cb_push_back(cb_state, state_tiles);
++    }
++}
+diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_writer.cpp stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_writer.cpp
+new file mode 100644
+--- /dev/null
++++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/step_writer.cpp
+@@ -0,0 +1,64 @@
++// SPDX-License-Identifier: Apache-2.0
++// GDN decode step writer: stores row 0 of the bf16 gated output tiles into batch row b of the
++// persistent [1, B, Nv * Dv] output, then the 16 fp32 state tiles back in place.
++
++#include <stdint.h>
++
++#include "api/dataflow/dataflow_api.h"
++
++namespace {
++
++constexpr uint32_t kFaceBytes = 16 * 16 * 2;  // bf16 face
++constexpr uint32_t kRowSegmentBytes = 16 * 2;
++
++FORCE_INLINE uint32_t row_offset(uint32_t row) { return (row >= 16 ? 2 * kFaceBytes : 0) + (row & 15) * kRowSegmentBytes; }
++
++}  // namespace
++
++void kernel_main() {
++    constexpr uint32_t key_tiles = get_compile_time_arg_val(0);
++    constexpr uint32_t val_tiles = get_compile_time_arg_val(1);
++    constexpr uint32_t num_v_heads = get_compile_time_arg_val(2);
++    constexpr uint32_t state_tiles = key_tiles * val_tiles;
++
++    constexpr auto out_args = TensorAccessorArgs<3>();
++    constexpr auto state_args = TensorAccessorArgs<out_args.next_compile_time_args_offset()>();
++
++    const uint32_t out_addr = get_arg_val<uint32_t>(0);
++    const uint32_t state_addr = get_arg_val<uint32_t>(1);
++    const uint32_t instance_start = get_arg_val<uint32_t>(2);
++    const uint32_t instance_count = get_arg_val<uint32_t>(3);
++
++    constexpr uint32_t cb_out = 16;
++    constexpr uint32_t cb_sn = 22;
++    const uint32_t out_tile_bytes = get_tile_size(cb_out);
++    const uint32_t state_tile_bytes = get_tile_size(cb_sn);
++    const auto out = TensorAccessor(out_args, out_addr, out_tile_bytes);
++    const auto state = TensorAccessor(state_args, state_addr, state_tile_bytes);
++
++    for (uint32_t instance = instance_start; instance < instance_start + instance_count; instance++) {
++        const uint32_t batch = instance / num_v_heads;
++        const uint32_t head = instance % num_v_heads;
++
++        // The output arrives after compute has finished reading the new state.
++        cb_wait_front(cb_out, val_tiles);
++        const uint32_t out_l1 = get_read_ptr(cb_out);
++        const uint32_t offset = row_offset(batch);
++        for (uint32_t tile = 0; tile < val_tiles; tile++) {
++            const uint64_t dst = out.get_noc_addr(head * val_tiles + tile);
++            const uint32_t src = out_l1 + tile * out_tile_bytes;
++            noc_async_write(src, dst + offset, kRowSegmentBytes);
++            noc_async_write(src + kFaceBytes, dst + offset + kFaceBytes, kRowSegmentBytes);
++        }
++
++        cb_wait_front(cb_sn, state_tiles);
++        const uint32_t state_l1 = get_read_ptr(cb_sn);
++        const uint32_t state_base = instance * state_tiles;
++        for (uint32_t tile = 0; tile < state_tiles; tile++) {
++            noc_async_write(state_l1 + tile * state_tile_bytes, state.get_noc_addr(state_base + tile), state_tile_bytes);
++        }
++        noc_async_write_barrier();
++        cb_pop_front(cb_out, val_tiles);
++        cb_pop_front(cb_sn, state_tiles);
++    }
++}
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -15,6 +15,7 @@ import ttnn
+ from models.demos.blackhole.qwen36.tt import tp_common as tpc
+ from models.demos.blackhole.qwen36.tt.gdn import decode_layout_candidate as gdn_decode_candidate
+ from models.demos.blackhole.qwen36.tt.gdn import decode_fusion_candidate
++from models.demos.blackhole.qwen36.tt.gdn import decode_step
+ from models.demos.blackhole.qwen36.tt.gdn.weights import gdn_proj_dtype_and_tag
+ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import (
+     recurrent_gated_delta_rule_decode_ttnn,
+@@ -246,6 +247,10 @@ class TPGatedDeltaNet:
+         self._zero_conv_carry = None
+         self._zero_rec = None
+         self._pending = []  # per-user (rec, conv) states collected during batched per-user prefill
++        # Fused decode step (mode "step"): shared persistent buffers + this layer's fp32 constants,
++        # built with the state (never inside a trace capture).
++        self._fused_step = None
++        self._fused_step_constants = None
+ 
+     def reset_state(self):
+         def z(shape):
+@@ -274,6 +279,7 @@ class TPGatedDeltaNet:
+         self._zero_conv0 = z((1, self.B, self.qkv_dim_tp))
+         self._zero_conv_carry = z((1, self.K - 1, self.qkv_dim_tp))
+         self._zero_rec = z((self.B, self.Nv, self.Dk, self.Dv))
++        self._prepare_fused_step()
+         # Chunk-outer batched-prefill conv left-context (allocated lazily by forward_prefill_batched).
+         if getattr(self, "_batched_conv_carry", None) is not None:
+             ttnn.deallocate(self._batched_conv_carry)
+@@ -301,6 +307,34 @@ class TPGatedDeltaNet:
+         # Zero cross-chunk conv carry for new sequence
+         ttnn.copy(self._zero_conv_carry, self.conv_carry)
+ 
++    def _fused_step_geometry(self):
++        return decode_step.GdnDecodeGeometry(
++            num_k_heads=self.Nk,
++            num_v_heads=self.Nv,
++            head_k_dim=self.Dk,
++            head_v_dim=self.Dv,
++            max_batch=self.B,
++        )
++
++    def _prepare_fused_step(self):
++        """Build the fused decode step when this layer's shapes and weights support it.
++
++        Requires the fused [qkv|z|a|b] projection, the fp32 recurrent state, and a supported
++        geometry; otherwise the step stays unavailable and decode keeps the composite route.
++        """
++        if self._fused_step is not None:
++            return
++        if not self._fuse_ab or self.rec_state is None or self.rec_state.dtype != ttnn.float32:
++            return
++        geometry = self._fused_step_geometry()
++        try:
++            geometry.validate()
++        except ValueError as error:
++            logger.info(f"GDN fused decode step unavailable: {error}")
++            return
++        self._fused_step = decode_step.shared_step(self.mesh, geometry)
++        self._fused_step_constants = self._fused_step.layer_constants(self.tw)
++
+     def _col_proj(self, x, weight, decode_progcfg, out_memory_config=ttnn.DRAM_MEMORY_CONFIG):
+         """Column-parallel qkvz projection; DRAM-sharded decode matmul when enabled.
+         out_memory_config: decode result placement (default DRAM; L1 keeps it resident)."""
+@@ -1088,6 +1122,53 @@ class TPGatedDeltaNet:
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+         )
+ 
++    def _forward_decode_fused_step(self, x, B):
++        """Decode through the fused conv-prep and recurrence programs.
++
++        Updates the conv and recurrent state in place for rows [0, B) and returns the
++        reduce-scattered out projection, exactly like the composite route.
++        """
++        step = self._fused_step
++        tw = self.tw
++        if getattr(self.args, "proj_1d_decode", False):
++            qkvzab = tpc.matmul_1d_decode(
++                x,
++                tw["qkvz"],
++                self.args.gdn_qkvz_decode_1d_progcfg,
++                self.cfg,
++                out_memory_config=ttnn.L1_MEMORY_CONFIG,
++            )
++        else:
++            qkvzab = self._col_proj(
++                x, tw["qkvz"], self.args.gdn_qkvzab_progcfg, out_memory_config=ttnn.L1_MEMORY_CONFIG
++            )
++        step.conv_prep(qkvzab, self.conv_states, tw["conv_taps"])
++        ttnn.deallocate(qkvzab)
++        step.recurrence(self.rec_state, self._fused_step_constants, B)
++        gated = step.gated_rows(B)
++        if getattr(self.args, "proj_1d_decode", False):
++            # Direct linear: the persistent gated buffer must not pass through matmul_1d_decode,
++            # which may deallocate its interleaved copy of the input.
++            partial = ttnn.linear(
++                gated,
++                tw["out"],
++                compute_kernel_config=self.cfg,
++                program_config=self.args.gdn_out_decode_1d_progcfg,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            )
++        else:
++            partial = ttnn.linear(gated, tw["out"], compute_kernel_config=self.cfg, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++        partial = ttnn.reshape(partial, (1, 1, B, partial.shape[-1]))
++        return tt_all_reduce(
++            partial,
++            self.mesh,
++            self.tt_ccl,
++            cluster_axis=0,
++            dim=3,
++            topology=self.args.ccl_topology(),
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++
+     def forward_decode(self, x):
+         tw, Nk, Nv, Dk, Dv = self.tw, self.Nk, self.Nv, self.Dk, self.Dv
+         Bmax = self.B
+@@ -1103,6 +1184,13 @@ class TPGatedDeltaNet:
+         # works at any width. The B==Bmax path is byte-identical to before.
+         B = x.shape[-2]
+ 
++        if (
++            decode_fusion_candidate.uses_fused_step(self._decode_fusion_mode)
++            and self._fused_step is not None
++            and B <= self._fused_step.geometry.max_batch
++        ):
++            return self._forward_decode_fused_step(x, B)
++
+         qkv, z, a, b = self._project_qkvzab(x, B, out_mc=_L1)
+ 
+         # Conv1d shift-register + weighted sum + SiLU

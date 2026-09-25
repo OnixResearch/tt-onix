@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 MINIMUM_GENERATION_TOKEN_COUNT = 1
@@ -178,6 +180,34 @@ def parse_completion_request(
     )
 
 
+FINISH_STOP = "stop"
+FINISH_LENGTH = "length"
+
+
+def load_stop_token_ids(model_path: str | Path, tokenizer: Any) -> frozenset[int]:
+    """End-of-sequence ids: generation_config's eos_token_id (id or list) and the tokenizer's."""
+    ids: set[int] = set()
+    config_path = Path(model_path) / "generation_config.json"
+    if config_path.is_file():
+        value = json.loads(config_path.read_text(encoding="utf-8")).get("eos_token_id")
+        if isinstance(value, int) and not isinstance(value, bool):
+            ids.add(value)
+        elif isinstance(value, list):
+            ids.update(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if isinstance(eos, int) and not isinstance(eos, bool):
+        ids.add(eos)
+    return frozenset(ids)
+
+
+def finish_generation(tokens: list[int], stop_token_ids: frozenset[int]) -> tuple[list[int], str]:
+    """Tokens up to (excluding) the first stop token, and the OpenAI finish reason."""
+    for index, token in enumerate(tokens):
+        if token in stop_token_ids:
+            return list(tokens[:index]), FINISH_STOP
+    return list(tokens), FINISH_LENGTH
+
+
 def build_completion_response(
     request: CompletionRequest,
     request_id: str,
@@ -185,6 +215,7 @@ def build_completion_response(
     generated_text: str,
     prompt_token_count: int,
     generated_token_count: int,
+    finish_reason: str = FINISH_LENGTH,
 ) -> dict[str, Any]:
     usage = {
         "completion_tokens": generated_token_count,
@@ -194,14 +225,14 @@ def build_completion_response(
     if request.endpoint is Endpoint.CHAT_COMPLETIONS:
         choices = [
             {
-                "finish_reason": "length",
+                "finish_reason": finish_reason,
                 "index": 0,
                 "message": {"content": generated_text, "role": "assistant"},
             }
         ]
         object_name = "chat.completion"
     else:
-        choices = [{"finish_reason": "length", "index": 0, "text": generated_text}]
+        choices = [{"finish_reason": finish_reason, "index": 0, "text": generated_text}]
         object_name = "text_completion"
 
     return {

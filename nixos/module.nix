@@ -130,6 +130,70 @@ in
         '';
       };
 
+      gdnDecodeStep = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Serve decode through the fused GDN decode step: one conv-prep and one
+          recurrence program per GDN layer instead of the composite op chain.
+          Greedy requests stay on this route; sampled requests keep the
+          sampled-fusion route when that is enabled. The step changes greedy
+          tokens relative to the composite route under a numerical quality gate,
+          not bit-exact parity.
+        '';
+      };
+
+      groupedPrefill = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Prefill the users of one batch together, up to 256 prompt tokens each.
+          Each forward serves a group of users rather than one. GDN layers run
+          batched, and full-attention layers loop over the users. First-token
+          logits and greedy tokens match per-user prefill exactly. Longer prompts,
+          single users, and batches that reuse a parked decode trace keep
+          per-user prefill.
+        '';
+      };
+
+      tracedPrefill = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Replay captured prefill traces: one trace per 128-, 256-, 512-, and
+          1,024-token bucket, with the prompt length, position, and decode slot
+          passed as device data. Longer prompts continue from the 1,024 bucket. Each replay also installs the user's
+          decode state and logits, so a batch reads back once. Output is identical
+          to eager prefill. The traces are captured at startup,
+          after every decode width and eager prefill shape has been compiled.
+          Startup therefore takes a few minutes longer. If a program first compiles
+          after the capture, the traces are released and prefill stays eager until
+          restart.
+        '';
+      };
+
+      gdnFusedPrefill = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Prefill GDN layers with the fused chunk op instead of the composite
+          sequence path. Measured on P150x2 it halves short-prompt time to first
+          token (2.2 to 1.1 seconds) at teacher-forced NLL +0.007 and top-1
+          agreement 0.958 against the composite prefill. Opt-in only.
+        '';
+      };
+
+      gdnProjectionBf4 = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Store the GDN in and out projections as BF4. Measured on P150x2 with the
+          fused decode step it cuts the decode step 5.9 percent at passage NLL
+          +0.008. It changes whether the model opens a thinking block on some
+          prompts. Opt-in only; the first start writes the BF4 weight cache.
+        '';
+      };
+
       modelPath = mkOption {
         type = types.str;
         default = "";
@@ -251,6 +315,10 @@ in
           assertion = !(qwen38.mtpSpeculation && qwen38.sampledFusion);
           message = "MTP speculation cannot combine with sampled fusion";
         }
+        {
+          assertion = !(qwen38.mtpSpeculation && qwen38.gdnDecodeStep);
+          message = "MTP speculation has no evidence on the fused GDN decode step; disable gdnDecodeStep";
+        }
       ];
 
       systemd.services.qwen38-p150x2 = {
@@ -268,6 +336,11 @@ in
           MPLCONFIGDIR = "/var/lib/${qwenStateDirectory}/matplotlib";
           PYTHONUNBUFFERED = "1";
           QWEN35_TEMP = "0";
+          QWEN35_GDN_DECODE_FUSION = if qwen38.gdnDecodeStep then "step" else "off";
+          QWEN35_GROUPED_PREFILL = if qwen38.groupedPrefill then "1" else "0";
+          QWEN36_TRACED_PREFILL = if qwen38.tracedPrefill then "1" else "0";
+          QWEN36_GDN_FUSED_PREFILL = if qwen38.gdnFusedPrefill then "1" else "0";
+          QWEN36_GDN_BF4 = if qwen38.gdnProjectionBf4 then "1" else "0";
           QWEN36_SAMPLED_FUSION = if qwen38.sampledFusion then "1" else "0";
           QWEN36_MTP_SERVING = if qwen38.mtpSpeculation then "1" else "0";
           TT_CACHE_PATH = qwen38.modelPath;

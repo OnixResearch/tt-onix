@@ -34,6 +34,8 @@ from .core import (
     Endpoint,
     RequestValidationError,
     build_completion_response,
+    finish_generation,
+    load_stop_token_ids,
     parse_completion_request,
     parse_endpoint,
 )
@@ -145,6 +147,13 @@ class QwenEngine:
         self.model_alias = model_alias
         self.max_sequence_length = max_sequence_length
         self.model_path = model_path
+        # Generation ends at the first end-of-sequence token. Admission measurements keep
+        # the fixed max_tokens length their receipts assume.
+        self.stop_token_ids = (
+            frozenset()
+            if batch_admission_enabled or trace_reuse_admission_enabled
+            else load_stop_token_ids(model_path, tokenizer)
+        )
         self.decode_mode = decode_mode
         self.decode_profile = decode_profile
         self.sampled_serving_enabled = sampled_serving_enabled
@@ -221,6 +230,7 @@ class QwenEngine:
                 == "1",
                 trace_reuse_profile=trace_reuse_profile,
                 trace_reuse_admission_enabled=trace_reuse_admission_enabled,
+                stop_token_ids=self.stop_token_ids,
             )
             if self._batch_adapter is not None
             else None
@@ -398,7 +408,7 @@ class QwenEngine:
 
         decode_durations = []
         position = prompt_token_count
-        while len(generated) < maximum_generation_tokens:
+        while len(generated) < maximum_generation_tokens and generated[-1] not in self.stop_token_ids:
             decode_started = time.monotonic()
             device_inputs = self.model.prepare_inputs_decode(
                 torch.tensor([[next_token]], dtype=torch.int32),
@@ -458,7 +468,7 @@ class QwenEngine:
         fallback_reason = None if use_trace else eligibility.reason
         decode_path = "traced" if use_trace else DECODE_MODE_EAGER
         decode_durations = []
-        while len(generated) < maximum_generation_tokens:
+        while len(generated) < maximum_generation_tokens and generated[-1] not in self.stop_token_ids:
             if request_deadline_expired(time.monotonic(), request_deadline):
                 raise DecodeAdapterError("request timeout exceeded")
             decode_started = time.monotonic()
@@ -621,6 +631,7 @@ class QwenEngine:
                     request.max_tokens,
                     request_deadline,
                 )
+            generated, finish_reason = finish_generation(generated, self.stop_token_ids)
             generated_text = self.tokenizer.decode(
                 generated,
                 skip_special_tokens=True,
@@ -632,6 +643,7 @@ class QwenEngine:
                 generated_text=generated_text,
                 prompt_token_count=prompt_token_count,
                 generated_token_count=len(generated),
+                finish_reason=finish_reason,
             )
             response["x_onix_decode_evidence"] = {
                 "decode_path": mtp_perf["decode_path"],
@@ -683,6 +695,7 @@ class QwenEngine:
                     token_ids,
                     request.max_tokens,
                 )
+                generated, finish_reason = finish_generation(generated, self.stop_token_ids)
                 generated_text = self.tokenizer.decode(
                     generated,
                     skip_special_tokens=True,
@@ -694,6 +707,7 @@ class QwenEngine:
                     generated_text=generated_text,
                     prompt_token_count=prompt_token_count,
                     generated_token_count=len(generated),
+                    finish_reason=finish_reason,
                 )
                 response["x_onix_decode_evidence"] = {
                     "admission_eligible": perf["admission_eligible"],

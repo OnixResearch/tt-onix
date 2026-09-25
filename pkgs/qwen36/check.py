@@ -379,9 +379,45 @@ def probe_p150x2_gate():
                 not fused_chunk_module.fused_chunk_enabled(),
                 "missing fused GDN capability was admitted",
             )
+    import importlib
+    import os as _os
+
+    gate = fused_chunk_module.FUSED_PREFILL_GATE
+    try:
+        for value, expected in (
+            ("1", True),
+            (" 1 ", True),
+            ("0", False),
+            ("yes", False),
+            ("", False),
+        ):
+            with mock.patch.dict(_os.environ, {gate: value}):
+                importlib.reload(fused_chunk_module)
+                require(
+                    fused_chunk_module.FUSED_CHUNK_PREFILL_ADMITTED is expected,
+                    f"fused GDN prefill gate value {value!r} did not select {expected}",
+                )
+    finally:
+        with mock.patch.dict(_os.environ, clear=False):
+            _os.environ.pop(gate, None)
+            importlib.reload(fused_chunk_module)
+    require(
+        not fused_chunk_module.FUSED_CHUNK_PREFILL_ADMITTED,
+        "an unset fused GDN prefill gate enabled fused prefill",
+    )
     require(
         hasattr(_ttnn.transformer, "gated_delta_attn_seq"),
         "packaged runtime lacks gated_delta_attn_seq for the seq fallback",
+    )
+    # A 2048-row masked prefill bucket overflows P150x2 L1 beside the resident
+    # decode buffers; untraced prompts above 1024 tokens must chunk.
+    from models.demos.blackhole.qwen36.tt import model as model_module
+
+    require(
+        model_module.EAGER_PREFILL_CHUNK_TOKENS <= 1024
+        and model_module.EAGER_PREFILL_CHUNK_TOKENS
+        in model_module.Qwen36Model._PREFILL_MASK_BUCKETS,
+        "eager prefill chunk must be a warmed masked bucket of at most 1024 tokens",
     )
 
     # tp2-runtime-compat: the TP=4-tuned fused GDN output reduction waits on
@@ -1137,12 +1173,6 @@ def probe_batch_admission():
         "decode RoPE does not use the cached per-position tables",
     )
     require(
-        "device_direct = (" in model_source
-        and "self._chunked_trace_id is None" in model_source
-        and '"_bucket_trace_id", None' in model_source,
-        "device-direct prefill staging lacks the no-parked-trace gate",
-    )
-    require(
         "_write_gdn_slot_device" in model_source
         and "dn.write_slot(slot, rec_clones[li], conv_clones[li])" in model_source,
         "device-resident slot writes bypass write_slot ownership semantics",
@@ -1683,6 +1713,9 @@ def probe_startup_readiness():
 
         def reset_all(self):
             self.reset_count += 1
+
+        def prepare_masked_prefill_traces(self, warm_token_id, routes):
+            return ()
 
     emitted = []
     fake_adapter = FakeWarmupAdapter()
@@ -5431,6 +5464,64 @@ def probe_gdn_decode_fusion_candidate():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.gdn_decode_step]
+def probe_gdn_decode_step_policy():
+    """Positive and negative tests for the fused decode step mode and its geometry bound."""
+    from models.demos.blackhole.qwen36.tt.gdn import (
+        decode_fusion_candidate as candidate,
+    )
+    from models.demos.blackhole.qwen36.tt.gdn.decode_step import GdnDecodeGeometry
+
+    require(
+        candidate.selected_mode({candidate.ENV_GATE: " STEP "}) == candidate.MODE_STEP,
+        "step mode was not normalized",
+    )
+    require(
+        candidate.uses_fused_step(candidate.MODE_STEP),
+        "step mode did not select the fused decode step",
+    )
+    for mode in sorted(candidate.MODES - {candidate.MODE_STEP}):
+        require(
+            not candidate.uses_fused_step(mode),
+            f"{mode} mode selected the fused decode step",
+        )
+    require(
+        not candidate.uses_fused_norm(candidate.MODE_STEP)
+        and not candidate.uses_fused_state_update(candidate.MODE_STEP)
+        and not candidate.uses_fused_recurrence(candidate.MODE_STEP),
+        "step mode enabled a composite fusion",
+    )
+
+    # Qwen3.8-27B at TP=2: 8 key heads, 24 value heads, 128-wide heads.
+    tp2 = GdnDecodeGeometry(
+        num_k_heads=8, num_v_heads=24, head_k_dim=128, head_v_dim=128, max_batch=1
+    )
+    tp2.validate()
+    require(tp2.qkv_dim == 5120, "TP2 q/k/v width changed")
+    require(tp2.qkvzab_dim == 8240, "TP2 [qkv|z|a|b] width changed")
+    require(tp2.prep_tiles == 258, "TP2 prep tile count changed")
+    GdnDecodeGeometry(
+        num_k_heads=8, num_v_heads=24, head_k_dim=128, head_v_dim=128, max_batch=32
+    ).validate()
+    for label, geometry in (
+        ("zero batch", GdnDecodeGeometry(8, 24, 128, 128, 0)),
+        ("batch above one tile row", GdnDecodeGeometry(8, 24, 128, 128, 33)),
+        ("64-wide key head", GdnDecodeGeometry(8, 24, 64, 128, 1)),
+        ("64-wide value head", GdnDecodeGeometry(8, 24, 128, 64, 1)),
+        (
+            "value heads not a multiple of key heads",
+            GdnDecodeGeometry(8, 20, 128, 128, 1),
+        ),
+    ):
+        try:
+            geometry.validate()
+        except ValueError:
+            continue
+        raise AssertionError(
+            f"fused decode step accepted an unsupported geometry: {label}"
+        )
+
+
 # r[verify tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 def probe_kernel_distribution_admission():
     """Positive and negative tests for the sampled-mode distributional gate."""
@@ -5773,10 +5864,12 @@ def probe_sampled_mode_router():
     from qwen36_service.decode_adapter import DecodeAdapterError, TracedDecodeAdapter
     from qwen36_service.sampled_mode_router_core import (
         ROUTE_DETERMINISTIC,
+        ROUTE_FUSED_STEP,
         ROUTE_SAMPLED,
         ROUTES,
         RouterPolicyError,
         classify_temperature,
+        deterministic_route_for_mode,
         eligible_routes_for_admitted_modes,
         resolve_batch_route,
         route_request,
@@ -5877,6 +5970,51 @@ def probe_sampled_mode_router():
         pass
     else:
         raise AssertionError("an invalid batch temperature was routed")
+
+    # A service started on the fused decode step keeps greedy traffic there.
+    require(
+        deterministic_route_for_mode(ROUTE_FUSED_STEP) == ROUTE_FUSED_STEP,
+        "a step-mode service must keep greedy requests on the fused step",
+    )
+    for mode in (ROUTE_DETERMINISTIC, ROUTE_SAMPLED, "unknown"):
+        require(
+            deterministic_route_for_mode(mode) == ROUTE_DETERMINISTIC,
+            f"startup mode {mode!r} must keep the exact-parity greedy route",
+        )
+    require(
+        classify_temperature(0.0, ROUTE_FUSED_STEP) == ROUTE_FUSED_STEP
+        and classify_temperature(None, ROUTE_FUSED_STEP) == ROUTE_FUSED_STEP
+        and classify_temperature(0.6, ROUTE_FUSED_STEP) == ROUTE_SAMPLED,
+        "the fused step must replace only the deterministic route",
+    )
+    step_greedy = resolve_batch_route(
+        (0.0,),
+        sampled_admitted=True,
+        current_mode=ROUTE_FUSED_STEP,
+        deterministic_route=ROUTE_FUSED_STEP,
+    )
+    require(
+        step_greedy.route == ROUTE_FUSED_STEP and not step_greedy.switch_required,
+        "a greedy batch on the resident fused step must not switch",
+    )
+    step_mixed = resolve_batch_route(
+        (0.6, 0.0),
+        sampled_admitted=True,
+        current_mode=ROUTE_SAMPLED,
+        deterministic_route=ROUTE_FUSED_STEP,
+    )
+    require(
+        step_mixed.route == ROUTE_FUSED_STEP and step_mixed.switch_required,
+        "a mixed batch must return to the fused step",
+    )
+    for bad_route in (ROUTE_SAMPLED, "state"):
+        try:
+            route_request(
+                0.0, current_mode=ROUTE_FUSED_STEP, deterministic_route=bad_route
+            )
+        except RouterPolicyError:
+            continue
+        raise AssertionError(f"{bad_route!r} was accepted as a deterministic route")
 
     # Adapter switch primitive against a stubbed adapter: release happens
     # only with a resident trace, and every GDN layer flips.
@@ -6791,10 +6929,8 @@ def probe_grouped_prefill_routing():
 
     from qwen36_service.batch_decode_adapter import (
         CHUNKED_VALIDATED_INSTANCES_PER_CORE,
-        DECODE_CAPACITY_MISMATCH_REASON,
         GRID_UNAVAILABLE_REASON,
         GROUPED_PREFILL_ENV,
-        MULTI_GROUP_ASSEMBLY_REASON,
         NON_CHUNKED_CAPABILITY_SOURCE,
         PACKAGE_CAPABILITY_SOURCE,
         BatchedTracedDecodeAdapter,
@@ -6851,14 +6987,14 @@ def probe_grouped_prefill_routing():
     require(grouped and size == 8, f"chunked route planned {grouped}/{size}/{reason}")
     require(reason == "grouped-eligible", f"wrong grouped reason: {reason}")
 
-    # A one-instance runtime derives a tighter split bound, which the assembly
-    # cannot install as one buffer-filling group.
-    split_grouped, _, tight_reason = plan(
+    # A one-instance runtime derives a tighter bound and splits the users into
+    # contiguous groups, which install in order.
+    split_grouped, split_size, tight_reason = plan(
         stub(one_instance_record), 8, eight_lengths, grouped_enabled=True
     )
     require(
-        (not split_grouped) and tight_reason == MULTI_GROUP_ASSEMBLY_REASON,
-        f"the tighter split bound was not refused: {split_grouped}/{tight_reason}",
+        split_grouped and split_size == 4 and tight_reason == "grouped-eligible",
+        f"the tighter split bound was not grouped by four: {split_grouped}/{split_size}/{tight_reason}",
     )
 
     # An unreadable grid refuses grouping rather than guessing a core count.
@@ -6882,31 +7018,30 @@ def probe_grouped_prefill_routing():
         f"an oversized bucket was grouped: {grouped}/{reason}",
     )
 
-    # The row-assembly patch keeps the copy shape-exact, but a partial-width
-    # group still corrupts the next per-user prefill (a padded group state block
-    # met the B=1 scratch as [4,24,128,128] against [1,24,128,128]), so the route
-    # stays limited to a single group that fills the decode buffer.
-    narrower, _, narrow_reason = plan(
+    # A group narrower than the decode buffer installs into its leading rows.
+    narrower, narrow_size, narrow_reason = plan(
         stub(chunked_record, capacity=16), 8, eight_lengths, grouped_enabled=True
     )
     require(
-        (not narrower) and narrow_reason == DECODE_CAPACITY_MISMATCH_REASON,
-        f"a width below the decode capacity was grouped: {narrower}/{narrow_reason}",
+        narrower and narrow_size == 8,
+        f"a width below the decode capacity was refused: {narrower}/{narrow_reason}",
     )
-    many_groups, _, groups_reason = plan(
-        stub(one_instance_record, capacity=8), 8, eight_lengths, grouped_enabled=True
+    # An uneven split still partitions contiguously: six users by four is 4 + 2.
+    uneven, uneven_size, uneven_reason = plan(
+        stub(one_instance_record, capacity=16), 6, (128,) * 6, grouped_enabled=True
     )
     require(
-        (not many_groups) and groups_reason == MULTI_GROUP_ASSEMBLY_REASON,
-        f"a multi-group plan reached the assembly: {many_groups}/{groups_reason}",
+        uneven and uneven_size == 4,
+        f"an uneven contiguous split was refused: {uneven}/{uneven_size}/{uneven_reason}",
     )
-
-    # A single group that exactly fills the buffer is the only grouped shape that
-    # installs without touching a partial tail.
-    matching, size, match_reason = plan(
-        stub(chunked_record, capacity=8), 8, eight_lengths, grouped_enabled=True
+    # One user is the per-user route.
+    single, _, single_reason = plan(
+        stub(chunked_record, capacity=16), 1, (128,), grouped_enabled=True
     )
-    require(matching and size == 8, f"the buffer-filling group was refused: {match_reason}")
+    require(
+        (not single) and single_reason == "single-user",
+        f"a single user was grouped: {single}/{single_reason}",
+    )
 
     # The capability record fails closed when absent, malformed, or mis-versioned.
     with tempfile.TemporaryDirectory() as directory:
@@ -6949,6 +7084,145 @@ def probe_grouped_prefill_routing():
     require(
         CHUNKED_VALIDATED_INSTANCES_PER_CORE == 2,
         "the validated chunked instance width changed without new evidence",
+    )
+
+
+def probe_end_of_sequence():
+    """Generation ends at the first stop token, and the response says so."""
+    import json
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from qwen36_service.core import (
+        FINISH_LENGTH,
+        FINISH_STOP,
+        finish_generation,
+        load_stop_token_ids,
+    )
+
+    stops = frozenset({7, 9})
+    require(finish_generation([1, 2, 7, 3, 9], stops) == ([1, 2], FINISH_STOP), "stop token not truncated")
+    require(finish_generation([7], stops) == ([], FINISH_STOP), "a leading stop token was kept")
+    require(finish_generation([1, 2, 3], stops) == ([1, 2, 3], FINISH_LENGTH), "an unstopped run was cut")
+    require(finish_generation([1, 7], frozenset()) == ([1, 7], FINISH_LENGTH), "an empty stop set stopped")
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "generation_config.json").write_text(json.dumps({"eos_token_id": [248046, 248044]}))
+        require(
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=248046)) == frozenset({248046, 248044}),
+            "generation_config stop ids were not read",
+        )
+        (root / "generation_config.json").write_text(json.dumps({"eos_token_id": 5}))
+        require(
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=6)) == frozenset({5, 6}),
+            "a scalar stop id or the tokenizer's was dropped",
+        )
+        (root / "generation_config.json").unlink()
+        require(
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=None)) == frozenset(),
+            "stop ids appeared without a source",
+        )
+
+
+def probe_masked_prefill_traces():
+    """Batch widths, trace gating, staleness, and the device-data masks."""
+    import threading
+    from collections import deque
+    from types import SimpleNamespace
+
+    import torch
+
+    from models.demos.blackhole.qwen36.tt.model import Qwen36Model
+    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import seq_valid_mask
+    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_gated_deltanet import conv_valid_selector
+    from qwen36_service.batch_decode_adapter import (
+        TRACED_PREFILL_ENV,
+        BatchedTracedDecodeAdapter,
+        traced_prefill_enabled,
+    )
+    from qwen36_service.batch_service import BatchGenerationCoordinator
+
+    def adapter_on(grid_x, grid_y):
+        grid = SimpleNamespace(x=grid_x, y=grid_y)
+        return SimpleNamespace(mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid))
+
+    supported = BatchedTracedDecodeAdapter.decode_width_supported
+    p150 = adapter_on(11, 10)
+    require(
+        [w for w in range(1, 17) if not supported(p150, w)] == [13],
+        "an 11x10 grid must shard every width to 16 except 13",
+    )
+    require(not supported(adapter_on(8, 8), 11), "a prime width above an 8x8 grid was accepted")
+
+    # The batch worker returns the newest requests until the width is shardable.
+    def take(queued):
+        pending = [SimpleNamespace(request=SimpleNamespace(max_tokens=8), index=i) for i in range(queued)]
+        worker = SimpleNamespace(
+            _condition=threading.Condition(),
+            _queue=deque(pending),
+            _closing=False,
+            adapter=SimpleNamespace(decode_width_supported=lambda w: supported(p150, w)),
+        )
+        batch = BatchGenerationCoordinator._take_batch(worker)
+        return [item.index for item in batch], [item.index for item in worker._queue]
+
+    require(take(13) == (list(range(12)), [12]), "a 13-request batch was not trimmed to 12")
+    require(take(11) == (list(range(11)), []), "an 11-request batch was trimmed")
+    require(take(16) == (list(range(16)), []), "a full batch was trimmed")
+
+    for value, expected in (("1", True), ("on", True), ("0", False), ("", False), ("maybe", False)):
+        require(
+            traced_prefill_enabled({TRACED_PREFILL_ENV: value}) is expected,
+            f"traced prefill gate value {value!r} did not select {expected}",
+        )
+    require(not traced_prefill_enabled({}), "traced prefill defaulted on without its variable")
+
+    # Stale traces are released: any program compiled after the capture may own trace scratch.
+    def stale(buckets, entries_now, entries_at_capture=10):
+        model = SimpleNamespace(
+            masked_prefill_trace_buckets=lambda: buckets,
+            mesh_device=SimpleNamespace(num_program_cache_entries=lambda: entries_now),
+            _masked_prefill_program_entries=entries_at_capture,
+        )
+        return Qwen36Model.masked_prefill_traces_stale(model)
+
+    def plan(buckets, length):
+        return Qwen36Model.masked_prefill_trace_for(
+            SimpleNamespace(masked_prefill_trace_buckets=lambda: buckets), length
+        )
+
+    full = (128, 256, 512, 1024)
+    require(plan(full, 10) == [(128, 0, 10)], "a short prompt did not take the smallest bucket")
+    require(plan(full, 1024) == [(1024, 0, 1024)], "a full chunk was split")
+    require(
+        plan(full, 1025) == [(1024, 0, 1024), (128, 1024, 1)],
+        "a long prompt did not continue in the smallest tail bucket",
+    )
+    require(
+        plan(full, 2047) == [(1024, 0, 1024), (1024, 1024, 1023)],
+        "the longest prompt did not chunk like eager prefill",
+    )
+    require(plan((128, 256), 300) is None, "a prompt beyond every bucket was planned")
+    require(plan((), 10) is None, "a plan was made without traces")
+
+    require(not stale((), 99), "missing traces reported stale")
+    require(not stale((128, 256), 10), "unchanged traces reported stale")
+    require(stale((128, 256), 11), "a post-capture compile did not mark the traces stale")
+
+    # The device-data masks select exactly the real tokens' conv window and scan rows.
+    kernel, length, valid = 4, 16, 7
+    padded = torch.arange(kernel - 1 + length, dtype=torch.float32)
+    window = conv_valid_selector(1, kernel, kernel - 1 + length, valid)[0] @ padded
+    require(
+        window.tolist() == padded[valid : valid + kernel - 1].tolist(),
+        "the conv selector does not pick the last K-1 real inputs",
+    )
+    lens = [3, 16]
+    mask = seq_valid_mask(4, length, lens)[:, :, 0]
+    require(
+        mask.sum(dim=1).tolist() == [3.0, 3.0, 16.0, 16.0],
+        "the scan mask does not keep each user's real rows",
     )
 
 
@@ -7298,6 +7572,7 @@ def main():
     probe("checkpoint layer-type authority", probe_layer_type_authority)
     probe("GDN decode layout candidate gate", probe_gdn_decode_layout_candidate)
     probe("GDN decode fusion candidate", probe_gdn_decode_fusion_candidate)
+    probe("GDN fused decode step policy", probe_gdn_decode_step_policy)
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
@@ -7329,6 +7604,8 @@ def main():
     probe("GDN grid in-range mapping unchanged", probe_gdn_grid_mapping_unchanged)
     probe("grouped prefill eligibility", probe_grouped_prefill_eligibility)
     probe("grouped prefill routing", probe_grouped_prefill_routing)
+    probe("masked prefill traces", probe_masked_prefill_traces)
+    probe("end of sequence", probe_end_of_sequence)
     probe("GDN decode occupancy plan", probe_gdn_occupancy_plan)
     probe("GDN occupancy policy binding", probe_gdn_occupancy_policy_binding)
 

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,11 @@ TILE_EDGE_ELEMENTS = 32
 PADDED_LOGIT_SENTINEL = -1.0e30
 TRACE_COMMAND_QUEUE_ID = 0
 TRACE_BLOCKING_REPLAY = False
+GREEDY_COMBINE_DEVICE_COUNT = 2
+# The token input is the first decode input; a greedy stream feeds it back on device.
+GREEDY_FED_BACK_INPUT_COUNT = 1
+# Replays kept queued ahead of the host's readback in a greedy stream.
+GREEDY_STREAM_DEPTH = 1
 MUTABLE_INPUT_COUNT = 3
 EXPECTED_DECODE_INPUT_COUNT = 4
 MINIMUM_POSITION = 0
@@ -47,6 +53,7 @@ MINIMUM_POSITION = 0
 # Grouped prefill stays opt-in until its own matched screen admits it, so the
 # default served path keeps the execution identity its receipts describe.
 GROUPED_PREFILL_ENV = "QWEN35_GROUPED_PREFILL"
+TRACED_PREFILL_ENV = "QWEN36_TRACED_PREFILL"
 GROUPED_PREFILL_ENABLED_VALUES = frozenset({"1", "true", "yes", "on"})
 RUNTIME_CAPABILITY_RELATIVE_PATH = ("share", "qwen36", "runtime-capability.json")
 CAPABILITY_SCHEMA_VERSION = 1
@@ -58,18 +65,8 @@ NON_CHUNKED_CAPABILITY_SOURCE = "fallback-one-instance-per-core"
 PACKAGE_CAPABILITY_SOURCE = "package-runtime-capability"
 GRID_UNAVAILABLE_REASON = "compute-grid-unavailable"
 NON_POSITIONAL_DESTINATIONS_REASON = "non-positional-state-destinations"
-# The adopted grouped path assembled each group's GDN state with a same-shape
-# copy into the decode buffer, so a group narrower than the buffer failed during
-# startup warm-up with Shape([4, 24, 128, 128]) against
-# Shape([16, 24, 128, 128]). grouped-prefill-row-assembly.patch keeps the copy
-# shape-exact by refusing a wider source; it is deliberately NOT used to write a
-# partial-width group, because the padded tail interacts with the persistent B=1
-# prefill scratch on the next per-user call (measured: warm-up at width 4 then
-# succeeded, and the following width-1 request failed with
-# Shape([4, 24, 128, 128]) against Shape([1, 24, 128, 128])). Until that is
-# fixed, a grouped run must fill the buffer in one group.
-DECODE_CAPACITY_MISMATCH_REASON = "group-width-below-decode-capacity"
-MULTI_GROUP_ASSEMBLY_REASON = "multi-group-assembly-unsupported"
+TRACE_PARKED_REASON = "decode-trace-parked"
+MASKED_TRACE_REASON = "masked-prefill-trace"
 
 
 class BatchDecodeAdapterError(RuntimeError):
@@ -87,6 +84,7 @@ class BatchPrefillResult:
     trace_transition_reason: str | None = None
     prefill_route: str = "per-user"
     prefill_route_reason: str | None = None
+    masked_traces_released: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,6 +120,13 @@ class RuntimeCapabilityRecord:
 
     gdn_scan_chunked_instances: bool
     source: str
+
+
+def traced_prefill_enabled(env: Any = None) -> bool:
+    """Return whether the caller opted into masked prefill traces."""
+    if env is None:
+        env = os.environ
+    return env.get(TRACED_PREFILL_ENV, "").strip().lower() in GROUPED_PREFILL_ENABLED_VALUES
 
 
 def grouped_prefill_enabled(env: Any = None) -> bool:
@@ -350,10 +355,11 @@ class BatchedTracedDecodeAdapter:
         try:
             warm_logits = self._forward_sharded(device_inputs)
             warm_indices, warm_values = self._reduce_for_mode(warm_logits, width)
+            self._feed_back_winners(warm_indices, warm_values, device_inputs)
             ttnn.synchronize_device(self.mesh)
-            ttnn.deallocate(warm_indices)
-            ttnn.deallocate(warm_values)
-            ttnn.deallocate(warm_logits)
+            for tensor in (warm_indices, warm_values, warm_logits):
+                if tensor is not None:
+                    ttnn.deallocate(tensor)
             self._restore_gdn_state(snapshots)
             ttnn.synchronize_device(self.mesh)
 
@@ -363,6 +369,7 @@ class BatchedTracedDecodeAdapter:
             )
             logits = self._forward_sharded(device_inputs)
             indices, values = self._reduce_for_mode(logits, width)
+            self._feed_back_winners(indices, values, device_inputs)
             ttnn.end_trace_capture(
                 self.mesh,
                 trace_id,
@@ -503,13 +510,10 @@ class BatchedTracedDecodeAdapter:
             return False, ONE_INSTANCE_PER_CORE, plan.reason
         if plan.destinations != slots:
             return False, ONE_INSTANCE_PER_CORE, NON_POSITIONAL_DESTINATIONS_REASON
-        if width != self.maximum_width:
-            # The grouped assembly cannot write a partial-width group into a wider
-            # decode buffer without corrupting the next per-user prefill.
-            return False, ONE_INSTANCE_PER_CORE, DECODE_CAPACITY_MISMATCH_REASON
-        if len(plan.groups) != 1:
-            # Several groups would each write a partial block into the buffer.
-            return False, ONE_INSTANCE_PER_CORE, MULTI_GROUP_ASSEMBLY_REASON
+        # The planner's groups are contiguous runs of its group size, the model's own
+        # partition. The model assembles them in order into rows 0..width-1 and
+        # zero-fills the rest of the decode buffer, so partial widths and several
+        # groups install positionally.
         return True, len(plan.groups[0]), REASON_ELIGIBLE
 
     def prefill_users(
@@ -553,10 +557,10 @@ class BatchedTracedDecodeAdapter:
             )
             valid_lengths.append(prompt_tokens)
         page_table_blocks = max(required_blocks)
-        bounded_page_table = self.page_table[
-            :width,
-            :page_table_blocks,
-        ].contiguous()
+        # Full-width rows keep one program per prefill shape; a request-bounded width
+        # would compile page-table programs per width, and a first-time compile releases
+        # the masked prefill traces. The rows beyond each prompt are the user's own blocks.
+        prefill_page_table = self.page_table[:width].contiguous()
         started = time.monotonic()
         observed_first_tokens: tuple[int, ...] | None = None
         first_token_ready_seconds: float | None = None
@@ -586,16 +590,47 @@ class BatchedTracedDecodeAdapter:
             first_token_ready_seconds = time.monotonic() - started
 
         grouping_enabled = grouped_prefill_enabled()
-        grouped, group_size, route_reason = self.plan_prefill_route(
-            width, tuple(valid_lengths), grouped_enabled=grouping_enabled
-        )
+        # Masked prefill traces. A replay overwrites every device buffer allocated after
+        # its capture that is still alive, so:
+        # - a program compiled since the capture may own such a buffer; the traces are then
+        #   released for the process, never replayed (the model also checks after the
+        #   eager users of a mixed batch);
+        # - a parked decode trace (trace reuse) keeps eager prefill.
+        masked_traces_released = False
+        if self.model.masked_prefill_traces_stale():
+            self.model.release_masked_prefill_traces()
+            masked_traces_released = True
+        traced_buckets = self.model.masked_prefill_trace_buckets()
+        use_masked_traces = bool(traced_buckets) and not trace_plan.reuse_after_prefill
+        if use_masked_traces and any(
+            self.model.masked_prefill_trace_for(length) is not None
+            for length in valid_lengths
+        ):
+            # One replay per user beats a grouped eager forward at every width.
+            grouped, group_size, route_reason = (
+                False,
+                ONE_INSTANCE_PER_CORE,
+                MASKED_TRACE_REASON,
+            )
+        elif trace_plan.reuse_after_prefill:
+            # A parked decode trace must not meet a first-time grouped program
+            # compile, so trace reuse keeps the per-user programs.
+            grouped, group_size, route_reason = (
+                False,
+                ONE_INSTANCE_PER_CORE,
+                TRACE_PARKED_REASON,
+            )
+        else:
+            grouped, group_size, route_reason = self.plan_prefill_route(
+                width, tuple(valid_lengths), grouped_enabled=grouping_enabled
+            )
         prefill_route = "grouped" if grouped else "per-user"
         if grouped:
             # The grouped path returns host logits for every user, so readiness
             # is observed once it returns, and state installs by row == slot.
             host_logits = self.model.prefill_paged_grouped(
                 list(token_ids),
-                bounded_page_table,
+                prefill_page_table,
                 valid_lens=valid_lengths,
                 group_size=group_size,
             )
@@ -631,14 +666,21 @@ class BatchedTracedDecodeAdapter:
                 trace_transition_reason=trace_plan.reason,
                 prefill_route=prefill_route,
                 prefill_route_reason=route_reason,
+                masked_traces_released=masked_traces_released,
             )
+        traces_before = bool(self.model.masked_prefill_trace_buckets())
         logits = self.model.prefill_paged_slots(
             list(token_ids),
-            bounded_page_table,
+            prefill_page_table,
             list(range(width)),
             valid_lens=valid_lengths,
             first_token_callback=observe_first_tokens,
+            masked_traces=use_masked_traces,
         )
+        # A mixed batch's eager users can compile a program, after which the model
+        # releases the traces before any replay.
+        if traces_before and not self.model.masked_prefill_trace_buckets():
+            masked_traces_released = True
         ttnn.synchronize_device(self.mesh)
         elapsed_seconds = time.monotonic() - started
         if len(logits) != width:
@@ -662,6 +704,7 @@ class BatchedTracedDecodeAdapter:
             trace_transition_reason=trace_plan.reason,
             prefill_route=prefill_route,
             prefill_route_reason=route_reason,
+            masked_traces_released=masked_traces_released,
         )
 
     def decode_traced(
@@ -713,8 +756,83 @@ class BatchedTracedDecodeAdapter:
             cq_id=TRACE_COMMAND_QUEUE_ID,
             blocking=TRACE_BLOCKING_REPLAY,
         )
-        ttnn.synchronize_device(self.mesh)
+        # No device synchronize: the readback below is enqueued on the trace's
+        # command queue, so it completes only after the replay does.
         return self._read_global_winners(trace.indices, trace.values, width)
+
+    def decode_greedy_stream(
+        self,
+        *,
+        token_ids: tuple[int, ...],
+        positions: tuple[int, ...],
+        steps: int,
+    ) -> Iterator[tuple[int, ...]]:
+        """Yield `steps` greedy decode steps, keeping the next step queued on the device.
+
+        Each replay writes its tokens into the next replay's token input, so only the
+        first step stages tokens from the host; every step stages its positions and RoPE
+        rows. The host reads step k while step k + 1 runs. Closing the generator early
+        waits for the queued step, whose tokens are dropped.
+        """
+        width = len(token_ids)
+        self._require_width(width)
+        self._require_open()
+        if steps < MINIMUM_ACTIVE_BATCH_WIDTH:
+            raise BatchDecodeAdapterError("a greedy stream needs at least one step")
+        if len(positions) != width:
+            raise BatchDecodeAdapterError("token and position widths differ")
+        trace = self._traces.get(width)
+        if trace is None:
+            raise BatchDecodeAdapterError("batch width has no prepared trace")
+        if trace.values is not None:
+            raise BatchDecodeAdapterError("a greedy stream needs the greedy trace tail")
+        self._require_binding(trace)
+        if any(
+            isinstance(token, bool)
+            or not isinstance(token, int)
+            or not 0 <= token < self.vocabulary_size
+            for token in token_ids
+        ):
+            raise BatchDecodeAdapterError("batch token is outside the vocabulary")
+        last_position = max(positions) + steps - 1
+        if min(positions) < MINIMUM_POSITION or last_position >= self.profile.maximum_sequence_length:
+            raise BatchDecodeAdapterError("batch position is outside the profile bound")
+
+        winner_replica = ttnn.get_device_tensors(trace.indices)[0]
+        pending: list[tuple[Any, Any]] = []
+        try:
+            for step in range(steps):
+                host_inputs = self.model.prepare_decode_inputs_host(
+                    torch.tensor(token_ids, dtype=torch.int32).reshape(width, MINIMUM_ACTIVE_BATCH_WIDTH),
+                    torch.tensor([position + step for position in positions], dtype=torch.int32),
+                    page_table=None,
+                )
+                first_input = 0 if step == 0 else GREEDY_FED_BACK_INPUT_COUNT
+                copy_host_to_device(
+                    host_inputs[first_input:MUTABLE_INPUT_COUNT],
+                    device_tensors=trace.device_inputs[first_input:MUTABLE_INPUT_COUNT],
+                )
+                ttnn.execute_trace(
+                    self.mesh,
+                    trace.trace_id,
+                    cq_id=TRACE_COMMAND_QUEUE_ID,
+                    blocking=TRACE_BLOCKING_REPLAY,
+                )
+                # Queued behind this replay and ahead of the next one on the same queue.
+                host = ttnn.from_device(winner_replica, blocking=False, queue_id=TRACE_COMMAND_QUEUE_ID)
+                pending.append((host, ttnn.record_event(self.mesh, cq_id=TRACE_COMMAND_QUEUE_ID)))
+                if len(pending) > GREEDY_STREAM_DEPTH:
+                    yield self._settle_winners(pending.pop(0), width)
+            while pending:
+                yield self._settle_winners(pending.pop(0), width)
+        finally:
+            for _host, event in pending:
+                ttnn.event_synchronize(event)
+
+    def _settle_winners(self, read: tuple[Any, Any], width: int) -> tuple[int, ...]:
+        host, event = read
+        ttnn.event_synchronize(event)
+        return self._winner_tuple(ttnn.to_torch(host), width)
 
     def _reduce_for_mode(self, sharded_logits: Any, width: int) -> tuple[Any, Any]:
         """Reduce the traced tail for the resident fusion mode.
@@ -726,7 +844,58 @@ class BatchedTracedDecodeAdapter:
         """
         if self.fusion_mode == ROUTE_SAMPLED:
             return self._reduce_shards_topk(sharded_logits, width)
-        return self._reduce_shards(sharded_logits, width)
+        indices, values = self._reduce_shards(sharded_logits, width)
+        return self._combine_shard_winners(indices, values, width), None
+
+    def _combine_shard_winners(self, indices: Any, values: Any, width: int) -> Any:
+        """Global greedy token per user, replicated on every device as [width, 1] uint32.
+
+        All-gathers each shard's (max, local index) and keeps device 0 on ties, exactly as
+        the host combine did with torch.argmax over devices. Token ids stay below 2**24, so
+        the float32 arithmetic is exact.
+        """
+        if self.device_count != GREEDY_COMBINE_DEVICE_COUNT:
+            raise BatchDecodeAdapterError("greedy winner combine supports two shards")
+        from models.tt_transformers.tt.ccl import tt_all_gather
+
+        index = ttnn.typecast(
+            ttnn.to_layout(ttnn.reshape(indices, (1, 1, 1, width)), ttnn.TILE_LAYOUT),
+            ttnn.float32,
+        )
+        value = ttnn.typecast(ttnn.reshape(values, (1, 1, 1, width)), ttnn.float32)
+        ttnn.deallocate(indices)
+        ttnn.deallocate(values)
+        packed = ttnn.concat([value, index], dim=2)
+        ttnn.deallocate(index)
+        ttnn.deallocate(value)
+        gathered = tt_all_gather(
+            packed,
+            self.mesh,
+            self.model.tt_ccl,
+            cluster_axis=None,
+            dim=1,
+            dtype=ttnn.float32,
+            topology=self.model.args.ccl_topology(),
+        )
+        value0 = ttnn.slice(gathered, (0, 0, 0, 0), (1, 1, 1, width))
+        index0 = ttnn.slice(gathered, (0, 0, 1, 0), (1, 1, 2, width))
+        value1 = ttnn.slice(gathered, (0, 1, 0, 0), (1, 2, 1, width))
+        index1 = ttnn.slice(gathered, (0, 1, 1, 0), (1, 2, 2, width))
+        ttnn.deallocate(gathered)
+        take_second = ttnn.gt(value1, value0)
+        offset = ttnn.sub(ttnn.add(index1, float(self.vocabulary_per_shard)), index0)
+        token = ttnn.add(index0, ttnn.multiply(take_second, offset))
+        for tensor in (value0, index0, value1, index1, take_second, offset):
+            ttnn.deallocate(tensor)
+        winners = ttnn.to_layout(ttnn.typecast(token, ttnn.uint32), ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(token)
+        return ttnn.reshape(winners, (width, MINIMUM_ACTIVE_BATCH_WIDTH))
+
+    @staticmethod
+    def _feed_back_winners(winners: Any, values: Any, device_inputs: tuple[Any, ...]) -> None:
+        """Greedy tails write their tokens into the next step's token input."""
+        if values is None:
+            ttnn.copy(winners, device_inputs[0])
 
     def _reduce_shards_topk(self, sharded_logits: Any, width: int) -> tuple[Any, Any]:
         """Per-shard top-K candidate reduction for the sampled trace tail.
@@ -749,13 +918,17 @@ class BatchedTracedDecodeAdapter:
         width: int,
     ) -> tuple[tuple[ShardCandidates, ...], ...]:
         """Read per-user per-shard candidates with global token ids."""
+        if values is None:
+            raise BatchDecodeAdapterError("sampled readback needs a candidate tail")
         host_indices = ttnn.to_torch(
             indices,
             mesh_composer=self._mesh_reader,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
         ).reshape(self.device_count, width, SAMPLED_CANDIDATE_COUNT)
         host_values = ttnn.to_torch(
             values,
             mesh_composer=self._mesh_reader,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
         ).reshape(self.device_count, width, SAMPLED_CANDIDATE_COUNT)
         rows: list[tuple[ShardCandidates, ...]] = []
         for user in range(width):
@@ -836,7 +1009,8 @@ class BatchedTracedDecodeAdapter:
             cq_id=TRACE_COMMAND_QUEUE_ID,
             blocking=TRACE_BLOCKING_REPLAY,
         )
-        ttnn.synchronize_device(self.mesh)
+        # No device synchronize: the readback below is enqueued on the trace's
+        # command queue, so it completes only after the replay does.
         return self._read_global_candidates(trace.indices, trace.values, width)
 
     def switch_fusion_mode(self, mode: str) -> None:
@@ -989,23 +1163,23 @@ class BatchedTracedDecodeAdapter:
 
     def _read_global_winners(
         self,
-        indices: Any,
+        winners: Any,
         values: Any,
         width: int,
     ) -> tuple[int, ...]:
-        host_indices = ttnn.to_torch(
-            indices,
-            mesh_composer=self._mesh_reader,
-        ).reshape(self.device_count, width)
-        host_values = ttnn.to_torch(
-            values,
-            mesh_composer=self._mesh_reader,
-        ).reshape(self.device_count, width)
-        winning_devices = torch.argmax(host_values, dim=0)
-        columns = torch.arange(width)
-        tokens = winning_devices * self.vocabulary_per_shard + host_indices[
-            winning_devices, columns
-        ].to(torch.int64)
+        """Read the combined greedy tokens from one replica."""
+        if values is not None:
+            raise BatchDecodeAdapterError("greedy readback needs the combined winner tail")
+        host = ttnn.to_torch(
+            ttnn.get_device_tensors(winners)[0],
+            cq_id=TRACE_COMMAND_QUEUE_ID,
+        )
+        return self._winner_tuple(host, width)
+
+    def _winner_tuple(self, host: Any, width: int) -> tuple[int, ...]:
+        tokens = host.reshape(-1)
+        if tokens.numel() != width:
+            raise BatchDecodeAdapterError("batch winner count differs from active width")
         result = tuple(int(token) for token in tokens.tolist())
         if any(not 0 <= token < self.vocabulary_size for token in result):
             raise BatchDecodeAdapterError("batch winner is outside the vocabulary")
@@ -1044,6 +1218,62 @@ class BatchedTracedDecodeAdapter:
         if not self._binding_matches(trace):
             raise BatchDecodeAdapterError("batch trace binding changed")
 
+    def decode_width_supported(self, width: int) -> bool:
+        """Whether decode can shard `width` users one per core as a grid rectangle."""
+        grid = self.mesh.compute_with_storage_grid_size()
+        return any(
+            width % columns == 0 and width // columns <= grid.y
+            for columns in range(1, min(width, grid.x) + 1)
+        )
+
+    def prepare_masked_prefill_traces(
+        self, warm_token_id: int, routes: tuple[str, ...]
+    ) -> tuple[int, ...]:
+        """Compile every program serving can reach, then capture the masked prefill traces.
+
+        A replay overwrites device buffers allocated after the capture, and a first-time
+        program can allocate buffers that live for the process, so the capture comes after
+        decode at every selectable width and route, the eager prefill shapes beyond the
+        traced buckets, and every decode-slot install. Returns the captured buckets; empty
+        when the traces are disabled or the runtime cannot capture them.
+        """
+        if not traced_prefill_enabled():
+            return ()
+        self._require_open()
+        initial_route = self.fusion_mode
+        token = int(warm_token_id)
+        try:
+            for route in routes:
+                if route != self.fusion_mode:
+                    self.switch_fusion_mode(route)
+                replay = (
+                    self.decode_traced_sampled
+                    if route == ROUTE_SAMPLED
+                    else self.decode_traced
+                )
+                for width in range(MINIMUM_ACTIVE_BATCH_WIDTH, self.maximum_width + 1):
+                    if not self.decode_width_supported(width):
+                        continue
+                    self.reset_all()
+                    self.prepare_width(
+                        token_ids=(token,) * width,
+                        positions=(MINIMUM_ACTIVE_BATCH_WIDTH,) * width,
+                    )
+                    replay(
+                        token_ids=(token,) * width,
+                        positions=(MINIMUM_ACTIVE_BATCH_WIDTH,) * width,
+                    )
+                    self._release_traces()
+        finally:
+            if self.fusion_mode != initial_route:
+                self.switch_fusion_mode(initial_route)
+        self._release_traces()
+        self.reset_all()
+        self.model.warm_serving_programs(self.page_table)
+        self.reset_all()
+        self.model.capture_masked_prefill_traces(self.page_table[:1].contiguous())
+        return self.model.masked_prefill_trace_buckets()
+
     def _require_width(self, width: int) -> None:
         if isinstance(width, bool) or not isinstance(width, int):
             raise BatchDecodeAdapterError("active width must be an integer")
@@ -1058,7 +1288,8 @@ class BatchedTracedDecodeAdapter:
         for trace in self._traces.values():
             ttnn.release_trace(self.mesh, trace.trace_id)
             for tensor in (trace.indices, trace.values, trace.logits):
-                ttnn.deallocate(tensor)
+                if tensor is not None:
+                    ttnn.deallocate(tensor)
             for tensor in trace.device_inputs:
                 if tensor is not None:
                     ttnn.deallocate(tensor)
@@ -1069,6 +1300,7 @@ class BatchedTracedDecodeAdapter:
         if self._closed:
             return
         self._release_traces()
+        self.model.release_masked_prefill_traces()
         self._closed = True
 
 

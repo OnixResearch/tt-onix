@@ -27,6 +27,7 @@ class TailAdapter:
 
     _reduce_for_mode = BatchedTracedDecodeAdapter._reduce_for_mode
     _read_global_winners = BatchedTracedDecodeAdapter._read_global_winners
+    _winner_tuple = BatchedTracedDecodeAdapter._winner_tuple
     _read_global_candidates = BatchedTracedDecodeAdapter._read_global_candidates
 
     def __init__(self, mode, *, wrong_width=False, read_error=False):
@@ -42,6 +43,9 @@ class TailAdapter:
 
     def _reduce_shards(self, logits, width):
         return self._tail(width, 1)
+
+    def _combine_shard_winners(self, indices, values, width):
+        return torch.full((width, 1), TOKEN_ID, dtype=torch.int32)
 
     def _reduce_shards_topk(self, logits, width):
         return self._tail(width, SAMPLED_CANDIDATE_COUNT)
@@ -76,6 +80,9 @@ class TailAdapter:
     def reset_all(self):
         self.reset_count += 1
 
+    def prepare_masked_prefill_traces(self, warm_token_id, routes):
+        return ()
+
 
 def coordinator_for(adapter):
     coordinator = object.__new__(BatchGenerationCoordinator)
@@ -85,6 +92,8 @@ def coordinator_for(adapter):
     coordinator._accepting_requests = False
     coordinator._queue = deque()
     coordinator.emitter = lambda *args, **kwargs: None
+    coordinator.deterministic_route = ROUTE_DETERMINISTIC
+    coordinator.sampled_admission_enabled = False
     return coordinator
 
 
@@ -92,18 +101,27 @@ def check():
     widths = (1, MODEL_CAPACITY)
     plan = SimpleNamespace(widths=widths, generation_tokens=GENERATION_TOKENS)
     prompt = torch.tensor([[TOKEN_ID]], dtype=torch.int32)
-    with patch("ttnn.to_torch", side_effect=lambda tensor, **kwargs: tensor):
-        # The old path reproduces the physical error without opening a device.
+    with (
+        patch("ttnn.to_torch", side_effect=lambda tensor, **kwargs: tensor),
+        patch("ttnn.get_device_tensors", side_effect=lambda tensor: [tensor]),
+    ):
+        # Each reader refuses the other mode's tail without opening a device.
         mismatched = TailAdapter(ROUTE_SAMPLED)
         mismatched.prepare_width(token_ids=(TOKEN_ID,), positions=(1,))
         try:
             mismatched.decode_traced(token_ids=(TOKEN_ID,), positions=(1,))
-        except RuntimeError as error:
-            element_count = DEVICE_COUNT * SAMPLED_CANDIDATE_COUNT
-            assert f"shape '[{DEVICE_COUNT}, 1]'" in str(error)
-            assert f"input of size {element_count}" in str(error)
+        except BatchDecodeAdapterError as error:
+            assert "combined winner tail" in str(error)
         else:
             raise AssertionError("greedy reader accepted a sampled trace tail")
+        mismatched = TailAdapter(ROUTE_DETERMINISTIC)
+        mismatched.prepare_width(token_ids=(TOKEN_ID,), positions=(1,))
+        try:
+            mismatched.decode_traced_sampled(token_ids=(TOKEN_ID,), positions=(1,))
+        except BatchDecodeAdapterError as error:
+            assert "candidate tail" in str(error)
+        else:
+            raise AssertionError("sampled reader accepted a greedy trace tail")
 
         for mode, reader in (
             (ROUTE_DETERMINISTIC, "greedy"),

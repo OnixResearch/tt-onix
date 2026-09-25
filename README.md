@@ -71,6 +71,8 @@ The implementation directory `pkgs/qwen36`, upstream Python imports, cache
 paths, and historical receipt schemas retain their existing names.
 See the [staged decode comparison](docs/qwen38-staged-decode-comparison.md)
 for the latest bounded timing result and its non-claims.
+See [the fused GDN decode step](docs/qwen38-fused-gdn-decode-step.md) for the
+default decode route, its measured 1.30x single-stream gain, and how to opt out.
 
 See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.

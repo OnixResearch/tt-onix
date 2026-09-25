@@ -1,11 +1,14 @@
 """Pure request-to-serving-mode router for the sampled-mode kernel admission.
 
 r[impl tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+r[impl tenstorrent.qwen38_p150x2.gdn_decode_step]
 
 A sampled-only admission receipt makes the fused GDN kernel eligible for
-requests that sample. Deterministic requests keep the exact-parity path.
-This core owns that classification and the switch decision; the service
-shell owns the trace release, attribute flip, and recapture.
+requests that sample. Deterministic requests keep the configured
+deterministic route: the composite exact-parity path ("off"), or the fused
+decode step ("step") when the service is configured for it. This core owns
+that classification and the switch decision; the service shell owns the
+trace release, attribute flip, and recapture.
 
 The physical primitive is measured and proven: capturing a second decode
 trace while another is resident corrupts the second trace's outputs, so
@@ -21,7 +24,9 @@ from dataclasses import dataclass
 
 ROUTE_DETERMINISTIC = "off"
 ROUTE_SAMPLED = "full"
-ROUTES = (ROUTE_DETERMINISTIC, ROUTE_SAMPLED)
+ROUTE_FUSED_STEP = "step"
+ROUTES = (ROUTE_DETERMINISTIC, ROUTE_SAMPLED, ROUTE_FUSED_STEP)
+DETERMINISTIC_ROUTES = (ROUTE_DETERMINISTIC, ROUTE_FUSED_STEP)
 
 # Admission receipts name serving modes, not kernel routes: a distributional
 # receipt lists "sampled", while the adapter flips between "off" and "full".
@@ -53,15 +58,37 @@ class RoutingDecision:
             )
 
 
-def classify_temperature(temperature) -> str:
+def deterministic_route_for_mode(resident_mode: str) -> str:
+    """The deterministic route a service keeps for its startup fusion mode.
+
+    A service started on the fused decode step serves greedy requests there;
+    every other startup mode keeps the composite exact-parity route.
+    """
+    return (
+        ROUTE_FUSED_STEP if resident_mode == ROUTE_FUSED_STEP else ROUTE_DETERMINISTIC
+    )
+
+
+def _require_deterministic_route(deterministic_route: str) -> None:
+    if deterministic_route not in DETERMINISTIC_ROUTES:
+        raise RouterPolicyError(
+            f"deterministic route must be one of {DETERMINISTIC_ROUTES}, "
+            f"got {deterministic_route!r}"
+        )
+
+
+def classify_temperature(
+    temperature, deterministic_route: str = ROUTE_DETERMINISTIC
+) -> str:
     """Map one request temperature to a serving route.
 
-    Missing and zero temperatures are deterministic: they must keep the
-    exact-parity path. Positive finite temperatures are sampled. Anything
+    Missing and zero temperatures are deterministic: they keep the configured
+    deterministic route. Positive finite temperatures are sampled. Anything
     else fails closed with a bounded reason.
     """
+    _require_deterministic_route(deterministic_route)
     if temperature is None:
-        return ROUTE_DETERMINISTIC
+        return deterministic_route
     if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
         raise RouterPolicyError("temperature must be a number or null")
     value = float(temperature)
@@ -70,13 +97,18 @@ def classify_temperature(temperature) -> str:
     if value < ZERO_TEMPERATURE:
         raise RouterPolicyError("temperature must not be negative")
     if value == ZERO_TEMPERATURE:
-        return ROUTE_DETERMINISTIC
+        return deterministic_route
     return ROUTE_SAMPLED
 
 
-def route_request(temperature, *, current_mode: str) -> RoutingDecision:
+def route_request(
+    temperature,
+    *,
+    current_mode: str,
+    deterministic_route: str = ROUTE_DETERMINISTIC,
+) -> RoutingDecision:
     """Classify one request against the adapter's resident fusion mode."""
-    route = classify_temperature(temperature)
+    route = classify_temperature(temperature, deterministic_route)
     decision = RoutingDecision(
         route=route,
         current_mode=current_mode,
@@ -91,21 +123,24 @@ def resolve_batch_route(
     *,
     sampled_admitted: bool,
     current_mode: str,
+    deterministic_route: str = ROUTE_DETERMINISTIC,
 ) -> RoutingDecision:
     """Resolve one batch's serving route from its request temperatures.
 
     A batch runs one fusion mode per step, so any deterministic request
-    forces the whole batch onto the exact-parity path. Sampled users in a
-    mixed batch lose the speedup but keep correct output; deterministic
-    users never see the fused kernel. Without a sampled admission the only
-    permitted route is deterministic.
+    forces the whole batch onto the deterministic route. Sampled users in a
+    mixed batch lose the sampled kernel but keep correct output. Without a
+    sampled admission the only permitted route is deterministic.
     """
     temperatures = tuple(temperatures)
     if not temperatures:
         raise RouterPolicyError("a batch needs at least one request")
-    routes = tuple(classify_temperature(temperature) for temperature in temperatures)
-    if not sampled_admitted or any(route == ROUTE_DETERMINISTIC for route in routes):
-        batch_route = ROUTE_DETERMINISTIC
+    routes = tuple(
+        classify_temperature(temperature, deterministic_route)
+        for temperature in temperatures
+    )
+    if not sampled_admitted or any(route == deterministic_route for route in routes):
+        batch_route = deterministic_route
     else:
         batch_route = ROUTE_SAMPLED
     decision = RoutingDecision(

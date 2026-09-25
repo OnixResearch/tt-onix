@@ -1,0 +1,33 @@
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py b/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/fused_chunk.py
+@@ -8,7 +8,7 @@ Same operation and I/O contract as ``chunk_gated_delta_rule_seq_adapter`` (prepr
+ + WY inverse + inter/intra-chunk scan -> o, final_state) but computed in ONE device op
+ instead of Python/ttnn preprocessing + the separate ``gated_delta_attn_seq`` scan kernel.
+ 
+-The local package keeps fused prefill disabled until model-level admission.
++The local package keeps fused prefill disabled unless the operator sets QWEN36_GDN_FUSED_PREFILL=1.
+ The seq adapter remains the default. Handles masked buckets (``valid_len is not None``) by zeroing beta/g past valid_len
+ before the op — padded positions become identity state updates, so o (causal) and final_state stay correct.
+ 
+@@ -25,6 +25,8 @@ Notes:
+ * GVA (Nk<Nv) head expansion is done inside the fused op; we pass q/k with Nk heads.
+ """
+ 
++import os
++
+ import torch
+ from loguru import logger
+ 
+@@ -35,7 +37,10 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
+ _FUSED_CHUNK_SIZE = 32
+ 
+ # A new runtime symbol does not admit a new numerical prefill path.
+-FUSED_CHUNK_PREFILL_ADMITTED = False
++# Operator opt-in only. On P150x2 (2026-09-24) the fused op halved short-prompt prefill
++# (2.2 -> 1.1 s) with teacher-forced NLL +0.007 but top-1 agreement 0.958 against the seq path.
++FUSED_PREFILL_GATE = "QWEN36_GDN_FUSED_PREFILL"
++FUSED_CHUNK_PREFILL_ADMITTED = os.environ.get(FUSED_PREFILL_GATE, "0").strip() == "1"
+ 
+ 
+ def fused_chunk_enabled():

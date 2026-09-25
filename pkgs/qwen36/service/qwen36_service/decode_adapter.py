@@ -344,7 +344,8 @@ class TracedDecodeAdapter:
             cq_id=TRACE_COMMAND_QUEUE_ID,
             blocking=TRACE_BLOCKING_REPLAY,
         )
-        ttnn.synchronize_device(self.mesh)
+        # No device synchronize: the readback below is enqueued on the trace's
+        # command queue, so it completes only after the replay does.
         return self._read_global_winner(self._trace_indices, self._trace_values)
 
     def decode_eager(self, *, token: int, position: int) -> int:
@@ -467,10 +468,16 @@ class TracedDecodeAdapter:
         return logits
 
     def _read_global_winner(self, indices: Any, values: Any) -> int:
-        host_indices = ttnn.to_torch(indices, mesh_composer=self._mesh_reader).reshape(
-            -1
-        )
-        host_values = ttnn.to_torch(values, mesh_composer=self._mesh_reader).reshape(-1)
+        host_indices = ttnn.to_torch(
+            indices,
+            mesh_composer=self._mesh_reader,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
+        ).reshape(-1)
+        host_values = ttnn.to_torch(
+            values,
+            mesh_composer=self._mesh_reader,
+            cq_id=TRACE_COMMAND_QUEUE_ID,
+        ).reshape(-1)
         if (
             len(host_indices) != self.device_count
             or len(host_values) != self.device_count

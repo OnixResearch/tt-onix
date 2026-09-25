@@ -237,12 +237,22 @@
       qwenServiceInvalidTokenLimitRejected = hasFailedAssertion "must not exceed maximumSequenceLength" qwenServiceInvalidTokenLimitEval;
       qwenServiceSpeculativeEval = qwenServiceEval {
         hardware.tenstorrent.qwen38.mtpSpeculation = true;
+        hardware.tenstorrent.qwen38.gdnDecodeStep = false;
       };
       qwenServiceSpeculativeUnit = qwenServiceSpeculativeEval.config.systemd.services.qwen38-p150x2;
       qwenServiceSpeculativeConflictingEval = qwenServiceEval {
         hardware.tenstorrent.qwen38.mtpSpeculation = true;
+        hardware.tenstorrent.qwen38.gdnDecodeStep = false;
         hardware.tenstorrent.qwen38.sampledFusion = true;
       };
+      qwenServiceCompositeUnit =
+        (qwenServiceEval { hardware.tenstorrent.qwen38.gdnDecodeStep = false; })
+        .config.systemd.services.qwen38-p150x2;
+      qwenServiceSpeculativeStepRejected =
+        hasFailedAssertion "no evidence on the fused GDN decode step"
+          (qwenServiceEval {
+            hardware.tenstorrent.qwen38.mtpSpeculation = true;
+          });
       qwenServiceSpeculativeConflictingRejected =
         hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
       qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
@@ -274,6 +284,22 @@
         assert lib.assertMsg (
           qwenServiceUnit.environment.QWEN36_MTP_SERVING or "" == "0"
         ) "the Qwen service must default speculative serving off";
+        assert lib.assertMsg (
+          qwenServiceUnit.environment.QWEN35_GDN_DECODE_FUSION or "" == "step"
+        ) "the Qwen service must default to the fused GDN decode step";
+        assert lib.assertMsg (
+          qwenServiceCompositeUnit.environment.QWEN35_GDN_DECODE_FUSION or "" == "off"
+        ) "disabling the fused GDN decode step must select the composite route";
+        assert lib.assertMsg (
+          qwenServiceUnit.environment.QWEN35_GROUPED_PREFILL or "" == "1"
+          && qwenServiceUnit.environment.QWEN36_TRACED_PREFILL or "" == "1"
+        ) "the Qwen service must default to grouped and traced prefill";
+        assert lib.assertMsg (
+          qwenServiceUnit.environment.QWEN36_GDN_FUSED_PREFILL or "" == "0"
+          && qwenServiceUnit.environment.QWEN36_GDN_BF4 or "" == "0"
+        ) "the Qwen service must keep fused GDN prefill and GDN BF4 projections opt-in";
+        assert lib.assertMsg qwenServiceSpeculativeStepRejected
+          "the Qwen service must reject speculative serving on the fused GDN decode step";
         assert lib.assertMsg (
           !(lib.hasInfix "--mtp-drafter-profile" qwenServiceUnit.serviceConfig.ExecStart)
         ) "the default Qwen service must not enable speculative serving";
