@@ -48,7 +48,11 @@ higher on any tested passage. The carried recurrent state stays fp32 end to end.
   and sets `QWEN35_GDN_DECODE_FUSION=step`. Set it to `false` to return to the
   composite route.
 - Greedy requests stay on the step route. Sampled requests keep the
-  sampled-fusion route when `sampledFusion` is enabled.
+  sampled-fusion route when `sampledFusion` is enabled. That kernel runs one
+  (user, local value head) instance per core, so it fits 4 users of 24 heads on
+  the 110-core P150. The batch worker caps an all-sampled batch at that width,
+  and trace preparation warms the sampled route only at the widths it fits.
+  Without `sampledFusion` the service accepts only temperature 0.
 - The module rejects `mtpSpeculation` together with the step. There is no
   evidence for that combination.
 - Unsupported geometry (non-128 heads, a batch above 32) keeps the composite

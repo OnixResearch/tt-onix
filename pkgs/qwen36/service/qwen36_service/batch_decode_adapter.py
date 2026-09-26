@@ -1373,6 +1373,24 @@ class BatchedTracedDecodeAdapter:
             for columns in range(1, min(width, grid.x) + 1)
         )
 
+    def sampled_width_supported(self, width: int) -> bool:
+        """Whether the sampled-fusion decode kernel fits `width` users.
+
+        The fused gated_delta_decode kernel places one (user, local value head)
+        instance per core, or CHUNKED_VALIDATED_INSTANCES_PER_CORE on a runtime that
+        chunks instances. Past that it stops with "num_heads exceeds the available
+        compute grid": 4 users x 24 heads fit the 110-core P150, 5 do not.
+        """
+        cores = self._compute_cores()
+        if cores is None or not self.decode_width_supported(width):
+            return False
+        per_core = (
+            CHUNKED_VALIDATED_INSTANCES_PER_CORE
+            if self._capability_record.gdn_scan_chunked_instances
+            else ONE_INSTANCE_PER_CORE
+        )
+        return width * self._local_value_heads() <= cores * per_core
+
     def prepare_masked_prefill_traces(
         self, warm_token_id: int, routes: tuple[str, ...]
     ) -> tuple[int, ...]:
@@ -1400,6 +1418,8 @@ class BatchedTracedDecodeAdapter:
                 )
                 for width in range(MINIMUM_ACTIVE_BATCH_WIDTH, self.maximum_width + 1):
                     if not self.decode_width_supported(width):
+                        continue
+                    if route == ROUTE_SAMPLED and not self.sampled_width_supported(width):
                         continue
                     self.reset_all()
                     self.prepare_width(

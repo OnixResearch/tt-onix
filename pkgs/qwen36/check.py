@@ -7130,6 +7130,7 @@ def probe_masked_prefill_traces():
     import threading
     from collections import deque
     from types import SimpleNamespace
+    from unittest import mock
 
     import torch
 
@@ -7142,6 +7143,7 @@ def probe_masked_prefill_traces():
         traced_prefill_enabled,
     )
     from qwen36_service.batch_service import BatchGenerationCoordinator
+    from qwen36_service.sampled_mode_router_core import ROUTE_FUSED_STEP, ROUTE_SAMPLED
 
     def adapter_on(grid_x, grid_y):
         grid = SimpleNamespace(x=grid_x, y=grid_y)
@@ -7155,21 +7157,104 @@ def probe_masked_prefill_traces():
     )
     require(not supported(adapter_on(8, 8), 11), "a prime width above an 8x8 grid was accepted")
 
-    # The batch worker returns the newest requests until the width is shardable.
-    def take(queued):
-        pending = [SimpleNamespace(request=SimpleNamespace(max_tokens=8), index=i) for i in range(queued)]
+    # The sampled-fusion kernel places one (user, local value head) instance per core,
+    # or two on a runtime that chunks instances: 4 or 9 users of 24 heads on 110 cores.
+    def sampled_adapter(chunked):
+        adapter = SimpleNamespace(
+            decode_width_supported=lambda w: supported(p150, w),
+            _compute_cores=lambda: 110,
+            _local_value_heads=lambda: 24,
+            _capability_record=SimpleNamespace(gdn_scan_chunked_instances=chunked),
+        )
+        adapter.sampled_width_supported = lambda w: BatchedTracedDecodeAdapter.sampled_width_supported(
+            adapter, w
+        )
+        return adapter
+
+    one_per_core = sampled_adapter(False)
+    require(
+        [w for w in range(1, 17) if one_per_core.sampled_width_supported(w)] == [1, 2, 3, 4],
+        "the sampled kernel must fit exactly 4 users of 24 heads on 110 cores",
+    )
+    require(
+        [w for w in range(1, 17) if sampled_adapter(True).sampled_width_supported(w)] == list(range(1, 10)),
+        "two instances per core must fit exactly 9 users of 24 heads on 110 cores",
+    )
+
+    # The batch worker returns the newest requests until the width is shardable, and an
+    # all-sampled batch until the sampled kernel fits it.
+    def take(temperatures, sampled_admission=False):
+        pending = [
+            SimpleNamespace(request=SimpleNamespace(max_tokens=8, temperature=temperature), index=i)
+            for i, temperature in enumerate(temperatures)
+        ]
         worker = SimpleNamespace(
             _condition=threading.Condition(),
             _queue=deque(pending),
             _closing=False,
-            adapter=SimpleNamespace(decode_width_supported=lambda w: supported(p150, w)),
+            adapter=one_per_core,
+            sampled_admission_enabled=sampled_admission,
+            deterministic_route=ROUTE_FUSED_STEP,
         )
         batch = BatchGenerationCoordinator._take_batch(worker)
         return [item.index for item in batch], [item.index for item in worker._queue]
 
-    require(take(13) == (list(range(12)), [12]), "a 13-request batch was not trimmed to 12")
-    require(take(11) == (list(range(11)), []), "an 11-request batch was trimmed")
-    require(take(16) == (list(range(16)), []), "a full batch was trimmed")
+    require(take([0.0] * 13) == (list(range(12)), [12]), "a 13-request batch was not trimmed to 12")
+    require(take([0.0] * 11) == (list(range(11)), []), "an 11-request batch was trimmed")
+    require(take([0.0] * 16) == (list(range(16)), []), "a full batch was trimmed")
+    require(
+        take([0.7] * 6, sampled_admission=True) == ([0, 1, 2, 3], [4, 5]),
+        "an all-sampled batch passed the sampled kernel's capacity",
+    )
+    require(
+        take([0.7] * 5 + [0.0], sampled_admission=True) == (list(range(6)), []),
+        "a mixed batch, which decodes deterministically, was trimmed to the sampled capacity",
+    )
+    require(take([0.7] * 6) == (list(range(6)), []), "a batch without sampled admission was trimmed")
+
+    # Trace preparation warms the sampled route only at the widths its kernel fits.
+    warmed = []
+    preparing = SimpleNamespace(
+        maximum_width=16,
+        page_table=torch.zeros(16, 4, dtype=torch.int32),
+        fusion_mode=ROUTE_FUSED_STEP,
+        model=SimpleNamespace(
+            READ_BATCH_WIDTH=4,
+            warm_serving_programs=lambda page_table: None,
+            capture_masked_prefill_traces=lambda row, read_page_table=None: None,
+            masked_prefill_trace_buckets=lambda: (128,),
+        ),
+        _require_open=lambda: None,
+        reset_all=lambda: None,
+        _release_traces=lambda: None,
+        prepare_width=lambda token_ids, positions: None,
+        decode_width_supported=one_per_core.decode_width_supported,
+        sampled_width_supported=one_per_core.sampled_width_supported,
+    )
+
+    def switch_fusion_mode(mode):
+        preparing.fusion_mode = mode
+
+    def replay(token_ids, positions):
+        warmed.append((preparing.fusion_mode, len(token_ids)))
+
+    preparing.switch_fusion_mode = switch_fusion_mode
+    preparing.decode_traced = replay
+    preparing.decode_traced_sampled = replay
+    with mock.patch.dict(os.environ, {TRACED_PREFILL_ENV: "1"}):
+        buckets = BatchedTracedDecodeAdapter.prepare_masked_prefill_traces(
+            preparing, 7, (ROUTE_FUSED_STEP, ROUTE_SAMPLED)
+        )
+    require(buckets == (128,), "trace preparation did not report the captured buckets")
+    require(
+        [w for route, w in warmed if route == ROUTE_FUSED_STEP] == [w for w in range(1, 17) if w != 13],
+        "the deterministic warm-up skipped a decodable width",
+    )
+    require(
+        [w for route, w in warmed if route == ROUTE_SAMPLED] == [1, 2, 3, 4],
+        "the sampled warm-up ran a width its kernel cannot fit",
+    )
+    require(preparing.fusion_mode == ROUTE_FUSED_STEP, "trace preparation left the sampled route selected")
 
     for value, expected in (("1", True), ("on", True), ("0", False), ("", False), ("maybe", False)):
         require(
@@ -7871,6 +7956,7 @@ def probe_structured_reads():
             _queue=deque(items),
             _closing=False,
             adapter=SimpleNamespace(decode_width_supported=lambda w: True),
+            sampled_admission_enabled=False,
         )
         return BatchGenerationCoordinator._take_batch(worker), list(worker._queue)
 

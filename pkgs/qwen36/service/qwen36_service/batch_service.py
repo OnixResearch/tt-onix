@@ -37,6 +37,7 @@ from .sampled_decode_core import (
 )
 from .sampled_mode_router_core import (
     ROUTE_SAMPLED,
+    classify_temperature,
     deterministic_route_for_mode,
     resolve_batch_route,
 )
@@ -380,6 +381,15 @@ class BatchGenerationCoordinator:
             # rectangle (13 on an 11x10 grid) returns its newest requests to the queue.
             while len(selected) > 1 and not self.adapter.decode_width_supported(len(selected)):
                 self._queue.appendleft(selected.pop())
+            # An all-sampled batch decodes on the sampled-fusion kernel, which fits fewer
+            # users than the grid rectangle (4 on P150x2); the rest wait for the next batch.
+            if self.sampled_admission_enabled and all(
+                classify_temperature(pending.request.temperature, self.deterministic_route)
+                == ROUTE_SAMPLED
+                for pending in selected
+            ):
+                while len(selected) > 1 and not self.adapter.sampled_width_supported(len(selected)):
+                    self._queue.appendleft(selected.pop())
             return tuple(selected)
 
     def _run_reads(self, jobs: tuple[_PendingRead, ...]) -> None:

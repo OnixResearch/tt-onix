@@ -126,7 +126,10 @@ in
         description = ''
           Serve sampled requests (temperature above zero) through the
           fused GDN decode path under the distributional admission gate.
-          Deterministic requests always keep the exact-parity path.
+          Deterministic requests always keep the exact-parity path. The
+          sampled kernel fits 4 users per step on the shared runtime, so a
+          batch of sampled requests is capped at 4 and the rest wait.
+          Without this option the service accepts only temperature 0.
         '';
       };
 
