@@ -619,7 +619,18 @@ hardware.tenstorrent = {
 The service listens on `127.0.0.1:8000` by default. It provides `/healthz`,
 `/readyz`, `/v1/models`, `/v1/completions`, and `/v1/chat/completions`. It can
 assemble one active-prefix decode batch through B=16. Formal admission covers
-only B=4. Only greedy, non-streaming responses are supported.
+only B=4. Requests with a temperature above zero need `sampledFusion`; without it
+the service is greedy-only.
+
+Both completion routes accept `"stream": true` and answer with server-sent events.
+The first chat chunk carries the assistant role. Text deltas follow as the batch
+worker decodes each token; a character split across tokens is held back until it
+is complete. One chunk then carries the finish reason and the decode evidence. With
+`"stream_options": {"include_usage": true}` a usage chunk follows, and the stream
+ends with `data: [DONE]`. A request rejected before generation, for example one
+over the sequence limit, still gets a plain JSON error. The MTP and eager routes
+send their whole text in one delta. Chat messages may carry `content` as a list
+of text parts, which are joined as the chat template joins them.
 
 The B=4 admission receipt used exact `single,batch,batch,single` order on the
 Python 3.14 deployment runtime. It preserved every generated token, text,

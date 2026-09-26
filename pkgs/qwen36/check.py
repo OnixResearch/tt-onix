@@ -4010,6 +4010,23 @@ def probe_service_contract():
         "chat response token total changed",
     )
 
+    # Streaming requests parse, and text content parts join as the chat template joins them.
+    streamed = parse_completion_request(
+        {
+            "messages": [
+                {"content": [{"text": "Name ", "type": "text"}, {"text": "France's capital.", "type": "text"}], "role": "user"}
+            ],
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        },
+        Endpoint.CHAT_COMPLETIONS,
+        admitted_model,
+        maximum_generation_tokens,
+    )
+    require(streamed.stream and streamed.include_usage, "a streaming request lost its stream options")
+    require(streamed.messages[0].content == "Name France's capital.", "text parts did not join")
+    require(not chat.stream and not chat.include_usage, "a plain request was marked streaming")
+
     rejected = (
         ([], Endpoint.COMPLETIONS, "JSON object"),
         ({"prompt": ""}, Endpoint.COMPLETIONS, "non-empty"),
@@ -4019,7 +4036,13 @@ def probe_service_contract():
             Endpoint.COMPLETIONS,
             "between",
         ),
-        ({"prompt": "ok", "stream": True}, Endpoint.COMPLETIONS, "streaming"),
+        ({"prompt": "ok", "stream": "yes"}, Endpoint.COMPLETIONS, "stream must be a boolean"),
+        ({"prompt": "ok", "stream_options": {"include_usage": True}}, Endpoint.COMPLETIONS, "requires stream"),
+        (
+            {"prompt": "ok", "stream": True, "stream_options": {"include_usage": 1}},
+            Endpoint.COMPLETIONS,
+            "include_usage must be a boolean",
+        ),
         ({"prompt": "ok", "temperature": 1}, Endpoint.COMPLETIONS, "greedy"),
         ({"prompt": "ok", "n": 2}, Endpoint.COMPLETIONS, "n must be 1"),
         ({"prompt": "ok", "model": "wrong"}, Endpoint.COMPLETIONS, "model must be"),
@@ -4032,6 +4055,11 @@ def probe_service_contract():
             {"messages": [{"content": [{"type": "text"}], "role": "user"}]},
             Endpoint.CHAT_COMPLETIONS,
             "non-empty text",
+        ),
+        (
+            {"messages": [{"content": [{"image_url": {"url": "x"}, "type": "image_url"}], "role": "user"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "must be a text part",
         ),
     )
     for payload, endpoint, diagnostic in rejected:
@@ -4055,6 +4083,125 @@ def probe_service_contract():
         )
     else:
         require(False, "unsupported service route was accepted")
+
+
+def probe_streaming():
+    """Server-sent events: whole characters, the stop token, one id, usage, and JSON errors."""
+    import http.client
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from qwen36_service.core import RequestValidationError, build_completion_response
+    from qwen36_service.server import make_handler
+    from qwen36_service.stream_core import IncrementalDetokenizer
+
+    # "€" is split across tokens 3 and 4; token 9 is the stop token.
+    pieces = {1: b"Hel", 2: b"lo ", 3: b"\xe2\x82", 4: b"\xac", 5: b"!", 9: b""}
+    stop_token_ids = frozenset({9})
+
+    def decode(token_ids, skip_special_tokens=True):
+        return b"".join(pieces[token] for token in token_ids).decode("utf-8", errors="replace")
+
+    detokenizer = IncrementalDetokenizer(decode, stop_token_ids)
+    deltas = [detokenizer.push(token) for token in (1, 2, 3, 4, 9, 5)]
+    require(
+        deltas == ["Hel", "lo ", "", "€", "", ""],
+        f"incremental text split a character or passed the stop token: {deltas}",
+    )
+    require(detokenizer.stopped, "the stop token did not end the stream")
+    require(
+        detokenizer.finish("Hello €") == "" and not detokenizer.diverged,
+        "a complete stream sent a tail",
+    )
+    late = IncrementalDetokenizer(decode, stop_token_ids)
+    late.push(1)
+    require(late.finish("Hello") == "lo" and not late.diverged, "the final text did not complete the stream")
+    require(late.finish("Goodbye") == "" and late.diverged, "a diverging final text was not flagged")
+
+    class FakeEngine:
+        model_alias = "Qwen3.8-27B"
+        sampled_serving_enabled = False
+        structured_reads_available = False
+        stop_token_ids = frozenset({9})
+        tokenizer = SimpleNamespace(decode=decode)
+
+        def generate(self, request, token_sink=None, request_id=None):
+            if request.messages[-1].content == "too long":
+                raise RequestValidationError("prompt and generation require 9000 tokens; limit is 2048")
+            for token in (1, 2, 3, 4, 9, 5):
+                if token_sink is not None:
+                    token_sink(token)
+            return build_completion_response(
+                request=request,
+                request_id=request_id or "cmpl-plain",
+                created=0,
+                generated_text="Hello €",
+                prompt_token_count=3,
+                generated_token_count=4,
+                finish_reason="stop",
+            )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(FakeEngine(), 64))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def post(body):
+        payload = json.dumps(body)
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=30)
+        connection.request(
+            "POST",
+            "/v1/chat/completions",
+            body=payload,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(payload))},
+        )
+        response = connection.getresponse()
+        return response.status, response.getheader("Content-Type"), response.read().decode("utf-8")
+
+    try:
+        status, content_type, body = post(
+            {
+                "messages": [{"content": "hi", "role": "user"}],
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+        )
+        require(
+            status == 200 and content_type == "text/event-stream",
+            f"a stream answered {status} {content_type}",
+        )
+        events = [line[len("data: ") :] for line in body.split("\n") if line.startswith("data: ")]
+        require(events[-1] == "[DONE]", "the stream did not end with [DONE]")
+        chunks = [json.loads(event) for event in events[:-1]]
+        require(
+            chunks[0]["choices"][0]["delta"] == {"content": "", "role": "assistant"},
+            "the stream did not open with the assistant role",
+        )
+        text = "".join(chunk["choices"][0]["delta"].get("content", "") for chunk in chunks if chunk["choices"])
+        require(text == "Hello €", f"the streamed text differs: {text!r}")
+        finals = [chunk for chunk in chunks if chunk["choices"] and chunk["choices"][0]["finish_reason"]]
+        require(
+            len(finals) == 1 and finals[0]["choices"][0]["finish_reason"] == "stop",
+            "the stream lacks exactly one finish chunk",
+        )
+        require(
+            chunks[-1]["choices"] == [] and chunks[-1]["usage"]["completion_tokens"] == 4,
+            "the stream lacks its usage chunk",
+        )
+        require(len({chunk["id"] for chunk in chunks}) == 1, "stream chunks carry different ids")
+
+        status, _content_type, body = post({"messages": [{"content": "too long", "role": "user"}], "stream": True})
+        require(
+            status == 400 and "limit is 2048" in json.loads(body)["error"]["message"],
+            "a rejected stream did not answer with a JSON error",
+        )
+        status, _content_type, body = post({"messages": [{"content": "hi", "role": "user"}]})
+        require(
+            status == 200 and json.loads(body)["choices"][0]["message"]["content"] == "Hello €",
+            "a plain request stopped answering JSON",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
 
 
 # r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe]
@@ -8082,6 +8229,7 @@ def main():
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
+    probe("streaming responses", probe_streaming)
     probe("kernel distribution admission", probe_kernel_distribution_admission)
     probe("kernel distribution probe builder", probe_kernel_distribution_probe)
     probe("sampled-mode router", probe_sampled_mode_router)

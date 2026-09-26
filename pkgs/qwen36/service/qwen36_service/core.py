@@ -39,6 +39,8 @@ class CompletionRequest:
     messages: tuple[ChatMessage, ...]
     temperature: float | None = None
     seed: int | None = None
+    stream: bool = False
+    include_usage: bool = False
 
 
 def parse_endpoint(path: str) -> Endpoint:
@@ -72,8 +74,17 @@ def _validate_common_fields(
     if requested_model != admitted_model:
         raise RequestValidationError(f"model must be {admitted_model!r}")
 
-    if payload.get("stream", False) is not False:
-        raise RequestValidationError("streaming responses are not supported")
+    stream = payload.get("stream", False)
+    if not isinstance(stream, bool):
+        raise RequestValidationError("stream must be a boolean")
+    stream_options = payload.get("stream_options")
+    if stream_options is not None:
+        if not stream:
+            raise RequestValidationError("stream_options requires stream")
+        if not isinstance(stream_options, dict):
+            raise RequestValidationError("stream_options must be an object")
+        if not isinstance(stream_options.get("include_usage", False), bool):
+            raise RequestValidationError("stream_options.include_usage must be a boolean")
 
     choice_count = payload.get("n", DEFAULT_REQUEST_CHOICE_COUNT)
     if choice_count != DEFAULT_REQUEST_CHOICE_COUNT:
@@ -105,13 +116,9 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
         if not isinstance(item, dict):
             raise RequestValidationError(f"messages[{index}] must be an object")
         role = item.get("role")
-        content = item.get("content")
         if role not in admitted_roles:
             raise RequestValidationError(f"messages[{index}].role is not supported")
-        if not isinstance(content, str) or not content.strip():
-            raise RequestValidationError(
-                f"messages[{index}].content must be non-empty text"
-            )
+        content = _message_text(item.get("content"), index)
         if role == "user":
             user_message_count += 1
         messages.append(ChatMessage(role=role, content=content))
@@ -119,6 +126,27 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
     if user_message_count == 0:
         raise RequestValidationError("messages must contain a user message")
     return tuple(messages)
+
+
+def _message_text(content: Any, index: int) -> str:
+    """A message's text: a string, or text parts joined as the chat template joins them."""
+    if isinstance(content, list):
+        texts = []
+        for part_index, part in enumerate(content):
+            if not isinstance(part, dict) or part.get("type") != "text":
+                raise RequestValidationError(
+                    f"messages[{index}].content[{part_index}] must be a text part"
+                )
+            text = part.get("text")
+            if not isinstance(text, str):
+                raise RequestValidationError(
+                    f"messages[{index}].content must be non-empty text"
+                )
+            texts.append(text)
+        content = "".join(texts)
+    if not isinstance(content, str) or not content.strip():
+        raise RequestValidationError(f"messages[{index}].content must be non-empty text")
+    return content
 
 
 def _parse_temperature(payload: dict[str, Any]) -> float | None:
@@ -169,6 +197,7 @@ def parse_completion_request(
         prompt = None
         messages = _parse_messages(body)
 
+    stream = body.get("stream", False)
     return CompletionRequest(
         endpoint=endpoint,
         model=admitted_model,
@@ -177,6 +206,8 @@ def parse_completion_request(
         messages=messages,
         temperature=_parse_temperature(body),
         seed=_parse_seed(body),
+        stream=stream,
+        include_usage=bool(stream and (body.get("stream_options") or {}).get("include_usage", False)),
     )
 
 

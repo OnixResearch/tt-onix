@@ -8,10 +8,12 @@ import argparse
 import gc
 import json
 import os
+import queue
 import signal
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -58,6 +60,14 @@ from .readiness_core import (
     initial_readiness,
     plan_startup_warmup,
     record_warm_width,
+)
+from .stream_core import (
+    SSE_DONE,
+    IncrementalDetokenizer,
+    response_text,
+    sse_event,
+    stream_chunk,
+    usage_chunk,
 )
 from .structured_read_core import (
     DeviceRead,
@@ -619,7 +629,17 @@ class QwenEngine:
             "trace_prepare_s": trace_prepare_seconds,
         }
 
-    def generate(self, request: CompletionRequest) -> dict[str, Any]:
+    def generate(
+        self,
+        request: CompletionRequest,
+        token_sink: Callable[[int], None] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate one completion.
+
+        `token_sink` receives each generated token as the batch worker decodes it, for
+        streaming. The MTP and eager routes deliver no tokens early; their text arrives with
+        the complete response."""
         prompt = render_prompt(request, self.tokenizer)
         token_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
         prompt_token_count = token_ids.shape[1]
@@ -629,7 +649,7 @@ class QwenEngine:
                 f"prompt and generation require {total_token_count} tokens; limit is {self.max_sequence_length}"
             )
 
-        request_id = f"cmpl-{uuid.uuid4().hex}"
+        request_id = request_id or f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
         if (
@@ -698,6 +718,7 @@ class QwenEngine:
                 prompt_token_count=prompt_token_count,
                 started=started,
                 deadline=request_deadline,
+                token_sink=token_sink,
             )
 
         with self._eager_lock:
@@ -1002,12 +1023,90 @@ def make_handler(
                     maximum_generation_tokens=maximum_generation_tokens,
                     sampled_serving_enabled=engine.sampled_serving_enabled,
                 )
+                if request.stream:
+                    self._stream(request)
+                    return
                 self._write_json(HTTPStatus.OK, engine.generate(request))
             except RequestValidationError as error:
                 self._write_error(HTTPStatus.BAD_REQUEST, str(error))
             except (AssertionError, OSError, RuntimeError, ValueError) as error:
                 emit("request-failed", error_type=type(error).__name__)
                 self._write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "inference failed")
+
+        def _stream(self, request: CompletionRequest) -> None:
+            """Answer with server-sent events: text deltas as the batch worker decodes them."""
+            request_id = f"cmpl-{uuid.uuid4().hex}"
+            created = int(time.time())
+            events: queue.SimpleQueue[tuple[str, Any]] = queue.SimpleQueue()
+
+            def generate() -> None:
+                try:
+                    response = engine.generate(
+                        request,
+                        token_sink=lambda token: events.put(("token", token)),
+                        request_id=request_id,
+                    )
+                except Exception as error:  # noqa: BLE001 - reported on the HTTP thread
+                    events.put(("error", error))
+                else:
+                    events.put(("done", response))
+
+            threading.Thread(target=generate, name="qwen36-stream", daemon=True).start()
+            kind, value = events.get()
+            if kind == "error":
+                # Nothing has been sent yet, so the failure stays a plain JSON error.
+                if isinstance(value, RequestValidationError):
+                    self._write_error(HTTPStatus.BAD_REQUEST, str(value))
+                else:
+                    emit("request-failed", error_type=type(value).__name__)
+                    self._write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "inference failed")
+                return
+            self.send_response(HTTPStatus.OK.value)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            detokenizer = IncrementalDetokenizer(
+                lambda token_ids: engine.tokenizer.decode(token_ids, skip_special_tokens=True),
+                engine.stop_token_ids,
+            )
+
+            def send(chunk: dict[str, Any]) -> None:
+                self.wfile.write(sse_event(chunk))
+
+            try:
+                if request.endpoint is Endpoint.CHAT_COMPLETIONS:
+                    send(stream_chunk(request, request_id, created, text="", role=True))
+                while kind == "token":
+                    text = detokenizer.push(value)
+                    if text:
+                        send(stream_chunk(request, request_id, created, text=text))
+                    kind, value = events.get()
+                if kind == "error":
+                    emit("request-failed", error_type=type(value).__name__, streamed=True)
+                    send({"error": {"message": "inference failed", "type": "server_error"}})
+                    return
+                response = value
+                tail = detokenizer.finish(response_text(request, response))
+                if detokenizer.diverged:
+                    emit("stream-text-diverged", request_id=request_id)
+                if tail:
+                    send(stream_chunk(request, request_id, created, text=tail))
+                final = stream_chunk(
+                    request,
+                    request_id,
+                    created,
+                    finish_reason=response["choices"][0]["finish_reason"],
+                )
+                if "x_onix_decode_evidence" in response:
+                    final["x_onix_decode_evidence"] = response["x_onix_decode_evidence"]
+                send(final)
+                if request.include_usage:
+                    send(usage_chunk(request, request_id, created, response["usage"]))
+                self.wfile.write(SSE_DONE)
+            except (BrokenPipeError, ConnectionResetError):
+                emit("stream-client-disconnected", request_id=request_id)
 
         def log_message(self, format: str, *args: Any) -> None:
             emit("http", client=self.client_address[0], message=format % args)

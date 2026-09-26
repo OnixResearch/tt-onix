@@ -62,6 +62,8 @@ class _PendingBatchRequest:
     completed: threading.Event = field(default_factory=threading.Event)
     response: dict[str, Any] | None = None
     error: Exception | None = None
+    # Called from the worker with each generated token, in order, as it is decoded.
+    token_sink: Callable[[int], None] | None = None
 
 
 @dataclass(eq=False)
@@ -165,6 +167,7 @@ class BatchGenerationCoordinator:
         prompt_token_count: int,
         started: float,
         deadline: float,
+        token_sink: Callable[[int], None] | None = None,
     ) -> dict[str, Any]:
         pending = _PendingBatchRequest(
             request=request,
@@ -173,6 +176,7 @@ class BatchGenerationCoordinator:
             prompt_token_count=prompt_token_count,
             started=started,
             deadline=deadline,
+            token_sink=token_sink,
         )
         with self._condition:
             if self._closing:
@@ -488,6 +492,11 @@ class BatchGenerationCoordinator:
                 for pending in pending_batch:
                     pending.completed.set()
 
+    @staticmethod
+    def _publish(pending: _PendingBatchRequest, token: int) -> None:
+        if pending.token_sink is not None:
+            pending.token_sink(token)
+
     def _run_group(
         self,
         pending_batch: tuple[_PendingBatchRequest, ...],
@@ -534,6 +543,8 @@ class BatchGenerationCoordinator:
             self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
         first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
+        for row_index, token in enumerate(prefill_result.first_token_ids):
+            self._publish(pending_batch[row_index], token)
         positions = [pending.prompt_token_count for pending in pending_batch]
         trace_prepare_started = time.monotonic()
         trace_preparation = self.adapter.prepare_width(
@@ -568,6 +579,7 @@ class BatchGenerationCoordinator:
                     decode_durations.append(time.monotonic() - step_started)
                     for row_index, next_token in enumerate(next_tokens):
                         generated[row_index].append(next_token)
+                        self._publish(pending_batch[row_index], next_token)
                         positions[row_index] += 1
                         stopped[row_index] = stopped[row_index] or next_token in self.stop_token_ids
                     if all(stopped):
@@ -627,6 +639,7 @@ class BatchGenerationCoordinator:
             decode_durations.append(time.monotonic() - decode_started)
             for row, next_token in zip(plan.rows, next_tokens, strict=True):
                 generated[row.row_index].append(next_token)
+                self._publish(pending_batch[row.row_index], next_token)
                 positions[row.row_index] = row.next_position
                 stopped[row.row_index] = stopped[row.row_index] or next_token in self.stop_token_ids
 
