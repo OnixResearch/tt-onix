@@ -35,6 +35,7 @@ from .grouped_prefill_core import (
 )
 from .sampled_decode_core import ShardCandidates
 from .sampled_mode_router_core import ROUTE_SAMPLED, ROUTES
+from .structured_read_core import plan_read_batches
 
 MAX_REDUCTION_COLUMNS = 32
 TILE_EDGE_ELEMENTS = 32
@@ -95,6 +96,30 @@ class TracePreparationResult:
     resident_trace_count: int
     binding_stable: bool
     transition_reason: str | None
+
+
+@dataclass(frozen=True)
+class StructuredReadRows:
+    """Host next-token logits after each requested position of one structured read."""
+
+    logits: torch.Tensor
+    elapsed_seconds: float
+    route: str
+    masked_traces_released: bool
+
+
+# The decode slot a structured read's prefill installs into. Reads never decode, and the
+# next generation batch resets every slot before its own prefill.
+STRUCTURED_READ_SLOT = 0
+READ_ROUTE_MASKED_TRACE = "masked-trace"
+READ_ROUTE_EAGER = "eager-masked-body"
+READ_ROUTE_BATCHED_TRACE = "batched-read-trace"
+# A traced read that restored its first 1,024 tokens' state from an earlier read.
+READ_ROUTE_PREFIX_REUSE = "masked-trace-prefix-reuse"
+# Fewest sequences a batched replay must carry to beat reading them alone, per bucket. A
+# 4-wide replay costs the same for any fill. P150x2, 2026-09-25: a 128-token replay took
+# 0.42 s against 0.22 s per single read, and a 256-token replay 0.68 s against 0.25 s.
+READ_BATCH_MINIMUM_BY_BUCKET = {128: 2, 256: 3}
 
 
 @dataclass
@@ -707,6 +732,128 @@ class BatchedTracedDecodeAdapter:
             masked_traces_released=masked_traces_released,
         )
 
+    def read_rows(
+        self,
+        token_ids: torch.Tensor,
+        positions: tuple[int, ...],
+    ) -> StructuredReadRows:
+        """Prefill one sequence and return the next-token logits after each position.
+
+        The read runs the masked prefill segments with the positions staged into the spare
+        rows of each segment's logit tile, so it costs one generation prefill and no decode.
+        It writes KV through the last page-table row, which batched reads (the first rows)
+        and generation below full width leave alone, so a later read sharing its first
+        1,024 tokens replays only the rest.
+        """
+        length, ordered = self._validated_read(token_ids, positions)
+        masked_traces_released = self._prepare_read()
+        traced = bool(self.model.masked_prefill_trace_buckets())
+        started = time.monotonic()
+        logits, reused_tokens = self.model.prefill_masked_read(
+            token_ids.to(torch.int32),
+            self.page_table[self.maximum_width - 1 : self.maximum_width].contiguous(),
+            length,
+            STRUCTURED_READ_SLOT,
+            ordered,
+        )
+        elapsed_seconds = time.monotonic() - started
+        if tuple(logits.shape) != (len(ordered), self.vocabulary_size):
+            raise BatchDecodeAdapterError("structured read returned the wrong logit shape")
+        if not traced:
+            route = READ_ROUTE_EAGER
+        elif reused_tokens:
+            route = READ_ROUTE_PREFIX_REUSE
+        else:
+            route = READ_ROUTE_MASKED_TRACE
+        return StructuredReadRows(
+            logits=logits,
+            elapsed_seconds=elapsed_seconds,
+            route=route,
+            masked_traces_released=masked_traces_released,
+        )
+
+    def read_rows_batch(
+        self,
+        requests: tuple[tuple[torch.Tensor, tuple[int, ...]], ...],
+    ) -> tuple[StructuredReadRows, ...]:
+        """read_rows for several sequences, sharing batched replays where they fit.
+
+        Sequences within the largest batched-read bucket share one replay, up to its width
+        and logit rows; the rest read alone. Each result reports its share of its replay."""
+        validated = [self._validated_read(token_ids, positions) for token_ids, positions in requests]
+        masked_traces_released = self._prepare_read()
+        captured = self.model.masked_read_batch_buckets()
+        groups = plan_read_batches(
+            lengths=tuple(length for length, _ordered in validated),
+            row_counts=tuple(len(ordered) for _length, ordered in validated),
+            width=int(self.model.READ_BATCH_WIDTH),
+            minimum_by_bucket={
+                bucket: minimum
+                for bucket, minimum in READ_BATCH_MINIMUM_BY_BUCKET.items()
+                if bucket in captured
+            },
+            maximum_rows=int(self.model.MASKED_LOGIT_ROWS),
+        )
+        results: list[StructuredReadRows | None] = [None] * len(requests)
+        for group in groups:
+            if len(group) == 1:
+                index = group[0]
+                single = self.read_rows(*requests[index])
+                results[index] = StructuredReadRows(
+                    logits=single.logits,
+                    elapsed_seconds=single.elapsed_seconds,
+                    route=single.route,
+                    masked_traces_released=masked_traces_released or single.masked_traces_released,
+                )
+                continue
+            started = time.monotonic()
+            rows = self.model.prefill_masked_read_batch(
+                [requests[index][0].to(torch.int32) for index in group],
+                [validated[index][1] for index in group],
+            )
+            share = (time.monotonic() - started) / len(group)
+            for index, logits in zip(group, rows, strict=True):
+                if tuple(logits.shape) != (len(validated[index][1]), self.vocabulary_size):
+                    raise BatchDecodeAdapterError("batched read returned the wrong logit shape")
+                results[index] = StructuredReadRows(
+                    logits=logits,
+                    elapsed_seconds=share,
+                    route=READ_ROUTE_BATCHED_TRACE,
+                    masked_traces_released=masked_traces_released,
+                )
+        if any(result is None for result in results):
+            raise BatchDecodeAdapterError("a structured read was not planned")
+        return tuple(result for result in results if result is not None)
+
+    def _validated_read(
+        self, token_ids: torch.Tensor, positions: tuple[int, ...]
+    ) -> tuple[int, tuple[int, ...]]:
+        self._require_open()
+        if not isinstance(token_ids, torch.Tensor) or token_ids.ndim != 2:
+            raise BatchDecodeAdapterError("read tokens must be a rank-two tensor")
+        if token_ids.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH:
+            raise BatchDecodeAdapterError("read tokens must contain one sequence")
+        length = int(token_ids.shape[1])
+        if not 1 <= length <= self.profile.maximum_sequence_length:
+            raise BatchDecodeAdapterError("read length is outside the admitted sequence length")
+        ordered = tuple(int(position) for position in positions)
+        if not ordered or ordered != tuple(sorted(set(ordered))):
+            raise BatchDecodeAdapterError("read positions must be ascending and distinct")
+        if ordered[0] < MINIMUM_POSITION or ordered[-1] >= length:
+            raise BatchDecodeAdapterError("read positions must lie inside the sequence")
+        return length, ordered
+
+    def _prepare_read(self) -> bool:
+        """Release what a read replay cannot share memory with; True when stale traces went."""
+        # A decode trace captured after the masked prefill traces owns memory their replays
+        # use as scratch, so it cannot stay resident across a read, as for prefill_users.
+        self._release_traces()
+        self._prior_reset_complete = False
+        if self.model.masked_prefill_traces_stale():
+            self.model.release_masked_prefill_traces()
+            return True
+        return False
+
     def decode_traced(
         self,
         *,
@@ -1271,7 +1418,10 @@ class BatchedTracedDecodeAdapter:
         self.reset_all()
         self.model.warm_serving_programs(self.page_table)
         self.reset_all()
-        self.model.capture_masked_prefill_traces(self.page_table[:1].contiguous())
+        self.model.capture_masked_prefill_traces(
+            self.page_table[:1].contiguous(),
+            read_page_table=self.page_table[: int(self.model.READ_BATCH_WIDTH)].contiguous(),
+        )
         return self.model.masked_prefill_trace_buckets()
 
     def _require_width(self, width: int) -> None:

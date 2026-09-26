@@ -22,6 +22,7 @@ from .batch_admission_core import (
 from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     BatchedTracedDecodeAdapter,
+    StructuredReadRows,
 )
 from .batch_decode_core import ActiveDecodeUser, plan_decode_batch
 from .core import CompletionRequest, build_completion_response, finish_generation
@@ -43,6 +44,8 @@ from .trace_reuse_core import TraceReuseProfile
 
 MAXIMUM_BATCH_WIDTH = 16
 BATCH_COLLECTION_SECONDS = 0.01
+# Read jobs merged into one worker turn; each job holds one decision's reads.
+MAXIMUM_MERGED_READ_JOBS = 16
 WORKER_JOIN_TIMEOUT_SECONDS = 5.0
 EXPECTED_PROMPT_RANK = 2
 
@@ -57,6 +60,17 @@ class _PendingBatchRequest:
     deadline: float
     completed: threading.Event = field(default_factory=threading.Event)
     response: dict[str, Any] | None = None
+    error: Exception | None = None
+
+
+@dataclass(eq=False)
+class _PendingRead:
+    """One decision's structured reads; the worker batches queued jobs into shared replays."""
+
+    requests: tuple[tuple[torch.Tensor, tuple[int, ...]], ...]
+    deadline: float
+    completed: threading.Event = field(default_factory=threading.Event)
+    results: tuple[StructuredReadRows, ...] | None = None
     error: Exception | None = None
 
 
@@ -131,7 +145,7 @@ class BatchGenerationCoordinator:
                 "batch and trace-reuse admission modes conflict"
             )
         self._condition = threading.Condition()
-        self._queue: deque[_PendingBatchRequest] = deque()
+        self._queue: deque[_PendingBatchRequest | _PendingRead] = deque()
         self._accepting_requests = False
         self._closing = False
         self._worker = threading.Thread(
@@ -172,6 +186,30 @@ class BatchGenerationCoordinator:
         if pending.response is None:
             raise BatchDecodeAdapterError("batch worker returned no response")
         return pending.response
+
+    def read(
+        self,
+        *,
+        requests: tuple[tuple[torch.Tensor, tuple[int, ...]], ...],
+        deadline: float,
+    ) -> tuple[StructuredReadRows, ...]:
+        """Run structured reads on the device worker, between generation batches."""
+        if not requests:
+            raise BatchDecodeAdapterError("a structured read job needs at least one read")
+        pending = _PendingRead(requests=requests, deadline=deadline)
+        with self._condition:
+            if self._closing:
+                raise BatchDecodeAdapterError("batch worker is closed")
+            if not self._accepting_requests:
+                raise BatchDecodeAdapterError("batch worker is not ready")
+            self._queue.append(pending)
+            self._condition.notify_all()
+        pending.completed.wait()
+        if pending.error is not None:
+            raise pending.error
+        if pending.results is None:
+            raise BatchDecodeAdapterError("batch worker returned no reads")
+        return pending.results
 
     def warm_up(
         self,
@@ -299,13 +337,25 @@ class BatchGenerationCoordinator:
             self._condition.notify_all()
         return tuple(observations)
 
-    def _take_batch(self) -> tuple[_PendingBatchRequest, ...] | None:
+    def _take_batch(
+        self,
+    ) -> tuple[_PendingBatchRequest, ...] | tuple[_PendingRead, ...] | None:
         with self._condition:
             while not self._queue and not self._closing:
                 self._condition.wait()
             if self._closing and not self._queue:
                 return None
             first = self._queue.popleft()
+            if isinstance(first, _PendingRead):
+                # Every queued read job joins, so concurrent decisions share batched replays.
+                reads = [first]
+                for pending in list(self._queue):
+                    if len(reads) == MAXIMUM_MERGED_READ_JOBS:
+                        break
+                    if isinstance(pending, _PendingRead):
+                        self._queue.remove(pending)
+                        reads.append(pending)
+                return tuple(reads)
             selected = [first]
             collection_deadline = time.monotonic() + BATCH_COLLECTION_SECONDS
             while len(selected) < MAXIMUM_BATCH_WIDTH:
@@ -313,7 +363,8 @@ class BatchGenerationCoordinator:
                     (
                         pending
                         for pending in self._queue
-                        if pending.request.max_tokens == first.request.max_tokens
+                        if not isinstance(pending, _PendingRead)
+                        and pending.request.max_tokens == first.request.max_tokens
                     ),
                     None,
                 )
@@ -331,11 +382,81 @@ class BatchGenerationCoordinator:
                 self._queue.appendleft(selected.pop())
             return tuple(selected)
 
+    def _run_reads(self, jobs: tuple[_PendingRead, ...]) -> None:
+        # An expired job fails alone; the decisions merged with it still read.
+        now = time.monotonic()
+        live = []
+        for job in jobs:
+            if request_deadline_expired(now, job.deadline):
+                job.error = BatchDecodeAdapterError(
+                    "request timeout exceeded before structured reads"
+                )
+            else:
+                live.append(job)
+        if not live:
+            return
+        flat = tuple(request for job in live for request in job.requests)
+        results = self.adapter.read_rows_batch(flat)
+        if len(results) != len(flat):
+            raise BatchDecodeAdapterError("structured reads returned the wrong count")
+        if any(result.masked_traces_released for result in results):
+            self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
+        start = 0
+        for job in live:
+            job.results = results[start : start + len(job.requests)]
+            start += len(job.requests)
+        self.emitter(
+            "structured-read-passed",
+            device_seconds=sum(result.elapsed_seconds for result in results),
+            job_count=len(live),
+            read_count=len(results),
+            routes=sorted({result.route for result in results}),
+        )
+
+    def _fail_pending(self, pending_items: tuple[Any, ...], error: Exception) -> None:
+        terminal_error: Exception = error
+        try:
+            self.adapter.reset_all()
+        except (
+            AssertionError,
+            BatchDecodeAdapterError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as reset_error:
+            terminal_error = BatchDecodeAdapterError(
+                "batch reset failed after request error"
+            )
+            terminal_error.__cause__ = reset_error
+        self.emitter(
+            "batch-failed",
+            batch_width=len(pending_items),
+            error_type=type(terminal_error).__name__,
+        )
+        for pending in pending_items:
+            pending.error = terminal_error
+
     def _worker_loop(self) -> None:
         while True:
             pending_batch = self._take_batch()
             if pending_batch is None:
                 return
+            if isinstance(pending_batch[0], _PendingRead):
+                try:
+                    self._run_reads(pending_batch)
+                except (
+                    AssertionError,
+                    BatchDecodeAdapterError,
+                    DecodeAdapterError,
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                ) as error:
+                    self._fail_pending(pending_batch, error)
+                finally:
+                    for job in pending_batch:
+                        job.completed.set()
+                continue
             try:
                 responses = self._run_group(pending_batch)
                 for pending, response in zip(
@@ -352,27 +473,7 @@ class BatchGenerationCoordinator:
                 RuntimeError,
                 ValueError,
             ) as error:
-                terminal_error: Exception = error
-                try:
-                    self.adapter.reset_all()
-                except (
-                    AssertionError,
-                    BatchDecodeAdapterError,
-                    OSError,
-                    RuntimeError,
-                    ValueError,
-                ) as reset_error:
-                    terminal_error = BatchDecodeAdapterError(
-                        "batch reset failed after request error"
-                    )
-                    terminal_error.__cause__ = reset_error
-                self.emitter(
-                    "batch-failed",
-                    batch_width=len(pending_batch),
-                    error_type=type(terminal_error).__name__,
-                )
-                for pending in pending_batch:
-                    pending.error = terminal_error
+                self._fail_pending(pending_batch, error)
             finally:
                 for pending in pending_batch:
                     pending.completed.set()

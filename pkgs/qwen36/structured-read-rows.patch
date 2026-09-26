@@ -1,0 +1,639 @@
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -1110,7 +1110,11 @@
+         else:
+             self.conv_states = new_conv
+ 
+-        # ---- output (gated RMSNorm + SiLU(z) gate + row-parallel out proj + reduction) ----
++        return self._batched_output(o, z, B, T)
++
++    def _batched_output(self, o, z, B, T):
++        """Gated RMSNorm, SiLU(z) gate, row-parallel out proj, and reduction for B*T rows."""
++        tw = self.tw
+         # Rows flatten to [1, B*T, *] and take forward_prefill's exact output ops, so a grouped
+         # prefill produces the per-user prefill's numbers.
+         out_n = ttnn.rms_norm(o, weight=tw["norm_w"], epsilon=1e-6)
+@@ -1146,6 +1150,67 @@
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+         )
+ 
++    def forward_prefill_batched_read(self, x, conv_left, chunk_size=128):
++        """Trace-safe batched prefill whose only product is the output rows.
++
++        forward_prefill_batched without its state: B users from scratch, every row full length,
++        and no recurrent or conv state written back. Right padding cannot reach an earlier row of
++        a causal conv or scan, so each user's real rows match its own prefill without the valid
++        masks, which only shape the final state. Every tensor it needs exists before a capture.
++
++        x:         [B, T, dim] (or [1, B, T, dim]), users padded to a common T.
++        conv_left: persistent zero [B, K-1, qkv_dim_tp] left context for the causal conv.
++        """
++        tw, Nk, Nv, Dk, Dv = self.tw, self.Nk, self.Nv, self.Dk, self.Dv
++        if len(x.shape) == 4:
++            x = ttnn.reshape(x, (x.shape[-3], x.shape[-2], x.shape[-1]))
++        B, T = x.shape[0], x.shape[1]
++        D = self.qkv_dim_tp
++        x_flat = ttnn.reshape(x, (1, B * T, x.shape[-1]))
++        qkv_flat, z_flat, a_flat, b_flat = self._project_qkvzab(x_flat, B * T, out_mc=ttnn.DRAM_MEMORY_CONFIG)
++        qkv = ttnn.reshape(qkv_flat, (B, T, D))
++        z = ttnn.reshape(z_flat, (B, T, self.qkvz_dim_tp - D))
++        a = ttnn.reshape(a_flat, (B, T, Nv))
++        b = ttnn.reshape(b_flat, (B, T, Nv))
++        conv, conv_new_state = _causal_conv1d_fir(
++            qkv,
++            None,
++            None,
++            self.K,
++            self.mesh,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            conv_state=conv_left,
++            weight_taps=tw["conv_taps"],
++            bias_dev=None,
++        )
++        ttnn.deallocate(qkv)
++        ttnn.deallocate(conv_new_state)
++        kd = self.key_dim_tp
++        q = ttnn.slice(conv, (0, 0, 0), (B, T, kd))
++        k = ttnn.slice(conv, (0, 0, kd), (B, T, 2 * kd))
++        v = ttnn.slice(conv, (0, 0, 2 * kd), (B, T, D))
++        ttnn.deallocate(conv)
++        beta = ttnn.reshape(ttnn.sigmoid(b), (B, T, Nv))
++        ttnn.deallocate(b)
++        g = ttnn.reshape(ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"])), (B, T, Nv))
++        ttnn.deallocate(a)
++        o, final_state = chunk_gated_delta_rule_seq_adapter(
++            q,
++            k,
++            v,
++            beta,
++            g,
++            chunk_size=chunk_size,
++            scale=self.scale,
++            initial_state=None,
++            device=self.mesh,
++            cached_masks=self.chunk_seq_masks,
++            valid_len=None,
++            qkv_head_dims=(Nk, Dk, Nv, Dv),
++        )
++        ttnn.deallocate(final_state)
++        return self._batched_output(o, z, B, T)
++
+     def _forward_decode_fused_step(self, x, B):
+         """Decode through the fused conv-prep and recurrence programs.
+ 
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -24,6 +24,26 @@
+ EAGER_PREFILL_CHUNK_TOKENS = 1024
+ 
+ 
++def masked_prefill_plan(actual_len, buckets):
++    """Masked prefill segments [(bucket, chunk_start, length)] over `buckets`, or None.
++
++    Full EAGER_PREFILL_CHUNK_TOKENS chunks, then the tail in the smallest bucket that holds it."""
++    if not buckets:
++        return None
++    plan = []
++    start = 0
++    while actual_len - start > EAGER_PREFILL_CHUNK_TOKENS:
++        if EAGER_PREFILL_CHUNK_TOKENS not in buckets:
++            return None
++        plan.append((EAGER_PREFILL_CHUNK_TOKENS, start, EAGER_PREFILL_CHUNK_TOKENS))
++        start += EAGER_PREFILL_CHUNK_TOKENS
++    fitting = [b for b in buckets if b >= actual_len - start]
++    if not fitting:
++        return None
++    plan.append((fitting[0], start, actual_len - start))
++    return plan
++
++
+ class Qwen36Model:
+     """Qwen3.5-9B text LM on Blackhole P150. HF_MODEL env var selects checkpoint."""
+ 
+@@ -1558,6 +1578,10 @@
+     # Masked-bucket prefill traces. The prompt length enters as device data (the GDN conv
+     # selector and scan mask), so one trace per bucket serves every length up to that bucket.
+     MASKED_PREFILL_TRACE_BUCKETS = (128, 256, 512, 1024)
++    # Batched structured reads: READ_BATCH_WIDTH sequences share one replay of a bucket. The GDN
++    # scan maps one (user, local value head) row per core, so 4 users x 24 heads fit the grid.
++    READ_BATCH_WIDTH = 4
++    READ_BATCH_BUCKETS = (128, 256)
+ 
+     def masked_prefill_trace_buckets(self):
+         """Buckets with a captured masked prefill trace, ascending (empty when none)."""
+@@ -1599,7 +1623,9 @@
+             self._unbind_gdn_prefill_scratch(prev)
+         ttnn.synchronize_device(self.device)
+ 
+-    def capture_masked_prefill_traces(self, page_table_row, buckets=MASKED_PREFILL_TRACE_BUCKETS):
++    def capture_masked_prefill_traces(
++        self, page_table_row, buckets=MASKED_PREFILL_TRACE_BUCKETS, read_page_table=None
++    ):
+         """Capture one B=1 masked-bucket prefill trace per bucket on the persistent GDN scratch.
+ 
+         Replays reproduce prefill_masked_bucket exactly. The GDN padding masks and conv-window
+@@ -1610,6 +1636,9 @@
+         a replay, and must recapture when masked_prefill_traces_stale().
+ 
+         page_table_row: torch [1, W] int32; any valid row (capture writes KV through it).
++        read_page_table: optional torch [READ_BATCH_WIDTH, W] int32; when given, one batched
++        structured-read trace per READ_BATCH_BUCKETS bucket is captured too, user u reading
++        through row u.
+         """
+         from models.demos.blackhole.qwen36.tt.gdn.fused_chunk import fused_chunk_enabled
+ 
+@@ -1623,30 +1652,49 @@
+         # Every trace's inputs exist before the first capture: an input allocated after one
+         # capture could sit in that trace's scratch and be overwritten by its replays.
+         self._alloc_masked_install_buffers()
++        self._alloc_read_prefix_buffers()
+         traces = {bucket: self._alloc_masked_prefill_inputs(bucket, page_table_row) for bucket in sorted(buckets)}
++        read_batches = (
++            {bucket: self._alloc_masked_read_batch_inputs(bucket, read_page_table) for bucket in self.READ_BATCH_BUCKETS}
++            if read_page_table is not None
++            else {}
++        )
+         # Each replay installs into the batched decode buffers bound outside the prefill scratch.
+         batched = [(rec_b, conv_b) for _dn, _B, rec_b, conv_b, *_rest in prev]
+         try:
++            # Compile every body before the first capture: a first-time program (a collective
++            # at a new shape, say) can allocate buffers that live for the process, and any in a
++            # captured trace's scratch would be overwritten by its replays.
+             for bucket, bufs in traces.items():
+                 warm_len = max(1, bucket // 2)
+                 warm_tokens = torch.zeros(1, warm_len, dtype=torch.int32)
+-                # Compile every program of the body outside the trace; slot 0 is rewritten by
+-                # the first real prefill.
++                # Slot 0 is rewritten by the first real prefill.
+                 self._stage_masked_prefill_inputs(bufs, warm_tokens, page_table_row, warm_len, slot=0)
+                 ttnn.deallocate(self._forward_masked_prefill_body(bufs, batched))
+-                ttnn.synchronize_device(self.device)
++            for bufs in read_batches.values():
++                ttnn.deallocate(self._forward_masked_read_batch_body(bufs))
++            ttnn.synchronize_device(self.device)
++            for bucket, bufs in traces.items():
+                 trace_id = ttnn.begin_trace_capture(self.device, cq_id=0)
+                 bufs["output"] = self._forward_masked_prefill_body(bufs, batched)
+                 ttnn.end_trace_capture(self.device, trace_id, cq_id=0)
+                 bufs["trace_id"] = trace_id
+                 logger.info(f"masked prefill trace captured for bucket {bucket}")
++            for bucket, bufs in read_batches.items():
++                trace_id = ttnn.begin_trace_capture(self.device, cq_id=0)
++                bufs["output"] = self._forward_masked_read_batch_body(bufs)
++                ttnn.end_trace_capture(self.device, trace_id, cq_id=0)
++                bufs["trace_id"] = trace_id
++                logger.info(f"batched structured-read trace captured for bucket {bucket}")
+         except Exception:
+             self._masked_prefill_traces = traces
++            self._masked_read_batches = read_batches
+             self.release_masked_prefill_traces()
+             raise
+         finally:
+             self._unbind_gdn_prefill_scratch(prev)
+         self._masked_prefill_traces = traces
++        self._masked_read_batches = read_batches
+         self._masked_prefill_program_entries = self.mesh_device.num_program_cache_entries()
+ 
+     def release_masked_prefill_traces(self):
+@@ -1658,6 +1706,20 @@
+                 if bufs.get(key) is not None:
+                     ttnn.deallocate(bufs[key])
+         self._masked_prefill_traces = {}
++        for bufs in (getattr(self, "_masked_read_batches", None) or {}).values():
++            if bufs.get("trace_id") is not None:
++                ttnn.release_trace(self.device, bufs["trace_id"])
++            for key in ("token", "csi", "cos", "sin", "conv_left", "logit_sel", "output"):
++                if bufs.get(key) is not None:
++                    ttnn.deallocate(bufs[key])
++            for tensor in bufs["full_pts"] + bufs["chunk_pts"]:
++                ttnn.deallocate(tensor)
++        self._masked_read_batches = {}
++        for rec_saved, carry_saved in getattr(self, "_read_prefix_state", None) or ():
++            ttnn.deallocate(rec_saved)
++            ttnn.deallocate(carry_saved)
++        self._read_prefix_state = None
++        self._read_prefix = None
+         for name in (
+             "_masked_slot_buf",
+             "_masked_slot_logits",
+@@ -1669,6 +1731,67 @@
+                 ttnn.deallocate(getattr(self, name))
+             setattr(self, name, None)
+ 
++    def _alloc_read_prefix_buffers(self):
++        """Persistent copies of the B=1 GDN scratch's carried state (recurrent state and conv
++        carry) at a saved read prefix.
++
++        Allocated, and both copy directions compiled, before the first trace capture: a buffer
++        allocated after a capture could sit in a trace's scratch, and a first-time program after
++        it releases the traces."""
++        self._ensure_gdn_prefill_scratch()
++        state = []
++        for _dn, rec, _conv, carry, _zero0 in self._gdn_prefill_scratch:
++            rec_saved, carry_saved = ttnn.clone(rec), ttnn.clone(carry)
++            ttnn.copy(rec_saved, rec)
++            ttnn.copy(carry_saved, carry)
++            state.append((rec_saved, carry_saved))
++        self._read_prefix_state = state
++        self._read_prefix = None
++
++    def _save_read_prefix(self, page_table_row, prefix_tokens):
++        """Save the scratch's carried GDN state after a read's first full chunk, keyed by the
++        chunk's tokens and the page-table row whose blocks hold its KV."""
++        if getattr(self, "_read_prefix_state", None) is None:
++            return
++        for (_dn, rec, _conv, carry, _zero0), (rec_saved, carry_saved) in zip(
++            self._gdn_prefill_scratch, self._read_prefix_state
++        ):
++            ttnn.copy(rec, rec_saved)
++            ttnn.copy(carry, carry_saved)
++        block_size = get_block_size(self._paged_kv_caches)
++        row = page_table_row[:1].to(torch.int32).clone()
++        self._read_prefix = (
++            row,
++            prefix_tokens.to(torch.int32).clone(),
++            frozenset(row[0, : prefix_tokens.shape[-1] // block_size].tolist()),
++        )
++
++    def _read_prefix_matches(self, page_table_row, prefix_tokens):
++        cached = getattr(self, "_read_prefix", None)
++        return (
++            cached is not None
++            and torch.equal(cached[0], page_table_row[:1].to(torch.int32))
++            and torch.equal(cached[1], prefix_tokens.to(torch.int32))
++        )
++
++    def _restore_read_prefix(self):
++        """Copy the saved carried GDN state back into the B=1 scratch."""
++        for (_dn, rec, _conv, carry, _zero0), (rec_saved, carry_saved) in zip(
++            self._gdn_prefill_scratch, self._read_prefix_state
++        ):
++            ttnn.copy(rec_saved, rec)
++            ttnn.copy(carry_saved, carry)
++
++    def _invalidate_read_prefix(self, page_table):
++        """Drop the saved read prefix when a prefill through `page_table` (block ids, any shape)
++        writes one of the blocks holding its KV. A device page table cannot be inspected without
++        a readback, so it always drops the prefix."""
++        cached = getattr(self, "_read_prefix", None)
++        if cached is None:
++            return
++        if not isinstance(page_table, torch.Tensor) or not cached[2].isdisjoint(page_table.flatten().tolist()):
++            self._read_prefix = None
++
+     def _alloc_masked_install_buffers(self):
+         """Shared trace inputs: the slot each replay installs into, the per-slot next-token logits,
+         and the keep-state predicates with the zero recurrent state they select against."""
+@@ -1744,17 +1867,31 @@
+             "logit_sel": dev(self._logit_selector(bucket, bucket), ttnn.bfloat16, ttnn.TILE_LAYOUT),
+         }
+ 
+-    @staticmethod
+-    def _logit_selector(bucket, actual_len):
+-        """One-hot [1, 1, 1, bucket] row picking the hidden state at actual_len - 1."""
+-        sel = torch.zeros(1, 1, 1, bucket, dtype=torch.float32)
++    # Rows of a masked prefill replay's logit tile. Row 0 is the next-token logit the replay
++    # installs into its decode slot; rows 1.. carry structured-read positions. A 32-row
++    # selector is one tile row, so the selector matmul, the final norm, the LM head, and the
++    # gather cost the same as the single logical row they replace.
++    MASKED_LOGIT_ROWS = 32
++
++    @classmethod
++    def _logit_selector(cls, bucket, actual_len, read_rows=()):
++        """One-hot [1, 1, MASKED_LOGIT_ROWS, bucket] rows: row 0 picks the hidden state at
++        actual_len - 1 and row 1 + i picks read_rows[i] (segment-relative). Other rows are zero."""
++        assert len(read_rows) < cls.MASKED_LOGIT_ROWS, f"{len(read_rows)} read rows exceed the logit tile"
++        sel = torch.zeros(1, 1, cls.MASKED_LOGIT_ROWS, bucket, dtype=torch.float32)
+         sel[0, 0, 0, actual_len - 1] = 1.0
++        for index, row in enumerate(read_rows):
++            assert 0 <= row < actual_len, f"read row {row} outside the segment's {actual_len} tokens"
++            sel[0, 0, 1 + index, row] = 1.0
+         return sel
+ 
+-    def _stage_masked_prefill_inputs(self, bufs, token_ids, page_table_row, actual_len, slot, chunk_start=0):
++    def _stage_masked_prefill_inputs(
++        self, bufs, token_ids, page_table_row, actual_len, slot, chunk_start=0, read_rows=()
++    ):
+         """Write one segment's tokens, page-table row, valid length, and position into a trace's
+         inputs. chunk_start 0 starts a sequence (the replay zeroes the GDN state); a later start
+-        continues the scratch state left by the previous segment."""
++        continues the scratch state left by the previous segment. read_rows are segment-relative
++        positions whose next-token logits land in rows 1.. of the replay's logit tile."""
+         from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import seq_valid_mask
+         from models.experimental.gated_attention_gated_deltanet.tt.ttnn_gated_deltanet import conv_valid_selector
+ 
+@@ -1795,7 +1932,7 @@
+         put(torch.full((1, 1, 1), keep), ttnn.bfloat16, ttnn.TILE_LAYOUT, self._masked_keep_bf16)
+         put(conv_valid_selector(1, K, K - 1 + bucket, actual_len), ttnn.bfloat16, ttnn.TILE_LAYOUT, bufs["sel"])
+         put(seq_valid_mask(bufs["value_heads"], bucket, actual_len), ttnn.float32, ttnn.TILE_LAYOUT, bufs["mask"])
+-        put(self._logit_selector(bucket, actual_len), ttnn.bfloat16, ttnn.TILE_LAYOUT, bufs["logit_sel"])
++        put(self._logit_selector(bucket, actual_len, read_rows), ttnn.bfloat16, ttnn.TILE_LAYOUT, bufs["logit_sel"])
+         assert 0 <= slot < 32, f"decode slot {slot} outside the 32-row install tile"
+         slot_host = torch.zeros(1, 1, 1, 32, dtype=torch.int32)
+         slot_host[..., 0] = slot
+@@ -1864,21 +2001,7 @@
+         A prompt the largest bucket holds is one replay. A longer one follows
+         prefill_traced_chunked: full EAGER_PREFILL_CHUNK_TOKENS chunks, then the tail in the
+         smallest bucket that holds it, each replay continuing the previous one's state."""
+-        buckets = self.masked_prefill_trace_buckets()
+-        if not buckets:
+-            return None
+-        plan = []
+-        start = 0
+-        while actual_len - start > EAGER_PREFILL_CHUNK_TOKENS:
+-            if EAGER_PREFILL_CHUNK_TOKENS not in buckets:
+-                return None
+-            plan.append((EAGER_PREFILL_CHUNK_TOKENS, start, EAGER_PREFILL_CHUNK_TOKENS))
+-            start += EAGER_PREFILL_CHUNK_TOKENS
+-        fitting = [b for b in buckets if b >= actual_len - start]
+-        if not fitting:
+-            return None
+-        plan.append((fitting[0], start, actual_len - start))
+-        return plan
++        return masked_prefill_plan(actual_len, self.masked_prefill_trace_buckets())
+ 
+     def prefill_masked_traced(self, token_ids, page_table_row, actual_len, slot):
+         """Enqueue the masked prefill replays that install the prompt's decode state into `slot`.
+@@ -1901,6 +2024,255 @@
+         rows = ttnn.to_torch(ttnn.get_device_tensors(self._masked_slot_logits)[0]).float().reshape(32, -1)
+         return [rows[slot, : self.args.vocab_size].reshape(1, 1, -1) for slot in slots]
+ 
++    def prefill_masked_read(self, token_ids, page_table_row, actual_len, slot, read_positions):
++        """Structured read: host next-token logits after each of `read_positions`.
++
++        Runs the masked prefill segments of prefill_masked_traced (replays when the traces are
++        captured, the same body eagerly when they are not) with the read positions staged into
++        rows 1.. of each segment's logit tile, and reads that tile after every segment holding a
++        read position. The replay also installs the prompt's state into decode `slot`, exactly as
++        a generation prefill would.
++
++        A traced read whose first segment is a full EAGER_PREFILL_CHUNK_TOKENS chunk saves the
++        carried GDN state after it. A later read through the same page-table row whose first
++        chunk holds the same tokens, and none of its read positions, restores that state and
++        replays only the rest: the chunk's KV is still in the row's blocks. A prefill that
++        writes those blocks drops the saved prefix (_invalidate_read_prefix).
++
++        read_positions: ascending, distinct absolute positions in [0, actual_len); at most
++        MASKED_LOGIT_ROWS - 1 of them inside one segment.
++        Returns (host float32 [len(read_positions), vocab_size], prefix tokens reused)."""
++        positions = [int(position) for position in read_positions]
++        assert positions, "a structured read needs at least one position"
++        assert positions == sorted(set(positions)), "read positions must be ascending and distinct"
++        assert 0 <= positions[0] and positions[-1] < actual_len, "read positions must lie inside the prompt"
++        traced = bool(self.masked_prefill_trace_buckets())
++        plan = masked_prefill_plan(
++            actual_len, self.masked_prefill_trace_buckets() if traced else self.MASKED_PREFILL_TRACE_BUCKETS
++        )
++        assert plan is not None, f"no masked prefill plan holds {actual_len} tokens"
++        segments = [
++            (bucket, start, length, [p - start for p in positions if start <= p < start + length])
++            for bucket, start, length in plan
++        ]
++        for _bucket, _start, _length, local in segments:
++            assert len(local) < self.MASKED_LOGIT_ROWS, f"{len(local)} read positions in one segment"
++        chunk = EAGER_PREFILL_CHUNK_TOKENS
++        first_full = len(segments) > 1 and segments[0][2] == chunk
++        reused = (
++            chunk
++            if traced
++            and first_full
++            and not segments[0][3]
++            and self._read_prefix_matches(page_table_row, token_ids[0, :chunk])
++            else 0
++        )
++        if not reused:
++            # These replays rewrite the row's blocks from position 0.
++            self._invalidate_read_prefix(page_table_row)
++        self._build_request_rope(token_ids[:, :actual_len], None)
++        prev = self._bind_gdn_prefill_scratch()
++        eager_bufs = {}
++        rows = []
++        try:
++            if not traced:
++                # No captured traces, so first-time programs cannot clobber one: build the trace
++                # inputs for this read and run the trace body eagerly.
++                self._alloc_masked_install_buffers()
++                eager_bufs = {bucket: self._alloc_masked_prefill_inputs(bucket, page_table_row) for bucket, *_ in plan}
++            batched = [(rec_b, conv_b) for _dn, _B, rec_b, conv_b, *_rest in prev]
++            for index, (bucket, start, length, local) in enumerate(segments):
++                if start < reused:
++                    continue
++                if reused and start == reused:
++                    self._restore_read_prefix()
++                bufs = self._masked_prefill_traces[bucket] if traced else eager_bufs[bucket]
++                self._stage_masked_prefill_inputs(
++                    bufs,
++                    token_ids[:, start : start + length],
++                    page_table_row,
++                    length,
++                    slot,
++                    chunk_start=start,
++                    read_rows=local,
++                )
++                if traced:
++                    ttnn.execute_trace(self.device, bufs["trace_id"], cq_id=0, blocking=False)
++                    output = bufs["output"]
++                else:
++                    output = self._forward_masked_prefill_body(bufs, batched)
++                if traced and index == 0 and first_full:
++                    self._save_read_prefix(page_table_row, token_ids[0, :chunk])
++                if local:
++                    tile = ttnn.to_torch(ttnn.get_device_tensors(output)[0]).float()
++                    tile = tile.reshape(self.MASKED_LOGIT_ROWS, -1)
++                    rows.append(tile[1 : 1 + len(local), : self.args.vocab_size].clone())
++                if not traced:
++                    ttnn.deallocate(output)
++        finally:
++            self._unbind_gdn_prefill_scratch(prev)
++            if not traced:
++                for bufs in eager_bufs.values():
++                    for key in ("token", "full_pt", "chunk_pt", "csi", "cos", "sin", "sel", "mask", "logit_sel"):
++                        ttnn.deallocate(bufs[key])
++                # Frees the eager install buffers; there are no traces to release.
++                self.release_masked_prefill_traces()
++        return torch.cat(rows, dim=0), reused
++
++    def masked_read_batch_buckets(self):
++        """Buckets with a captured batched structured-read trace, ascending (empty when none)."""
++        return tuple(sorted(getattr(self, "_masked_read_batches", None) or ()))
++
++    def _alloc_masked_read_batch_inputs(self, bucket, read_page_table):
++        """Persistent replicated inputs of one batched read trace; user u reads through row u.
++
++        The page tables, position table, and zero conv context never change; each replay
++        stages only the tokens and the logit selector."""
++        rep = ttnn.ReplicateTensorToMesh(self.device)
++        width = self.READ_BATCH_WIDTH
++        assert read_page_table.shape[0] >= width, f"the read page table needs {width} rows"
++        dn = next(layer.attention for layer in self.layers if not layer.is_full_attention)
++        block_size = get_block_size(self._paged_kv_caches)
++        assert bucket % block_size == 0, f"bucket {bucket} must be a multiple of the KV block {block_size}"
++        # A 32-multiple page-table width keeps the SDPA's zero-pad branch (a host write) out of the trace.
++        full_blocks = max(32, ((read_page_table.shape[-1] + 31) // 32) * 32)
++
++        def dev(t, dtype, layout):
++            return ttnn.from_torch(t, dtype=dtype, layout=layout, device=self.device, mesh_mapper=rep)
++
++        full_pts, chunk_pts = [], []
++        for user in range(width):
++            row = read_page_table[user : user + 1].to(torch.int32)
++            assert row.shape[-1] >= bucket // block_size, "a read page-table row must cover the bucket"
++            full = torch.zeros(1, full_blocks, dtype=torch.int32)
++            full[:, : min(row.shape[-1], full_blocks)] = row[:, :full_blocks]
++            full_pts.append(dev(full, ttnn.int32, ttnn.ROW_MAJOR_LAYOUT))
++            chunk_pts.append(dev(row[:, : bucket // block_size].contiguous(), ttnn.int32, ttnn.ROW_MAJOR_LAYOUT))
++        cos_t, sin_t = self._rope_tp_cos_sin_torch(0, bucket)
++        return {
++            "bucket": bucket,
++            "width": width,
++            # Every user of a replay fills its row's KV, used or not.
++            "rows": read_page_table[:width].to(torch.int32).clone(),
++            "token": dev(torch.zeros(width, bucket, dtype=torch.int32), ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT),
++            "full_pts": full_pts,
++            "chunk_pts": chunk_pts,
++            "csi": dev(torch.zeros(1, dtype=torch.int32), ttnn.int32, ttnn.ROW_MAJOR_LAYOUT),
++            "cos": dev(cos_t, ttnn.bfloat16, ttnn.TILE_LAYOUT),
++            "sin": dev(sin_t, ttnn.bfloat16, ttnn.TILE_LAYOUT),
++            "conv_left": dev(
++                torch.zeros(width, dn.K - 1, dn.qkv_dim_tp, dtype=torch.bfloat16), ttnn.bfloat16, ttnn.TILE_LAYOUT
++            ),
++            "logit_sel": dev(
++                torch.zeros(1, 1, self.MASKED_LOGIT_ROWS, width * bucket), ttnn.bfloat16, ttnn.TILE_LAYOUT
++            ),
++        }
++
++    def _forward_masked_read_batch_body(self, bufs):
++        """The batched read trace: READ_BATCH_WIDTH sequences from position 0 in one forward.
++
++        Rows are user-major ([u * bucket, (u + 1) * bucket) is user u), as in
++        prefill_paged_grouped: norms, MLPs, and GDN layers run over every row at once, and each
++        full-attention layer runs per user through that user's page tables. The selected rows
++        take the final norm and the LM head. Returns replicated logits [1, 1, 32, vocab]."""
++        width, bucket = bufs["width"], bufs["bucket"]
++        x = self.embd(bufs["token"])
++        x = ttnn.reshape(x, (1, 1, width * bucket, x.shape[-1]))
++        x = ttnn.to_memory_config(x, ttnn.DRAM_MEMORY_CONFIG)
++        for layer in self.layers:
++            attn_norm_config, ff_norm_config = layer.norm_configs("prefill")
++            attn_in = layer.attention_norm(x, mode=Mode.PREFILL, norm_config=attn_norm_config)
++            full = attn_in.shape[-1]
++            if layer.is_full_attention:
++                users = ttnn.reshape(attn_in, (1, width, bucket, full))
++                outs = []
++                for user in range(width):
++                    user_in = ttnn.reshape(users[:, user : user + 1, :, :], (1, 1, bucket, full))
++                    out = layer.attention.forward_prefill_paged(
++                        user_in,
++                        bufs["cos"],
++                        bufs["sin"],
++                        bufs["full_pts"][user],
++                        chunk_page_table=bufs["chunk_pts"][user],
++                        chunk_start_idx=0,
++                        chunk_start_idx_tensor=bufs["csi"],
++                    )
++                    ttnn.deallocate(user_in)
++                    outs.append(ttnn.reshape(out, (1, 1, bucket, out.shape[-1])))
++                attn_out = ttnn.concat(outs, dim=2)
++                for out in outs:
++                    ttnn.deallocate(out)
++            else:
++                attn_out = layer.attention.forward_prefill_batched_read(
++                    ttnn.reshape(attn_in, (width, bucket, full)),
++                    bufs["conv_left"],
++                    chunk_size=self.args.gdn_chunk_size,
++                )
++                attn_out = ttnn.reshape(attn_out, (1, 1, width * bucket, attn_out.shape[-1]))
++            ttnn.deallocate(attn_in)
++            h = ttnn.add(x, attn_out)
++            ttnn.deallocate(x)
++            ttnn.deallocate(attn_out)
++            ff_in = layer.ffn_norm(h, mode=Mode.PREFILL, norm_config=ff_norm_config)
++            ff_out = layer.feed_forward.forward(ff_in)
++            ttnn.deallocate(ff_in)
++            x = ttnn.add(h, ff_out)
++            ttnn.deallocate(h)
++            ttnn.deallocate(ff_out)
++        rows = ttnn.matmul(bufs["logit_sel"], x)
++        ttnn.deallocate(x)
++        rows = ttnn.to_memory_config(rows, ttnn.DRAM_MEMORY_CONFIG)
++        rows = self.norm(rows, mode=Mode.PREFILL)
++        return ttnn.to_memory_config(self._lm_head(rows), ttnn.DRAM_MEMORY_CONFIG)
++
++    def prefill_masked_read_batch(self, token_ids_list, read_positions_list):
++        """Structured reads of up to READ_BATCH_WIDTH sequences in one batched replay.
++
++        token_ids_list[u]: torch [1, T_u] with T_u within the largest batched bucket.
++        read_positions_list[u]: ascending, distinct positions in [0, T_u); at most
++        MASKED_LOGIT_ROWS rows over all sequences.
++        Returns host float32 [len(read_positions_list[u]), vocab_size] per sequence. Nothing is
++        installed: the replay leaves no decode state, only KV in rows 0.. of the read page table."""
++        width = self.READ_BATCH_WIDTH
++        count = len(token_ids_list)
++        assert 1 <= count <= width and len(read_positions_list) == count, "one position list per sequence"
++        lengths = [int(tokens.shape[1]) for tokens in token_ids_list]
++        fitting = [b for b in self.masked_read_batch_buckets() if b >= max(lengths)]
++        assert fitting, f"no batched read trace holds {max(lengths)} tokens"
++        bufs = self._masked_read_batches[fitting[0]]
++        bucket = bufs["bucket"]
++        tokens = torch.zeros(width, bucket, dtype=torch.int32)
++        selector = torch.zeros(1, 1, self.MASKED_LOGIT_ROWS, width * bucket, dtype=torch.float32)
++        row = 0
++        for user, (token_ids, positions, length) in enumerate(zip(token_ids_list, read_positions_list, lengths)):
++            positions = [int(position) for position in positions]
++            assert positions and positions == sorted(set(positions)), "read positions must be ascending and distinct"
++            assert 0 <= positions[0] and positions[-1] < length, "read positions must lie inside the sequence"
++            tokens[user, :length] = token_ids[0, :length].to(torch.int32)
++            for position in positions:
++                assert row < self.MASKED_LOGIT_ROWS, "the reads exceed the logit tile"
++                selector[0, 0, row, user * bucket + position] = 1.0
++                row += 1
++        rep = ttnn.ReplicateTensorToMesh(self.device)
++        ttnn.copy_host_to_device_tensor(
++            ttnn.from_torch(tokens, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, device=None, mesh_mapper=rep),
++            bufs["token"],
++        )
++        ttnn.copy_host_to_device_tensor(
++            ttnn.from_torch(selector, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=None, mesh_mapper=rep),
++            bufs["logit_sel"],
++        )
++        self._invalidate_read_prefix(bufs["rows"])
++        ttnn.execute_trace(self.device, bufs["trace_id"], cq_id=0, blocking=False)
++        tile = ttnn.to_torch(ttnn.get_device_tensors(bufs["output"])[0]).float()
++        tile = tile.reshape(self.MASKED_LOGIT_ROWS, -1)[:, : self.args.vocab_size]
++        results = []
++        start = 0
++        for positions in read_positions_list:
++            results.append(tile[start : start + len(positions)].clone())
++            start += len(positions)
++        return results
++
+     def prefill_traced_bucket_batched(self, token_ids_list, page_table, valid_lens=None):
+         """Traced batched short-prompt prefill: replay the captured B=1 full-bucket trace once
+         per user, stitching each replay's B=1 GDN state into row u of the batched [B,...] decode
+@@ -2118,6 +2490,8 @@
+         assert len(empty_slots) == N, "one slot per request"
+         pt = page_table if isinstance(page_table, torch.Tensor) else ttnn.to_torch(page_table)
+         assert pt.shape[0] == N, "page_table must have one row per request"
++        # Prefill and the decode that follows write these rows' KV blocks.
++        self._invalidate_read_prefix(pt)
+         lengths = [int(valid_lens[u]) if valid_lens is not None else token_ids_list[u].shape[1] for u in range(N)]
+         assert all(n >= 1 for n in lengths), f"empty prompt in {lengths}"
+         traced = [u for u in range(N) if masked_traces and self.masked_prefill_trace_for(lengths[u]) is not None]
+@@ -2753,6 +3127,7 @@
+         # with a masked tail. On P150x2 a 2048-row masked bucket overflows L1 beside the resident
+         # decode buffers (GDN FIR conv OOM, MLP circular-buffer clash); 1024-row chunks fit.
+         chunk_size = self._chunked_chunk_size or EAGER_PREFILL_CHUNK_TOKENS
++        self._invalidate_read_prefix(page_table)
+         B, T = token_ids.shape
+         assert 1 <= actual_len <= T, f"actual_len {actual_len} not in [1, {T}]"
+         block_size = get_block_size(self._paged_kv_caches)
+@@ -3425,6 +3800,7 @@
+         B = len(token_ids_list)
+         pt_torch = page_table if isinstance(page_table, torch.Tensor) else ttnn.to_torch(page_table)
+         assert pt_torch.shape[0] == B, "page_table must have one row per user"
++        self._invalidate_read_prefix(pt_torch)
+         vlens = list(valid_lens) if valid_lens is not None else [int(t.shape[1]) for t in token_ids_list]
+ 
+         gdn_chunk = self.args.gdn_chunk_size

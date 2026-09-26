@@ -73,6 +73,9 @@ See the [staged decode comparison](docs/qwen38-staged-decode-comparison.md)
 for the latest bounded timing result and its non-claims.
 See [the fused GDN decode step](docs/qwen38-fused-gdn-decode-step.md) for the
 default decode route, its measured 1.30x single-stream gain, and how to opt out.
+See [Qwen3.8 structured reads](docs/qwen38-structured-reads.md) for the
+`POST /v1/systemone` decision endpoint ported from vLLM PR 57250, its batched
+read traces, and measured accuracy and latency.
 
 See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.

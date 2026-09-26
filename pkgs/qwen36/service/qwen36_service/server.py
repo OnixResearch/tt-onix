@@ -59,6 +59,14 @@ from .readiness_core import (
     plan_startup_warmup,
     record_warm_width,
 )
+from .structured_read_core import (
+    DeviceRead,
+    ReadPorts,
+    SchemaError,
+    decide,
+    jev_response,
+    parse_jev_request,
+)
 from .systemd_notify_adapter import notify_ready
 from .trace_reuse_core import TraceReusePolicyError, TraceReuseProfile
 
@@ -82,6 +90,11 @@ DEFAULT_LISTEN_PORT = 8000
 MINIMUM_LISTEN_PORT = 1
 MAXIMUM_LISTEN_PORT = 65_535
 MAX_REQUEST_BODY_BYTES = 1_048_576
+SYSTEMONE_PATH = "/v1/systemone"
+# A thought before a structured read uses the chat template's brief reasoning mode.
+STRUCTURED_THINK_REASONING_EFFORT = "low"
+THOUGHT_CLOSE_TOKEN = "</think>"
+THOUGHT_CLOSE_TEXT = "\n</think>\n\n"
 P300_CACHE_RELATIVE_PATH = Path("P300/tensor_cache_bfp8_mesh1x2")
 MODEL_OBJECT_CREATION_TIME = 0
 DECODE_MODE_EAGER = "eager"
@@ -761,6 +774,101 @@ class QwenEngine:
                         time.monotonic() - cleanup_started
                     )
 
+    @property
+    def structured_reads_available(self) -> bool:
+        """Structured reads run on the batch worker; serialized eager mode has none."""
+        return self._batch_coordinator is not None
+
+    def _structured_read_ports(self, deadline: float, maximum_think_tokens: int) -> ReadPorts:
+        coordinator = self._batch_coordinator
+        assert coordinator is not None
+        tokenizer = self.tokenizer
+
+        def encode(text: str) -> list[int]:
+            return [int(token) for token in tokenizer.encode(text, add_special_tokens=False)]
+
+        def chat_prompt(system: str, user: str, thinking: bool) -> list[int]:
+            template_arguments: dict[str, Any] = {"enable_thinking": thinking}
+            if thinking:
+                template_arguments["reasoning_effort"] = STRUCTURED_THINK_REASONING_EFFORT
+            rendered = tokenizer.apply_chat_template(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                add_generation_prompt=True,
+                tokenize=True,
+                **template_arguments,
+            )
+            ids = rendered["input_ids"] if hasattr(rendered, "keys") else rendered
+            return [int(token) for token in ids]
+
+        def read(requests: tuple[Any, ...]) -> tuple[DeviceRead, ...]:
+            rows = coordinator.read(
+                requests=tuple(
+                    (torch.tensor([request.token_ids], dtype=torch.int32), request.positions)
+                    for request in requests
+                ),
+                deadline=deadline,
+            )
+            return tuple(
+                DeviceRead(logits=row.logits, seconds=row.elapsed_seconds, route=row.route)
+                for row in rows
+            )
+
+        def think(prompt_ids: list[int], budget: int) -> list[int]:
+            if budget > maximum_think_tokens:
+                raise SchemaError(f"think: at most {maximum_think_tokens} tokens on this service")
+            if len(prompt_ids) + budget > self.max_sequence_length:
+                raise SchemaError(
+                    f"the thought needs {len(prompt_ids) + budget} tokens; the service holds "
+                    f"{self.max_sequence_length}"
+                )
+            response = coordinator.generate(
+                request=CompletionRequest(
+                    endpoint=Endpoint.COMPLETIONS,
+                    model=self.model_alias,
+                    max_tokens=budget,
+                    prompt=None,
+                    messages=(),
+                    temperature=0.0,
+                ),
+                request_id=f"think-{uuid.uuid4().hex}",
+                token_ids=torch.tensor([prompt_ids], dtype=torch.int64),
+                prompt_token_count=len(prompt_ids),
+                started=time.monotonic(),
+                deadline=deadline,
+            )
+            return [int(token) for token in response["x_onix_decode_evidence"]["generated_token_ids"]]
+
+        return ReadPorts(
+            encode=encode,
+            decode=lambda ids: tokenizer.decode(list(ids), skip_special_tokens=True),
+            chat_prompt=chat_prompt,
+            read=read,
+            think=think,
+            noise_upper=min(tokenizer.added_tokens_decoder),
+            thought_close_id=int(tokenizer.convert_tokens_to_ids(THOUGHT_CLOSE_TOKEN)),
+            thought_close_ids=tuple(encode(THOUGHT_CLOSE_TEXT)),
+            maximum_sequence_length=self.max_sequence_length,
+        )
+
+    def structured_decide(self, payload: Any, maximum_think_tokens: int) -> dict[str, Any]:
+        """One Jev ``/v1/systemone`` decision from structured reads."""
+        schema, state, seed = parse_jev_request(payload, maximum_think_tokens=maximum_think_tokens)
+        started = time.monotonic()
+        ports = self._structured_read_ports(
+            started + self.decode_profile.request_timeout_seconds, maximum_think_tokens
+        )
+        result, output_rows = decide(ports, schema, state, seed)
+        timing = result["diagnostics"]["timing"]
+        emit(
+            "systemone-passed",
+            device_reads=timing["device_reads"],
+            elapsed_seconds=time.monotonic() - started,
+            question_count=len(result["answers"]),
+            reads=timing["reads"],
+            routes=timing["routes"],
+        )
+        return jev_response(schema, result, output_rows, self.model_alias)
+
     def close(self) -> None:
         if self._mtp_drafter is not None:
             self._mtp_drafter.close()
@@ -828,31 +936,65 @@ def make_handler(
                 HTTPStatus.NOT_FOUND, f"unsupported endpoint: {self.path}"
             )
 
+        def _read_json_body(self) -> Any:
+            content_length_header = self.headers.get("Content-Length")
+            if content_length_header is None:
+                raise RequestValidationError("Content-Length is required")
+            try:
+                content_length = int(content_length_header)
+            except ValueError as error:
+                raise RequestValidationError(
+                    "Content-Length must be an integer"
+                ) from error
+            if not 0 < content_length <= MAX_REQUEST_BODY_BYTES:
+                raise RequestValidationError(
+                    f"request body must contain between 1 and {MAX_REQUEST_BODY_BYTES} bytes"
+                )
+            try:
+                return json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise RequestValidationError(
+                    "request body must be valid UTF-8 JSON"
+                ) from error
+
+        def _systemone(self) -> None:
+            if not engine.structured_reads_available:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "error": {
+                            "message": "structured reads need the batch decode worker (candidate mode)",
+                            "type": "server_error",
+                        }
+                    },
+                )
+                return
+            try:
+                payload = self._read_json_body()
+                result = engine.structured_decide(payload, maximum_generation_tokens)
+            except RequestValidationError as error:
+                self._write_error(HTTPStatus.BAD_REQUEST, str(error))
+            except SchemaError as error:
+                self._write_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"error": {"message": str(error), "type": "validation_error"}},
+                )
+            except (AssertionError, OSError, RuntimeError, ValueError) as error:
+                emit("request-failed", endpoint=SYSTEMONE_PATH, error_type=type(error).__name__)
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": {"message": "inference failed", "type": "server_error"}},
+                )
+            else:
+                self._write_json(HTTPStatus.OK, result)
+
         def do_POST(self) -> None:
+            if self.path == SYSTEMONE_PATH:
+                self._systemone()
+                return
             try:
                 endpoint = parse_endpoint(self.path)
-                content_length_header = self.headers.get("Content-Length")
-                if content_length_header is None:
-                    raise RequestValidationError("Content-Length is required")
-                try:
-                    content_length = int(content_length_header)
-                except ValueError as error:
-                    raise RequestValidationError(
-                        "Content-Length must be an integer"
-                    ) from error
-                if not 0 < content_length <= MAX_REQUEST_BODY_BYTES:
-                    raise RequestValidationError(
-                        f"request body must contain between 1 and {MAX_REQUEST_BODY_BYTES} bytes"
-                    )
-                try:
-                    payload = json.loads(
-                        self.rfile.read(content_length).decode("utf-8")
-                    )
-                except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                    raise RequestValidationError(
-                        "request body must be valid UTF-8 JSON"
-                    ) from error
-
+                payload = self._read_json_body()
                 request = parse_completion_request(
                     payload=payload,
                     endpoint=endpoint,

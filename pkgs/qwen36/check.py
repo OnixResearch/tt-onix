@@ -7558,6 +7558,407 @@ def probe_mtp_head_load_core():
     )
 
 
+def probe_structured_reads():
+    """Structured reads: slots, read rows, deduplicated draws, refinement, stages, limits."""
+    import re
+    import threading
+    import time
+    from collections import deque
+    from types import SimpleNamespace
+
+    import torch
+    from models.demos.blackhole.qwen36.tt.model import Qwen36Model
+    from qwen36_service import structured_read_core as core
+    from qwen36_service.batch_service import BatchGenerationCoordinator, _PendingRead
+
+    vocabulary = {}
+
+    def encode(text):
+        # Word-level: a leading space joins its word; punctuation and newlines stand alone.
+        return [
+            vocabulary.setdefault(piece, len(vocabulary))
+            for piece in re.findall(r" ?\w+|\n| ?\?|[^\w\s]| ", text)
+        ]
+
+    labels = {piece: encode(piece)[0] for piece in (" yes", " no", " A", " B", " C", " 1", " 2", " 3")}
+    width = 64 + len(vocabulary) + 256
+    reads = []
+    preferred = {}
+    strength = {}
+
+    def read(requests):
+        reads.append(requests)
+        results = []
+        for request in requests:
+            logits = torch.zeros(len(request.positions), width)
+            noise = 2.0 if any(token >= 1000 for token in request.token_ids) else 0.0
+            for row in range(len(request.positions)):
+                # Row i prefers its configured label (" yes" by default) with its configured
+                # strength; noise in the prefill shifts the logits, so noise draws differ.
+                logits[row, preferred.get(row, labels[" yes"])] = strength.get(row, 6.0) + noise
+            results.append(core.DeviceRead(logits=logits, seconds=0.25, route="fake"))
+        return tuple(results)
+
+    def ports(**overrides):
+        values = dict(
+            encode=encode,
+            decode=lambda ids: " ".join(str(i) for i in ids),
+            chat_prompt=lambda system, user, thinking: encode(system + "\n" + user) + ([7] if thinking else []),
+            read=read,
+            think=lambda prompt, budget: [5, 6, 999, 4],
+            noise_upper=2000,
+            thought_close_id=999,
+            thought_close_ids=(11, 12),
+            maximum_sequence_length=2048,
+        )
+        values.update(overrides)
+        return core.ReadPorts(**values)
+
+    def schema_of(questions, **extensions):
+        return core.parse_jev_request(
+            {"state": {"ticket": "down"}, "questions": questions, **extensions}, maximum_think_tokens=64
+        )
+
+    noul = {"type": "noul", "instructions": "Urgent?"}
+    choice = {"type": "choice", "instructions": "Route", "criteria": {"billing": None, "outage": "down"}}
+    score = {"type": "score", "instructions": "Tone", "criteria": ["calm", "annoyed", "furious"]}
+
+    # Every label changes one token at one slot per question, in template order.
+    schema, _state, _seed = schema_of({"urgent": noul, "bucket": choice, "tone": score})
+    template = core.resolve_template(schema.questions, encode, "", schema.answer_format)
+    require(
+        [slot.label_ids for slot in template.slots]
+        == [(labels[" yes"], labels[" no"]), (labels[" A"], labels[" B"]), (labels[" 1"], labels[" 2"], labels[" 3"])],
+        "template slots do not carry each question's label ids",
+    )
+    require(
+        [template.tokens[slot.position] for slot in template.slots] == [labels[" yes"], labels[" A"], labels[" 1"]],
+        "template slots do not point at the first label",
+    )
+    wide = dict(choice, criteria={"billing": None, "outage": None, "long label": None})
+    try:
+        core.resolve_template(
+            schema_of({"bucket": wide})[0].questions,
+            lambda text: encode(text.replace(" C", " C C")),
+            "",
+            core.FORMAT_LINES,
+        )
+        require(False, "a two-token label resolved to a slot")
+    except core.SchemaError:
+        pass
+
+    # A read stops before the last slot's token and reads the row before each slot.
+    request = core.build_read([90, 91], template, [1001, 1002, 1003])
+    require(
+        request.positions == tuple(2 + slot.position - 1 for slot in template.slots),
+        "read rows are not the rows before each slot",
+    )
+    require(len(request.token_ids) == 2 + template.slots[-1].position, "a read kept tokens no row can see")
+    require(
+        request.token_ids[2 + template.slots[0].position] == 1001
+        and request.token_ids[2 + template.slots[1].position] == 1002,
+        "noise fills did not replace the slot tokens",
+    )
+
+    # Label probabilities are the softmax over the labels' exact log-probabilities.
+    logits = torch.full((width,), -10.0)
+    logits[labels[" yes"]], logits[labels[" no"]], logits[3] = 2.0, 1.0, 3.0
+    slot_read = core.summarize_slot(logits, (labels[" yes"], labels[" no"]))
+    require(
+        abs(slot_read.probabilities[0] - 1 / (1 + math.exp(-1.0))) < 1e-5,
+        "label probabilities are not the label softmax",
+    )
+    require(not slot_read.argmax_is_label, "a non-label argmax was reported as a label")
+    require(0.0 < slot_read.label_mass < 1.0, "label mass left the unit interval")
+
+    # One question: every noise draw is the same prefill, so the device runs it once.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul}, samples=4)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    timing = result["diagnostics"]["timing"]
+    require(
+        timing["reads"] == 4 and timing["device_reads"] == 1 and sum(len(r) for r in reads) == 1,
+        "identical draws reached the device more than once",
+    )
+    require(result["answers"]["urgent"]["label"] == "yes", "the favoured label did not win")
+    require(result["answers"]["urgent"]["stderr"] == 0.0, "identical draws reported a spread")
+
+    # Auto policy: a confident first read stops; an uncertain one reads auto_max draws.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=100.0)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(result["diagnostics"]["samples"]["n"] == 1, "a confident first read was extended")
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=3)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(
+        result["diagnostics"]["samples"]["n"] == 3 and result["diagnostics"]["samples"]["policy"]["extended"],
+        "an uncertain first read was not extended to auto_max",
+    )
+    # Only the first question is uncertain: its row sees no noise, so no draw is added.
+    reads.clear()
+    strength.update({0: 1.0, 1: 40.0})
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.1, steps=1)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    strength.clear()
+    first = result["diagnostics"]["samples"]["policy"]["first_read_entropy"]
+    require(first["urgent"] > 0.1 > first["tone"], "the gate fixture lost its entropy split")
+    require(
+        result["diagnostics"]["samples"]["n"] == 1 and len(reads) == 1,
+        "an uncertain first slot added draws that cannot change it",
+    )
+    # A one-question read costs one prefill across the auto extension and every step.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul}, auto_threshold=0.0, steps=5)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(
+        result["diagnostics"]["timing"]["device_reads"] == 1 and len(reads) == 1,
+        "a one-question decision read the device more than once",
+    )
+    # By default the first draw refines to its fixed point, and later draws read once, under
+    # sampled earlier answers: here the refined " yes" reuses its prefill and " no" adds one.
+    reads.clear()
+    strength.update({0: 0.0})
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, samples=4)
+    core.decide(ports(), schema, state, seed)
+    strength.clear()
+    require(
+        [len(batch) for batch in reads] == [1, 1, 1],
+        "the default did not refine the first draw and read later draws once",
+    )
+
+    # Steps refine to the label chain and stop at the fixed point.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, samples=1, steps=5)
+    core.decide(ports(), schema, state, seed)
+    require(len(reads) == 2, "refinement did not stop at its fixed point")
+    tmpl = core.resolve_template(schema.questions, encode, "", schema.answer_format)
+    second = reads[1][0]
+    require(
+        all(second.token_ids[second.positions[i] + 1] == slot.label_ids[0] for i, slot in enumerate(tmpl.slots[:-1])),
+        "a refinement step did not fill slots with the previous argmax",
+    )
+    first = reads[0][0]
+    require(
+        all(first.token_ids[first.positions[i] + 1] == slot.placeholder for i, slot in enumerate(tmpl.slots[:-1]))
+        and all(slot.placeholder == encode(" ?")[0] for slot in tmpl.slots),
+        "the first draw did not fill its slots with the placeholder",
+    )
+
+    # Later draws fill earlier slots with labels sampled from the first draw, never noise,
+    # and draws that sample the same visible labels share one prefill.
+    reads.clear()
+    strength.update({0: 0.0})
+    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=8)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    strength.clear()
+    later = [request for batch in reads[1:] for request in batch]
+    tmpl = core.resolve_template(schema.questions, encode, "", schema.answer_format)
+    slot_row = later[0].positions[0] + 1 if later else 0
+    require(
+        result["diagnostics"]["samples"]["n"] == 8
+        and later
+        and all(request.token_ids[slot_row] in tmpl.slots[0].label_ids for request in later),
+        "a later draw did not fill its slot with a sampled label",
+    )
+    require(
+        result["diagnostics"]["timing"]["device_reads"] <= 1 + len(tmpl.slots[0].label_ids),
+        "draws with the same sampled labels did not share a prefill",
+    )
+
+    # A digit label the tokenizer keeps apart from its space takes the bare placeholder token.
+    def digits_apart(text):
+        return [
+            vocabulary.setdefault(piece, len(vocabulary))
+            for piece in re.findall(r" ?[A-Za-z_]+|\d| ?\?|\n|[^\w\s]| ", text)
+        ]
+
+    apart = core.resolve_template(schema.questions, digits_apart, "", "lines")
+    require(
+        apart.slots[0].placeholder == digits_apart(" ?")[0] and apart.slots[1].placeholder == digits_apart("?")[0],
+        "a digit slot did not take the bare placeholder",
+    )
+
+    # A slot whose placeholder is not one token falls back to noise.
+    split = core.resolve_template(schema.questions, lambda text: encode(text.replace("?", "? ?")), "", "lines")
+    require(all(slot.placeholder is None for slot in split.slots), "a split placeholder was accepted")
+    require(
+        all(0 <= fill < 2000 for fill in core.first_fills(split, 7, 2000)),
+        "a slot without a placeholder was not filled with noise",
+    )
+
+    # Stages: a dependent question reads after its dependency, with that answer in the prompt;
+    # a failed ask_if skips the question.
+    reads.clear()
+    schema, state, seed = schema_of(
+        {
+            "urgent": noul,
+            "tone": dict(score, depends_on=["urgent"]),
+            "bucket": dict(choice, ask_if={"urgent": ["no"]}),
+        },
+        samples=1,
+    )
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(result["diagnostics"]["stages"] == [["urgent"], ["tone"]], "stages ignored depends_on")
+    require(result["answers"]["bucket"] is None, "a failed ask_if still asked its question")
+    first_prefill, second_prefill = reads[0][0].token_ids, reads[1][0].token_ids
+    answered = encode("urgent: yes")
+    require(
+        any(second_prefill[i : i + len(answered)] == tuple(answered) for i in range(len(second_prefill))),
+        "a later stage did not continue the earlier answer",
+    )
+    require(second_prefill[: len(first_prefill) - 2] == first_prefill[: len(first_prefill) - 2],
+            "a later stage changed the shared prompt")
+
+    # A thought ends at the model's close tag and is followed by the canonical close.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul}, samples=1, think=8)
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(result["diagnostics"]["thought"]["tokens"] == 2 and result["diagnostics"]["thought"]["closed"],
+            "the thought was not cut at the close tag")
+    require(reads[0][0].token_ids[-6:-2] == (5, 6, 11, 12), "the read prefix did not close the thought")
+
+    # One read holds at most 31 slots.
+    many = {f"q{i}": noul for i in range(40)}
+    schema, _state, _seed = schema_of(many)
+    groups = core.chunk_groups(schema, schema.questions, encode)
+    require([len(g) for g in groups] == [31, 9], "a read was planned past the logit tile")
+    require(schema.answer_format == core.FORMAT_INDEXED, "a large schema kept the line format")
+
+    # A read longer than the service holds is refused before the device.
+    reads.clear()
+    schema, state, seed = schema_of({"urgent": noul})
+    try:
+        core.decide(ports(maximum_sequence_length=8), schema, state, seed)
+        require(False, "an over-long read was sent to the device")
+    except core.SchemaError:
+        require(not reads, "an over-long read reached the device")
+
+    for body, reason in (
+        ({"state": "s", "questions": {}}, "empty questions"),
+        ({"state": "s", "questions": {"u": noul}, "images": ["data:image/png;base64,AA"]}, "images"),
+        ({"state": "s", "questions": {"u": noul}, "think": 65}, "think past the generation budget"),
+        ({"state": "s", "questions": {"u": dict(choice, criteria={"a": None})}}, "one alternative"),
+        ({"state": "s", "questions": {"u": dict(noul, depends_on=["v"])}}, "unknown dependency"),
+        ({"state": "s", "questions": {"u": dict(noul, depends_on=["v"]), "v": dict(noul, depends_on=["u"])}},
+         "dependency cycle"),
+        ({"state": "s", "questions": {"u": noul, "v": dict(noul, depends_on=["u"])}, "ask": ["v"]},
+         "ask without its dependency"),
+        ({"questions": {"u": noul}}, "missing state"),
+        ({"state": "s", "questions": {"u": noul}, "samples": 0}, "zero samples"),
+    ):
+        try:
+            core.parse_jev_request(body, maximum_think_tokens=64)
+            require(False, f"{reason} was accepted")
+        except core.SchemaError:
+            pass
+
+    # Jev shapes: noul probability, choice with confidence, 0-indexed score legend.
+    schema, state, seed = schema_of({"urgent": noul, "bucket": choice, "tone": score}, samples=1)
+    preferred.update({0: labels[" no"]})
+    response = core.jev_response(schema, *core.decide(ports(), schema, state, seed), "Qwen3.8-27B")
+    preferred.clear()
+    answers = response["answers"]
+    require(set(answers["urgent"]) == {"type", "noul"} and answers["urgent"]["noul"] < 0.5,
+            "the noul answer is not the yes probability")
+    require(set(answers["tone"]["legend"]) == {"0", "1", "2"}, "the score legend is not 0-indexed")
+    require(answers["bucket"]["choice"] in ("billing", "outage"), "the choice answer is not an option name")
+
+    # The worker runs a read job on its own and never folds reads into a generation batch.
+    def take(items):
+        worker = SimpleNamespace(
+            _condition=threading.Condition(),
+            _queue=deque(items),
+            _closing=False,
+            adapter=SimpleNamespace(decode_width_supported=lambda w: True),
+        )
+        return BatchGenerationCoordinator._take_batch(worker), list(worker._queue)
+
+    job = _PendingRead(requests=((torch.zeros(1, 4), (1,)),), deadline=0.0)
+    other = _PendingRead(requests=((torch.zeros(1, 4), (2,)),), deadline=0.0)
+    generation = [SimpleNamespace(request=SimpleNamespace(max_tokens=8)) for _ in range(2)]
+    taken, left = take([job, generation[0], other, generation[1]])
+    require(taken == (job, other) and left == generation, "queued read jobs were not merged apart from generation")
+    taken, left = take([generation[0], job, generation[1]])
+    require(taken == (generation[0], generation[1]) and left == [job], "a generation batch absorbed a read job")
+
+    # A merged turn fails only its expired jobs; the others read in one call.
+    calls = []
+
+    def read_rows_batch(flat):
+        calls.append(flat)
+        return tuple(SimpleNamespace(masked_traces_released=False, elapsed_seconds=0.1, route="fake") for _ in flat)
+
+    worker = SimpleNamespace(adapter=SimpleNamespace(read_rows_batch=read_rows_batch), emitter=lambda *a, **k: None)
+    expired = _PendingRead(requests=((torch.zeros(1, 4), (1,)),), deadline=time.monotonic() - 1.0)
+    fresh = _PendingRead(
+        requests=((torch.zeros(1, 4), (2,)), (torch.zeros(1, 4), (3,))), deadline=time.monotonic() + 3600.0
+    )
+    BatchGenerationCoordinator._run_reads(worker, (expired, fresh))
+    require(
+        expired.error is not None and expired.results is None,
+        "an expired read job was run",
+    )
+    require(
+        fresh.error is None and len(fresh.results) == 2 and [len(flat) for flat in calls] == [2],
+        "an expired read job failed the jobs merged with it",
+    )
+
+    # Batched replays: shortest first, up to the width and the logit rows, and only when a
+    # group meets its bucket's minimum; long reads and small groups go alone.
+    def batches(lengths, rows):
+        return core.plan_read_batches(
+            lengths=lengths, row_counts=rows, width=4, minimum_by_bucket={128: 2, 256: 3}, maximum_rows=32
+        )
+
+    require(batches([100] * 6, [3] * 6) == ((0, 1, 2, 3), (4, 5)), "reads were not packed to the batch width")
+    require(batches([100, 300, 100], [3, 3, 3]) == ((1,), (0, 2)), "a read past the batched buckets was batched")
+    require(batches([100] * 3, [20, 20, 5]) == ((0,), (1, 2)), "a batch exceeded the logit rows")
+    require(batches([200] * 2, [3] * 2) == ((0,), (1,)), "a group below its bucket's minimum was batched")
+    require(batches([200] * 3, [3] * 3) == ((0, 1, 2),), "a group at its bucket's minimum read alone")
+    require(batches([200, 100, 200, 100], [3] * 4) == ((1, 3, 0, 2),), "reads were not grouped shortest first")
+    require(batches([100], [40]) == ((0,),), "a read wider than the logit tile was batched")
+
+    # A saved read prefix matches only its own row and tokens, and any prefill that writes one
+    # of its KV blocks, or passes a page table the host cannot inspect, drops it.
+    def saved(blocks=range(480, 496)):
+        row = torch.arange(480, 512, dtype=torch.int32).reshape(1, 32)
+        tokens = torch.arange(1024, dtype=torch.int32)
+        return SimpleNamespace(_read_prefix=(row, tokens, frozenset(blocks))), row, tokens
+
+    model, row, tokens = saved()
+    require(Qwen36Model._read_prefix_matches(model, row, tokens), "a saved prefix did not match itself")
+    changed = tokens.clone()
+    changed[1023] += 1
+    require(not Qwen36Model._read_prefix_matches(model, row, changed), "a prefix with other tokens matched")
+    require(not Qwen36Model._read_prefix_matches(model, row - 32, tokens), "a prefix on another row matched")
+    Qwen36Model._invalidate_read_prefix(model, torch.arange(0, 480, dtype=torch.int32).reshape(15, 32))
+    require(model._read_prefix is not None, "generation below full width dropped the saved prefix")
+    Qwen36Model._invalidate_read_prefix(model, torch.arange(0, 512, dtype=torch.int32).reshape(16, 32))
+    require(model._read_prefix is None, "a full-width prefill kept a prefix whose KV it overwrote")
+    model, row, tokens = saved()
+    Qwen36Model._invalidate_read_prefix(model, SimpleNamespace(shape=(1, 32)))
+    require(model._read_prefix is None, "a device page table kept the saved prefix")
+
+    # The read selector keeps row 0 for the generation logit and stages reads in rows 1..
+    selector = Qwen36Model._logit_selector(128, 20, (3, 7))
+    require(
+        tuple(selector.shape) == (1, 1, 32, 128)
+        and selector[0, 0, 0, 19] == 1.0
+        and selector[0, 0, 1, 3] == 1.0
+        and selector[0, 0, 2, 7] == 1.0
+        and float(selector.sum()) == 3.0,
+        "the read selector does not stage row 0 and the read rows",
+    )
+    for bad_rows in (tuple(range(32)), (20,)):
+        try:
+            Qwen36Model._logit_selector(128, 20, bad_rows)
+            require(False, f"read rows {bad_rows[:3]} were staged")
+        except AssertionError:
+            pass
+
+
+
 def main():
     probe("import ttnn (packaged runtime)", import_ttnn)
     probe("import models.tt_transformers.tt.model_config", import_transformer_config)
@@ -7606,6 +8007,7 @@ def main():
     probe("grouped prefill routing", probe_grouped_prefill_routing)
     probe("masked prefill traces", probe_masked_prefill_traces)
     probe("end of sequence", probe_end_of_sequence)
+    probe("structured reads", probe_structured_reads)
     probe("GDN decode occupancy plan", probe_gdn_occupancy_plan)
     probe("GDN occupancy policy binding", probe_gdn_occupancy_policy_binding)
 

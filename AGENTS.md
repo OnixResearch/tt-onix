@@ -249,5 +249,15 @@ Use the brought-up tree and the Adartras bundle as independent implementation re
 - The bundle targets a single p150 (`1x1` mesh); the local serialized qwen36 service requires `P150x2`.
 - Its routed-expert default is BFP4 because only that fits one 32 GB p150 (~17.5 GB vs ~35 GB BFP8).
 
+## Structured-read references
+
+- Read the vLLM structured-read sources at `.pi/references/vllm-pr57250`.
+  Source: <https://github.com/vllm-project/vllm/pull/57250>, merged as commit `1b3b88ec2b7457aa030db4d0e7d8aaf04f6d0fb8`.
+  The checkout holds `diffusion_gemma.py`, `utils/diffusion.py`, the diffusion scheduler, and the example `structured_server.py` with its README.
+
+Use this PR as the contract reference for `POST /v1/systemone` in `pkgs/qwen36`.
+Its reads run DiffusionGemma on CUDA. The local service reimplements the contract for the autoregressive Qwen3.8 model. Read `docs/qwen38-structured-reads.md` before you change it.
+Reimplement from the contract instead of copying code: the PR is Apache-2.0 and this repository is LGPL-2.1.
+
 The `.pi/` directory is not in version control.
 Download a missing reference from its listed source before you use it.
