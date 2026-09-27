@@ -1,0 +1,410 @@
+{
+ "a1": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:16:52.753580161Z",
+    "some avg10=15.52 avg60=15.63 avg300=16.73 total=367115982516",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "24.74 26.13 26.19 16/4359 3245098"
+   ],
+   "start": [
+    "2026-09-27T23:10:05.601642805Z",
+    "some avg10=14.75 avg60=15.27 avg300=15.66 total=367033705396",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "27.57 26.03 25.77 34/4375 3219289"
+   ]
+  },
+  "kind": "cached",
+  "package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0",
+  "ready_seconds": 219,
+  "startup_events": [
+   {
+    "elapsed_seconds": 6.863608555402607,
+    "prefill_seconds": 5.3410914139822125,
+    "replay_seconds": 0.046876484993845224,
+    "reset_seconds": 0.03001949517056346,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.286787385120988,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 5.828096566256136,
+    "prefill_seconds": 4.793804827611893,
+    "replay_seconds": 0.050065373070538044,
+    "reset_seconds": 0.02010396821424365,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 0.8801306649111211,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 107.01992221409455,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 119.71199449477717,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "a2": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:36:40.886702563Z",
+    "some avg10=16.43 avg60=15.80 avg300=17.29 total=367346697203",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "26.31 26.18 26.90 25/4372 3324975"
+   ],
+   "start": [
+    "2026-09-27T23:29:54.023757259Z",
+    "some avg10=16.15 avg60=16.62 avg300=17.94 total=367269005522",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "28.81 28.62 27.63 19/4364 3298807"
+   ]
+  },
+  "kind": "cached",
+  "package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0",
+  "ready_seconds": 219,
+  "startup_events": [
+   {
+    "elapsed_seconds": 7.5056755351834,
+    "prefill_seconds": 5.701460705604404,
+    "replay_seconds": 0.04849526332691312,
+    "reset_seconds": 0.0581011101603508,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.5196121269837022,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 7.3983955988660455,
+    "prefill_seconds": 6.323447002097964,
+    "replay_seconds": 0.04582824604585767,
+    "reset_seconds": 0.037154840771108866,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 0.8883670959621668,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 104.48688770923764,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 119.39145519630983,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "b1": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:23:05.699202636Z",
+    "some avg10=15.97 avg60=15.78 avg300=16.91 total=367186129013",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "24.95 25.86 26.28 21/4374 3269196"
+   ],
+   "start": [
+    "2026-09-27T23:16:52.930908162Z",
+    "some avg10=15.52 avg60=15.63 avg300=16.73 total=367116006402",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "24.74 26.13 26.19 28/4358 3245131"
+   ]
+  },
+  "kind": "cached",
+  "package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+  "ready_seconds": 218,
+  "startup_events": [
+   {
+    "elapsed_seconds": 5.873596445657313,
+    "prefill_seconds": 4.709742442239076,
+    "replay_seconds": 0.04399845190346241,
+    "reset_seconds": 0.04094194294884801,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 0.960172631777823,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 5.844468795694411,
+    "prefill_seconds": 4.727305087726563,
+    "replay_seconds": 0.048156939912587404,
+    "reset_seconds": 0.03675608290359378,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 0.9647296778857708,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 110.89421939617023,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 122.61271684989333,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "b2": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:29:53.413136021Z",
+    "some avg10=16.15 avg60=16.62 avg300=17.94 total=367268931674",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "28.81 28.62 27.63 31/4366 3298756"
+   ],
+   "start": [
+    "2026-09-27T23:23:05.811575946Z",
+    "some avg10=15.97 avg60=15.78 avg300=16.91 total=367186149716",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "24.95 25.86 26.28 21/4374 3269230"
+   ]
+  },
+  "kind": "cached",
+  "package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+  "ready_seconds": 252,
+  "startup_events": [
+   {
+    "elapsed_seconds": 6.765092874877155,
+    "prefill_seconds": 5.20745765697211,
+    "replay_seconds": 0.04577073780819774,
+    "reset_seconds": 0.03925356175750494,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.3123849933035672,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 9.3313148310408,
+    "prefill_seconds": 7.583990346640348,
+    "replay_seconds": 0.04981012316420674,
+    "reset_seconds": 0.0637001320719719,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.510859051719308,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 129.73345580743626,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 145.83027333207428,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "c1": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:10:05.357451390Z",
+    "some avg10=14.75 avg60=15.27 avg300=15.66 total=367033664555",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "26.05 25.71 25.67 19/4373 3219225"
+   ],
+   "start": [
+    "2026-09-27T22:57:46.444083762Z",
+    "some avg10=13.54 avg60=13.08 avg300=13.15 total=366900511539",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "24.86 23.74 24.31 15/4370 3139358"
+   ]
+  },
+  "kind": "cold",
+  "package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+  "ready_seconds": 626,
+  "startup_events": [
+   {
+    "elapsed_seconds": 114.6229253350757,
+    "prefill_seconds": 79.80314584076405,
+    "replay_seconds": 0.044119919650256634,
+    "reset_seconds": 0.024951989762485027,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 33.81244928762317,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 47.62920516682789,
+    "prefill_seconds": 36.09369212761521,
+    "replay_seconds": 0.04601918580010533,
+    "reset_seconds": 0.025082855951040983,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 11.396253434941173,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 345.6681307568215,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 507.9206079603173,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23185597440,
+    "banks": 8,
+    "free_bytes": 9919391744,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "c2": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T23:42:23.466678534Z",
+    "some avg10=15.82 avg60=15.52 avg300=17.29 total=367412535068",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "25.92 26.73 27.20 22/4361 3352305"
+   ],
+   "start": [
+    "2026-09-27T23:36:40.974436631Z",
+    "some avg10=16.17 avg60=15.77 avg300=17.27 total=367346709871",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "26.31 26.18 26.90 20/4373 3325009"
+   ]
+  },
+  "kind": "cold",
+  "package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+  "ready_seconds": 229,
+  "startup_events": [
+   {
+    "elapsed_seconds": 6.518708073999733,
+    "prefill_seconds": 5.063602436799556,
+    "replay_seconds": 0.047055800911039114,
+    "reset_seconds": 0.03264649584889412,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.2423858479596674,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 6.417923031840473,
+    "prefill_seconds": 5.334681020118296,
+    "replay_seconds": 0.050777168944478035,
+    "reset_seconds": 0.026914895046502352,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 0.9286127821542323,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 110.92432685382664,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 123.86133341630921,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23185597440,
+    "banks": 8,
+    "free_bytes": 9919391744,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ }
+}

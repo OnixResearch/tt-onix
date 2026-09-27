@@ -1898,6 +1898,120 @@
       "blake3": "ebfbabc8cd4f5416a3875eb4b2a45245f614f641c22cc973f751916a1c208352"
     },
     {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a1-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2747,
+      "blake3": "2cc1d18dcbe42ce4a0b785202b2a313aa12bfc6a335117b4a8f16174aa518eb8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a1-w3s.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2919,
+      "blake3": "428a7e3176214c3102893e186bcf312098033928b524e8833f0b83c31ac92dcf"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a1-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2605,
+      "blake3": "965ea53404c16a409db053f90ef66be7ba11bb862ee7656b052b5b25ca955126"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a2-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2737,
+      "blake3": "e79faeb018f9a87cc684c9ba30eb41f2f0f95a84675c1c15baa2426349851d33"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a2-w3s.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2926,
+      "blake3": "769100087b09676e781198352a6b413ae0e2526fb38d1649c3d09100b1ee8b4f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-a2-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2594,
+      "blake3": "a4abcc49dddcae8df3e79c2faf4484970623dd29f76fc9670d5248e6f998079a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4285,
+      "blake3": "e76a3dff92195f278778304852073c1cadb172f42d476ed21f318adebce5ed5b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b1-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2736,
+      "blake3": "5ca943fcaf1a61c024fcb68fa45840e9bec7e03b7729ea98105b5a8541110904"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b1-w3s.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2904,
+      "blake3": "4ae4851b05ec87c3ccb6540796f14e9ec6db4084bd5bb6522215c16fc3d6a062"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b1-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2602,
+      "blake3": "7649df1c9ccd77c458bd8a28021c63e6dbdd5949479aa1a6dc02169ec05e14c5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b2-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2757,
+      "blake3": "11b06599fadef5c08ddfce15c11b33d2aaea008bf51646cf9e563306b9e26db9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b2-w3s.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2930,
+      "blake3": "c5c0e3c71c1a1d119901f105aa8f13940cc0aef6aee7d9f80a7dade11001f82f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-b2-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2627,
+      "blake3": "a68f77dc7a3e22a926053f2daef865bceb89f934c9d64421967679360bee687d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-c1-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2634,
+      "blake3": "a1367804e8cce6c2e57fffebac293edc2bb85b8c1182daa299c6b3764d00a962"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-c1-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2544,
+      "blake3": "5496946fc3274c9736f56db4fcff446c42966bfe65be6b16ffda0609256664d0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-c2-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2647,
+      "blake3": "2c86d625b323e22f67e882cae431d6c826b6742abf3423a99bdc8258d02d0e0f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-c2-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2527,
+      "blake3": "11165b0b144143ad625d445d78ff3f9bed7740f234ecadbc034ca28c0233daea"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-prefix-cache-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4083,
+      "blake3": "3bf9072490071e93d7126b7b6d10b993d795436024324ad5df1507c7760508bf"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-resident-trace-startup.json",
+      "class": "portable_evidence",
+      "byte_count": 10696,
+      "blake3": "2487ae6bf1859f4e0f0d0e07e0a3e990b6bdc1eb71800b1dc2c8daf95f19ca89"
+    },
+    {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
       "class": "large_fixture",
       "byte_count": 4981056,

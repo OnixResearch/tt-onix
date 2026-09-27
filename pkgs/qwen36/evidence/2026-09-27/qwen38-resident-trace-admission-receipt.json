@@ -1,0 +1,122 @@
+{
+  "admission": {
+    "admitted": true,
+    "admitted_profile": {
+      "execution_identity": "/nix/store/g5pdvpin2n221v8c95j1mxbw55zk98pj-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+      "replaces_package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0"
+    },
+    "evidence_error": null,
+    "reasons": []
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_parity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matching_prefix_cache",
+      "passed": true
+    },
+    {
+      "bound": 0.25,
+      "measured": 0.08333333333333333,
+      "name": "candidate_capture_share",
+      "passed": true
+    },
+    {
+      "bound": 0.95,
+      "measured": 0.8120704806150456,
+      "name": "median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.1,
+      "measured": 1.0413831246903629,
+      "name": "wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.05,
+      "measured": 1.003312778604458,
+      "name": "median_ttft_ratio",
+      "passed": true
+    },
+    {
+      "bound": 67108864.0,
+      "measured": 0.0,
+      "name": "startup_dram_drop_bytes",
+      "passed": true
+    }
+  ],
+  "identity": {
+    "baseline_package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0",
+    "candidate_execution_identity": "/nix/store/g5pdvpin2n221v8c95j1mxbw55zk98pj-qwen36-execution-identity-0.1.0",
+    "candidate_package": "/nix/store/a32pfd9h7lkkidnpmni2lk7gs138dx0x-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-v1",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "non_claims": [
+    "The receipt compares declared agent-shaped workloads on two packages; it is not a general latency claim.",
+    "Gates compare per-turn means of two baseline and two candidate roots measured in ABBA order. That cancels host load that drifts linearly, not bursts; per-pair ratios are diagnostics only.",
+    "Admission lets the candidate package replace the baseline package; it does not admit the prefix cache or the continuous-slot scheduler on the candidate package."
+  ],
+  "pair_diagnostics": [
+    {
+      "median_ttft_ratio": 0.9970380531864902,
+      "median_wall_ratio": 0.8097360575576875,
+      "pair": "baseline_first/candidate_first",
+      "wall_ratio": 0.9788576550159461
+    },
+    {
+      "median_ttft_ratio": 1.0114976527197506,
+      "median_wall_ratio": 0.8208744653659963,
+      "pair": "candidate_second/baseline_second",
+      "wall_ratio": 1.1087266095939383
+    }
+  ],
+  "policy": {
+    "blake3": "e006ff0b2343baf8a607ea288a5f354b0edad2f82bc85d116786eda6f6e4785e",
+    "profile_id": "qwen38-p150x2-resident-slot-trace-admission-v1"
+  },
+  "receipt_kind": "resident-slot-trace-admission",
+  "roots": [
+    {
+      "baseline_first": "be824306117710884f027e3865350b8225e72b5850d84cfd8dfbdc3ed224f97a",
+      "baseline_second": "16ce67e4c6801243aaf7b4e42011b55197eeb8bbfef2d8ff3d3bfd8cdd0c8cbf",
+      "candidate_first": "c777c729397a8479e80cd683e1e731a66611ef79ec387d8041f8c0b81ad8d7d6",
+      "candidate_second": "3028d4d54a0904572e3434994a308b4ed883bff41e97370c7fa3ea5f2e5d021c"
+    },
+    {
+      "baseline_first": "7f79def5f785226c71c9f6a171900a135477c229afaf73b55e16f1a5c3b925ea",
+      "baseline_second": "2cae355fe3bcc59c0e07aee23e3b2e5315514bbc7875277bc589fde1f7482990",
+      "candidate_first": "05021c14fc91f39e93d27664740c56d4f6a64e71e884ee772aeb93f0af25b935",
+      "candidate_second": "b281c5637b57d296ea4be111008b54a61885114bcb9d80f520fde5fc041baf92"
+    },
+    {
+      "baseline_first": "19248671f5c480e8e82b7989a84d9077937beb6a6843cb9087bd26e873514da0",
+      "baseline_second": "7e386dfae6be78181da05b4fe25e86813111dd452f9e852f2377877807cd2bd3",
+      "candidate_first": "c7a77d1063409c560ee97cae72cd3aad592901e04a3b879dad84d544cc6ca8ba",
+      "candidate_second": "7f73b223d44cbe9681108a3e7a54c4732622294a60f0bf3986f69d932735968c"
+    }
+  ],
+  "schema_version": 1,
+  "simulated": false,
+  "turns": {
+    "compared": 34
+  }
+}
