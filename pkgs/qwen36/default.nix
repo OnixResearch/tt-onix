@@ -108,6 +108,8 @@ let
     (stableIdentityPath "qwen36-gdn-decode-fusion-contracts.ncl" ./gdn-decode-fusion-contracts.ncl)
     (stableIdentityPath "qwen36-gdn-decode-fusion-profile.ncl" ./gdn-decode-fusion-profile.ncl)
     (stableIdentityPath "qwen36-gdn-occupancy-policy.ncl" ./gdn-occupancy-policy.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-policy.ncl" ./continuous-slot-policy.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-contracts.ncl" ./continuous-slot-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
@@ -256,6 +258,12 @@ stdenvNoCC.mkDerivation {
     cp ${./gdn-occupancy-policy.ncl} "$out/share/qwen36/gdn-occupancy-policy.ncl"
     nickel export --format json ${./gdn-occupancy-policy.ncl} \
       > "$out/share/qwen36/gdn-occupancy-policy.json"
+    mkdir -p continuous-slot-policy-export
+    cp ${./continuous-slot-policy.ncl} continuous-slot-policy-export/continuous-slot-policy.ncl
+    cp ${./continuous-slot-contracts.ncl} continuous-slot-policy-export/continuous-slot-contracts.ncl
+    cp continuous-slot-policy-export/*.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/continuous-slot-policy.ncl \
+      > "$out/share/qwen36/continuous-slot-policy.json"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -1295,6 +1303,18 @@ PROFILE_CHECK
       exit 1
     fi
     test -s invalid-batch-admission-profile.log
+
+    # r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
+    # Negative: more refills per boundary than slots must fail the typed contract.
+    mkdir -p continuous-slot-policy-negative
+    cp ${./continuous-slot-contracts.ncl} continuous-slot-policy-negative/continuous-slot-contracts.ncl
+    cp ${./fixtures/invalid-continuous-slot-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl \
+        > invalid-continuous-slot-policy.json 2> invalid-continuous-slot-policy.log; then
+      echo "invalid continuous-slot policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-continuous-slot-policy.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
     # Negative: an invalid slot count must fail its typed contract.

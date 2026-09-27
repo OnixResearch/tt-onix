@@ -945,6 +945,1168 @@ def probe_kv_pool():
     )
 
 
+# r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
+def probe_continuous_slot_policy():
+    """Continuous slots: B4 admission, staggered refill, stale events, cancellation, deadlines,
+    capacity, fairness, refill budgets, and quarantine, all on explicit inputs."""
+    import dataclasses
+
+    from qwen36_service import continuous_slot_core as core
+    from qwen36_service.kv_pool_core import KvPoolLayout
+
+    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+        mapping = json.load(handle)
+    policy = core.ContinuousSlotPolicy.from_mapping(mapping)
+    require(policy.slot_capacity == 4, "the packaged policy is not B4")
+    for change, reason in (
+        ({"extra": 1}, "an extra policy field was accepted"),
+        ({"slot_capacity": 8}, "a B8 slot capacity was accepted"),
+        ({"refills_per_boundary": 5}, "more refills per boundary than slots were accepted"),
+        ({"worker_stall_seconds": 0}, "a zero worker stall bound was accepted"),
+        ({"queue_capacity": True}, "a boolean queue capacity was accepted"),
+    ):
+        try:
+            core.ContinuousSlotPolicy.from_mapping({**mapping, **change})
+        except core.ContinuousSlotPolicyError:
+            pass
+        else:
+            require(False, reason)
+
+    layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks)
+
+    def request(request_id, prompt, max_tokens, *, route="step", arrival=0.0, deadline=1000.0):
+        return core.SlotRequest(
+            request_id=request_id,
+            prompt_tokens=prompt,
+            max_tokens=max_tokens,
+            route=route,
+            blocks=layout.request_blocks(prompt_tokens=prompt, generation_tokens=max_tokens),
+            arrival_seconds=arrival,
+            deadline_seconds=deadline,
+        )
+
+    def queue_all(schedule, requests, use_policy=policy):
+        for item in requests:
+            schedule, refused = core.submit(schedule, use_policy, kv, item)
+            require(refused is None, f"{item.request_id} was refused: {refused}")
+        return schedule
+
+    def kinds(effects, kind):
+        return [effect for effect in effects if isinstance(effect, kind)]
+
+    def prefill_all(schedule, effects, token=7):
+        for effect in kinds(effects, core.PrefillSlot):
+            schedule = core.observe_prefill(
+                schedule, slot=effect.slot, generation=effect.generation, token_id=token, stopped=False
+            )
+        return schedule
+
+    def run_window(schedule, stop_slots=frozenset()):
+        window = core.plan_window(schedule, policy)
+        for step in range(window.steps):
+            for row in window.rows:
+                if core.slot_running(schedule, row.slot, row.generation):
+                    schedule = core.observe_step(
+                        schedule,
+                        slot=row.slot,
+                        generation=row.generation,
+                        token_id=100 + step,
+                        stopped=row.slot in stop_slots,
+                    )
+        return schedule, window
+
+    # Initial admission stays within B4: six arrivals start four slots, in order, with
+    # distinct generations and disjoint KV runs inside the generation range.
+    schedule = queue_all(
+        core.initial_schedule(policy), [request(f"r{i}", 100 + i, 32) for i in range(6)]
+    )
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    starts = kinds(effects, core.StartGroup)
+    prefills = kinds(effects, core.PrefillSlot)
+    require(starts == [core.StartGroup("step")], f"group start effects: {starts}")
+    require(
+        [(p.slot, p.request_id) for p in prefills] == [(i, f"r{i}") for i in range(4)],
+        f"initial admission was not four slots in arrival order: {prefills}",
+    )
+    require(len({p.generation for p in prefills}) == 4, "slot generations repeated")
+    runs = sorted((p.block_start, p.block_start + p.block_count) for p in prefills)
+    require(
+        runs[0][0] >= kv.first_block
+        and runs[-1][1] <= kv.end_block
+        and all(a[1] <= b[0] for a, b in zip(runs, runs[1:])),
+        f"KV runs overlap or leave the generation range: {runs}",
+    )
+    require([q.request.request_id for q in schedule.queue] == ["r4", "r5"], "the queue lost order")
+
+    # Staggered, unequal lengths: A finishes after 4 tokens while B runs on. C arrives
+    # later and refills A's slot under a new generation; B's identity, position and
+    # next token are untouched.
+    schedule = queue_all(
+        core.initial_schedule(policy), [request("A", 100, 4), request("B", 3000, 50)]
+    )
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule, window = run_window(schedule)
+    require(window.steps == 3, f"the window ran past A's bound: {window.steps}")
+    require(schedule.slots[0].state == core.SLOT_COMPLETE, "A did not complete at its bound")
+    require(schedule.slots[0].finish_reason == core.FINISH_LENGTH, "A's finish reason is wrong")
+    b_before = schedule.slots[1]
+    require(b_before.position == 3003 and b_before.generated == 4, f"B advanced wrongly: {b_before}")
+    a_generation = schedule.slots[0].generation
+    schedule = queue_all(schedule, [request("C", 200, 8, arrival=2.0)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.5)
+    require(
+        kinds(effects, core.RetireSlot) == [core.RetireSlot(0, a_generation, "A", core.FINISH_LENGTH)],
+        f"A was not retired once: {effects}",
+    )
+    refill = kinds(effects, core.PrefillSlot)
+    require(
+        len(refill) == 1 and refill[0].slot == 0 and refill[0].request_id == "C",
+        f"C did not refill A's slot: {refill}",
+    )
+    require(refill[0].generation > b_before.generation, "the refill reused an old generation")
+    require(not kinds(effects, core.StartGroup), "a refill beside an active user restarted the group")
+    require(schedule.slots[1] == b_before, "the refill changed B's slot")
+    b_run = (b_before.block_start, b_before.block_start + b_before.request.blocks)
+    c_run = (refill[0].block_start, refill[0].block_start + refill[0].block_count)
+    require(c_run[1] <= b_run[0] or b_run[1] <= c_run[0], "C's KV run overlaps B's")
+
+    # Stale and out-of-order events are rejected and change nothing.
+    for event, reason in (
+        (lambda: core.observe_step(schedule, slot=0, generation=a_generation, token_id=1, stopped=False),
+         "a token for A's old generation reached C's slot"),
+        (lambda: core.observe_step(schedule, slot=0, generation=refill[0].generation, token_id=1, stopped=False),
+         "a decode token was accepted before C's prefill completed"),
+        (lambda: core.observe_prefill(schedule, slot=1, generation=b_before.generation, token_id=1, stopped=False),
+         "a second prefill completion was accepted for B"),
+        (lambda: core.observe_step(schedule, slot=7, generation=1, token_id=1, stopped=False),
+         "an event for a slot outside the schedule was accepted"),
+    ):
+        snapshot = schedule
+        try:
+            event()
+        except core.SlotEventRejected:
+            pass
+        else:
+            require(False, reason)
+        require(schedule == snapshot, "a rejected event changed the schedule")
+    # Once C decodes, a late token from A's generation still cannot reach C.
+    refilled = core.observe_prefill(
+        schedule, slot=0, generation=refill[0].generation, token_id=9, stopped=False
+    )
+    try:
+        core.observe_step(refilled, slot=0, generation=a_generation, token_id=1, stopped=False)
+    except core.SlotEventRejected:
+        pass
+    else:
+        require(False, "a token from A's generation was applied to C's active slot")
+
+    # A first token that ends a request completes it without a decode window.
+    schedule = queue_all(core.initial_schedule(policy), [request("one", 50, 1), request("eos", 50, 9)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    one, eos = kinds(effects, core.PrefillSlot)
+    schedule = core.observe_prefill(schedule, slot=one.slot, generation=one.generation, token_id=5, stopped=False)
+    schedule = core.observe_prefill(schedule, slot=eos.slot, generation=eos.generation, token_id=2, stopped=True)
+    require(
+        [slot.finish_reason for slot in schedule.slots[:2]] == [core.FINISH_LENGTH, core.FINISH_STOP],
+        "first-token completions were not recorded",
+    )
+    require(core.plan_window(schedule, policy) is None, "a window was planned with no active slot")
+
+    # An end-of-sequence token mid-window completes that row only.
+    schedule = queue_all(core.initial_schedule(policy), [request("x", 50, 40), request("y", 50, 40)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule, window = run_window(schedule, stop_slots=frozenset({1}))
+    require(window.steps == policy.decode_window_steps, "the window ignored its step bound")
+    require(
+        schedule.slots[1].finish_reason == core.FINISH_STOP and schedule.slots[1].generated == 2,
+        "the stopped row kept generating",
+    )
+    require(
+        schedule.slots[0].generated == 1 + policy.decode_window_steps,
+        "the running row lost steps when its neighbour stopped",
+    )
+
+    # Cancellation: a queued request is refused at once, a running one completes as
+    # cancelled and is retired at the next boundary, an unknown one changes nothing.
+    schedule = queue_all(
+        core.initial_schedule(policy), [request(f"c{i}", 64, 20) for i in range(6)]
+    )
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule, refused = core.cancel(schedule, "c5")
+    require(refused == core.RejectRequest("c5", core.REJECT_CANCELLED), "a queued cancel was not refused")
+    require([q.request.request_id for q in schedule.queue] == ["c4"], "the cancelled request stayed queued")
+    schedule, refused = core.cancel(schedule, "c2")
+    require(refused is None and schedule.slots[2].finish_reason == core.FINISH_CANCELLED, "a running cancel failed")
+    unchanged = schedule
+    schedule, refused = core.cancel(schedule, "missing")
+    require(refused is None and schedule == unchanged, "an unknown cancel changed the schedule")
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.0)
+    require(
+        [(r.slot, r.finish_reason) for r in kinds(effects, core.RetireSlot)] == [(2, core.FINISH_CANCELLED)],
+        f"the cancelled slot was not retired: {effects}",
+    )
+    require(
+        [(p.slot, p.request_id) for p in kinds(effects, core.PrefillSlot)] == [(2, "c4")],
+        "the cancelled slot was not refilled",
+    )
+
+    # Deadlines: queued requests past their deadline or the queue bound are refused;
+    # an active request past its deadline is retired as timed out.
+    schedule = queue_all(
+        core.initial_schedule(policy),
+        [request(f"d{i}", 64, 64, deadline=50.0) for i in range(4)]
+        + [request("late", 64, 8, deadline=10.0), request("stale", 64, 8, deadline=5000.0)],
+    )
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule, effects = core.plan_boundary(
+        schedule, policy, kv, now=policy.maximum_queue_seconds + 1.0
+    )
+    require(
+        sorted((r.request_id, r.reason) for r in kinds(effects, core.RejectRequest))
+        == [("late", core.REJECT_DEADLINE), ("stale", core.REJECT_QUEUE_TIMEOUT)],
+        f"queued deadlines were not enforced: {effects}",
+    )
+    require(
+        {r.finish_reason for r in kinds(effects, core.RetireSlot)} == {core.FINISH_TIMEOUT}
+        and len(kinds(effects, core.RetireSlot)) == 4,
+        "active requests past their deadline were not retired",
+    )
+
+    # Capacity: a full queue, a request no row can hold, and a duplicate id are refused
+    # without changing the schedule; a request waits while no KV run fits it.
+    schedule = core.initial_schedule(policy)
+    for index in range(policy.queue_capacity):
+        schedule, refused = core.submit(schedule, policy, kv, request(f"q{index}", 64, 8))
+    before = schedule
+    for item, reason in (
+        (request("overflow", 64, 8), core.REJECT_QUEUE_FULL),
+        (request("q0", 64, 8), core.REJECT_DUPLICATE),
+    ):
+        schedule, refused = core.submit(schedule, policy, kv, item)
+        require(refused == core.RejectRequest(item.request_id, reason), f"{item.request_id}: {refused}")
+        require(schedule == before, "a refused request changed the schedule")
+    oversized = dataclasses.replace(request("huge", 64, 8), blocks=kv.row_blocks + 1)
+    schedule, refused = core.submit(core.initial_schedule(policy), policy, kv, oversized)
+    require(refused == core.RejectRequest("huge", core.REJECT_EXCEEDS_KV_ROW), "an oversized row was queued")
+    full = 65536 - 8192
+    # Three full-length rows leave less than one row free; a fourth full row waits.
+    schedule = queue_all(
+        core.initial_schedule(policy),
+        [request(f"f{i}", full, 8192) for i in range(4)] + [request("small", 100, 8)],
+    )
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    admitted = [p.request_id for p in kinds(effects, core.PrefillSlot)]
+    require(admitted[:3] == ["f0", "f1", "f2"] and "f3" not in admitted, f"KV admission: {admitted}")
+    require("small" in admitted, "a small request did not pass a head that no KV run fits")
+    require(schedule.queue[0].request.request_id == "f3" and schedule.queue[0].bypassed == 1,
+            "the blocked head's bypass was not counted")
+
+    # Fairness: while a sampled head waits for the greedy group, later greedy requests
+    # pass it at most maximum_head_bypasses times; then admission stops, the group
+    # drains, and the head starts the next group.
+    schedule = queue_all(core.initial_schedule(policy), [request("g0", 64, 60)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule = queue_all(
+        schedule,
+        [request("sampled", 64, 4, route="full")] + [request(f"g{i}", 64, 60) for i in range(1, 6)],
+    )
+    passed = []
+    for boundary in range(40):
+        schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.0 + boundary)
+        passed += [p.request_id for p in kinds(effects, core.PrefillSlot)]
+        if "sampled" in passed:
+            require(
+                kinds(effects, core.StartGroup) == [core.StartGroup("full")],
+                "the sampled head did not start its own group",
+            )
+            break
+        schedule = prefill_all(schedule, effects)
+        if core.plan_window(schedule, policy) is not None:
+            schedule, _ = run_window(schedule)
+    require(
+        passed[: policy.maximum_head_bypasses] == ["g1", "g2"][: policy.maximum_head_bypasses]
+        and passed[policy.maximum_head_bypasses] == "sampled",
+        f"the blocked head was passed more than the policy allows: {passed}",
+    )
+
+    # Refill budgets beside active users: at most refills_per_boundary prefills, and the
+    # prompt-token budget delays (never skips) the next request; the first refill at a
+    # boundary is always allowed.
+    wide = dataclasses.replace(policy, refills_per_boundary=3, refill_prompt_token_budget=4096)
+    schedule = queue_all(core.initial_schedule(wide), [request("long", 64, 400)], wide)
+    schedule, effects = core.plan_boundary(schedule, wide, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule = queue_all(
+        schedule, [request("big", 6000, 8), request("mid", 3000, 8), request("tiny", 50, 8)], wide
+    )
+    schedule, effects = core.plan_boundary(schedule, wide, kv, now=2.0)
+    require(
+        [p.request_id for p in kinds(effects, core.PrefillSlot)] == ["big"],
+        "the token budget let a later request pass, or blocked the first refill",
+    )
+    schedule = prefill_all(schedule, effects)
+    schedule, effects = core.plan_boundary(schedule, wide, kv, now=3.0)
+    require(
+        [p.request_id for p in kinds(effects, core.PrefillSlot)] == ["mid", "tiny"],
+        "the budget did not admit the waiting requests at the next boundary",
+    )
+    schedule = queue_all(core.initial_schedule(policy), [request("l", 64, 400)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
+    schedule = prefill_all(schedule, effects)
+    schedule = queue_all(schedule, [request("m", 64, 8), request("n", 64, 8)])
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.0)
+    require(len(kinds(effects, core.PrefillSlot)) == policy.refills_per_boundary, "refill count bound broken")
+
+    # A waiting structured read admits nothing, so the group drains for it.
+    schedule, effects = core.plan_boundary(schedule, policy, kv, now=3.0, reads_waiting=True)
+    require(not kinds(effects, core.PrefillSlot), "a refill was admitted while a read waited")
+
+    # Draining and quarantine: nothing is admitted until the group is empty and reset.
+    schedule = prefill_all(schedule, effects)
+    drained = core.mark_draining(schedule)
+    _, effects = core.plan_boundary(drained, policy, kv, now=4.0)
+    require(not kinds(effects, core.PrefillSlot), "a draining group was refilled")
+    quarantined, failed = core.quarantine_group(schedule)
+    require(
+        sorted(r.request_id for r in failed) == ["l", "m"]
+        and {r.finish_reason for r in failed} == {core.FINISH_FAILED},
+        f"quarantine did not fail every occupied slot: {failed}",
+    )
+    quarantined, effects = core.plan_boundary(quarantined, policy, kv, now=5.0)
+    require(not effects, f"a quarantined group retired or admitted work: {effects}")
+    released = core.release_quarantine(quarantined)
+    require(released.route is None and not released.draining, "the released schedule kept its group")
+    released, effects = core.plan_boundary(released, policy, kv, now=6.0)
+    require(
+        kinds(effects, core.StartGroup) and [p.request_id for p in kinds(effects, core.PrefillSlot)] == ["n"],
+        "a released schedule did not start a new group",
+    )
+    released, refused = core.drain_queue(queue_all(released, [request("z", 64, 8)]), "closed")
+    require(refused == (core.RejectRequest("z", "closed"),) and not released.queue, "drain_queue kept work")
+
+
+# r[verify tenstorrent.qwen38_p150x2.continuous_slot_effects]
+def probe_continuous_slot_worker():
+    """Continuous-slot shell over a fake adapter: one device owner, exact refills beside live
+    rows, the inactive-row contract, group failure and reset, drift and stall quarantine."""
+    import threading
+    import time
+
+    import torch
+    from qwen36_service import continuous_slot_core as core
+    from qwen36_service.batch_decode_adapter import (
+        BatchDecodeAdapterError,
+        SlotRefillResult,
+        TraceBindingDriftError,
+    )
+    from qwen36_service.continuous_slot_service import (
+        ContinuousSlotCoordinator,
+        EngineQuarantinedError,
+        SlotRequestRefused,
+    )
+    from qwen36_service.core import CompletionRequest, Endpoint
+    from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
+    from qwen36_service.sampled_decode_core import ShardCandidates
+
+    stop_token = 3
+
+    def expected_token(seed, index):
+        """The fake model: a request's index-th generated token depends only on its prompt."""
+        if seed % 5 == 0 and index == 6:
+            return stop_token
+        return 10 + (seed * 31 + index * 17) % 1000
+
+    def reference(seed, max_tokens):
+        tokens = []
+        for index in range(max_tokens):
+            token = expected_token(seed, index)
+            if token == stop_token:
+                break
+            tokens.append(token)
+        return tokens
+
+    class FakeSlotAdapter:
+        """Row-independent fake device that enforces the adapter's slot contract."""
+
+        maximum_width = 16
+
+        def __init__(self):
+            self.kv_pool = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+            self.fusion_mode = "step"
+            self.lock = threading.Lock()
+            self.log = []
+            self.threads = set()
+            self.active = 0
+            self.overlapped = False
+            self.width = None
+            self.owned = {}
+            self.hooks = {}
+            self.release_trace_on_refill = False
+
+        def _enter(self, name, **fields):
+            with self.lock:
+                self.active += 1
+                self.overlapped = self.overlapped or self.active > 1
+                self.threads.add(threading.get_ident())
+                self.log.append((name, fields))
+            try:
+                hook = self.hooks.get(name)
+                if hook is not None:
+                    hook(**fields)
+            except BaseException:
+                self._exit()
+                raise
+
+        def _exit(self):
+            with self.lock:
+                self.active -= 1
+
+        def request_blocks(self, *, prompt_tokens, generation_tokens):
+            # Host arithmetic, not a device effect: callers may use it from any thread.
+            try:
+                return self.kv_pool.request_blocks(
+                    prompt_tokens=prompt_tokens, generation_tokens=generation_tokens
+                )
+            except KvPoolError as error:
+                raise BatchDecodeAdapterError(str(error)) from error
+
+        def begin_slots(self, *, width, route):
+            self._enter("begin_slots", width=width, route=route)
+            self.width = width
+            self.owned = {}
+            self.fusion_mode = route
+            self._exit()
+
+        def refill_slot(self, *, slot, token_ids, block_start, block_count):
+            self._enter("refill_slot", slot=slot, block_start=block_start, block_count=block_count)
+            try:
+                if self.width is None:
+                    raise BatchDecodeAdapterError("refill before the slot group was reset")
+                if slot in self.owned:
+                    raise BatchDecodeAdapterError("slot already owned")
+                for other in self.owned.values():
+                    if block_start < other["end"] and other["start"] < block_start + block_count:
+                        raise BatchDecodeAdapterError("KV runs overlap")
+                seed = int(token_ids.sum())
+                first = expected_token(seed, 0)
+                self.owned[slot] = {
+                    "seed": seed,
+                    "index": 1,
+                    "last": first,
+                    "position": int(token_ids.shape[1]),
+                    "start": block_start,
+                    "end": block_start + block_count,
+                }
+                return SlotRefillResult(
+                    first_token_id=first,
+                    elapsed_seconds=0.002,
+                    first_token_ready_seconds=0.001,
+                    masked_traces_used=True,
+                    masked_traces_released=False,
+                    decode_trace_released=self.release_trace_on_refill,
+                )
+            finally:
+                self._exit()
+
+        def retire_slot(self, *, slot):
+            self._enter("retire_slot", slot=slot)
+            try:
+                if self.owned.pop(slot, None) is None:
+                    raise BatchDecodeAdapterError("retired an unowned slot")
+            finally:
+                self._exit()
+
+        def abandon_slots(self):
+            self._enter("abandon_slots")
+            self.width = None
+            self.owned = {}
+            self._exit()
+
+        def _check_inputs(self, token_ids, positions):
+            if len(token_ids) != self.width or len(positions) != self.width:
+                raise BatchDecodeAdapterError("decode inputs do not cover every row")
+            for row in range(self.width):
+                state = self.owned.get(row)
+                expected = (0, 0) if state is None else (state["last"], state["position"])
+                if (token_ids[row], positions[row]) != expected:
+                    raise BatchDecodeAdapterError(
+                        f"row {row} input {(token_ids[row], positions[row])} != {expected}"
+                    )
+
+        def _advance(self):
+            tokens = []
+            for row in range(self.width):
+                state = self.owned.get(row)
+                if state is None:
+                    tokens.append(0)
+                    continue
+                token = expected_token(state["seed"], state["index"])
+                state["index"] += 1
+                state["position"] += 1
+                state["last"] = token
+                tokens.append(token)
+            return tuple(tokens)
+
+        def decode_slots_greedy(self, *, token_ids, positions, steps):
+            self._enter("decode_window", steps=steps)
+            try:
+                self._check_inputs(token_ids, positions)
+            finally:
+                self._exit()
+
+            def stream():
+                for _ in range(steps):
+                    self._enter("decode_step")
+                    try:
+                        tokens = self._advance()
+                    finally:
+                        self._exit()
+                    yield tokens
+
+            return stream()
+
+        def decode_slots_sampled(self, *, token_ids, positions):
+            self._enter("decode_sampled", route=self.fusion_mode)
+            try:
+                self._check_inputs(token_ids, positions)
+                return tuple(
+                    (ShardCandidates((0.0,), (token,)), ShardCandidates((-1000.0,), (token + 1,)))
+                    for token in self._advance()
+                )
+            finally:
+                self._exit()
+
+    class FakeTokenizer:
+        @staticmethod
+        def decode(tokens, skip_special_tokens=True):
+            return " ".join(str(token) for token in tokens)
+
+    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+        mapping = json.load(handle)
+    policy = core.ContinuousSlotPolicy.from_mapping({**mapping, "decode_window_steps": 4})
+
+    def make(adapter, *, stall_seconds=None, sampled=False):
+        use_policy = policy
+        if stall_seconds is not None:
+            use_policy = core.ContinuousSlotPolicy.from_mapping(
+                {**mapping, "decode_window_steps": 4, "worker_stall_seconds": stall_seconds}
+            )
+        emitted = []
+        coordinator = ContinuousSlotCoordinator(
+            slot_policy=use_policy,
+            adapter=adapter,
+            tokenizer=FakeTokenizer(),
+            model=SimpleNamespace(args=SimpleNamespace(vocab_size=2048)),
+            profile=SimpleNamespace(profile_id="decode-test"),
+            model_alias="model-test",
+            model_identity="model-identity-test",
+            package_identity="package-test",
+            runtime_identity="runtime-test",
+            maximum_sequence_length=65536,
+            physical_pcie_device_ids=(0, 1),
+            emitter=lambda stage, **fields: emitted.append((stage, fields)),
+            sampled_admission_enabled=sampled,
+            stop_token_ids=frozenset({stop_token}),
+        )
+        with coordinator._condition:
+            coordinator._accepting_requests = True
+        return coordinator, emitted
+
+    def prompt(seed, length):
+        tokens = torch.ones((1, length), dtype=torch.int64)
+        tokens[0, 0] = seed - (length - 1)
+        return tokens
+
+    def submit(coordinator, name, seed, length, max_tokens, results, *, temperature=None, deadline=60.0):
+        sink = []
+        request = CompletionRequest(
+            endpoint=Endpoint.COMPLETIONS,
+            model="model-test",
+            max_tokens=max_tokens,
+            prompt=name,
+            messages=(),
+            temperature=temperature,
+            seed=7,
+        )
+
+        def run():
+            started = time.monotonic()
+            try:
+                response = coordinator.generate(
+                    request=request,
+                    request_id=name,
+                    token_ids=prompt(seed, length),
+                    prompt_token_count=length,
+                    started=started,
+                    deadline=started + deadline,
+                    token_sink=sink.append,
+                )
+            except Exception as error:  # noqa: BLE001 - reported through results
+                results[name] = ("error", error, sink)
+            else:
+                results[name] = ("ok", response, sink)
+
+        thread = threading.Thread(target=run, name=f"client-{name}")
+        thread.start()
+        return thread
+
+    # Staggered arrivals with unequal lengths, more requests than slots, and one request
+    # that ends early on a stop token. Every answer equals its request decoded alone.
+    adapter = FakeSlotAdapter()
+    # Slow steps keep the long request running while the later ones arrive.
+    adapter.hooks["decode_step"] = lambda **_fields: time.sleep(0.01)
+    coordinator, emitted = make(adapter)
+    results = {}
+    plan = [
+        ("long", 101, 3000, 40),
+        ("short", 202, 100, 3),
+        ("eos", 305, 50, 30),
+        ("mid", 404, 700, 12),
+        ("late1", 507, 64, 9),
+        ("late2", 608, 64, 17),
+        ("late3", 709, 2000, 5),
+    ]
+    threads = []
+    try:
+        for index, (name, seed, length, max_tokens) in enumerate(plan):
+            threads.append(submit(coordinator, name, seed, length, max_tokens, results))
+            if index == 0:
+                # The long request holds a slot before the others arrive.
+                waited = time.monotonic() + 5
+                while not any(n == "refill_slot" for n, _ in list(adapter.log)):
+                    if time.monotonic() >= waited:
+                        require(False, "the first request was never prefilled")
+                        break
+                    time.sleep(0.001)
+            if index in (3, 5):
+                time.sleep(0.05)
+        for thread in threads:
+            thread.join(timeout=10)
+    finally:
+        coordinator.close()
+    for name, seed, _length, max_tokens in plan:
+        outcome = results.get(name)
+        require(outcome is not None and outcome[0] == "ok", f"{name} failed: {outcome}")
+        if outcome is None or outcome[0] != "ok":
+            continue
+        response, sink = outcome[1], outcome[2]
+        expected = reference(seed, max_tokens)
+        tokens = response["x_onix_decode_evidence"]["generated_token_ids"]
+        require(tokens == expected, f"{name} decoded {tokens}, alone it decodes {expected}")
+        require(sink[: len(expected)] == expected, f"{name} streamed tokens out of order")
+        require(
+            response["choices"][0]["finish_reason"] == ("stop" if len(expected) < max_tokens else "length"),
+            f"{name} finish reason is wrong",
+        )
+        require(
+            response["x_onix_decode_evidence"]["decode_path"] == "continuous-slot",
+            "the response does not name the continuous-slot path",
+        )
+    require(len(adapter.threads) == 1, f"device calls came from {len(adapter.threads)} threads")
+    require(not adapter.overlapped, "two device effects overlapped")
+    refills = [fields for name, fields in adapter.log if name == "refill_slot"]
+    require(len(refills) == len(plan), "a request was prefilled more or less than once")
+    require(
+        sum(1 for name, _ in adapter.log if name == "begin_slots") == 1,
+        "the group restarted although slots stayed busy",
+    )
+    first_window = next(i for i, (name, _) in enumerate(adapter.log) if name == "decode_window")
+    require(
+        any(name == "refill_slot" for name, _ in adapter.log[first_window:]),
+        "no slot was refilled beside a running decode",
+    )
+    require(
+        max(fields["slot"] for fields in refills) < policy.slot_capacity,
+        "a refill used a row outside B4",
+    )
+
+    # A sampled group decodes step by step with host-staged tokens, on its own route.
+    adapter = FakeSlotAdapter()
+    coordinator, _ = make(adapter, sampled=True)
+    results = {}
+    try:
+        threads = [
+            submit(coordinator, "s1", 811, 64, 11, results, temperature=0.6),
+            submit(coordinator, "s2", 912, 128, 6, results, temperature=0.6),
+        ]
+        for thread in threads:
+            thread.join(timeout=10)
+    finally:
+        coordinator.close()
+    for name, seed, max_tokens in (("s1", 811, 11), ("s2", 912, 6)):
+        outcome = results.get(name)
+        require(
+            outcome is not None
+            and outcome[0] == "ok"
+            and outcome[1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(seed, max_tokens)
+            and outcome[1]["x_onix_decode_evidence"]["serving_route"] == "full",
+            f"sampled {name} failed: {outcome}",
+        )
+
+    # A device error fails the whole group, which is reset before the next one starts.
+    adapter = FakeSlotAdapter()
+    coordinator, emitted = make(adapter)
+    failures = {"left": 1}
+
+    def fail_once(**_fields):
+        time.sleep(0.01)
+        # Fail once both requests hold a slot, so the failure hits a two-row group.
+        if failures["left"] and len(adapter.owned) == 2:
+            failures["left"] -= 1
+            raise RuntimeError("injected device failure")
+
+    adapter.hooks["decode_step"] = fail_once
+    results = {}
+    try:
+        for thread in [
+            submit(coordinator, "f1", 1001, 64, 20, results),
+            submit(coordinator, "f2", 1102, 64, 20, results),
+        ]:
+            thread.join(timeout=10)
+        after = {}
+        submit(coordinator, "after", 1203, 64, 8, after).join(timeout=10)
+    finally:
+        coordinator.close()
+    require(
+        all(results.get(name, ("missing",))[0] == "error" for name in ("f1", "f2")),
+        f"the failed group's requests did not fail: {results}",
+    )
+    names = [name for name, _ in adapter.log]
+    require("abandon_slots" in names, "the failed group was not reset")
+    require(
+        names.index("abandon_slots") < len(names) - 1 - names[::-1].index("begin_slots"),
+        "a new group began before the failed one was reset",
+    )
+    require(
+        after.get("after", ("missing",))[0] == "ok"
+        and after["after"][1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(1203, 8),
+        f"the worker did not serve after a reset: {after}",
+    )
+    require(coordinator.quarantine_reason is None, "a recoverable failure quarantined the engine")
+
+    # An unsafe refill (decode trace released) drains the group: nothing else is admitted
+    # until it is empty, and its live users still finish exactly.
+    adapter = FakeSlotAdapter()
+    adapter.release_trace_on_refill = True
+    adapter.hooks["decode_step"] = lambda **_fields: time.sleep(0.01)
+    coordinator, emitted = make(adapter)
+    results = {}
+    try:
+        first = submit(coordinator, "d1", 1301, 64, 24, results)
+        time.sleep(0.05)
+        second = submit(coordinator, "d2", 1402, 64, 4, results)
+        for thread in (first, second):
+            thread.join(timeout=10)
+    finally:
+        coordinator.close()
+    begins = [i for i, (name, _) in enumerate(adapter.log) if name == "begin_slots"]
+    require(
+        all(results.get(name, ("missing",))[0] == "ok" for name in ("d1", "d2")),
+        f"a draining group lost a request: {results}",
+    )
+    require(
+        results["d1"][1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(1301, 24),
+        "a draining group's live user diverged",
+    )
+    require(len(begins) == 2, "a request was refilled into a draining group")
+    require(
+        any(stage == "continuous-slot-group-draining" for stage, _ in emitted),
+        "the unsafe refill was not reported",
+    )
+
+    # Cancellation withdraws a queued request without device work.
+    adapter = FakeSlotAdapter()
+    coordinator, _ = make(adapter)
+    gate = threading.Event()
+    adapter.hooks["begin_slots"] = lambda **_fields: gate.wait(timeout=5)
+    results = {}
+    try:
+        blocker = submit(coordinator, "blocker", 1501, 64, 4, results)
+        time.sleep(0.05)
+        queued = submit(coordinator, "withdrawn", 1602, 64, 4, results)
+        time.sleep(0.05)
+        require(coordinator.cancel("withdrawn"), "a queued request could not be cancelled")
+        require(not coordinator.cancel("unknown"), "an unknown request was reported cancelled")
+        gate.set()
+        for thread in (blocker, queued):
+            thread.join(timeout=10)
+    finally:
+        gate.set()
+        coordinator.close()
+    outcome = results.get("withdrawn")
+    require(
+        outcome is not None and isinstance(outcome[1], SlotRequestRefused) and outcome[1].reason == "cancelled",
+        f"the cancelled request did not fail as cancelled: {outcome}",
+    )
+    require(
+        not [f for name, f in adapter.log if name == "refill_slot" and f["slot"] != 0],
+        "the cancelled request was prefilled",
+    )
+
+    # Trace-binding drift quarantines the engine: every request fails and no device call
+    # follows.
+    adapter = FakeSlotAdapter()
+    coordinator, emitted = make(adapter)
+    refill_count = {"value": 0}
+
+    def drift(**_fields):
+        # The second refill observes a moved binding, whichever slot it targets.
+        refill_count["value"] += 1
+        if refill_count["value"] == 2:
+            raise TraceBindingDriftError("batch trace binding changed")
+
+    adapter.hooks["refill_slot"] = drift
+    adapter.hooks["decode_step"] = lambda **_fields: time.sleep(0.01)
+    results = {}
+    try:
+        threads = [submit(coordinator, f"q{i}", 1701 + i, 64, 30, results) for i in range(3)]
+        for thread in threads:
+            thread.join(timeout=10)
+        calls_after_drift = len(adapter.log)
+        refused = {}
+        submit(coordinator, "refused", 1800, 64, 4, refused).join(timeout=5)
+        require(
+            isinstance(refused["refused"][1], EngineQuarantinedError),
+            "a quarantined engine accepted a request",
+        )
+    finally:
+        coordinator.close()
+    require(coordinator.quarantine_reason == "trace-binding-drift", "drift did not quarantine the engine")
+    require(
+        all(isinstance(results[name][1], BatchDecodeAdapterError) for name in ("q0", "q1", "q2")),
+        f"requests survived trace drift: {results}",
+    )
+    require(len(adapter.log) == calls_after_drift, "the device was used after quarantine")
+    require(not any(name == "abandon_slots" for name, _ in adapter.log), "a drifted engine reused the device")
+
+    # A device effect that outlives the stall bound quarantines the engine from the waiting
+    # caller; the worker touches the device no more once the effect returns.
+    adapter = FakeSlotAdapter()
+    coordinator, emitted = make(adapter, stall_seconds=0.2)
+    release = threading.Event()
+    adapter.hooks["decode_step"] = lambda **_fields: release.wait(timeout=10)
+    results = {}
+    try:
+        thread = submit(coordinator, "stalled", 1901, 64, 8, results)
+        thread.join(timeout=5)
+        stalled_calls = len(adapter.log)
+        release.set()
+        time.sleep(0.2)
+    finally:
+        release.set()
+        coordinator.close()
+    outcome = results.get("stalled")
+    require(
+        outcome is not None and isinstance(outcome[1], EngineQuarantinedError),
+        f"a stalled worker did not fail its caller: {outcome}",
+    )
+    require(coordinator.quarantine_reason == "worker-stalled", "the stall did not quarantine the engine")
+    require(len(adapter.log) == stalled_calls, "the worker used the device after a stall quarantine")
+    require(
+        any(stage == "engine-quarantined" for stage, _ in emitted),
+        "the quarantine was not reported",
+    )
+
+    # Construction refuses fixed-group admission measurements.
+    try:
+        ContinuousSlotCoordinator(
+            slot_policy=policy,
+            adapter=FakeSlotAdapter(),
+            tokenizer=FakeTokenizer(),
+            model=None,
+            profile=None,
+            model_alias="m",
+            model_identity="m",
+            package_identity="p",
+            runtime_identity="r",
+            maximum_sequence_length=65536,
+            physical_pcie_device_ids=(0, 1),
+            emitter=lambda *_args, **_fields: None,
+            batch_admission_enabled=True,
+        )
+    except BatchDecodeAdapterError:
+        pass
+    else:
+        require(False, "continuous slots accepted a fixed-group admission measurement")
+
+
+# r[verify tenstorrent.qwen38_p150x2.continuous_slot_effects]
+def probe_continuous_slot_adapter():
+    """The adapter's slot contract on fake TTNN: KV-run ownership, page-table rows, full
+    restage after a refill or retirement, drift rejection, and unsafe-refill release."""
+    import torch
+    from qwen36_service import batch_decode_adapter as adapter_module
+    from qwen36_service.batch_decode_adapter import (
+        BatchDecodeAdapterError,
+        BatchedTracedDecodeAdapter,
+        TraceBindingDriftError,
+        _BatchTrace,
+    )
+    from qwen36_service.kv_pool_core import KvPoolLayout
+
+    vocabulary = 64
+    first_token = 42
+    binding = {"value": ("inputs@1", "kv@1", "gdn@1", "logits@1")}
+    released, copies, captures, resets = [], [], [], []
+
+    class FakeMesh:
+        programs = 10
+
+        def num_program_cache_entries(self):
+            return self.programs
+
+    class FakeModel:
+        def __init__(self):
+            self.layers = [
+                SimpleNamespace(is_full_attention=True, attention=None),
+                SimpleNamespace(
+                    is_full_attention=False, attention=SimpleNamespace(_decode_fusion_mode="step")
+                ),
+            ]
+            self.prefills = []
+            self.buckets = (128, 256)
+            self.stale = False
+            self.on_prefill = None
+
+        def masked_prefill_traces_stale(self):
+            return self.stale
+
+        def release_masked_prefill_traces(self):
+            self.buckets = ()
+            self.stale = False
+
+        def masked_prefill_trace_buckets(self):
+            return self.buckets
+
+        def prefill_paged_slots(self, tokens, page_table, slots, valid_lens, first_token_callback, masked_traces):
+            self.prefills.append((page_table.clone(), list(slots), list(valid_lens), masked_traces))
+            logits = torch.zeros((1, 1, vocabulary))
+            logits[0, 0, first_token] = 1.0
+            first_token_callback([logits])
+            if self.on_prefill is not None:
+                self.on_prefill()
+            return [logits]
+
+        @staticmethod
+        def prepare_decode_inputs_host(tokens, positions, page_table=None):
+            return (
+                tokens.clone(),
+                positions.clone(),
+                "rope",
+                None if page_table is None else page_table.clone(),
+            )
+
+    layout = KvPoolLayout(pool_blocks=96, row_blocks=16, kv_block_size=64)
+    scratch = layout.scratch_block
+    model = FakeModel()
+    adapter = object.__new__(BatchedTracedDecodeAdapter)
+    adapter.model = model
+    adapter.profile = SimpleNamespace(maximum_sequence_length=1024, kv_block_size=64)
+    adapter.maximum_width = 4
+    adapter.mesh = FakeMesh()
+    adapter.vocabulary_size = vocabulary
+    adapter.blocks_per_user = layout.row_blocks
+    adapter.kv_pool = layout
+    adapter.page_table = torch.zeros((4, layout.row_blocks), dtype=torch.int32)
+    adapter._traces = {}
+    adapter._pending_trace_plan = None
+    adapter._prior_reset_complete = True
+    adapter._closed = False
+    adapter._slot_width = None
+    adapter._slot_runs = {}
+    adapter._slot_inputs_stale = False
+    adapter.reset_all = lambda: resets.append(True)
+    adapter._observe_binding = lambda _inputs, _logits: binding["value"]
+    streams = []
+
+    def capture(*, token_ids, positions):
+        captures.append((token_ids, positions, adapter.page_table[:4].clone()))
+        adapter._traces[len(token_ids)] = _BatchTrace(
+            width=len(token_ids),
+            trace_id=f"trace-{len(captures)}",
+            device_inputs=("tokens-in", "positions-in", "rope-in", "page-table-in"),
+            logits="logits",
+            indices="indices",
+            values=None,
+            binding=binding["value"],
+            capture_seconds=0.1,
+        )
+
+    adapter.prepare_width = capture
+    adapter.decode_greedy_stream = lambda **fields: streams.append(fields) or iter(())
+
+    def prompt(length):
+        return torch.ones((1, length), dtype=torch.int64)
+
+    def rejects(action, reason):
+        before = (adapter.page_table.clone(), dict(adapter._slot_runs), len(model.prefills))
+        try:
+            action()
+        except BatchDecodeAdapterError:
+            pass
+        else:
+            require(False, reason)
+        after = (adapter.page_table, adapter._slot_runs, len(model.prefills))
+        require(
+            torch.equal(before[0], after[0]) and before[1] == after[1] and before[2] == after[2],
+            f"a rejected slot action changed adapter state: {reason}",
+        )
+
+    original_ttnn = adapter_module.ttnn
+    original_copy = adapter_module.copy_host_to_device
+    adapter_module.ttnn = SimpleNamespace(
+        synchronize_device=lambda _mesh: None,
+        release_trace=lambda _mesh, trace_id: released.append(trace_id),
+        deallocate=lambda _tensor: None,
+    )
+    adapter_module.copy_host_to_device = lambda host, device_tensors=None, mesh_device=None: copies.append(
+        (host, device_tensors)
+    )
+    try:
+        rejects(
+            lambda: adapter.refill_slot(slot=0, token_ids=prompt(10), block_start=16, block_count=16),
+            "a refill ran without an open slot group",
+        )
+        adapter.begin_slots(width=4, route="full")
+        require(model.layers[1].attention._decode_fusion_mode == "full", "the group route was not selected")
+        require(resets, "the slot group began without a reset")
+        require(bool((adapter.page_table == scratch).all()), "a new group's rows are not all inactive")
+
+        result = adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=16, block_count=16)
+        page_table, prefill_slots, lengths, masked = model.prefills[-1]
+        require(prefill_slots == [1] and lengths == [100] and masked, f"wrong slot prefill: {model.prefills[-1]}")
+        require(page_table.tolist() == [list(range(16, 32))], "the prefill saw another row")
+        require(adapter.page_table[1].tolist() == list(range(16, 32)), "the slot row was not installed")
+        require(
+            all(adapter.page_table[row].tolist() == [scratch] * 16 for row in (0, 2, 3)),
+            "a refill touched another slot's row",
+        )
+        require(
+            result.first_token_id == first_token and not result.decode_trace_released,
+            f"wrong refill result: {result}",
+        )
+
+        # Ownership and the KV run contract.
+        rejects(
+            lambda: adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=40, block_count=16),
+            "an owned slot was refilled",
+        )
+        rejects(
+            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=20, block_count=16),
+            "overlapping KV runs were accepted",
+        )
+        rejects(
+            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=0, block_count=16),
+            "a KV run in the reserved read prefix was accepted",
+        )
+        rejects(
+            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=82, block_count=16),
+            "a KV run reaching the scratch block was accepted",
+        )
+        rejects(
+            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=40, block_count=4),
+            "a KV run shorter than the prompt's prefill was accepted",
+        )
+        rejects(
+            lambda: adapter.refill_slot(slot=4, token_ids=prompt(100), block_start=40, block_count=16),
+            "a slot outside the group was accepted",
+        )
+
+        # The first window captures; an unchanged group replays without restaging.
+        tokens, positions = (0, first_token, 0, 0), (0, 100, 0, 0)
+        adapter.decode_slots_greedy(token_ids=tokens, positions=positions, steps=4)
+        require(len(captures) == 1 and not copies, "the first window did not capture exactly once")
+        adapter.decode_slots_greedy(token_ids=tokens, positions=(0, 104, 0, 0), steps=4)
+        require(len(captures) == 1 and not copies, "an unchanged group recaptured or restaged")
+
+        # A refill beside the live row keeps the trace and restages every input.
+        adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=32, block_count=16)
+        require(not released, "a clean refill released the decode trace")
+        adapter.decode_slots_greedy(token_ids=(0, 7, first_token, 0), positions=(0, 108, 100, 0), steps=4)
+        require(len(captures) == 1 and len(copies) == 1, "a refill did not restage the resident trace")
+        host, device_tensors = copies[-1]
+        require(len(host) == 4 and device_tensors == adapter._traces[4].device_inputs, "a partial restage")
+        require(
+            host[3][2].tolist() == list(range(32, 48)) and host[3][1].tolist() == list(range(16, 32)),
+            "the restaged page table does not hold both live rows",
+        )
+
+        # Retirement points the row at scratch and restages.
+        adapter.retire_slot(slot=1)
+        require(adapter.page_table[1].tolist() == [scratch] * 16, "a retired row kept its KV run")
+        adapter.decode_slots_greedy(token_ids=(0, 0, 9, 0), positions=(0, 0, 104, 0), steps=4)
+        require(len(copies) == 2 and copies[-1][0][3][1].tolist() == [scratch] * 16, "retirement was not restaged")
+        rejects(lambda: adapter.retire_slot(slot=1), "an unowned slot was retired")
+        rejects(
+            lambda: adapter.decode_slots_greedy(token_ids=(0, 0, 9), positions=(0, 0, 104), steps=4),
+            "a window that omits a row was accepted",
+        )
+
+        # Drift before or during a refill is rejected as drift.
+        binding["value"] = ("inputs@2", "kv@1", "gdn@1", "logits@1")
+        prefills_before = len(model.prefills)
+        try:
+            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=48, block_count=16)
+        except TraceBindingDriftError:
+            pass
+        else:
+            require(False, "a drifted trace accepted a refill")
+        require(len(model.prefills) == prefills_before, "a refill ran against a drifted trace")
+        binding["value"] = adapter._traces[4].binding
+
+        def drift_during_prefill():
+            binding["value"] = ("inputs@1", "kv@9", "gdn@1", "logits@1")
+
+        model.on_prefill = drift_during_prefill
+        try:
+            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=48, block_count=16)
+        except TraceBindingDriftError:
+            pass
+        else:
+            require(False, "drift during a refill was not detected")
+        binding["value"] = adapter._traces[4].binding
+        model.on_prefill = None
+        adapter.abandon_slots()
+        require(adapter._slot_width is None and not adapter._traces, "abandoned slots kept a trace")
+
+        # A refill that compiles a program releases the trace instead of replaying it.
+        adapter.begin_slots(width=4, route="step")
+        adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=16, block_count=16)
+        adapter.decode_slots_greedy(token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2)
+        trace_id = adapter._traces[4].trace_id
+        model.on_prefill = lambda: setattr(adapter.mesh, "programs", adapter.mesh.programs + 1)
+        result = adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=32, block_count=16)
+        model.on_prefill = None
+        require(result.decode_trace_released and trace_id in released, "a compiling refill kept the trace")
+        captured = len(captures)
+        adapter.decode_slots_greedy(token_ids=(5, first_token, 0, 0), positions=(102, 100, 0, 0), steps=2)
+        require(len(captures) == captured + 1, "the next window replayed a released trace")
+
+        # Stale masked traces are dropped before the refill, which then runs eagerly.
+        model.stale = True
+        result = adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=48, block_count=16)
+        require(
+            result.masked_traces_released and not result.masked_traces_used and result.decode_trace_released,
+            f"stale masked traces were not handled: {result}",
+        )
+
+        # A structured read closes the slot group.
+        adapter._prepare_read()
+        rejects(
+            lambda: adapter.refill_slot(slot=3, token_ids=prompt(10), block_start=64, block_count=16),
+            "a slot group survived a structured read",
+        )
+    finally:
+        adapter_module.ttnn = original_ttnn
+        adapter_module.copy_host_to_device = original_copy
+
+
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
 # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
 def probe_batch_decode_scheduler():
@@ -9073,6 +10235,9 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("pooled KV rows", probe_kv_pool)
+    probe("continuous slot policy", probe_continuous_slot_policy)
+    probe("continuous slot worker", probe_continuous_slot_worker)
+    probe("continuous slot adapter", probe_continuous_slot_adapter)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)

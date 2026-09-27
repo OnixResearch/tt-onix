@@ -1160,6 +1160,12 @@
       "blake3": "ecd9a7123a999fc4c85fe0b2e69db44e6d9c314ab4067afb58192323610cebfe"
     },
     {
+      "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/device-free-s1-s4.md",
+      "class": "portable_evidence",
+      "byte_count": 5889,
+      "blake3": "559545d86772497e8f91c8d8f6522fbcc31e91657fc0c4409552cb1c0609576d"
+    },
+    {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/refill-coexistence.md",
       "class": "portable_evidence",
       "byte_count": 3655,

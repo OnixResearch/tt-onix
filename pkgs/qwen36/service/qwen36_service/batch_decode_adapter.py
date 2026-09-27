@@ -75,6 +75,10 @@ class BatchDecodeAdapterError(RuntimeError):
     """The TTNN batch adapter cannot preserve user-state isolation."""
 
 
+class TraceBindingDriftError(BatchDecodeAdapterError):
+    """A resident decode trace no longer binds the buffers it was captured with."""
+
+
 @dataclass(frozen=True)
 class BatchPrefillResult:
     first_token_ids: tuple[int, ...]
@@ -97,6 +101,20 @@ class TracePreparationResult:
     resident_trace_count: int
     binding_stable: bool
     transition_reason: str | None
+
+
+@dataclass(frozen=True)
+class SlotRefillResult:
+    """One request prefilled into its decode slot beside the other slots' live state."""
+
+    first_token_id: int
+    elapsed_seconds: float
+    first_token_ready_seconds: float
+    masked_traces_used: bool
+    masked_traces_released: bool
+    # The prefill compiled a program or dropped the masked traces, so the resident
+    # decode trace was released instead of replayed; the next window recaptures.
+    decode_trace_released: bool
 
 
 @dataclass(frozen=True)
@@ -257,6 +275,11 @@ class BatchedTracedDecodeAdapter:
         self._pending_trace_plan: TracePrefillPlan | None = None
         self._prior_reset_complete = True
         self._closed = False
+        # Continuous slots (begin_slots): the trace width, each owned slot's KV run, and
+        # whether the resident trace's inputs must be restaged before the next replay.
+        self._slot_width: int | None = None
+        self._slot_runs: dict[int, tuple[int, int]] = {}
+        self._slot_inputs_stale = False
         self._capability_record = load_runtime_capability_record()
         self._allocate_persistent_state()
         self._gdn_zero_sources = self._capture_gdn_zero_sources()
@@ -597,6 +620,7 @@ class BatchedTracedDecodeAdapter:
         if not trace_plan.reuse_after_prefill:
             self._release_traces()
         self._pending_trace_plan = trace_plan
+        self._close_slot_group()
         self.reset_all()
         self._prior_reset_complete = False
         required_blocks = []
@@ -770,6 +794,197 @@ class BatchedTracedDecodeAdapter:
             masked_traces_released=masked_traces_released,
         )
 
+    # r[impl tenstorrent.qwen38_p150x2.continuous_slot_effects]
+    # Continuous slots. One decode trace of `width` rows stays resident while requests
+    # come and go. The allocation contract:
+    # - Every buffer a slot owns (GDN rows, the KV pool, the trace's inputs and outputs)
+    #   is allocated before the trace is captured. A refill must not compile a program or
+    #   drop the masked prefill traces; if it does, the trace is released, not replayed.
+    # - A refill writes only its own slot: prefill_paged_slots installs the new user's
+    #   GDN state into that row, and its KV lands in the run the scheduler assigned.
+    # - An inactive row (never filled, or retired) keeps decoding with token 0 at small
+    #   positions; its page-table row points only at the scratch block, so its KV writes
+    #   never reach a block a live or future request owns, and a refill overwrites its
+    #   GDN row. Rows decode independently, so it cannot change another row's tokens.
+    # - A masked prefill replay may overwrite buffers the decode trace allocated after the
+    #   masked capture, so after any refill or retirement every decode input, including
+    #   the page table, is restaged from the host before the next replay.
+
+    def _scratch_row(self) -> torch.Tensor:
+        return torch.full((self.blocks_per_user,), self.kv_pool.scratch_block, dtype=torch.int32)
+
+    def _require_slot_group(self) -> int:
+        self._require_open()
+        if self._slot_width is None:
+            raise BatchDecodeAdapterError("no continuous slot group is open")
+        return self._slot_width
+
+    def _require_slot_index(self, slot: int, width: int) -> None:
+        if isinstance(slot, bool) or not isinstance(slot, int) or not 0 <= slot < width:
+            raise BatchDecodeAdapterError("slot is outside the slot group")
+
+    def begin_slots(self, *, width: int, route: str) -> None:
+        """Open an empty slot group: route selected, state zeroed, every row inactive."""
+        self._require_width(width)
+        self._require_open()
+        if route != self.fusion_mode:
+            self.switch_fusion_mode(route)
+        self._release_traces()
+        self.reset_all()
+        self.page_table = self._scratch_row().repeat(self.maximum_width, 1)
+        self._slot_width = width
+        self._slot_runs = {}
+        self._slot_inputs_stale = True
+
+    def refill_slot(
+        self,
+        *,
+        slot: int,
+        token_ids: torch.Tensor,
+        block_start: int,
+        block_count: int,
+    ) -> SlotRefillResult:
+        """Prefill one request into an unowned slot while the other slots stay live."""
+        width = self._require_slot_group()
+        self._require_slot_index(slot, width)
+        if slot in self._slot_runs:
+            raise BatchDecodeAdapterError(f"slot {slot} is already owned")
+        if not isinstance(token_ids, torch.Tensor) or token_ids.ndim != 2:
+            raise BatchDecodeAdapterError("prefill tokens must be a rank-two tensor")
+        if token_ids.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH or token_ids.shape[1] < 1:
+            raise BatchDecodeAdapterError("prefill tokens must contain one prompt")
+        prompt_tokens = int(token_ids.shape[1])
+        if block_count < self.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=1):
+            raise BatchDecodeAdapterError("the KV run does not cover the prompt's prefill")
+        block_end = block_start + block_count
+        if (
+            block_start < self.kv_pool.reserved_prefix_blocks
+            or block_end > self.kv_pool.scratch_block
+            or block_count > self.blocks_per_user
+        ):
+            raise BatchDecodeAdapterError("the KV run leaves the generation block range")
+        for owner, (start, count) in self._slot_runs.items():
+            if block_start < start + count and start < block_end:
+                raise BatchDecodeAdapterError(f"the KV run overlaps slot {owner}")
+        trace = self._traces.get(width)
+        if trace is not None:
+            self._require_binding(trace)
+        masked_traces_released = False
+        if self.model.masked_prefill_traces_stale():
+            self.model.release_masked_prefill_traces()
+            masked_traces_released = True
+        use_masked_traces = bool(self.model.masked_prefill_trace_buckets())
+
+        row = self._scratch_row()
+        row[:block_count] = torch.arange(block_start, block_end, dtype=torch.int32)
+        self.page_table[slot] = row
+        self._slot_runs[slot] = (block_start, block_count)
+        self._slot_inputs_stale = True
+        self._prior_reset_complete = False
+
+        programs_before = self.mesh.num_program_cache_entries()
+        started = time.monotonic()
+        first: list[tuple[int, float]] = []
+
+        def observe_first_token(host_logits: list[torch.Tensor]) -> None:
+            if first or len(host_logits) != 1:
+                raise BatchDecodeAdapterError("a slot prefill reported the wrong first tokens")
+            logits = host_logits[0].float().reshape(-1, self.vocabulary_size)
+            first.append((int(torch.argmax(logits[0]).item()), time.monotonic() - started))
+
+        self.model.prefill_paged_slots(
+            [token_ids],
+            self.page_table[slot : slot + 1].contiguous(),
+            [slot],
+            valid_lens=[prompt_tokens],
+            first_token_callback=observe_first_token,
+            masked_traces=use_masked_traces,
+        )
+        ttnn.synchronize_device(self.mesh)
+        elapsed_seconds = time.monotonic() - started
+        if not first:
+            raise BatchDecodeAdapterError("a slot prefill did not report its first token")
+        if use_masked_traces and not self.model.masked_prefill_trace_buckets():
+            masked_traces_released = True
+        decode_trace_released = False
+        if trace is not None:
+            self._require_binding(trace)
+            if masked_traces_released or self.mesh.num_program_cache_entries() != programs_before:
+                self._release_traces()
+                decode_trace_released = True
+        first_token_id, first_token_ready_seconds = first[0]
+        return SlotRefillResult(
+            first_token_id=first_token_id,
+            elapsed_seconds=elapsed_seconds,
+            first_token_ready_seconds=first_token_ready_seconds,
+            masked_traces_used=use_masked_traces,
+            masked_traces_released=masked_traces_released,
+            decode_trace_released=decode_trace_released,
+        )
+
+    def retire_slot(self, *, slot: int) -> None:
+        """Return a slot's KV run: its row decodes into the scratch block from now on."""
+        width = self._require_slot_group()
+        self._require_slot_index(slot, width)
+        if self._slot_runs.pop(slot, None) is None:
+            raise BatchDecodeAdapterError(f"slot {slot} is not owned")
+        self.page_table[slot] = self._scratch_row()
+        self._slot_inputs_stale = True
+
+    def _close_slot_group(self) -> None:
+        self._slot_width = None
+        self._slot_runs = {}
+        self._slot_inputs_stale = False
+
+    def abandon_slots(self) -> None:
+        """Drop the slot group after a failure: no trace survives, every row is zeroed."""
+        self._require_open()
+        self._close_slot_group()
+        self._release_traces()
+        self.reset_all()
+
+    def _slot_trace(self, token_ids: tuple[int, ...], positions: tuple[int, ...]) -> None:
+        """Capture the slot trace, or restage every input of the resident one if stale."""
+        width = self._require_slot_group()
+        if len(token_ids) != width or len(positions) != width:
+            raise BatchDecodeAdapterError("slot decode inputs do not cover every row")
+        trace = self._traces.get(width)
+        if trace is None:
+            self._pending_trace_plan = None
+            self.prepare_width(token_ids=token_ids, positions=positions)
+            self._slot_inputs_stale = False
+            return
+        self._require_binding(trace)
+        if self._slot_inputs_stale:
+            host_inputs = self.model.prepare_decode_inputs_host(
+                torch.tensor(token_ids, dtype=torch.int32).reshape(width, MINIMUM_ACTIVE_BATCH_WIDTH),
+                torch.tensor(positions, dtype=torch.int32),
+                page_table=self.page_table[:width].contiguous(),
+            )
+            copy_host_to_device(host_inputs, device_tensors=trace.device_inputs)
+            self._slot_inputs_stale = False
+
+    def decode_slots_greedy(
+        self,
+        *,
+        token_ids: tuple[int, ...],
+        positions: tuple[int, ...],
+        steps: int,
+    ) -> Iterator[tuple[int, ...]]:
+        """A greedy stream over every slot row; inactive rows pass token 0 at position 0."""
+        self._slot_trace(token_ids, positions)
+        return self.decode_greedy_stream(token_ids=token_ids, positions=positions, steps=steps)
+
+    def decode_slots_sampled(
+        self,
+        *,
+        token_ids: tuple[int, ...],
+        positions: tuple[int, ...],
+    ) -> tuple[tuple[ShardCandidates, ...], ...]:
+        """One sampled step over every slot row; inactive rows pass token 0 at position 0."""
+        self._slot_trace(token_ids, positions)
+        return self.decode_traced_sampled(token_ids=token_ids, positions=positions)
+
     def read_rows(
         self,
         token_ids: torch.Tensor,
@@ -886,6 +1101,8 @@ class BatchedTracedDecodeAdapter:
         # A decode trace captured after the masked prefill traces owns memory their replays
         # use as scratch, so it cannot stay resident across a read, as for prefill_users.
         self._release_traces()
+        # A read installs into slot 0, so no slot group survives it.
+        self._close_slot_group()
         self._prior_reset_complete = False
         if self.model.masked_prefill_traces_stale():
             self.model.release_masked_prefill_traces()
@@ -1401,7 +1618,7 @@ class BatchedTracedDecodeAdapter:
 
     def _require_binding(self, trace: _BatchTrace) -> None:
         if not self._binding_matches(trace):
-            raise BatchDecodeAdapterError("batch trace binding changed")
+            raise TraceBindingDriftError("batch trace binding changed")
 
     def decode_width_supported(self, width: int) -> bool:
         """Whether decode can shard `width` users one per core as a grid rectangle."""

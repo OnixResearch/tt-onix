@@ -34,6 +34,8 @@ from .batch_admission_core import (
 from .batch_decode_adapter import BatchedTracedDecodeAdapter
 from .batch_service import BatchGenerationCoordinator
 from .chat_output_core import ChatOutputParser, OutputEvent, event_deltas
+from .continuous_slot_core import ContinuousSlotPolicy, ContinuousSlotPolicyError
+from .continuous_slot_service import ContinuousSlotCoordinator
 from .core import (
     FINISH_LENGTH,
     FINISH_STOP,
@@ -188,6 +190,7 @@ class QwenEngine:
         mtp_serving_enabled: bool = False,
         mtp_drafter_profile: Any | None = None,
         mtp_trace_profile: Any | None = None,
+        continuous_slot_policy: ContinuousSlotPolicy | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -258,8 +261,21 @@ class QwenEngine:
         )
         self._eager_lock = threading.Lock()
         self._startup_readiness: StartupReadiness | None = None
+        # The continuous-slot scheduler is a construction-time alternative to the group
+        # coordinator; both expose the same generate/read/warm_up/close surface.
+        coordinator_kwargs: dict[str, Any] = (
+            {}
+            if continuous_slot_policy is None
+            else {"slot_policy": continuous_slot_policy}
+        )
+        coordinator_type = (
+            BatchGenerationCoordinator
+            if continuous_slot_policy is None
+            else ContinuousSlotCoordinator
+        )
         self._batch_coordinator = (
-            BatchGenerationCoordinator(
+            coordinator_type(
+                **coordinator_kwargs,
                 adapter=self._batch_adapter,
                 tokenizer=tokenizer,
                 model=model,
@@ -282,6 +298,21 @@ class QwenEngine:
             if self._batch_adapter is not None
             else None
         )
+        if continuous_slot_policy is not None and self._batch_coordinator is None:
+            raise ValueError("continuous slots require the batch decode worker (candidate mode)")
+
+    def cancel(self, request_id: str) -> bool:
+        """Withdraw a request whose client left; only the continuous-slot worker can."""
+        if isinstance(self._batch_coordinator, ContinuousSlotCoordinator):
+            return self._batch_coordinator.cancel(request_id)
+        return False
+
+    @property
+    def quarantine_reason(self) -> str | None:
+        """Why the device worker stopped serving for good, or None while it serves."""
+        if isinstance(self._batch_coordinator, ContinuousSlotCoordinator):
+            return self._batch_coordinator.quarantine_reason
+        return None
 
     @property
     def requires_startup_warmup(self) -> bool:
@@ -983,6 +1014,18 @@ def make_handler(
 
         def do_GET(self) -> None:
             if self.path in ("/healthz", "/readyz"):
+                quarantine_reason = engine.quarantine_reason
+                if quarantine_reason is not None:
+                    self._write_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {
+                            "model": engine.model_alias,
+                            "quarantine_reason": quarantine_reason,
+                            "ready": False,
+                            "status": "quarantined",
+                        },
+                    )
+                    return
                 self._write_json(
                     HTTPStatus.OK,
                     {
@@ -1186,6 +1229,8 @@ def make_handler(
                 self.wfile.write(SSE_DONE)
             except (BrokenPipeError, ConnectionResetError):
                 emit("stream-client-disconnected", request_id=request_id)
+                # Free the slot instead of generating for nobody.
+                engine.cancel(request_id)
 
         def log_message(self, format: str, *args: Any) -> None:
             emit("http", client=self.client_address[0], message=format % args)
@@ -1204,6 +1249,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-admission", action="store_true")
     parser.add_argument("--trace-reuse-profile")
     parser.add_argument("--trace-reuse-admission", action="store_true")
+    parser.add_argument("--continuous-slot-policy")
     parser.add_argument("--mtp-drafter-profile")
     parser.add_argument("--mtp-trace-profile")
     parser.add_argument(
@@ -1291,6 +1337,23 @@ def main() -> None:
             raise SystemExit("--trace-reuse-admission requires --trace-reuse-profile")
         if args.batch_admission:
             raise SystemExit("--trace-reuse-admission conflicts with --batch-admission")
+    continuous_slot_policy = None
+    if args.continuous_slot_policy is not None:
+        if args.decode_mode != DECODE_MODE_CANDIDATE:
+            raise SystemExit("--continuous-slot-policy requires candidate decode mode")
+        if args.batch_admission or args.trace_reuse_admission:
+            raise SystemExit("--continuous-slot-policy conflicts with admission measurements")
+        continuous_slot_policy_path = Path(args.continuous_slot_policy).expanduser()
+        if (
+            not continuous_slot_policy_path.is_absolute()
+            or not continuous_slot_policy_path.is_file()
+        ):
+            raise SystemExit("--continuous-slot-policy must be an existing absolute file")
+        try:
+            with continuous_slot_policy_path.open(encoding="utf-8") as policy_file:
+                continuous_slot_policy = ContinuousSlotPolicy.from_mapping(json.load(policy_file))
+        except (ContinuousSlotPolicyError, OSError, json.JSONDecodeError) as error:
+            raise SystemExit(f"continuous slot policy is invalid: {error}") from error
     if not model_path.is_absolute() or not model_path.is_dir():
         raise SystemExit("--model-path must be an existing absolute directory")
     if not (model_path / "config.json").is_file():
@@ -1404,6 +1467,7 @@ def main() -> None:
             batch_admission_enabled=args.batch_admission,
             trace_reuse_profile=trace_reuse_profile,
             trace_reuse_admission_enabled=args.trace_reuse_admission,
+            continuous_slot_policy=continuous_slot_policy,
             sampled_serving_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0") == "1",
             mtp_serving_enabled=(
                 os.environ.get("QWEN36_MTP_SERVING", "0") == "1"
