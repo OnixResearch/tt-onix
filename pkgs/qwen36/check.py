@@ -4331,7 +4331,7 @@ def probe_service_contract():
         try:
             admit_prompt(request, "p", prompt_tokens, maximum_sequence_length)
         except RequestValidationError as error:
-            require("limit is 2048" in str(error), f"wrong sequence-limit diagnostic: {error}")
+            require("maximum context length is 2048 tokens" in str(error), f"wrong sequence-limit diagnostic: {error}")
         else:
             require(False, "a request over the sequence limit was admitted")
 
@@ -5039,7 +5039,7 @@ def probe_streaming():
         )
 
         for body, diagnostic in (
-            (no_think("too long"), "limit is 2048"),
+            (no_think("too long"), "maximum context length is 2048 tokens"),
             (no_think("template error"), "chat template rejected"),
             (
                 {"messages": [{"content": "hi", "role": "user"}, {"content": "x", "role": "tool"}]},

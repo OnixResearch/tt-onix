@@ -474,8 +474,12 @@ def admit_prompt(
         )
     total_token_count = prompt_token_count + max_tokens
     if total_token_count > maximum_sequence_length:
+        # OpenAI's wording, which clients such as omp recognize as a context overflow and
+        # answer by compacting the conversation.
         raise RequestValidationError(
-            f"prompt and generation require {total_token_count} tokens; limit is {maximum_sequence_length}"
+            f"This model's maximum context length is {maximum_sequence_length} tokens. "
+            f"The prompt ({prompt_token_count} tokens) and generation ({max_tokens} tokens) "
+            f"require {total_token_count}. Please reduce the length of the messages or max_tokens."
         )
     output_plan = (
         chat_output_plan(prompt, request.tools, request.parallel_tool_calls)
