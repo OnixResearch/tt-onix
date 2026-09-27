@@ -1,0 +1,130 @@
+"""Write the resident slot-trace admission receipt from ABBA-ordered roots.
+
+r[impl tenstorrent.qwen38_p150x2.resident_slot_trace]
+
+Roots come in groups of four, one group per declared workload in policy order, each group
+in the policy's root order: baseline, candidate, candidate, baseline. Every root is a
+cached root of the prefix-cache screen driver. The shell binds every input with b3sum;
+resident_trace_admission_core decides. An incomplete root still yields a receipt, not
+admitted, with its specific evidence error.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import json
+import shutil
+from pathlib import Path
+from typing import Any
+
+from .continuous_slot_receipt import blake3_of
+from .prefix_cache_admission_core import PrefixAdmissionEvidenceError, root_from_mapping
+from .resident_trace_admission_core import (
+    PAIR_NAMES,
+    ROOT_ORDER,
+    ResidentTraceEvidenceError,
+    ResidentTracePolicy,
+    evaluate,
+)
+
+ROOT_LABELS = ("baseline_first", "candidate_first", "candidate_second", "baseline_second")
+NON_CLAIMS = (
+    "The receipt compares declared agent-shaped workloads on two packages; it is not a "
+    "general latency claim.",
+    "Gates compare per-turn means of two baseline and two candidate roots measured in ABBA "
+    "order. That cancels host load that drifts linearly, not bursts; per-pair ratios are "
+    "diagnostics only.",
+    "Admission lets the candidate package replace the baseline package; it does not admit "
+    "the prefix cache or the continuous-slot scheduler on the candidate package.",
+)
+
+
+def build_receipt(
+    *,
+    policy_mapping: dict[str, Any],
+    group_mappings: list[list[dict[str, Any]]],
+    policy_blake3: str,
+    root_blake3s: list[list[str]],
+) -> dict[str, Any]:
+    policy = ResidentTracePolicy.from_mapping(policy_mapping)
+    receipt: dict[str, Any] = {
+        "schema_version": 1,
+        "receipt_kind": "resident-slot-trace-admission",
+        "policy": {"profile_id": policy.profile_id, "blake3": policy_blake3},
+        "roots": [dict(zip(ROOT_LABELS, digests, strict=True)) for digests in root_blake3s],
+        "non_claims": list(NON_CLAIMS),
+    }
+    try:
+        if any(len(group) != len(ROOT_ORDER) for group in group_mappings):
+            raise ResidentTraceEvidenceError("every workload needs four roots: baseline, candidate, candidate, baseline")
+        groups = [[root_from_mapping(mapping, expected_kind="cached") for mapping in group] for group in group_mappings]
+        result = evaluate(policy, groups)
+    except (PrefixAdmissionEvidenceError, ResidentTraceEvidenceError) as error:
+        receipt["simulated"] = any(bool(mapping.get("simulated")) for group in group_mappings for mapping in group)
+        receipt["admission"] = {"admitted": False, "admitted_profile": None, "evidence_error": str(error), "reasons": ["evidence-error"]}
+        return receipt
+    candidate_identity = dict(groups[0][1].identity)
+    receipt["simulated"] = any(root.simulated for group in groups for root in group)
+    receipt["identity"] = {
+        "baseline_package": result.baseline_package,
+        "candidate_package": result.candidate_package,
+        "candidate_execution_identity": candidate_identity["execution_identity"],
+        "runtime_identity": candidate_identity["runtime_identity"],
+        "physical_pcie_device_ids": candidate_identity.get("physical_pcie_device_ids"),
+        "prefix_cache_profile_id": candidate_identity.get("prefix_cache_profile_id"),
+    }
+    receipt["admission"] = {
+        "admitted": result.admitted,
+        "admitted_profile": (
+            {
+                "package": result.candidate_package,
+                "execution_identity": candidate_identity["execution_identity"],
+                "replaces_package": result.baseline_package,
+            }
+            if result.admitted
+            else None
+        ),
+        "evidence_error": None,
+        "reasons": list(result.reasons),
+    }
+    receipt["gates"] = [dataclasses.asdict(gate) for gate in result.gates]
+    receipt["pair_diagnostics"] = [{"pair": name, **ratios} for name, ratios in zip(PAIR_NAMES, result.pairs, strict=True)]
+    receipt["turns"] = {"compared": result.compared_turns}
+    return receipt
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--policy", required=True, type=Path)
+    parser.add_argument(
+        "--abba",
+        nargs=4,
+        action="append",
+        required=True,
+        type=Path,
+        metavar=("BASELINE_FIRST", "CANDIDATE_FIRST", "CANDIDATE_SECOND", "BASELINE_SECOND"),
+        help="one workload's roots in measurement order; repeat per declared workload",
+    )
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--b3sum", default=shutil.which("b3sum"))
+    args = parser.parse_args()
+    if not args.b3sum:
+        raise SystemExit("b3sum is required to bind the inputs")
+
+    def load(path: Path) -> dict[str, Any]:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    receipt = build_receipt(
+        policy_mapping=load(args.policy),
+        group_mappings=[[load(path) for path in group] for group in args.abba],
+        policy_blake3=blake3_of(args.policy, args.b3sum),
+        root_blake3s=[[blake3_of(path, args.b3sum) for path in group] for group in args.abba],
+    )
+    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    admission = receipt["admission"]
+    print(json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]}))
+
+
+if __name__ == "__main__":
+    main()

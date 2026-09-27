@@ -121,6 +121,19 @@ class Turn:
     ttft_seconds: float
     wall_seconds: float
     prefix_hit_tokens: int
+    prefix_saved_tokens: int
+    # Decode traces the server captured while serving the turn; None when not reported.
+    trace_captures: int | None
+
+
+def _count(value: Any, name: str, *, optional: bool = False) -> int | None:
+    if value is None and optional:
+        return None
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PrefixAdmissionEvidenceError(f"{name} must be a non-negative integer")
+    return value
 
 
 @dataclass(frozen=True)
@@ -192,7 +205,9 @@ def root_from_mapping(mapping: Mapping[str, Any], *, expected_kind: str) -> Root
                 token_ids=tuple(int(token) for token in tokens),
                 ttft_seconds=ttft,
                 wall_seconds=wall,
-                prefix_hit_tokens=int(request.get("prefix_hit_tokens") or 0),
+                prefix_hit_tokens=_count(request.get("prefix_hit_tokens"), "prefix_hit_tokens"),
+                prefix_saved_tokens=_count(request.get("prefix_saved_tokens"), "prefix_saved_tokens"),
+                trace_captures=_count(request.get("trace_captures"), "trace_captures", optional=True),
             )
         )
     conversations, turn_count = int(workload["conversations"]), int(workload["turns"])

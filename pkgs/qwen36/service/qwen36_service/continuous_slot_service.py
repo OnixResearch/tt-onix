@@ -415,8 +415,13 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 self._retire(effect)
             elif isinstance(effect, slots.StartGroup):
                 with self._device_effect():
-                    self.adapter.begin_slots(width=self.slot_policy.slot_capacity, route=effect.route)
-                self.emitter("continuous-slot-group-started", route=effect.route)
+                    plan = self.adapter.begin_slots(width=self.slot_policy.slot_capacity, route=effect.route)
+                self.emitter(
+                    "continuous-slot-group-started",
+                    route=effect.route,
+                    decode_trace=plan.action.value,
+                    decode_trace_reason=plan.reason,
+                )
             elif isinstance(effect, slots.PrefillSlot):
                 self._refill(effect)
 
@@ -656,10 +661,13 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             decode_tokens_per_second=decode_rate,
             elapsed_seconds=finished - pending.started,
             generated_token_count=len(user_tokens),
+            prefix_hit_tokens=run.prefix_hit_tokens,
+            prefix_saved_tokens=run.prefix_saved_tokens,
             prompt_token_count=pending.prompt_token_count,
             queue_seconds=run.admitted - pending.started,
             request_id=pending.request_id,
             slot=run.slot,
+            trace_captures=self.adapter.slot_trace_captures - run.captures_at_admission,
             ttft_seconds=refill.first_token_ready_seconds,
         )
         return response

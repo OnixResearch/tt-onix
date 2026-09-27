@@ -24,6 +24,7 @@ from .batch_decode_core import (
     TRACE_REUSE_REASON_BINDING,
     TracePrefillPlan,
     plan_same_width_trace_prefill,
+    plan_slot_group_trace,
 )
 from .decode_adapter import TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
 from .decode_core import DecodeProfile
@@ -829,18 +830,32 @@ class BatchedTracedDecodeAdapter:
         if isinstance(slot, bool) or not isinstance(slot, int) or not 0 <= slot < width:
             raise BatchDecodeAdapterError("slot is outside the slot group")
 
-    def begin_slots(self, *, width: int, route: str) -> None:
-        """Open an empty slot group: route selected, state zeroed, every row inactive."""
+    # r[impl tenstorrent.qwen38_p150x2.resident_slot_trace]
+    def begin_slots(self, *, width: int, route: str) -> TracePrefillPlan:
+        """Open an empty slot group: route selected, state zeroed, every row inactive.
+
+        The one resident decode trace of this width and route stays resident when its
+        binding is stable and the masked prefill traces can serve the group's refills, so the
+        group's first decode step restages its inputs instead of capturing a trace."""
         self._require_width(width)
         self._require_open()
         if route != self.fusion_mode:
             self.switch_fusion_mode(route)
-        self._release_traces()
+        plan = plan_slot_group_trace(
+            width=width,
+            resident_widths=tuple(self._traces),
+            binding_stable=all(self._binding_matches(trace) for trace in self._traces.values()),
+            masked_prefill_ready=bool(self.model.masked_prefill_trace_buckets())
+            and not self.model.masked_prefill_traces_stale(),
+        )
+        if not plan.reuse_after_prefill:
+            self._release_traces()
         self.reset_all()
         self.page_table = self._scratch_row().repeat(self.maximum_width, 1)
         self._slot_width = width
         self._slot_runs = {}
         self._slot_inputs_stale = True
+        return plan
 
     def prefix_cache_available(self) -> bool:
         """Whether a refill can restore and save hybrid prefix state now.

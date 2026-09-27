@@ -1307,6 +1307,7 @@ def probe_continuous_slot_worker():
         SlotRefillResult,
         TraceBindingDriftError,
     )
+    from qwen36_service.batch_decode_core import TRACE_REUSE_REASON_MISSING, TracePrefillAction, TracePrefillPlan
     from qwen36_service.continuous_slot_service import (
         ContinuousSlotCoordinator,
         EngineQuarantinedError,
@@ -1389,6 +1390,8 @@ def probe_continuous_slot_worker():
             self.owned = {}
             self.fusion_mode = route
             self._exit()
+            # The fake holds no trace, so every group starts without one.
+            return TracePrefillPlan(TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING)
 
         def refill_slot(self, *, slot, token_ids, block_start, block_count, **prefix):
             if any(prefix.get(key) for key in ("prefix_ranges", "prefix_tokens", "resume_state", "save_state")):
@@ -1846,9 +1849,11 @@ def probe_continuous_slot_worker():
 
 
 # r[verify tenstorrent.qwen38_p150x2.continuous_slot_effects]
+# r[verify tenstorrent.qwen38_p150x2.resident_slot_trace]
 def probe_continuous_slot_adapter():
     """The adapter's slot contract on fake TTNN: KV-run ownership, page-table rows, full
-    restage after a refill or retirement, drift rejection, and unsafe-refill release."""
+    restage after a refill or retirement, drift rejection, unsafe-refill release, and a
+    decode trace kept across groups only when it is safe to replay."""
     import torch
     from qwen36_service import batch_decode_adapter as adapter_module
     from qwen36_service.batch_decode_adapter import (
@@ -2107,6 +2112,59 @@ def probe_continuous_slot_adapter():
             result.masked_traces_released and not result.masked_traces_used and result.decode_trace_released,
             f"stale masked traces were not handled: {result}",
         )
+
+        # A new group of the same width and route keeps a stable resident trace: its rows
+        # are reset, and its first window restages every input instead of capturing.
+        model.buckets = (128, 256)
+        for slot in (0, 1, 2):
+            adapter.retire_slot(slot=slot)
+
+        def resident_group(route):
+            adapter.begin_slots(width=4, route=route)
+            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=16, block_count=16)
+            adapter.decode_slots_greedy(token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2)
+            adapter.retire_slot(slot=0)
+            return adapter._traces[4].trace_id
+
+        trace_id = resident_group("step")
+        captured, copied, reset_count = len(captures), len(copies), len(resets)
+        plan = adapter.begin_slots(width=4, route="step")
+        require(
+            plan.reuse_after_prefill and plan.reason is None and trace_id not in released
+            and adapter._traces[4].trace_id == trace_id,
+            f"a new same-route group dropped a stable trace: {plan}",
+        )
+        require(
+            len(resets) == reset_count + 1 and bool((adapter.page_table == scratch).all()),
+            "a kept trace skipped the new group's reset",
+        )
+        adapter.refill_slot(slot=3, token_ids=prompt(100), block_start=64, block_count=16)
+        adapter.decode_slots_greedy(token_ids=(0, 0, 0, first_token), positions=(0, 0, 0, 100), steps=2)
+        require(
+            len(captures) == captured and len(copies) == copied + 1 and adapter.slot_trace_captures == len(captures),
+            "the kept trace recaptured, or replayed without a restage",
+        )
+        page = copies[-1][0][3]
+        require(
+            page[3].tolist() == list(range(64, 80)) and all(page[row].tolist() == [scratch] * 16 for row in (0, 1, 2)),
+            "the kept trace would replay the previous group's rows",
+        )
+        adapter.retire_slot(slot=3)
+
+        # Drift, refills that would run eagerly, or a route change release it instead.
+        for change, route, reason in (
+            (lambda: binding.update(value=("inputs@3", "kv@1", "gdn@1", "logits@1")), "step", "binding-drift"),
+            (lambda: setattr(model, "stale", True), "step", "eager-prefill-next"),
+            (lambda: None, "full", "no-resident-trace"),
+        ):
+            trace_id = resident_group("step")
+            change()
+            plan = adapter.begin_slots(width=4, route=route)
+            require(
+                not plan.reuse_after_prefill and plan.reason == reason and trace_id in released and not adapter._traces,
+                f"an unsafe trace survived a new group ({reason}): {plan}",
+            )
+            model.stale = False
 
         # A structured read closes the slot group.
         adapter._prepare_read()
@@ -2591,6 +2649,7 @@ def probe_prefix_cache_restore():
         BatchedTracedDecodeAdapter,
         SlotRefillResult,
     )
+    from qwen36_service.batch_decode_core import TRACE_REUSE_REASON_MISSING, TracePrefillAction, TracePrefillPlan
     from qwen36_service.continuous_slot_service import ContinuousSlotCoordinator
     from qwen36_service.core import CompletionRequest, Endpoint
     from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
@@ -2744,6 +2803,7 @@ def probe_prefix_cache_restore():
         def begin_slots(self, *, width, route):
             self.width = width
             self.owned = {}
+            return TracePrefillPlan(TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING)
 
         def refill_slot(self, *, slot, token_ids, block_start, block_count, prefix_ranges=(), prefix_tokens=0,
                         resume_state=None, save_state=None, save_at=0):
@@ -3042,8 +3102,164 @@ def probe_prefix_cache_admission():
                 f"{message} disappeared from the receipt: {receipt['admission']}")
 
 
+# r[verify tenstorrent.qwen38_p150x2.resident_slot_trace]
+def probe_resident_trace_admission():
+    """Resident-trace admission over four ABBA roots: a candidate that decodes the same
+    tokens, resumes the same prefixes and skips the per-group capture admits, and linear
+    drift across the roots cancels; a parity loss, a cache difference, a capture on every
+    turn, slower prefill, no speedup, one much slower turn, a memory drop, one package in
+    both roles, or roots out of order each reject with its own reason; incomplete evidence
+    is reported, not evaluated."""
+    import copy
+    from datetime import datetime, timedelta, timezone
+
+    from qwen36_service import resident_trace_admission_core as admission
+    from qwen36_service.prefix_cache_admission_core import root_from_mapping
+    from qwen36_service.resident_trace_receipt import build_receipt
+
+    with Path(__file__).with_name("resident-trace-admission-policy.json").open(encoding="utf-8") as handle:
+        policy_mapping = json.load(handle)
+    policy = admission.ResidentTracePolicy.from_mapping(policy_mapping)
+    for path, value, message in (
+        (("gates", "maximum_candidate_capture_share"), 1.0, "a capture on every turn was allowed"),
+        (("gates", "require_matching_prefix_cache"), False, "an admission without matching cache use was accepted"),
+        (("root_order",), ["baseline", "candidate"], "an admission from one root per role was accepted"),
+    ):
+        broken = copy.deepcopy(policy_mapping)
+        target = broken
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        try:
+            admission.ResidentTracePolicy.from_mapping(broken)
+        except admission.ResidentTracePolicyError:
+            pass
+        else:
+            require(False, message)
+
+    epoch = datetime(2026, 9, 28, 1, 0, tzinfo=timezone.utc)
+    packages = {"baseline": "/nix/store/old", "candidate": "/nix/store/new"}
+    free_dram = 9_554_487_296
+
+    def root(role, position, index, workload_id, conversations, turns, *, drift=0.0, saving=0.8, ttft_scale=1.0,
+             captures=None, dram=free_dram, slow_turn=None):
+        # A baseline turn captures a trace; a candidate root captures on its first turn only.
+        candidate = role == "candidate"
+        requests = []
+        for turn in range(turns):
+            for conversation in range(conversations):
+                wall = 5.0 + turn
+                if candidate:
+                    wall = wall * 1.3 if slow_turn == (conversation, turn) else wall - saving
+                requests.append(
+                    {
+                        "conversation": conversation,
+                        "turn": turn,
+                        "token_ids": [conversation, turn, index],
+                        "ttft_seconds": (2.0 + 0.5 * turn) * (ttft_scale if candidate else 1.0) + drift * position,
+                        "wall_seconds": wall + drift * position,
+                        "prefix_hit_tokens": 3072 * turn,
+                        "prefix_saved_tokens": 3072 * (turn + 1),
+                        "trace_captures": (captures if captures is not None else int((conversation, turn) == (0, 0)))
+                        if candidate
+                        else 1,
+                    }
+                )
+        started = epoch + timedelta(minutes=15 * position + 5 * index)
+        return {
+            "schema_version": 2,
+            "root_kind": "cached",
+            "simulated": False,
+            "identity": {
+                "package": packages[role], "execution_identity": f"/nix/store/e-{role}", "runtime_identity": "/nix/store/r",
+                "physical_pcie_device_ids": [0, 1],
+                "prefix_cache_profile_id": policy.prefix_cache_profile_id,
+                "prefix_policy_blake3": "a" * 64,
+            },
+            "workload": {"workload_id": workload_id, "blake3": f"{index:064d}", "conversations": conversations,
+                         "turns": turns},
+            "measured_at": {"started_utc": started.isoformat(),
+                            "finished_utc": (started + timedelta(minutes=3)).isoformat()},
+            "startup": {"device_dram_free_bytes": [dram if candidate else free_dram]},
+            "requests": requests,
+        }
+
+    def groups(drift=0.0, **candidate_options):
+        return [
+            [
+                root(role, position, index, workload_id, conversations, turns, drift=drift,
+                     **(candidate_options if role == "candidate" else {}))
+                for position, role in enumerate(admission.ROOT_ORDER)
+            ]
+            for index, (workload_id, conversations, turns) in enumerate(policy.workloads)
+        ]
+
+    def judge(group_mappings):
+        return admission.evaluate(
+            policy, [[root_from_mapping(mapping, expected_kind="cached") for mapping in group] for group in group_mappings]
+        )
+
+    def receipt_for(group_mappings):
+        return build_receipt(
+            policy_mapping=policy_mapping,
+            group_mappings=group_mappings,
+            policy_blake3="c" * 64,
+            root_blake3s=[["d" * 64] * 4] * len(policy.workloads),
+        )
+
+    result = judge(groups())
+    require(result.admitted and result.compared_turns == sum(c * t for _, c, t in policy.workloads),
+            f"a faster exact candidate was rejected: {result.reasons}")
+    receipt = receipt_for(groups())
+    require(receipt["admission"]["admitted"] and receipt["admission"]["admitted_profile"]["package"] == packages["candidate"]
+            and receipt["admission"]["admitted_profile"]["replaces_package"] == packages["baseline"],
+            f"the receipt does not name the admitted replacement: {receipt['admission']}")
+
+    # Load that slows each later root by 1.5 s hides the saving in the first pair and
+    # slows its prefill; the ABBA means cancel it.
+    drifting = judge(groups(drift=1.5))
+    require(drifting.admitted, f"linear drift was not cancelled: {drifting.reasons}")
+    require(drifting.pairs[0]["median_ttft_ratio"] > policy.maximum_median_ttft_ratio,
+            f"the drift diagnostic lost the first pair's apparent prefill cost: {drifting.pairs}")
+
+    def rejected(group_mappings, reason, message):
+        verdict = judge(group_mappings)
+        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+
+    lost = groups()
+    lost[0][3]["requests"][5]["token_ids"] = [9, 9, 9]
+    rejected(lost, "gate-failed:exact_parity", "a root that decoded different tokens was admitted")
+    uncached = groups()
+    uncached[0][2]["requests"][4]["prefix_saved_tokens"] = 1024
+    rejected(uncached, "gate-failed:matching_prefix_cache", "a candidate that saved another prefix was admitted")
+    rejected(groups(captures=1), "gate-failed:candidate_capture_share", "a candidate capturing every turn was admitted")
+    rejected(groups(ttft_scale=1.2), "gate-failed:median_ttft_ratio", "slower prefill beside the trace was admitted")
+    rejected(groups(saving=0.0), "gate-failed:median_wall_ratio", "a candidate without a speedup was admitted")
+    rejected(groups(slow_turn=(1, 2)), "gate-failed:wall_ratio", "a much slower turn was admitted")
+    rejected(groups(dram=free_dram - 100 * 2**20), "gate-failed:startup_dram_drop_bytes", "a memory drop was admitted")
+    same_package = groups()
+    for group in same_package:
+        for mapping in group:
+            mapping["identity"]["package"] = "/nix/store/same"
+    rejected(same_package, "package-roles-differ", "one package in both roles was accepted")
+    reordered = groups()
+    reordered[0][3]["measured_at"] = copy.deepcopy(reordered[0][0]["measured_at"])
+    rejected(reordered, "roots-out-of-order", "a second baseline root measured first was accepted")
+    for mutate, expected, message in (
+        (lambda mappings: mappings[0][1]["requests"][2].update(trace_captures=None), "trace captures",
+         "a candidate turn without its captures"),
+        (lambda mappings: mappings[2].pop(3), "four roots", "a missing root"),
+    ):
+        incomplete = groups()
+        mutate(incomplete)
+        receipt = receipt_for(incomplete)
+        require(receipt["admission"]["admitted"] is False and expected in (receipt["admission"]["evidence_error"] or ""),
+                f"{message} disappeared from the receipt: {receipt['admission']}")
+
+
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
 # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+# r[verify tenstorrent.qwen38_p150x2.resident_slot_trace]
 def probe_batch_decode_scheduler():
     """Positive and negative tests for pure active-batch planning."""
     from qwen36_service.batch_decode_core import (
@@ -3051,6 +3267,7 @@ def probe_batch_decode_scheduler():
         MAXIMUM_RESIDENT_TRACE_COUNT,
         TRACE_REUSE_REASON_BINDING,
         TRACE_REUSE_REASON_DISABLED,
+        TRACE_REUSE_REASON_EAGER_PREFILL,
         TRACE_REUSE_REASON_MISSING,
         TRACE_REUSE_REASON_MULTIPLE,
         TRACE_REUSE_REASON_RESET,
@@ -3060,6 +3277,7 @@ def probe_batch_decode_scheduler():
         TracePrefillAction,
         plan_decode_batch,
         plan_same_width_trace_prefill,
+        plan_slot_group_trace,
     )
 
     test_vocabulary_size = 128
@@ -3174,6 +3392,35 @@ def probe_batch_decode_scheduler():
             require(diagnostic in str(error), f"wrong trace-policy diagnostic: {error}")
         else:
             require(False, f"invalid trace facts were accepted: {override!r}")
+
+    # A continuous-slot group keeps one stable same-width trace only while the masked
+    # prefill traces can serve its refills.
+    slot_facts = {"width": 4, "resident_widths": (4,), "binding_stable": True, "masked_prefill_ready": True}
+    kept = plan_slot_group_trace(**slot_facts)
+    require(
+        kept.action is TracePrefillAction.PRESERVE and kept.reuse_after_prefill and kept.reason is None,
+        f"a stable slot trace was not kept: {kept}",
+    )
+    for override, expected_reason in (
+        ({"masked_prefill_ready": False}, TRACE_REUSE_REASON_EAGER_PREFILL),
+        ({"resident_widths": ()}, TRACE_REUSE_REASON_MISSING),
+        ({"resident_widths": (4, 4)}, TRACE_REUSE_REASON_MULTIPLE),
+        ({"resident_widths": (1,)}, TRACE_REUSE_REASON_WIDTH),
+        ({"binding_stable": False}, TRACE_REUSE_REASON_BINDING),
+    ):
+        released_plan = plan_slot_group_trace(**{**slot_facts, **override})
+        require(
+            released_plan.action is TracePrefillAction.RELEASE
+            and not released_plan.reuse_after_prefill
+            and released_plan.reason == expected_reason,
+            f"an unsafe slot trace was kept: {expected_reason} -> {released_plan}",
+        )
+    try:
+        plan_slot_group_trace(**{**slot_facts, "masked_prefill_ready": 1})
+    except BatchDecodePolicyError as error:
+        require("masked prefill ready" in str(error), f"wrong slot-trace diagnostic: {error}")
+    else:
+        require(False, "a non-boolean masked-prefill fact was accepted")
 
     too_wide_users = tuple(
         ActiveDecodeUser(
@@ -11178,6 +11425,7 @@ def main():
     probe("prefix cache policy", probe_prefix_cache_policy)
     probe("prefix cache restore", probe_prefix_cache_restore)
     probe("prefix cache admission", probe_prefix_cache_admission)
+    probe("resident trace admission", probe_resident_trace_admission)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)

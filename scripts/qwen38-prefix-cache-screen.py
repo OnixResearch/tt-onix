@@ -34,6 +34,7 @@ from urllib.parse import urlsplit
 
 MODEL_ALIAS = "Qwen3.8-27B"
 WORKLOAD_ID = "qwen38-agent-conversations-v1"
+SAMPLED_WORKLOAD_ID = "qwen38-agent-conversations-sampled-v1"
 MAX_TOKENS = 48
 REQUEST_TIMEOUT_SECONDS = 1800
 EXPECTED_DEVICE_IDS = [0, 1]
@@ -100,7 +101,9 @@ class Server:
         finally:
             connection.close()
 
-    def stream_chat(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def stream_chat(
+        self, messages: list[dict[str, str]], sampling: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         payload = {
             "model": MODEL_ALIAS,
             "messages": messages,
@@ -108,6 +111,7 @@ class Server:
             "stream": True,
             "stream_options": {"include_usage": True},
             "enable_thinking": False,
+            **(sampling or {}),
         }
         record: dict[str, Any] = {
             "ttft_seconds": None,
@@ -203,11 +207,24 @@ def main() -> None:
         "--prefix-policy", type=Path, help="prefix-cache policy JSON (cached root)"
     )
     parser.add_argument("--b3sum", required=True)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        help="sample every turn at this temperature, seeded per turn (needs --seed)",
+    )
+    parser.add_argument("--seed", type=int, help="base seed of the sampled workload")
     args = parser.parse_args()
     if (args.root_kind == "cached") != (args.prefix_policy is not None):
         raise SystemExit(
             "--prefix-policy is required for, and only for, the cached root"
         )
+    if (args.temperature is None) != (args.seed is None) or (
+        args.temperature is not None and args.temperature <= 0
+    ):
+        raise SystemExit(
+            "a sampled workload needs a positive --temperature and a --seed"
+        )
+    sampled = args.temperature is not None
     server = Server(args.base_url)
     health = server.health()
     if (
@@ -227,17 +244,16 @@ def main() -> None:
         for turn in range(args.turns)
         for index in range(args.conversations)
     ]
+    workload = {
+        "conversations": opened,
+        "plan": plan,
+        "question": QUESTION,
+        "max_tokens": MAX_TOKENS,
+    }
+    if sampled:
+        workload["sampling"] = {"temperature": args.temperature, "seed": args.seed}
     workload_blake3 = blake3_bytes(
-        args.b3sum,
-        json.dumps(
-            {
-                "conversations": opened,
-                "plan": plan,
-                "question": QUESTION,
-                "max_tokens": MAX_TOKENS,
-            },
-            sort_keys=True,
-        ).encode(),
+        args.b3sum, json.dumps(workload, sort_keys=True).encode()
     )
     log("workload", blake3=workload_blake3, requests=len(plan))
     history = {
@@ -251,7 +267,15 @@ def main() -> None:
         messages = history[step["conversation"]] + [
             {"role": "user", "content": step["passage"] + "\n\n" + QUESTION}
         ]
-        record = server.stream_chat(messages)
+        record = server.stream_chat(
+            messages,
+            {
+                "temperature": args.temperature,
+                "seed": args.seed + step["conversation"] * 1000 + step["turn"],
+            }
+            if sampled
+            else None,
+        )
         evidence = record["evidence"] or {}
         if record["error"] is not None or record["wall_seconds"] is None:
             raise SystemExit(f"turn {step} failed: {record['error']}")
@@ -291,6 +315,9 @@ def main() -> None:
             "prefix_saved_tokens": evidence.get("prefix_saved_tokens", 0),
             "prefill_seconds": evidence.get("prefill_seconds"),
             "server_ttft_seconds": evidence.get("ttft_seconds"),
+            "trace_captures": evidence.get("trace_captures"),
+            "tail_token_latency_seconds": evidence.get("tail_token_latency_seconds"),
+            "serving_route": evidence.get("serving_route"),
             "host_cpu_pressure": record["host_cpu_pressure"],
         })
         log(
@@ -302,6 +329,7 @@ def main() -> None:
             wall=round(record["wall_seconds"], 3),
             hit=turns[-1]["prefix_hit_tokens"],
             saved=turns[-1]["prefix_saved_tokens"],
+            captures=turns[-1]["trace_captures"],
             cpu_stall=(record["host_cpu_pressure"] or {}).get("some_stall_fraction"),
         )
     finished_utc = utc_now()
@@ -323,7 +351,7 @@ def main() -> None:
             "prefix_policy_blake3": policy_blake3,
         },
         "workload": {
-            "workload_id": WORKLOAD_ID,
+            "workload_id": SAMPLED_WORKLOAD_ID if sampled else WORKLOAD_ID,
             "blake3": workload_blake3,
             "conversations": args.conversations,
             "turns": args.turns,

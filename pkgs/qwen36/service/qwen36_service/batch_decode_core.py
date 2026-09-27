@@ -20,6 +20,7 @@ TRACE_REUSE_REASON_MULTIPLE = "multiple-resident-traces"
 TRACE_REUSE_REASON_WIDTH = "width-changed"
 TRACE_REUSE_REASON_RESET = "reset-incomplete"
 TRACE_REUSE_REASON_BINDING = "binding-drift"
+TRACE_REUSE_REASON_EAGER_PREFILL = "eager-prefill-next"
 
 
 class BatchDecodePolicyError(ValueError):
@@ -130,6 +131,40 @@ def plan_same_width_trace_prefill(
         reuse_after_prefill=False,
         reason=reason,
     )
+
+
+# r[impl tenstorrent.qwen38_p150x2.resident_slot_trace]
+def plan_slot_group_trace(
+    *,
+    width: int,
+    resident_widths: tuple[int, ...],
+    binding_stable: bool,
+    masked_prefill_ready: bool,
+) -> TracePrefillPlan:
+    """Keep the one resident decode trace for the next continuous-slot group.
+
+    The group's refills replay the masked prefill traces beside it, as later refills in a
+    group already do, and its first decode step restages every input. An eager prefill
+    would allocate under the active trace, so without the masked traces the trace is
+    released. Every row is reset before the group's first refill, so a kept trace never
+    replays over the previous group's state.
+    """
+    if not isinstance(masked_prefill_ready, bool):
+        raise BatchDecodePolicyError("masked prefill ready must be a boolean")
+    plan = plan_same_width_trace_prefill(
+        requested_width=width,
+        resident_widths=resident_widths,
+        reuse_enabled=True,
+        prior_reset_complete=True,
+        binding_stable=binding_stable,
+    )
+    if plan.reuse_after_prefill and not masked_prefill_ready:
+        return TracePrefillPlan(
+            action=TracePrefillAction.RELEASE,
+            reuse_after_prefill=False,
+            reason=TRACE_REUSE_REASON_EAGER_PREFILL,
+        )
+    return plan
 
 
 def plan_decode_batch(

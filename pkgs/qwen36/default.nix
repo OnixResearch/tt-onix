@@ -118,6 +118,8 @@ let
     (stableIdentityPath "qwen36-prefix-cache-contracts.ncl" ./prefix-cache-contracts.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-policy.ncl" ./prefix-cache-admission-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-contracts.ncl" ./prefix-cache-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-resident-trace-admission-policy.ncl" ./resident-trace-admission-policy.ncl)
+    (stableIdentityPath "qwen36-resident-trace-admission-contracts.ncl" ./resident-trace-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
@@ -287,6 +289,11 @@ stdenvNoCC.mkDerivation {
     cp continuous-slot-policy-export/prefix-cache-admission-*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/prefix-cache-admission-policy.ncl \
       > "$out/share/qwen36/prefix-cache-admission-policy.json"
+    cp ${./resident-trace-admission-policy.ncl} continuous-slot-policy-export/resident-trace-admission-policy.ncl
+    cp ${./resident-trace-admission-contracts.ncl} continuous-slot-policy-export/resident-trace-admission-contracts.ncl
+    cp continuous-slot-policy-export/resident-trace-admission-*.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/resident-trace-admission-policy.ncl \
+      > "$out/share/qwen36/resident-trace-admission-policy.json"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -893,6 +900,16 @@ stdenvNoCC.mkDerivation {
       --add-flags "--policy" \
       --add-flags "$out/share/qwen36/prefix-cache-admission-policy.json"
 
+    # r[impl tenstorrent.qwen38_p150x2.resident_slot_trace]
+    # Evaluates ABBA baseline and candidate roots for the resident slot decode trace.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-resident-trace-receipt" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --prefix PATH : ${lib.makeBinPath [ b3sum ]} \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.resident_trace_receipt" \
+      --add-flags "--policy" \
+      --add-flags "$out/share/qwen36/resident-trace-admission-policy.json"
+
     # Public commands use the checkpoint version. Preserve old consumers with
     # relative aliases, without renaming upstream modules or receipt schemas.
     for legacy_command in "$out"/bin/qwen36*; do
@@ -1388,6 +1405,14 @@ PROFILE_CHECK
       exit 1
     fi
     test -s invalid-prefix-cache-admission-policy.log
+    cp ${./resident-trace-admission-contracts.ncl} continuous-slot-policy-negative/resident-trace-admission-contracts.ncl
+    cp ${./fixtures/invalid-resident-trace-admission-policy.ncl} continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl \
+        > invalid-resident-trace-admission-policy.json 2> invalid-resident-trace-admission-policy.log; then
+      echo "invalid resident trace admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-resident-trace-admission-policy.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
     # Negative: an invalid slot count must fail its typed contract.
