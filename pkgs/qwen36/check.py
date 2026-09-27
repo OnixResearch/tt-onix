@@ -1348,6 +1348,7 @@ def probe_continuous_slot_worker():
             self.owned = {}
             self.hooks = {}
             self.release_trace_on_refill = False
+            self.slot_trace_captures = 0
 
         def _enter(self, name, **fields):
             with self.lock:
@@ -1921,6 +1922,7 @@ def probe_continuous_slot_adapter():
     adapter._slot_width = None
     adapter._slot_runs = {}
     adapter._slot_inputs_stale = False
+    adapter.slot_trace_captures = 0
     adapter.reset_all = lambda: resets.append(True)
     adapter._observe_binding = lambda _inputs, _logits: binding["value"]
     streams = []
@@ -2024,6 +2026,7 @@ def probe_continuous_slot_adapter():
         require(len(captures) == 1 and not copies, "the first window did not capture exactly once")
         adapter.decode_slots_greedy(token_ids=tokens, positions=(0, 104, 0, 0), steps=4)
         require(len(captures) == 1 and not copies, "an unchanged group recaptured or restaged")
+        require(adapter.slot_trace_captures == 1, "the slot capture was not counted")
 
         # A refill beside the live row keeps the trace and restages every input.
         adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=32, block_count=16)
@@ -2105,6 +2108,220 @@ def probe_continuous_slot_adapter():
     finally:
         adapter_module.ttnn = original_ttnn
         adapter_module.copy_host_to_device = original_copy
+
+
+# r[verify tenstorrent.qwen38_p150x2.continuous_slot_admission]
+def probe_continuous_slot_admission():
+    """Queue-inclusive admission: a complete better candidate is admitted; fewer captures,
+    starvation, a worse declared tail, parity loss, identity drift, simulation, and
+    incomplete roots are each rejected with their own reason."""
+    import copy
+
+    from qwen36_service import continuous_slot_admission_core as admission
+    from qwen36_service.continuous_slot_receipt import build_receipt
+
+    with Path(__file__).with_name("continuous-slot-admission-policy.json").open(encoding="utf-8") as handle:
+        policy_mapping = json.load(handle)
+    policy = admission.AdmissionPolicy.from_mapping(policy_mapping)
+    require(policy.repetitions == 2, "the packaged policy does not require two passes")
+    for path, value, reason in (
+        (("gates", "require_exact_candidate_parity"), False, "an admission without parity was accepted"),
+        (("gates", "extra"), 1.0, "an undeclared gate was accepted"),
+        (("workload", "long_class"), "short", "equal short and long classes were accepted"),
+    ):
+        broken = copy.deepcopy(policy_mapping)
+        broken[path[0]][path[1]] = value
+        try:
+            admission.AdmissionPolicy.from_mapping(broken)
+        except admission.AdmissionPolicyError:
+            pass
+        else:
+            require(False, reason)
+
+    long_tokens = 1024
+    shorts = {"s1": 4.0, "s2": 8.0, "s3": 12.0, "s4": 16.0}
+    longs = {"l1": 0.0, "l2": 0.0}
+    solo_walls = {"l1": 49.0, "l2": 49.0, "s1": 1.0, "s2": 1.0, "s3": 2.0, "s4": 1.0}
+
+    def tokens_for(name):
+        count = long_tokens if name in longs else 10
+        return [hash_token(name, index) for index in range(count)]
+
+    def hash_token(name, index):
+        return (sum(map(ord, name)) * 131 + index * 7) % 5000 + 10
+
+    def events(first, count, gap, stall=None):
+        times = [first + index * gap for index in range(count)]
+        if stall is not None:
+            at, seconds = stall
+            times = [time if index < at else time + seconds for index, time in enumerate(times)]
+        return times
+
+    def root(kind, done, *, gap, stall=None, captures=1, identity=None, simulated=False, drop=None):
+        requests = []
+        for name, arrival in {**longs, **shorts}.items():
+            if name in longs:
+                first = arrival + 3.0
+            elif kind == "continuous":
+                first = arrival + 1.0
+            else:
+                first = done[name] - 1.0
+            count = len(tokens_for(name))
+            entry = {
+                "name": name,
+                "class": "long" if name in longs else "short",
+                "arrival_seconds": arrival,
+                "first_event_seconds": first,
+                "done_seconds": done[name],
+                "content_event_seconds": events(first, count, gap, stall if name == "l1" else None),
+                "token_ids": tokens_for(name),
+                "finish_reason": "length" if name in longs else "stop",
+                "trace_captures": captures,
+            }
+            requests.append(entry)
+        mapping = {
+            "schema_version": 1,
+            "root_kind": kind,
+            "simulated": simulated,
+            "identity": {
+                "package": "/nix/store/package-qwen38",
+                "execution_identity": "/nix/store/identity",
+                "runtime_identity": "/nix/store/tt-metal",
+                "physical_pcie_device_ids": [0, 1],
+                "scheduler_profile_id": policy.scheduler_profile_id if kind == "continuous" else None,
+                "scheduler_policy_blake3": "a" * 64 if kind == "continuous" else None,
+                **(identity or {}),
+            },
+            "workload": {
+                "workload_id": policy.workload_id,
+                "blake3": "b" * 64,
+                "requests": [{"name": r["name"], "class": r["class"]} for r in requests],
+            },
+            "startup": {"device_dram_free_bytes": [9_800_000_000, 9_800_000_000]},
+            "solo": [
+                {"name": name, "token_ids": tokens_for(name), "wall_seconds": wall}
+                for name, wall in solo_walls.items()
+                if name != drop
+            ],
+            "repetitions": [{"requests": copy.deepcopy(requests)} for _ in range(policy.repetitions)],
+        }
+        return mapping
+
+    baseline_done = {"l1": 50.0, "l2": 50.0, "s1": 63.0, "s2": 63.0, "s3": 63.0, "s4": 63.0}
+    candidate_done = {"l1": 58.0, "l2": 57.0, "s1": 6.0, "s2": 10.0, "s3": 17.0, "s4": 18.0}
+    baseline = root("group", baseline_done, gap=0.045, captures=2)
+    candidate = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5), captures=1)
+
+    def judge(candidate_mapping, baseline_mapping=baseline):
+        return admission.evaluate(
+            policy,
+            admission.root_from_mapping(baseline_mapping, expected_kind="group"),
+            admission.root_from_mapping(candidate_mapping, expected_kind="continuous"),
+        )
+
+    result = judge(candidate)
+    require(result.admitted, f"a complete, better candidate was rejected: {result.reasons}")
+    gate_names = {gate.name for gate in result.gates}
+    require(not any("capture" in name for name in gate_names), "trace captures were gated")
+    receipt = build_receipt(
+        policy_mapping=policy_mapping,
+        baseline_mapping=baseline,
+        candidate_mapping=candidate,
+        policy_blake3="c" * 64,
+        baseline_blake3="d" * 64,
+        candidate_blake3="e" * 64,
+    )
+    require(
+        receipt["admission"]["admitted"]
+        and receipt["admission"]["admitted_profile"]["scheduler_profile_id"] == policy.scheduler_profile_id
+        and receipt["simulated"] is False,
+        "the admitted receipt does not name the measured profile",
+    )
+
+    def rejected(mapping, reason, message, baseline_mapping=baseline):
+        verdict = judge(mapping, baseline_mapping)
+        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+
+    # Fewer captures cannot admit a candidate whose short requests got no faster.
+    rejected(
+        root("continuous", {**baseline_done, "l1": 50.0, "l2": 50.0}, gap=0.05, captures=0),
+        "gate-failed:short_median_wall_ratio",
+        "fewer captures admitted a candidate without a latency benefit",
+    )
+    # Every matched pair must pass: one good pass cannot carry a bad one.
+    mixed = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
+    mixed["repetitions"][1] = root("continuous", baseline_done, gap=0.05)["repetitions"][1]
+    rejected(mixed, "gate-failed:short_median_wall_ratio", "a lucky pass admitted an unlucky one")
+    # A request left far behind its solo time fails the starvation guard.
+    rejected(
+        root("continuous", {**candidate_done, "s1": 200.0}, gap=0.05, stall=(100, 3.5)),
+        "gate-failed:slowdown_ratio",
+        "a starved request was admitted",
+    )
+    # Higher delivered throughput because a request never finished.
+    starved = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
+    starved["repetitions"][0]["requests"][4]["finish_reason"] = None
+    starved_result = judge(starved)
+    throughput_gate = next(g for g in starved_result.gates if g.name == "delivered_throughput_ratio")
+    require(
+        throughput_gate.passed
+        and not starved_result.admitted
+        and "gate-failed:all_completed" in starved_result.reasons,
+        f"an unfinished request hid behind higher throughput: {starved_result.reasons}",
+    )
+    # Better aggregate numbers but a declared tail stall beyond its bound.
+    rejected(
+        root("continuous", candidate_done, gap=0.05, stall=(100, 8.0)),
+        "gate-failed:inter_token_gap_seconds",
+        "a stall beyond the declared tail bound was admitted",
+    )
+    # A candidate row that no longer matches its solo reference.
+    lost = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
+    lost["repetitions"][1]["requests"][2]["token_ids"][3] += 1
+    rejected(lost, "gate-failed:exact_candidate_parity", "a parity mismatch was admitted")
+    # Identity drift, simulation, and a different workload.
+    rejected(
+        root("continuous", candidate_done, gap=0.05, identity={"package": "/nix/store/other"}),
+        "identity-differs:package",
+        "roots from different packages were compared",
+    )
+    rejected(
+        root("continuous", candidate_done, gap=0.05, simulated=True),
+        "simulated-root",
+        "a simulated root was admitted",
+    )
+    other_workload = root("continuous", candidate_done, gap=0.05)
+    other_workload["workload"]["blake3"] = "f" * 64
+    rejected(other_workload, "workload-differs", "different workloads were compared")
+    single_pass = root("continuous", candidate_done, gap=0.05)
+    single_pass["repetitions"] = single_pass["repetitions"][:1]
+    rejected(single_pass, "repetition-count:continuous", "one measured pass was accepted")
+    # Incomplete roots fail with a specific evidence error, and the receipt keeps them.
+    for broken, fragment in (
+        (root("continuous", candidate_done, gap=0.05, drop="s3"), "solo references cover"),
+        ({**candidate, "simulated": None}, "simulated"),
+    ):
+        try:
+            admission.root_from_mapping(broken, expected_kind="continuous")
+        except admission.AdmissionEvidenceError as error:
+            require(fragment in str(error), f"unspecific evidence error: {error}")
+        else:
+            require(False, f"an incomplete root was accepted ({fragment})")
+    missing_pass = copy.deepcopy(candidate)
+    del missing_pass["repetitions"][0]["requests"][1]
+    receipt = build_receipt(
+        policy_mapping=policy_mapping,
+        baseline_mapping=baseline,
+        candidate_mapping=missing_pass,
+        policy_blake3="c" * 64,
+        baseline_blake3="d" * 64,
+        candidate_blake3="e" * 64,
+    )
+    require(
+        receipt["admission"]["admitted"] is False
+        and "every declared request" in (receipt["admission"]["evidence_error"] or ""),
+        f"an incomplete root disappeared from the receipt: {receipt['admission']}",
+    )
 
 
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
@@ -10238,6 +10455,7 @@ def main():
     probe("continuous slot policy", probe_continuous_slot_policy)
     probe("continuous slot worker", probe_continuous_slot_worker)
     probe("continuous slot adapter", probe_continuous_slot_adapter)
+    probe("continuous slot admission", probe_continuous_slot_admission)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)

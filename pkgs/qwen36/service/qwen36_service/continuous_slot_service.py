@@ -92,6 +92,10 @@ class _SlotRun:
     slot: int
     generation: int
     admitted: float
+    # Slot-trace captures before this request's refill, and KV blocks held by every
+    # occupied slot once it was admitted.
+    captures_at_admission: int = 0
+    kv_blocks_in_use: int = 0
     tokens: list[int] = field(default_factory=list)
     refill: SlotRefillResult | None = None
     first_token_ready: float | None = None
@@ -397,6 +401,12 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 slot=effect.slot,
                 generation=effect.generation,
                 admitted=time.monotonic(),
+                captures_at_admission=self.adapter.slot_trace_captures,
+                kv_blocks_in_use=sum(
+                    slot.request.blocks
+                    for slot in self._schedule.slots
+                    if slot.state in slots.OCCUPYING_STATES and slot.request is not None
+                ),
             )
             self._runs[effect.request_id] = run
         with self._device_effect():
@@ -585,7 +595,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             "simulated": False,
             "slot": run.slot,
             "slot_generation": run.generation,
+            "kv_blocks_in_use": run.kv_blocks_in_use,
             "tail_token_latency_seconds": max(steps) if steps else 0.0,
+            "trace_captures": self.adapter.slot_trace_captures - run.captures_at_admission,
             "ttft_seconds": refill.first_token_ready_seconds,
         }
         self.emitter(

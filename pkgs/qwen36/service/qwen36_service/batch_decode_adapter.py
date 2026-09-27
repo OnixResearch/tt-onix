@@ -280,6 +280,8 @@ class BatchedTracedDecodeAdapter:
         self._slot_width: int | None = None
         self._slot_runs: dict[int, tuple[int, int]] = {}
         self._slot_inputs_stale = False
+        # Decode traces captured for slot groups since startup, for served evidence.
+        self.slot_trace_captures = 0
         self._capability_record = load_runtime_capability_record()
         self._allocate_persistent_state()
         self._gdn_zero_sources = self._capture_gdn_zero_sources()
@@ -952,6 +954,7 @@ class BatchedTracedDecodeAdapter:
         if trace is None:
             self._pending_trace_plan = None
             self.prepare_width(token_ids=token_ids, positions=positions)
+            self.slot_trace_captures += 1
             self._slot_inputs_stale = False
             return
         self._require_binding(trace)

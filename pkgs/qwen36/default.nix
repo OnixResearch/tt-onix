@@ -110,6 +110,8 @@ let
     (stableIdentityPath "qwen36-gdn-occupancy-policy.ncl" ./gdn-occupancy-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-policy.ncl" ./continuous-slot-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-contracts.ncl" ./continuous-slot-contracts.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-admission-policy.ncl" ./continuous-slot-admission-policy.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-admission-contracts.ncl" ./continuous-slot-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
@@ -264,6 +266,11 @@ stdenvNoCC.mkDerivation {
     cp continuous-slot-policy-export/*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/continuous-slot-policy.ncl \
       > "$out/share/qwen36/continuous-slot-policy.json"
+    cp ${./continuous-slot-admission-policy.ncl} continuous-slot-policy-export/continuous-slot-admission-policy.ncl
+    cp ${./continuous-slot-admission-contracts.ncl} continuous-slot-policy-export/continuous-slot-admission-contracts.ncl
+    cp continuous-slot-policy-export/continuous-slot-admission-*.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/continuous-slot-admission-policy.ncl \
+      > "$out/share/qwen36/continuous-slot-admission-policy.json"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -850,6 +857,16 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "vllm.entrypoints.openai.api_server"
 
+    # r[impl tenstorrent.qwen38_p150x2.continuous_slot_admission]
+    # Evaluates two continuous-slot measurement roots against the predeclared gates.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-continuous-slot-receipt" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --prefix PATH : ${lib.makeBinPath [ b3sum ]} \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.continuous_slot_receipt" \
+      --add-flags "--policy" \
+      --add-flags "$out/share/qwen36/continuous-slot-admission-policy.json"
+
     # Public commands use the checkpoint version. Preserve old consumers with
     # relative aliases, without renaming upstream modules or receipt schemas.
     for legacy_command in "$out"/bin/qwen36*; do
@@ -1315,6 +1332,17 @@ PROFILE_CHECK
       exit 1
     fi
     test -s invalid-continuous-slot-policy.log
+
+    # r[verify tenstorrent.qwen38_p150x2.continuous_slot_admission]
+    # Negative: an admission without exact candidate parity must fail its contract.
+    cp ${./continuous-slot-admission-contracts.ncl} continuous-slot-policy-negative/continuous-slot-admission-contracts.ncl
+    cp ${./fixtures/invalid-continuous-slot-admission-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl \
+        > invalid-continuous-slot-admission-policy.json 2> invalid-continuous-slot-admission-policy.log; then
+      echo "invalid continuous-slot admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-continuous-slot-admission-policy.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
     # Negative: an invalid slot count must fail its typed contract.
