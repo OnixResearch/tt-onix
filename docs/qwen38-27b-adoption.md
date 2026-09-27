@@ -641,15 +641,28 @@ kept the short outputs equal to their solo runs. Prefill still runs one user
 after another within a group, and a group runs until its last request finishes,
 so a long prompt or generation delays the requests queued behind it.
 
-A continuous-slot scheduler is available as a device-free candidate. The flag
+A continuous-slot scheduler is available behind a flag. With
 `--continuous-slot-policy $out/share/qwen36/continuous-slot-policy.json`, in
-candidate decode mode, replaces the group coordinator at construction. It keeps
+candidate decode mode, it replaces the group coordinator at construction. It keeps
 one B4 decode trace resident and refills a slot at the next window boundary once
 its request ends. Queue, refill, fairness and stall bounds come from
 `continuous-slot-policy.ncl`. Drift or a stalled device effect quarantines the
-engine, and `/healthz` then answers 503. The candidate is not deployed and has no
-hardware evidence yet; the change
-`.cairn/changes/qwen38-continuous-slot-scheduler` records its tasks and evidence.
+engine, and `/healthz` then answers 503.
+
+On 2026-09-27 it was compared with the group coordinator on one package, using a
+staggered workload of two 1,024-token requests and six short ones. The receipt
+`pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-admission-receipt.json`
+admits the profile against its predeclared gates:
+
+- Short requests finished in 3.5–3.8 s at the median instead of about 52 s.
+- Delivered tokens/s rose 12 %.
+- The long requests took 20 % longer, because each refill pauses the live streams
+  for its prefill. The longest pause was 5.5 s, for a 9.6K-token prompt.
+- Every request decoded the same tokens as when it ran alone.
+
+The service is not switched: serving the profile by default trades those pauses
+for the queue-time gain, and remains a deployment decision. The change
+`.cairn/changes/qwen38-continuous-slot-scheduler` records the evidence.
 
 A request without `temperature` decodes greedily, including thinking. On
 2026-09-27, eight reasoning prompts with known answers were run at the

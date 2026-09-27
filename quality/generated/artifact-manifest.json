@@ -1172,6 +1172,18 @@
       "blake3": "c9e338560b2f0c0d1a1cd6faa0d6063228827cb29cf8bf8a3baecdc937fa4cd8"
     },
     {
+      "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/s5-simulator-blocker-and-physical-screen.md",
+      "class": "portable_evidence",
+      "byte_count": 6879,
+      "blake3": "d88f66c3278151eec54a94d7fa93b1f3972a537a5564ef293fd1a5286d4d461d"
+    },
+    {
+      "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/s6-queue-inclusive-admission.md",
+      "class": "portable_evidence",
+      "byte_count": 6783,
+      "blake3": "ef0ff9291b05982c89fedde38744bc455d5788a15b632b2180f824bf9876ade3"
+    },
+    {
       "path": "docs/research/qwen38-orcarouter-switch-2026-09-04.md",
       "class": "portable_evidence",
       "byte_count": 7090,
@@ -1770,6 +1782,30 @@
       "class": "portable_evidence",
       "byte_count": 183,
       "blake3": "9a88e0c828df2e22b355256b61f3ddce6a738ea5abb19e69b6d248b8b30ba840"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5245,
+      "blake3": "aabc9b8a560a1ac0fe31935d5d731a4c3a6e8fddd47a17da99c7d9a567545a96"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-continuous-root.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 77266,
+      "blake3": "375b27b63ee197b24197e394f02e95b170165f385d122e7fe688a41af35818aa"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-group-root.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 143951,
+      "blake3": "0a643c7070bd35516444511cdcfe7521fbde878a1c7733cfa6d9b3b1245faf5a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-s5-checks.json",
+      "class": "portable_evidence",
+      "byte_count": 5072,
+      "blake3": "488dd6db1a1001fc03f82655899e59807c5a8ad0816b52efd74cff6f7c96deb3"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
