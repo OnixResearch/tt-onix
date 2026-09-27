@@ -5,8 +5,12 @@ let candidate_slot_count = 1 in
 let configured_trace_command_queue_id = 0 in
 let configured_trace_capture_timeout_seconds = 300 in
 let configured_request_timeout_seconds = 1800 in
-let configured_maximum_sequence_length = 2048 in
+# One request's page-table row: 65,536 tokens. Rows are cut from a shared pool per
+# generation group (kv_pool_core.py), so the pool, not 16 x the row, sets the KV memory:
+# 4,096 blocks of 64 tokens, 8 GiB of bf16 KV per chip.
+let configured_maximum_sequence_length = 65536 in
 let configured_kv_block_size = 64 in
+let configured_kv_pool_blocks = 4096 in
 let configured_trace_region_size_bytes = 1073741824 in
 let configured_warmup_runs = 1 in
 let configured_measured_runs = 3 in
@@ -35,6 +39,7 @@ let configured_maximum_tail_latency_regression_ratio = 1.10 in
   },
   buffers = {
     kv_block_size = configured_kv_block_size,
+    kv_pool_blocks = configured_kv_pool_blocks,
     maximum_sequence_length = configured_maximum_sequence_length,
     trace_region_size_bytes = configured_trace_region_size_bytes,
   },

@@ -29,7 +29,7 @@ let contracts = import "decode-component-contracts.ncl" in
     minimum_cpu = 8,
     maximum_cpu = 31,
     trace_region_size_bytes = 1073741824,
-    maximum_sequence_length = 2048,
+    maximum_sequence_length = 65536,
     kv_block_size = 64,
   },
   architecture = {

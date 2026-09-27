@@ -178,6 +178,7 @@ class DecodeProfile:
     slot_count: int
     maximum_sequence_length: int
     kv_block_size: int
+    kv_pool_blocks: int
     trace_region_size_bytes: int
     prompts: tuple[str, ...]
     warmup_runs: int
@@ -239,7 +240,12 @@ class DecodeProfile:
         )
         _require_exact_keys(
             buffers,
-            {"kv_block_size", "maximum_sequence_length", "trace_region_size_bytes"},
+            {
+                "kv_block_size",
+                "kv_pool_blocks",
+                "maximum_sequence_length",
+                "trace_region_size_bytes",
+            },
             "buffers",
         )
         _require_exact_keys(
@@ -315,6 +321,9 @@ class DecodeProfile:
             ),
             kv_block_size=_require_positive_int(
                 buffers["kv_block_size"], "buffers.kv_block_size"
+            ),
+            kv_pool_blocks=_require_positive_int(
+                buffers["kv_pool_blocks"], "buffers.kv_pool_blocks"
             ),
             trace_region_size_bytes=_require_positive_int(
                 buffers["trace_region_size_bytes"], "buffers.trace_region_size_bytes"

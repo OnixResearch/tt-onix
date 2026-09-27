@@ -65,11 +65,13 @@ let TraceClosedC = ClosedRecordC [
 
 let BufferC = {
   kv_block_size | PositiveIntC,
+  kv_pool_blocks | PositiveIntC,
   maximum_sequence_length | PositiveIntC,
   trace_region_size_bytes | PositiveIntC,
 } in
 let BufferClosedC = ClosedRecordC [
   "kv_block_size",
+  "kv_pool_blocks",
   "maximum_sequence_length",
   "trace_region_size_bytes",
 ] in
@@ -129,6 +131,7 @@ let ProfileSemanticC = std.contract.from_predicate (fun value =>
   && value.trace.command_queue_id == 0
   && (!value.physically_admitted || value.identities.candidate_receipt_blake3 != "not-measured")
   && value.buffers.maximum_sequence_length >= value.workload.generated_tokens
+  && value.buffers.kv_pool_blocks * value.buffers.kv_block_size > value.buffers.maximum_sequence_length
   && value.admission.minimum_median_decode_speedup_ratio > 1
   && value.admission.maximum_ttft_regression_ratio >= 1
   && value.admission.maximum_tail_latency_regression_ratio >= 1

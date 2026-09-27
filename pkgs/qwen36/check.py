@@ -804,6 +804,147 @@ def probe_traced_decode_contract():
     )
 
 
+def probe_kv_pool():
+    """Pooled KV rows: prefill coverage, disjoint runs, the pool bound, and batch selection."""
+    import threading
+    import types
+    from collections import deque
+
+    from qwen36_service.batch_decode_adapter import BatchDecodeAdapterError
+    from qwen36_service.batch_service import BatchGenerationCoordinator
+    from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
+
+    pool_blocks = 4096
+    row_blocks = 1024
+    pool = KvPoolLayout(pool_blocks=pool_blocks, row_blocks=row_blocks, kv_block_size=64)
+    prefix = set(range(pool.reserved_prefix_blocks))
+    require(pool.scratch_block == pool_blocks - 1, "the scratch block is not the last block")
+    require(
+        pool.group_capacity_blocks == pool_blocks - len(prefix) - 1,
+        "the group capacity counts the read prefix or the scratch block",
+    )
+
+    # A row covers its whole prefill buckets and every decoded position.
+    for prompt, generation, blocks, reason in (
+        (100, 8, 16, "a short prompt did not cover its 1,024-token prefill bucket"),
+        (1030, 64, 32, "the tail bucket past 1,024 tokens was not covered"),
+        (5000, 8192, 207, "a long generation was not covered"),
+        (65536 - 8192, 8192, row_blocks, "a full-length request did not fit one row"),
+    ):
+        require(
+            pool.request_blocks(prompt_tokens=prompt, generation_tokens=generation) == blocks,
+            reason,
+        )
+    try:
+        pool.request_blocks(prompt_tokens=65536, generation_tokens=1)
+    except KvPoolError as error:
+        require("a row holds" in str(error), f"wrong oversized-request diagnostic: {error}")
+    else:
+        require(False, "a request longer than one row was accepted")
+
+    counts = (16, 32, 207)
+    rows = pool.assign_group(counts, width=16)
+    require(
+        len(rows) == 16 and all(len(row) == row_blocks for row in rows),
+        "a group table does not have full-width rows",
+    )
+    runs = [row[:count] for row, count in zip(rows, counts)]
+    require(
+        all(run == list(range(run[0], run[0] + len(run))) for run in runs),
+        "a group row is not one contiguous run",
+    )
+    assigned = [set(run) for run in runs]
+    require(
+        sum(len(run) for run in assigned) == len(set().union(*assigned)),
+        "two group rows share a KV block",
+    )
+    require(
+        not any(run & (prefix | {pool.scratch_block}) for run in assigned),
+        "a group row took a read-prefix or scratch block",
+    )
+    require(
+        all(set(row[count:]) <= {pool.scratch_block} for row, count in zip(rows, counts))
+        and all(set(row) == {pool.scratch_block} for row in rows[len(counts) :]),
+        "entries past a row's run do not point at the scratch block",
+    )
+    for block_counts, diagnostic in (
+        ((row_blocks,) * 4, "the pool holds"),
+        ((row_blocks + 1,), "a row holds"),
+        ((), "between one row"),
+    ):
+        try:
+            pool.assign_group(block_counts, width=16)
+        except KvPoolError as error:
+            require(diagnostic in str(error), f"wrong group diagnostic: {error}")
+        else:
+            require(False, f"an invalid group was assigned: {block_counts!r}")
+
+    startup = pool.startup_rows(width=16)
+    require(startup[-1] == list(range(row_blocks)), "the read row is not a full run from block 0")
+    generation_rows = [set(row) - {pool.scratch_block} for row in startup[:-1]]
+    require(
+        all(len(row) >= 16 for row in generation_rows)
+        and sum(len(row) for row in generation_rows) == len(set().union(*generation_rows))
+        and not any(row & set(startup[-1]) for row in generation_rows)
+        and max(max(row) for row in generation_rows) < pool.scratch_block,
+        "startup rows overlap, exceed the pool, or cannot hold one prefill bucket",
+    )
+    try:
+        KvPoolLayout(pool_blocks=row_blocks, row_blocks=row_blocks, kv_block_size=64)
+    except KvPoolError as error:
+        require("one full-length row" in str(error), f"wrong small-pool diagnostic: {error}")
+    else:
+        require(False, "a pool without room for one row, the prefix and scratch was accepted")
+
+    # The batch worker stops adding rows once the pool would overflow.
+    class PoolAdapter:
+        group_capacity_blocks = pool.group_capacity_blocks
+
+        def request_blocks(self, *, prompt_tokens, generation_tokens):
+            try:
+                return pool.request_blocks(
+                    prompt_tokens=prompt_tokens, generation_tokens=generation_tokens
+                )
+            except KvPoolError as error:
+                raise BatchDecodeAdapterError(str(error)) from error
+
+        def decode_width_supported(self, width):
+            return True
+
+    def take(prompt_counts):
+        pending = [
+            SimpleNamespace(
+                request=SimpleNamespace(max_tokens=8192, temperature=0.0),
+                prompt_token_count=prompt_count,
+                index=index,
+            )
+            for index, prompt_count in enumerate(prompt_counts)
+        ]
+        worker = SimpleNamespace(
+            _condition=threading.Condition(),
+            _queue=deque(pending),
+            _closing=False,
+            adapter=PoolAdapter(),
+            sampled_admission_enabled=False,
+        )
+        worker._request_blocks = types.MethodType(
+            BatchGenerationCoordinator._request_blocks, worker
+        )
+        batch = BatchGenerationCoordinator._take_batch(worker)
+        return [item.index for item in batch], [item.index for item in worker._queue]
+
+    full = 65536 - 8192
+    require(take([full] * 4) == ([0, 1, 2], [3]), "a group overflowed the KV pool")
+    require(
+        take([full, 100, 100]) == ([0, 1, 2], []),
+        "short requests did not join a long one while blocks remained",
+    )
+    require(
+        take([65536, 100]) == ([0], [1]),
+        "a request no row can hold was grouped with others",
+    )
+
+
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
 # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
 def probe_batch_decode_scheduler():
@@ -998,15 +1139,45 @@ def probe_batch_decode_scheduler():
         else:
             require(False, f"invalid adapter width was accepted: {invalid_width!r}")
 
-    resident_trace = object()
+    from unittest import mock
+
+    import torch
+
+    import qwen36_service.batch_decode_adapter as batch_decode_adapter_module
+
+    resident_trace = SimpleNamespace(device_inputs=("tokens", "positions", "rope", "page-table"))
     adapter.vocabulary_size = test_vocabulary_size
     adapter.profile = SimpleNamespace(maximum_sequence_length=test_sequence_length)
     adapter._traces = {mixed_user_count: resident_trace}
     adapter._pending_trace_plan = reuse_plan
     adapter._binding_matches = lambda trace: trace is resident_trace
-    reused_preparation = adapter.prepare_width(
-        token_ids=tuple(user.token_id for user in mixed_users),
-        positions=tuple(user.position for user in mixed_users),
+    # The current group's rows, as prefill_users leaves them before trace preparation.
+    adapter.page_table = torch.arange(MAXIMUM_ACTIVE_BATCH_WIDTH * 4, dtype=torch.int32).reshape(
+        MAXIMUM_ACTIVE_BATCH_WIDTH, 4
+    )
+    adapter.model = SimpleNamespace(
+        prepare_decode_inputs_host=lambda tokens, positions, page_table: (
+            tokens,
+            positions,
+            "rope",
+            page_table,
+        )
+    )
+    restaged = []
+    with mock.patch.object(
+        batch_decode_adapter_module,
+        "copy_host_to_device",
+        lambda host, device_tensors: restaged.append((tuple(host), tuple(device_tensors))),
+    ):
+        reused_preparation = adapter.prepare_width(
+            token_ids=tuple(user.token_id for user in mixed_users),
+            positions=tuple(user.position for user in mixed_users),
+        )
+    require(
+        len(restaged) == 1
+        and restaged[0][1] == ("page-table",)
+        and torch.equal(restaged[0][0][0], adapter.page_table[:mixed_user_count]),
+        "a reused decode trace kept the previous group's page table",
     )
     require(reused_preparation.reused, "adapter recaptured a reusable trace")
     require(
@@ -7319,6 +7490,7 @@ def probe_masked_prefill_traces():
         return adapter
 
     one_per_core = sampled_adapter(False)
+    one_per_core.group_capacity_blocks = 16
     require(
         [w for w in range(1, 17) if one_per_core.sampled_width_supported(w)] == [1, 2, 3, 4],
         "the sampled kernel must fit exactly 4 users of 24 heads on 110 cores",
@@ -7342,6 +7514,7 @@ def probe_masked_prefill_traces():
             adapter=one_per_core,
             sampled_admission_enabled=sampled_admission,
             deterministic_route=ROUTE_FUSED_STEP,
+            _request_blocks=lambda _pending: 1,
         )
         batch = BatchGenerationCoordinator._take_batch(worker)
         return [item.index for item in batch], [item.index for item in worker._queue]
@@ -7364,6 +7537,7 @@ def probe_masked_prefill_traces():
     preparing = SimpleNamespace(
         maximum_width=16,
         page_table=torch.zeros(16, 4, dtype=torch.int32),
+        _startup_page_table=torch.zeros(16, 4, dtype=torch.int32),
         fusion_mode=ROUTE_FUSED_STEP,
         model=SimpleNamespace(
             READ_BATCH_WIDTH=4,
@@ -8102,8 +8276,9 @@ def probe_structured_reads():
             _condition=threading.Condition(),
             _queue=deque(items),
             _closing=False,
-            adapter=SimpleNamespace(decode_width_supported=lambda w: True),
+            adapter=SimpleNamespace(decode_width_supported=lambda w: True, group_capacity_blocks=16),
             sampled_admission_enabled=False,
+            _request_blocks=lambda _pending: 1,
         )
         return BatchGenerationCoordinator._take_batch(worker), list(worker._queue)
 
@@ -8210,6 +8385,7 @@ def main():
     probe("TP=2 / P300 gate invariants", probe_p150x2_gate)
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
+    probe("pooled KV rows", probe_kv_pool)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)

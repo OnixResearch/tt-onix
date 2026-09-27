@@ -26,13 +26,14 @@ from .batch_decode_core import (
     plan_same_width_trace_prefill,
 )
 from .decode_adapter import TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
-from .decode_core import DecodeProfile, required_page_table_blocks
+from .decode_core import DecodeProfile
 from .grouped_prefill_core import (
     REASON_ELIGIBLE,
     GroupedPrefillPolicyError,
     RuntimeCapability,
     plan_grouped_prefill,
 )
+from .kv_pool_core import KvPoolError, KvPoolLayout
 from .sampled_decode_core import ShardCandidates
 from .sampled_mode_router_core import ROUTE_SAMPLED, ROUTES
 from .structured_read_core import plan_read_batches
@@ -236,7 +237,21 @@ class BatchedTracedDecodeAdapter:
         self.device_count = int(model.num_devices)
         self.vocabulary_per_shard = self.vocabulary_size // self.device_count
         self.blocks_per_user = self._aligned_blocks_per_user()
-        self.page_table = self._make_page_table()
+        try:
+            self.kv_pool = KvPoolLayout(
+                pool_blocks=profile.kv_pool_blocks,
+                row_blocks=self.blocks_per_user,
+                kv_block_size=profile.kv_block_size,
+            )
+            startup_rows = self.kv_pool.startup_rows(width=maximum_width)
+        except KvPoolError as error:
+            raise BatchDecodeAdapterError(str(error)) from error
+        # Warm-up and trace capture use this layout; each generation group then gets its
+        # own rows (prefill_users). Structured reads keep the last startup row: its first
+        # blocks are the reserved read prefix, which no group is assigned.
+        self._startup_page_table = torch.tensor(startup_rows, dtype=torch.int32)
+        self._read_page_table = self._startup_page_table[-1:].clone()
+        self.page_table = self._startup_page_table.clone()
         self._mesh_reader = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
         self._traces: dict[int, _BatchTrace] = {}
         self._pending_trace_plan: TracePrefillPlan | None = None
@@ -255,16 +270,9 @@ class BatchedTracedDecodeAdapter:
             // TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
         ) * TRACE_PAGE_TABLE_ALIGNMENT_BLOCKS
 
-    def _make_page_table(self) -> torch.Tensor:
-        physical_blocks = self.blocks_per_user * self.maximum_width
-        return torch.arange(physical_blocks, dtype=torch.int32).reshape(
-            self.maximum_width,
-            self.blocks_per_user,
-        )
-
     def _allocate_persistent_state(self) -> None:
         cache_shape = [
-            int(self.page_table.numel()),
+            self.kv_pool.pool_blocks,
             int(self.model.args.n_local_kv_heads),
             self.profile.kv_block_size,
             int(self.model.args.head_dim),
@@ -274,6 +282,20 @@ class BatchedTracedDecodeAdapter:
             ttnn.bfloat16,
             batch_size=self.maximum_width,
         )
+
+    def request_blocks(self, *, prompt_tokens: int, generation_tokens: int) -> int:
+        """KV blocks one request's row takes from the group pool."""
+        try:
+            return self.kv_pool.request_blocks(
+                prompt_tokens=prompt_tokens, generation_tokens=generation_tokens
+            )
+        except KvPoolError as error:
+            raise BatchDecodeAdapterError(str(error)) from error
+
+    @property
+    def group_capacity_blocks(self) -> int:
+        """KV blocks one generation group may take across all of its rows."""
+        return self.kv_pool.group_capacity_blocks
 
     def _capture_gdn_zero_sources(self) -> tuple[_GdnZeroSources, ...]:
         sources = []
@@ -344,6 +366,19 @@ class BatchedTracedDecodeAdapter:
         if pending_plan is not None and pending_plan.reuse_after_prefill:
             resident_trace = self._traces.get(width)
             if resident_trace is not None and self._binding_matches(resident_trace):
+                # The resident trace still holds the previous group's rows.
+                host_inputs = self.model.prepare_decode_inputs_host(
+                    torch.tensor(token_ids, dtype=torch.int32).reshape(
+                        width,
+                        MINIMUM_ACTIVE_BATCH_WIDTH,
+                    ),
+                    torch.tensor(positions, dtype=torch.int32),
+                    page_table=self.page_table[:width].contiguous(),
+                )
+                copy_host_to_device(
+                    host_inputs[MUTABLE_INPUT_COUNT:],
+                    device_tensors=resident_trace.device_inputs[MUTABLE_INPUT_COUNT:],
+                )
                 return TracePreparationResult(
                     capture_seconds=0.0,
                     capture_count=0,
@@ -573,18 +608,21 @@ class BatchedTracedDecodeAdapter:
                 raise BatchDecodeAdapterError("prefill tokens must contain one user")
             prompt_tokens = int(user_tokens.shape[1])
             required_blocks.append(
-                required_page_table_blocks(
+                self.request_blocks(
                     prompt_tokens=prompt_tokens,
                     generation_tokens=generation_tokens,
-                    kv_block_size=self.profile.kv_block_size,
-                    capacity_blocks=self.blocks_per_user,
                 )
             )
             valid_lengths.append(prompt_tokens)
         page_table_blocks = max(required_blocks)
+        try:
+            rows = self.kv_pool.assign_group(required_blocks, width=self.maximum_width)
+        except KvPoolError as error:
+            raise BatchDecodeAdapterError(str(error)) from error
+        self.page_table = torch.tensor(rows, dtype=torch.int32)
         # Full-width rows keep one program per prefill shape; a request-bounded width
         # would compile page-table programs per width, and a first-time compile releases
-        # the masked prefill traces. The rows beyond each prompt are the user's own blocks.
+        # the masked prefill traces. Entries past each row's run point at the scratch block.
         prefill_page_table = self.page_table[:width].contiguous()
         started = time.monotonic()
         observed_first_tokens: tuple[int, ...] | None = None
@@ -741,9 +779,9 @@ class BatchedTracedDecodeAdapter:
 
         The read runs the masked prefill segments with the positions staged into the spare
         rows of each segment's logit tile, so it costs one generation prefill and no decode.
-        It writes KV through the last page-table row, which batched reads (the first rows)
-        and generation below full width leave alone, so a later read sharing its first
-        1,024 tokens replays only the rest.
+        It writes KV through the fixed read row. Generation groups are never assigned the
+        blocks under its first 1,024 tokens, so a later read sharing them replays only the
+        rest.
         """
         length, ordered = self._validated_read(token_ids, positions)
         masked_traces_released = self._prepare_read()
@@ -751,7 +789,7 @@ class BatchedTracedDecodeAdapter:
         started = time.monotonic()
         logits, reused_tokens = self.model.prefill_masked_read(
             token_ids.to(torch.int32),
-            self.page_table[self.maximum_width - 1 : self.maximum_width].contiguous(),
+            self._read_page_table,
             length,
             STRUCTURED_READ_SLOT,
             ordered,
@@ -1407,6 +1445,9 @@ class BatchedTracedDecodeAdapter:
         self._require_open()
         initial_route = self.fusion_mode
         token = int(warm_token_id)
+        # Warm-up groups leave their own rows behind; the programs and the batched-read
+        # trace capture on the startup layout, whose rows are all full and disjoint.
+        self.page_table = self._startup_page_table.clone()
         try:
             for route in routes:
                 if route != self.fusion_mode:

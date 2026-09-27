@@ -92,9 +92,10 @@ TRACE_REGION_SIZE_BYTES = 1_073_741_824
 EAGER_BATCH_SIZE = 1
 MAXIMUM_BATCH_WIDTH = 16
 PAGED_KV_BLOCK_SIZE = 64
-ADMITTED_MAX_SEQUENCE_LENGTH = 2048
+# One request's page-table row (decode-profile.ncl); rows come from the pooled KV cache.
+ADMITTED_MAX_SEQUENCE_LENGTH = 65536
 DEFAULT_MAX_SEQUENCE_LENGTH = ADMITTED_MAX_SEQUENCE_LENGTH
-DEFAULT_MAX_GENERATION_TOKENS = 64
+DEFAULT_MAX_GENERATION_TOKENS = 8192
 DEFAULT_LISTEN_HOST = "127.0.0.1"
 DEFAULT_LISTEN_PORT = 8000
 MINIMUM_LISTEN_PORT = 1
@@ -309,6 +310,23 @@ class QwenEngine:
             elapsed_seconds=state.total_elapsed_seconds,
             widths=state.completed_widths,
         )
+        self._emit_device_dram()
+
+    def _emit_device_dram(self) -> None:
+        """Record DRAM left after the KV pool, traces and weights, as the allocator sees it."""
+        try:
+            view = ttnn.get_memory_view(self.model.mesh_device, ttnn.BufferType.DRAM)
+            banks = int(view.num_banks)
+            fields = {
+                "allocated_bytes": banks * int(view.total_bytes_allocated_per_bank),
+                "free_bytes": banks * int(view.total_bytes_free_per_bank),
+                "largest_free_bytes_per_bank": int(view.largest_contiguous_bytes_free_per_bank),
+                "banks": banks,
+            }
+        except (AttributeError, RuntimeError, TypeError) as error:
+            emit("device-dram-unavailable", error_type=type(error).__name__)
+            return
+        emit("device-dram", **fields)
 
     def readiness_payload(self) -> dict[str, Any]:
         state = self._startup_readiness

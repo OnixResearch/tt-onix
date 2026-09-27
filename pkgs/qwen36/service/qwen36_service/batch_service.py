@@ -362,20 +362,32 @@ class BatchGenerationCoordinator:
                         reads.append(pending)
                 return tuple(reads)
             selected = [first]
+            # Every row of a group takes its own run of KV blocks from one shared pool.
+            used_blocks = self._request_blocks(first)
+            if used_blocks is None:
+                # No row can hold it; its prefill reports why, alone.
+                return (first,)
             collection_deadline = time.monotonic() + BATCH_COLLECTION_SECONDS
             while len(selected) < MAXIMUM_BATCH_WIDTH:
-                compatible = next(
-                    (
-                        pending
-                        for pending in self._queue
-                        if not isinstance(pending, _PendingRead)
-                        and pending.request.max_tokens == first.request.max_tokens
-                    ),
-                    None,
-                )
+                compatible = None
+                compatible_blocks = 0
+                for pending in self._queue:
+                    if (
+                        isinstance(pending, _PendingRead)
+                        or pending.request.max_tokens != first.request.max_tokens
+                    ):
+                        continue
+                    blocks = self._request_blocks(pending)
+                    if (
+                        blocks is not None
+                        and used_blocks + blocks <= self.adapter.group_capacity_blocks
+                    ):
+                        compatible, compatible_blocks = pending, blocks
+                        break
                 if compatible is not None:
                     self._queue.remove(compatible)
                     selected.append(compatible)
+                    used_blocks += compatible_blocks
                     continue
                 remaining = collection_deadline - time.monotonic()
                 if remaining <= 0 or self._closing:
@@ -491,6 +503,16 @@ class BatchGenerationCoordinator:
             finally:
                 for pending in pending_batch:
                     pending.completed.set()
+
+    def _request_blocks(self, pending: _PendingBatchRequest) -> int | None:
+        """KV blocks the request's row needs, or None when no row can hold it."""
+        try:
+            return self.adapter.request_blocks(
+                prompt_tokens=pending.prompt_token_count,
+                generation_tokens=pending.request.max_tokens,
+            )
+        except BatchDecodeAdapterError:
+            return None
 
     @staticmethod
     def _publish(pending: _PendingBatchRequest, token: int) -> None:
