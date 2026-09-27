@@ -255,6 +255,16 @@
           });
       qwenServiceSpeculativeConflictingRejected =
         hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
+      qwenServiceContinuousUnit =
+        (qwenServiceEval { hardware.tenstorrent.qwen38.continuousSlotScheduler = true; })
+        .config.systemd.services.qwen38-p150x2;
+      qwenServiceContinuousSpeculativeRejected =
+        hasFailedAssertion "The continuous-slot scheduler needs the batch worker"
+          (qwenServiceEval {
+            hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
+            hardware.tenstorrent.qwen38.mtpSpeculation = true;
+            hardware.tenstorrent.qwen38.gdnDecodeStep = false;
+          });
       qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
       qwenServiceCheck =
         assert lib.assertMsg qwenServiceInvalidModelPathRejected
@@ -321,6 +331,16 @@
         ) "speculative serving must pass the packaged trace profile";
         assert lib.assertMsg qwenServiceSpeculativeConflictingRejected
           "the Qwen service must reject speculative and sampled fusion together";
+        assert lib.assertMsg (
+          !(lib.hasInfix "--continuous-slot-policy" qwenServiceUnit.serviceConfig.ExecStart)
+        ) "the default Qwen service must keep the group coordinator";
+        assert lib.assertMsg (
+          lib.hasInfix "--continuous-slot-policy" qwenServiceContinuousUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/continuous-slot-policy.json"
+            qwenServiceContinuousUnit.serviceConfig.ExecStart
+        ) "the continuous-slot option must pass the packaged scheduler policy";
+        assert lib.assertMsg qwenServiceContinuousSpeculativeRejected
+          "the Qwen service must reject the continuous-slot scheduler with speculative serving";
         pkgs.runCommand "qwen38-nixos-service" { } ''
           set -euo pipefail
           test -x ${qwen38}/bin/qwen38-p150x2-serve

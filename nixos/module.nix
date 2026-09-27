@@ -146,6 +146,20 @@ in
         '';
       };
 
+      continuousSlotScheduler = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Serve generation through the continuous-slot scheduler instead of the
+          group coordinator. One B4 decode trace stays resident and a finished
+          request's slot is refilled at the next 16-step boundary, so a new
+          request no longer waits for a whole batch to finish. Live streams pause
+          while a refill's prompt is prefilled beside them. Bounds come from the
+          package's continuous-slot policy; the admission receipt is
+          pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-admission-receipt.json.
+        '';
+      };
+
       groupedPrefill = mkOption {
         type = types.bool;
         default = true;
@@ -231,7 +245,7 @@ in
       maximumGenerationTokens = mkOption {
         type = types.ints.positive;
         default = defaultQwenMaximumGenerationTokens;
-        description = "Maximum generated token count for one request, and the default when a request names none. A batch runs until its longest request finishes, so long generations hold the devices from other requests.";
+        description = "Maximum generated token count for one request, and the default when a request names none. Under the group coordinator a batch runs until its longest request finishes, so long generations hold the devices from other requests; the continuous-slot scheduler refills a slot as soon as its request ends.";
       };
 
       conflictingUnits = mkOption {
@@ -322,6 +336,10 @@ in
           assertion = !(qwen38.mtpSpeculation && qwen38.gdnDecodeStep);
           message = "MTP speculation has no evidence on the fused GDN decode step; disable gdnDecodeStep";
         }
+        {
+          assertion = !(qwen38.mtpSpeculation && qwen38.continuousSlotScheduler);
+          message = "The continuous-slot scheduler needs the batch worker; MTP speculation serves the eager route";
+        }
       ];
 
       systemd.services.qwen38-p150x2 = {
@@ -372,6 +390,9 @@ in
             "--max-generation-tokens"
             (toString qwen38.maximumGenerationTokens)
             "--require-systemd-notify"
+          ] ++ lib.optionals qwen38.continuousSlotScheduler [
+            "--continuous-slot-policy"
+            "${qwen38.package}/share/qwen36/continuous-slot-policy.json"
           ] ++ lib.optionals qwen38.mtpSpeculation [
             "--decode-mode"
             "eager"
