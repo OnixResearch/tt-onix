@@ -30,18 +30,13 @@ def stream_chunk(
     request_id: str,
     created: int,
     *,
+    delta: dict[str, Any] | None = None,
     text: str | None = None,
-    role: bool = False,
     finish_reason: str | None = None,
 ) -> dict[str, Any]:
-    """A chunk with a text delta, the assistant role, or the finish reason."""
+    """A chunk with a chat delta or completion text, or the finish reason."""
     if request.endpoint is Endpoint.CHAT_COMPLETIONS:
-        delta: dict[str, Any] = {}
-        if role:
-            delta["role"] = "assistant"
-        if text is not None:
-            delta["content"] = text
-        choice: dict[str, Any] = {"delta": delta, "finish_reason": finish_reason, "index": 0}
+        choice: dict[str, Any] = {"delta": delta or {}, "finish_reason": finish_reason, "index": 0}
     else:
         choice = {"finish_reason": finish_reason, "index": 0, "text": text or ""}
     return {
@@ -67,18 +62,19 @@ def usage_chunk(
     }
 
 
-def response_text(request: CompletionRequest, response: dict[str, Any]) -> str:
-    choice = response["choices"][0]
-    if request.endpoint is Endpoint.CHAT_COMPLETIONS:
-        return choice["message"]["content"]
-    return choice["text"]
+def generated_token_ids(response: dict[str, Any]) -> list[int]:
+    """The response's generated tokens, stop token excluded: the raw text the stream reconciles to."""
+    return list(response["x_onix_decode_evidence"]["generated_token_ids"])
 
 
 class IncrementalDetokenizer:
     """Turn generated tokens into text deltas without splitting a character.
 
-    Each push decodes the whole sequence so far, as the complete response does, and emits
-    only the new suffix. A stop token ends the stream, as `finish_generation` ends the text.
+    Each push decodes only the tokens since the last emitted text plus the ones before them
+    that fix its context (vLLM's prefix and read offsets), so the cost per token stays bounded
+    however long the generation grows. Text ending in U+FFFD stopped inside a multi-byte
+    character and waits for the next token. A stop token ends the stream, as
+    `finish_generation` ends the complete response.
     """
 
     def __init__(
@@ -87,7 +83,8 @@ class IncrementalDetokenizer:
         self._decode = decode
         self._stop_token_ids = stop_token_ids
         self._tokens: list[int] = []
-        self._sent = ""
+        self._prefix_offset = 0
+        self._read_offset = 0
         self.stopped = False
         self.diverged = False
 
@@ -98,19 +95,23 @@ class IncrementalDetokenizer:
             self.stopped = True
             return ""
         self._tokens.append(token)
-        text = self._decode(self._tokens)
-        if text.endswith(REPLACEMENT_CHARACTER) or not text.startswith(self._sent):
-            return ""
-        delta = text[len(self._sent) :]
-        self._sent = text
-        return delta
+        return self._advance(final=False)
 
-    def finish(self, final_text: str) -> str:
-        """The rest of the complete response text that the stream has not sent."""
-        if not final_text.startswith(self._sent):
+    def _advance(self, *, final: bool) -> str:
+        prefix_text = self._decode(self._tokens[self._prefix_offset : self._read_offset])
+        text = self._decode(self._tokens[self._prefix_offset :])
+        if len(text) <= len(prefix_text) or (not final and text.endswith(REPLACEMENT_CHARACTER)):
+            return ""
+        self._prefix_offset = self._read_offset
+        self._read_offset = len(self._tokens)
+        return text[len(prefix_text) :]
+
+    def finish(self, final_token_ids: list[int]) -> str:
+        """The text of the complete response's tokens that the stream has not sent yet."""
+        sent = len(self._tokens)
+        if list(final_token_ids[:sent]) != self._tokens:
             # Sent text cannot be retracted; record the mismatch instead.
             self.diverged = True
             return ""
-        delta = final_text[len(self._sent) :]
-        self._sent = final_text
-        return delta
+        self._tokens.extend(final_token_ids[sent:])
+        return self._advance(final=True)

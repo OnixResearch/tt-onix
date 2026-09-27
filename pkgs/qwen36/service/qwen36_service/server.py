@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import Any
 
 import torch
 import ttnn
+from jinja2.exceptions import TemplateError
 from models.demos.blackhole.qwen36.demo.text_demo import _blocks_for
 from models.demos.blackhole.qwen36.tt.model import Qwen36Model
 from transformers import AutoTokenizer
@@ -31,15 +33,22 @@ from .batch_admission_core import (
 )
 from .batch_decode_adapter import BatchedTracedDecodeAdapter
 from .batch_service import BatchGenerationCoordinator
+from .chat_output_core import ChatOutputParser, OutputEvent, event_deltas
 from .core import (
+    FINISH_LENGTH,
+    FINISH_STOP,
     CompletionRequest,
     Endpoint,
     RequestValidationError,
+    admit_prompt,
     build_completion_response,
+    chat_finish_reason,
     finish_generation,
     load_stop_token_ids,
     parse_completion_request,
     parse_endpoint,
+    template_arguments,
+    template_messages,
 )
 from .decode_adapter import DecodeAdapterError, TracedDecodeAdapter
 from .decode_core import (
@@ -64,7 +73,7 @@ from .readiness_core import (
 from .stream_core import (
     SSE_DONE,
     IncrementalDetokenizer,
-    response_text,
+    generated_token_ids,
     sse_event,
     stream_chunk,
     usage_chunk,
@@ -126,16 +135,30 @@ def emit(stage: str, **fields: Any) -> None:
 
 
 def render_prompt(request: CompletionRequest, tokenizer: Any) -> str:
+    """The prompt text; chat requests go through the model's template with their tools."""
     if request.endpoint is Endpoint.COMPLETIONS:
         assert request.prompt is not None
         return request.prompt
-    messages = [
-        {"content": message.content, "role": message.role}
-        for message in request.messages
-    ]
-    return tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True, tokenize=False
-    )
+    try:
+        return tokenizer.apply_chat_template(
+            template_messages(request),
+            tools=list(request.tools) or None,
+            add_generation_prompt=True,
+            tokenize=False,
+            **template_arguments(request),
+        )
+    except (TemplateError, TypeError) as error:
+        # The template's raise_exception and its `|items` over a non-mapping are request errors.
+        raise RequestValidationError(f"the chat template rejected the messages: {error}") from error
+
+
+@dataclass(frozen=True)
+class PreparedGeneration:
+    """A request whose prompt is rendered, tokenized and admitted to the sequence."""
+
+    request: CompletionRequest
+    token_ids: Any
+    prompt_token_count: int
 
 
 class QwenEngine:
@@ -629,26 +652,40 @@ class QwenEngine:
             "trace_prepare_s": trace_prepare_seconds,
         }
 
+    def prepare(self, request: CompletionRequest) -> PreparedGeneration:
+        """Render and tokenize the prompt; fit generation to the sequence limit."""
+        prompt = render_prompt(request, self.tokenizer)
+        token_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
+        prompt_token_count = token_ids.shape[1]
+        return PreparedGeneration(
+            request=admit_prompt(request, prompt, prompt_token_count, self.max_sequence_length),
+            token_ids=token_ids,
+            prompt_token_count=prompt_token_count,
+        )
+
     def generate(
         self,
         request: CompletionRequest,
         token_sink: Callable[[int], None] | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
-        """Generate one completion.
+        """Generate one completion."""
+        return self.generate_prepared(self.prepare(request), token_sink, request_id)
+
+    def generate_prepared(
+        self,
+        prepared: PreparedGeneration,
+        token_sink: Callable[[int], None] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate one prepared completion.
 
         `token_sink` receives each generated token as the batch worker decodes it, for
         streaming. The MTP and eager routes deliver no tokens early; their text arrives with
         the complete response."""
-        prompt = render_prompt(request, self.tokenizer)
-        token_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
-        prompt_token_count = token_ids.shape[1]
-        total_token_count = prompt_token_count + request.max_tokens
-        if total_token_count > self.max_sequence_length:
-            raise RequestValidationError(
-                f"prompt and generation require {total_token_count} tokens; limit is {self.max_sequence_length}"
-            )
-
+        request = prepared.request
+        token_ids = prepared.token_ids
+        prompt_token_count = prepared.prompt_token_count
         request_id = request_id or f"cmpl-{uuid.uuid4().hex}"
         started = time.monotonic()
         request_deadline = started + self.decode_profile.request_timeout_seconds
@@ -1034,15 +1071,18 @@ def make_handler(
                 self._write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "inference failed")
 
         def _stream(self, request: CompletionRequest) -> None:
-            """Answer with server-sent events: text deltas as the batch worker decodes them."""
+            """Answer with server-sent events: deltas as the batch worker decodes tokens."""
+            # Rendering and admission errors stay plain JSON errors, before any event.
+            prepared = engine.prepare(request)
+            request = prepared.request
             request_id = f"cmpl-{uuid.uuid4().hex}"
             created = int(time.time())
             events: queue.SimpleQueue[tuple[str, Any]] = queue.SimpleQueue()
 
             def generate() -> None:
                 try:
-                    response = engine.generate(
-                        request,
+                    response = engine.generate_prepared(
+                        prepared,
                         token_sink=lambda token: events.put(("token", token)),
                         request_id=request_id,
                     )
@@ -1071,34 +1111,55 @@ def make_handler(
                 lambda token_ids: engine.tokenizer.decode(token_ids, skip_special_tokens=True),
                 engine.stop_token_ids,
             )
+            chat = request.endpoint is Endpoint.CHAT_COMPLETIONS
+            parser = ChatOutputParser(request.output_plan) if chat else None
 
             def send(chunk: dict[str, Any]) -> None:
                 self.wfile.write(sse_event(chunk))
 
+            def send_text(text: str) -> None:
+                if parser is None:
+                    send(stream_chunk(request, request_id, created, text=text))
+                    return
+                send_events(parser.push(text))
+
+            def send_events(parser_events: list[OutputEvent]) -> None:
+                for delta in event_deltas(parser_events):
+                    send(stream_chunk(request, request_id, created, delta=delta))
+
             try:
-                if request.endpoint is Endpoint.CHAT_COMPLETIONS:
-                    send(stream_chunk(request, request_id, created, text="", role=True))
+                if chat:
+                    send(
+                        stream_chunk(
+                            request, request_id, created, delta={"content": "", "role": "assistant"}
+                        )
+                    )
                 while kind == "token":
                     text = detokenizer.push(value)
                     if text:
-                        send(stream_chunk(request, request_id, created, text=text))
+                        send_text(text)
                     kind, value = events.get()
                 if kind == "error":
                     emit("request-failed", error_type=type(value).__name__, streamed=True)
                     send({"error": {"message": "inference failed", "type": "server_error"}})
                     return
                 response = value
-                tail = detokenizer.finish(response_text(request, response))
+                # Reconcile with the tokens the complete response decoded, not its parsed message.
+                tail = detokenizer.finish(generated_token_ids(response))
                 if detokenizer.diverged:
                     emit("stream-text-diverged", request_id=request_id)
                 if tail:
-                    send(stream_chunk(request, request_id, created, text=tail))
-                final = stream_chunk(
-                    request,
-                    request_id,
-                    created,
-                    finish_reason=response["choices"][0]["finish_reason"],
-                )
+                    send_text(tail)
+                finish_reason = response["choices"][0]["finish_reason"]
+                if parser is not None:
+                    send_events(parser.finish())
+                    # The streamed calls decide, so the finish reason matches what was sent.
+                    finish_reason = chat_finish_reason(
+                        FINISH_LENGTH if finish_reason == FINISH_LENGTH else FINISH_STOP,
+                        parser.completed_call_count,
+                        parser.open_call,
+                    )
+                final = stream_chunk(request, request_id, created, finish_reason=finish_reason)
                 if "x_onix_decode_evidence" in response:
                     final["x_onix_decode_evidence"] = response["x_onix_decode_evidence"]
                 send(final)

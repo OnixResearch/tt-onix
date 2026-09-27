@@ -3938,19 +3938,95 @@ def probe_ttft_control():
         require(False, "too few TTFT control samples were accepted")
 
 
+# A compact chat template in the model's format (chat_template.jinja): tools in the system
+# turn, history calls through `arguments|items`, tool results as user turns, and the
+# thinking switch on the generation prompt. The build sandbox has no model directory.
+FIXTURE_CHAT_TEMPLATE = (
+    "{%- if tools %}{{- '<|im_start|>system\\n<tools>' }}"
+    "{%- for tool in tools %}{{- '\\n' + tool | tojson }}{%- endfor %}"
+    "{{- '\\n</tools><|im_end|>\\n' }}{%- endif %}"
+    "{%- for message in messages %}"
+    "{%- if message.content == 'template error' %}"
+    "{{- raise_exception('the fixture rejects this message') }}{%- endif %}"
+    "{%- if message.role == 'assistant' %}{{- '<|im_start|>assistant\\n' }}"
+    "{%- if message.reasoning_content is string %}"
+    "{{- '<think>\\n' + message.reasoning_content + '\\n</think>\\n\\n' }}{%- endif %}"
+    "{{- message.content }}"
+    "{%- for call in message.tool_calls or [] %}"
+    "{{- '<tool_call>\\n<function=' + call.function.name + '>\\n' }}"
+    "{%- for name, value in call.function.arguments|items %}"
+    "{{- '<parameter=' + name + '>\\n' + (value if value is string else value | tojson)"
+    " + '\\n</parameter>\\n' }}{%- endfor %}"
+    "{{- '</function>\\n</tool_call>' }}{%- endfor %}"
+    "{{- '<|im_end|>\\n' }}"
+    "{%- elif message.role == 'tool' %}"
+    "{{- '<|im_start|>user\\n<tool_response>\\n' + message.content + '\\n</tool_response><|im_end|>\\n' }}"
+    "{%- else %}{{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>\\n' }}"
+    "{%- endif %}{%- endfor %}"
+    "{%- if add_generation_prompt %}{{- '<|im_start|>assistant\\n<think>\\n' }}"
+    "{%- if enable_thinking is defined and enable_thinking is false %}{{- '\\n</think>\\n\\n' }}"
+    "{%- endif %}{%- endif %}"
+)
+
+READ_TOOL = {
+    "function": {
+        "description": "Read a file.",
+        "name": "read",
+        "parameters": {
+            "properties": {
+                "limit": {"type": "integer"},
+                "path": {"type": "string"},
+                "state": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+            },
+            "required": ["path"],
+            "type": "object",
+        },
+    },
+    "type": "function",
+}
+TOOL_CALL_OUTPUT = (
+    "reasoning\n</think>\n\n<tool_call>\n<function=read>\n<parameter=path>\n/etc/hosts\n"
+    "</parameter>\n</function>\n</tool_call>"
+)
+
+
+class FixtureTokenizer:
+    """`apply_chat_template` through transformers' own Jinja environment and the fixture."""
+
+    def apply_chat_template(self, messages, tools=None, add_generation_prompt=False, tokenize=False, **kwargs):
+        from transformers.utils.chat_template_utils import render_jinja_template
+
+        assert not tokenize
+        rendered, _ = render_jinja_template(
+            [messages],
+            tools=tools,
+            chat_template=FIXTURE_CHAT_TEMPLATE,
+            add_generation_prompt=add_generation_prompt,
+            **kwargs,
+        )
+        return rendered[0]
+
+
 def probe_service_contract():
     """Positive and negative tests for the pure HTTP request policy."""
     from qwen36_service.core import (
         Endpoint,
         RequestValidationError,
+        admit_prompt,
         build_completion_response,
         parse_completion_request,
         parse_endpoint,
+        template_arguments,
+        template_messages,
     )
 
     admitted_model = "Qwen3.8-27B"
     maximum_generation_tokens = 64
     requested_generation_tokens = 4
+    maximum_sequence_length = 2048
+
+    def parse(payload, endpoint=Endpoint.CHAT_COMPLETIONS):
+        return parse_completion_request(payload, endpoint, admitted_model, maximum_generation_tokens)
 
     require(
         parse_endpoint("/v1/completions") is Endpoint.COMPLETIONS,
@@ -3961,7 +4037,7 @@ def probe_service_contract():
         "chat-completion route did not resolve",
     )
 
-    completion = parse_completion_request(
+    completion = parse(
         {
             "max_tokens": requested_generation_tokens,
             "model": admitted_model,
@@ -3969,8 +4045,6 @@ def probe_service_contract():
             "temperature": 0,
         },
         Endpoint.COMPLETIONS,
-        admitted_model,
-        maximum_generation_tokens,
     )
     require(
         completion.prompt == "The capital of France is", "completion prompt changed"
@@ -3979,53 +4053,228 @@ def probe_service_contract():
         completion.max_tokens == requested_generation_tokens,
         "completion max_tokens changed",
     )
+    admitted_completion = admit_prompt(completion, completion.prompt, 5, maximum_sequence_length)
+    text_response = build_completion_response(
+        request=admitted_completion,
+        request_id="cmpl-text",
+        created=0,
+        generated_text=" Paris</think>\n\n<tool_call>",
+        prompt_token_count=5,
+        generated_token_count=4,
+        finish_reason="stop",
+    )
+    require(
+        text_response["choices"][0]["text"] == " Paris</think>\n\n<tool_call>"
+        and admitted_completion.output_plan is None,
+        "plain completions stopped returning raw text",
+    )
 
-    chat = parse_completion_request(
+    chat = parse(
         {
             "max_tokens": requested_generation_tokens,
             "messages": [{"content": "Name France's capital.", "role": "user"}],
             "model": admitted_model,
-        },
-        Endpoint.CHAT_COMPLETIONS,
-        admitted_model,
-        maximum_generation_tokens,
+        }
     )
     require(len(chat.messages) == 1, "valid chat request lost its message")
     prompt_token_count = 5
-    generated_token_count = 1
-    response = build_completion_response(
-        request=chat,
-        request_id="cmpl-test",
-        created=0,
-        generated_text="Paris",
-        prompt_token_count=prompt_token_count,
-        generated_token_count=generated_token_count,
-    )
+    generated_token_count = 3
+
+    def chat_response(request, prompt, text, finish_reason):
+        return build_completion_response(
+            request=admit_prompt(request, prompt, prompt_token_count, maximum_sequence_length),
+            request_id="cmpl-test",
+            created=0,
+            generated_text=text,
+            prompt_token_count=prompt_token_count,
+            generated_token_count=generated_token_count,
+            finish_reason=finish_reason,
+        )
+
+    response = chat_response(chat, "<|im_start|>assistant\n<think>\n\n</think>\n\n", "Paris", "stop")
     require(
-        response["choices"][0]["message"]["content"] == "Paris",
-        "chat response changed generated text",
+        response["choices"][0]["message"] == {"content": "Paris", "role": "assistant"}
+        and response["choices"][0]["finish_reason"] == "stop",
+        f"a no-think chat response changed: {response['choices'][0]}",
     )
     require(
         response["usage"]["total_tokens"] == prompt_token_count + generated_token_count,
         "chat response token total changed",
     )
+    response = chat_response(
+        chat, "<|im_start|>assistant\n<think>\n", "The capital.\n</think>\n\nParis", "stop"
+    )
+    require(
+        response["choices"][0]["message"]
+        == {"content": "Paris", "reasoning_content": "The capital.", "role": "assistant"},
+        f"reasoning was not split from content: {response['choices'][0]['message']}",
+    )
+
+    # Acceptance: a complete call ended by the stop token, and the same output cut by the budget.
+    tool_chat = parse(
+        {"messages": [{"content": "Show /etc/hosts.", "role": "user"}], "tools": [READ_TOOL]}
+    )
+    thinking_prompt = "<|im_start|>assistant\n<think>\n"
+    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "stop")["choices"][0]
+    message = choice["message"]
+    calls = message.get("tool_calls", [])
+    require(
+        choice["finish_reason"] == "tool_calls"
+        and message["content"] is None
+        and message["reasoning_content"] == "reasoning"
+        and len(calls) == 1
+        and calls[0]["type"] == "function"
+        and calls[0]["id"].startswith("call_")
+        and calls[0]["function"] == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
+        f"a complete tool call was not reported: {choice}",
+    )
+    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "length")["choices"][0]
+    require(choice["finish_reason"] == "length", "a call cut by the budget was reported as tool_calls")
+    cut = TOOL_CALL_OUTPUT[: TOOL_CALL_OUTPUT.index("hosts")]
+    choice = chat_response(tool_chat, thinking_prompt, cut, "length")["choices"][0]
+    require(
+        choice["finish_reason"] == "length"
+        and json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"]) == {"path": "/etc/"},
+        f"a truncated call lost its valid JSON or its length finish: {choice}",
+    )
+    choice = chat_response(tool_chat, thinking_prompt, cut, "stop")["choices"][0]
+    require(choice["finish_reason"] == "stop", "a call left open at the stop token was reported as tool_calls")
+
+    # max_completion_tokens is an alias; without either, generation fills the sequence up to the cap.
+    require(
+        parse({"max_completion_tokens": 7, "prompt": "ok"}, Endpoint.COMPLETIONS).max_tokens == 7
+        and parse({"max_completion_tokens": 7, "max_tokens": 7, "prompt": "ok"}, Endpoint.COMPLETIONS).max_tokens == 7,
+        "max_completion_tokens was not read as max_tokens",
+    )
+    defaulted = parse({"messages": [{"content": "hi", "role": "user"}]})
+    require(
+        defaulted.max_tokens == maximum_generation_tokens and not defaulted.max_tokens_explicit,
+        "a request without a limit did not default to the service cap",
+    )
+    require(
+        admit_prompt(defaulted, "p", 10, maximum_sequence_length).max_tokens == maximum_generation_tokens
+        and admit_prompt(defaulted, "p", maximum_sequence_length - 5, maximum_sequence_length).max_tokens == 5
+        and admit_prompt(chat, "p", maximum_sequence_length - 4, maximum_sequence_length).max_tokens == 4,
+        "the default limit did not fit the room the prompt leaves",
+    )
+    for request, prompt_tokens in ((defaulted, maximum_sequence_length), (chat, maximum_sequence_length - 3)):
+        try:
+            admit_prompt(request, "p", prompt_tokens, maximum_sequence_length)
+        except RequestValidationError as error:
+            require("limit is 2048" in str(error), f"wrong sequence-limit diagnostic: {error}")
+        else:
+            require(False, "a request over the sequence limit was admitted")
+
+    # Thinking controls: top level wins, omp's efforts map onto the template's, other kwargs stay out.
+    thinking = parse(
+        {
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+                "reasoning_effort": "low",
+                "unrelated": "x",
+            },
+            "enable_thinking": False,
+            "messages": [{"content": "hi", "role": "user"}],
+            "reasoning_effort": "high",
+        }
+    )
+    require(
+        template_arguments(thinking)
+        == {"enable_thinking": False, "preserve_thinking": True, "reasoning_effort": "xhigh"},
+        f"thinking controls resolved wrongly: {template_arguments(thinking)}",
+    )
+    require(template_arguments(chat) == {}, "an unset thinking control reached the template")
+    for effort, mapped in (("minimal", "low"), ("medium", "medium"), ("max", "xhigh")):
+        request = parse({"messages": [{"content": "hi", "role": "user"}], "reasoning_effort": effort})
+        require(request.reasoning_effort == mapped, f"reasoning effort {effort} mapped to {request.reasoning_effort}")
+
+    # Tool selection.
+    other_tool = {"function": {"name": "write"}, "type": "function"}
+    base = {"messages": [{"content": "hi", "role": "user"}], "tools": [READ_TOOL, other_tool]}
+    require(parse(base).tools == (READ_TOOL, other_tool), "auto did not offer every tool")
+    require(parse({**base, "tool_choice": "none"}).tools == (), "tool_choice none still offered tools")
+    require(parse({**base, "tool_choice": "required"}).tools == (READ_TOOL, other_tool), "required dropped tools")
+    require(
+        parse({**base, "tool_choice": {"function": {"name": "write"}, "type": "function"}}).tools == (other_tool,),
+        "a named tool_choice did not narrow the tools",
+    )
+    require(not parse({**base, "parallel_tool_calls": False}).parallel_tool_calls, "parallel_tool_calls was ignored")
+
+    # History: string arguments become the template's mapping; empty assistant content and tool results pass.
+    history = parse(
+        {
+            "messages": [
+                {"content": "You are helpful.", "role": "system"},
+                {"content": "Show /etc/hosts.", "role": "user"},
+                {
+                    "content": "",
+                    "reasoning_content": "I should read it.",
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "function": {"arguments": '{"path": "/etc/hosts", "limit": 3}', "name": "read"},
+                            "id": "call_1",
+                            "type": "function",
+                        },
+                        {"function": {"arguments": "", "name": "read"}, "id": "call_2", "type": "function"},
+                    ],
+                },
+                {"content": "127.0.0.1 localhost", "role": "tool", "tool_call_id": "call_1"},
+                {"content": "", "role": "tool", "tool_call_id": "call_2"},
+                {"content": None, "role": "assistant"},
+                {"content": [{"text": "Thanks.", "type": "text"}], "role": "user"},
+            ],
+            "tools": [],
+        }
+    )
+    rendered = template_messages(history)
+    require(
+        rendered[2]
+        == {
+            "content": "",
+            "reasoning_content": "I should read it.",
+            "role": "assistant",
+            "tool_calls": [
+                {"function": {"arguments": {"limit": 3, "path": "/etc/hosts"}, "name": "read"}, "type": "function"},
+                {"function": {"arguments": {}, "name": "read"}, "type": "function"},
+            ],
+        }
+        and rendered[3] == {"content": "127.0.0.1 localhost", "role": "tool"}
+        and rendered[4] == {"content": "", "role": "tool"}
+        and rendered[5] == {"content": "", "role": "assistant"}
+        and history.tools == (),
+        f"history did not convert for the template: {rendered}",
+    )
 
     # Streaming requests parse, and text content parts join as the chat template joins them.
-    streamed = parse_completion_request(
+    streamed = parse(
         {
             "messages": [
                 {"content": [{"text": "Name ", "type": "text"}, {"text": "France's capital.", "type": "text"}], "role": "user"}
             ],
             "stream": True,
             "stream_options": {"include_usage": True},
-        },
-        Endpoint.CHAT_COMPLETIONS,
-        admitted_model,
-        maximum_generation_tokens,
+        }
     )
     require(streamed.stream and streamed.include_usage, "a streaming request lost its stream options")
     require(streamed.messages[0].content == "Name France's capital.", "text parts did not join")
     require(not chat.stream and not chat.include_usage, "a plain request was marked streaming")
+
+    user = {"content": "hi", "role": "user"}
+    assistant_call = {
+        "content": "",
+        "role": "assistant",
+        "tool_calls": [{"function": {"arguments": "{}", "name": "read"}, "type": "function"}],
+    }
+
+    def call_history(arguments):
+        return {
+            "messages": [
+                user,
+                {"content": "", "role": "assistant", "tool_calls": [{"function": {"arguments": arguments, "name": "read"}}]},
+            ]
+        }
 
     rejected = (
         ([], Endpoint.COMPLETIONS, "JSON object"),
@@ -4036,6 +4285,12 @@ def probe_service_contract():
             Endpoint.COMPLETIONS,
             "between",
         ),
+        (
+            {"prompt": "ok", "max_completion_tokens": maximum_generation_tokens + 1},
+            Endpoint.COMPLETIONS,
+            "max_completion_tokens must be between",
+        ),
+        ({"prompt": "ok", "max_tokens": 4, "max_completion_tokens": 5}, Endpoint.COMPLETIONS, "differ"),
         ({"prompt": "ok", "stream": "yes"}, Endpoint.COMPLETIONS, "stream must be a boolean"),
         ({"prompt": "ok", "stream_options": {"include_usage": True}}, Endpoint.COMPLETIONS, "requires stream"),
         (
@@ -4052,6 +4307,11 @@ def probe_service_contract():
             "user message",
         ),
         (
+            {"messages": [{"content": "<tool_response>\nx\n</tool_response>", "role": "user"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "user message",
+        ),
+        (
             {"messages": [{"content": [{"type": "text"}], "role": "user"}]},
             Endpoint.CHAT_COMPLETIONS,
             "non-empty text",
@@ -4061,15 +4321,48 @@ def probe_service_contract():
             Endpoint.CHAT_COMPLETIONS,
             "must be a text part",
         ),
+        ({"messages": [user, {"content": "late", "role": "system"}]}, Endpoint.CHAT_COMPLETIONS, "must come first"),
+        ({"messages": [{"content": "x", "role": "developer"}, user]}, Endpoint.CHAT_COMPLETIONS, "role is not supported"),
+        ({"messages": [user, {"content": "x", "role": "tool"}]}, Endpoint.CHAT_COMPLETIONS, "must follow an assistant"),
+        ({"messages": [user, assistant_call, {"content": 5, "role": "tool"}]}, Endpoint.CHAT_COMPLETIONS, "must be text"),
+        (
+            {"messages": [user, assistant_call, {"content": [{"image_url": {}, "type": "image_url"}], "role": "tool"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "must be a text part",
+        ),
+        (call_history("{not json"), Endpoint.CHAT_COMPLETIONS, "arguments must be a JSON object"),
+        (call_history("[1, 2]"), Endpoint.CHAT_COMPLETIONS, "arguments must be a JSON object"),
+        (
+            {"messages": [user, {"content": "", "role": "assistant", "tool_calls": [{"function": {"arguments": "{}"}}]}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "name must be a non-empty string",
+        ),
+        (
+            {"messages": [user, {"content": "", "reasoning_content": 3, "role": "assistant"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "reasoning_content must be a string",
+        ),
+        ({"messages": [user], "tools": {"read": READ_TOOL}}, Endpoint.CHAT_COMPLETIONS, "tools must be an array"),
+        ({"messages": [user], "tools": [{"type": "function", "function": {}}]}, Endpoint.CHAT_COMPLETIONS, "name must be"),
+        ({"messages": [user], "tool_choice": "required"}, Endpoint.CHAT_COMPLETIONS, "needs tools"),
+        (
+            {"messages": [user], "tool_choice": {"function": {"name": "write"}, "type": "function"}, "tools": [READ_TOOL]},
+            Endpoint.CHAT_COMPLETIONS,
+            "not in tools",
+        ),
+        ({"messages": [user], "tool_choice": "sometimes"}, Endpoint.CHAT_COMPLETIONS, "tool_choice must be"),
+        ({"messages": [user], "parallel_tool_calls": "no"}, Endpoint.CHAT_COMPLETIONS, "parallel_tool_calls must be"),
+        ({"messages": [user], "reasoning_effort": "extreme"}, Endpoint.CHAT_COMPLETIONS, "reasoning_effort must be"),
+        (
+            {"messages": [user], "chat_template_kwargs": {"enable_thinking": "yes"}},
+            Endpoint.CHAT_COMPLETIONS,
+            "enable_thinking must be a boolean",
+        ),
+        ({"messages": [user], "chat_template_kwargs": []}, Endpoint.CHAT_COMPLETIONS, "chat_template_kwargs must be"),
     )
     for payload, endpoint, diagnostic in rejected:
         try:
-            parse_completion_request(
-                payload,
-                endpoint,
-                admitted_model,
-                maximum_generation_tokens,
-            )
+            parse(payload, endpoint)
         except RequestValidationError as error:
             require(diagnostic in str(error), f"wrong rejection diagnostic: {error}")
         else:
@@ -4085,21 +4378,295 @@ def probe_service_contract():
         require(False, "unsupported service route was accepted")
 
 
+def probe_chat_output_parser():
+    """Reasoning, content and tool calls from Qwen output, streamed or whole."""
+    import itertools
+
+    from qwen36_service.chat_output_core import (
+        ChatOutputParser,
+        ChatOutputPlan,
+        chat_output_plan,
+        coerce_argument,
+        collect_output,
+        event_deltas,
+        parse_chat_output,
+        schema_types,
+    )
+
+    def call_ids():
+        counter = itertools.count()
+        return lambda: f"call_{next(counter)}"
+
+    def parse(text, plan):
+        return parse_chat_output(text, plan, call_ids())
+
+    def chunked(text, plan, size):
+        parser = ChatOutputParser(plan, call_ids())
+        events = []
+        for start in range(0, len(text), size):
+            events += parser.push(text[start : start + size])
+        events += parser.finish()
+        return collect_output(events, parser.completed_call_count, parser.open_call), events
+
+    thinking = chat_output_plan("<|im_start|>assistant\n<think>\n", [READ_TOOL], True)
+    no_think = chat_output_plan("<|im_start|>assistant\n<think>\n\n</think>\n\n", [READ_TOOL], True)
+    require(thinking.starts_in_reasoning and not no_think.starts_in_reasoning, "the prompt did not seed the thinking state")
+
+    output = parse(TOOL_CALL_OUTPUT, thinking)
+    require(
+        output.reasoning == "reasoning"
+        and output.content == ""
+        and [(call.name, call.arguments) for call in output.tool_calls] == [("read", '{"path": "/etc/hosts"}')]
+        and output.completed_call_count == 1
+        and not output.open_call,
+        f"a complete call parsed wrongly: {output}",
+    )
+
+    multiple = (
+        "Let me look.\n\n<tool_call>\n<function=read>\n<parameter=path>\na\n\nb\n</parameter>\n"
+        "<parameter=limit>\n12\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=write>\n"
+        "</function>\n</tool_call>\nDone."
+    )
+    output = parse(multiple, no_think)
+    require(
+        output.reasoning == ""
+        and output.content == "Let me look.\n\nDone."
+        and [(call.call_id, call.name, json.loads(call.arguments)) for call in output.tool_calls]
+        == [("call_0", "read", {"limit": 12, "path": "a\n\nb"}), ("call_1", "write", {})]
+        and output.completed_call_count == 2,
+        f"multiple calls or the text around them parsed wrongly: {output}",
+    )
+    single = ChatOutputPlan(
+        starts_in_reasoning=False,
+        parse_tool_calls=True,
+        parallel_tool_calls=False,
+        argument_types=no_think.argument_types,
+    )
+    output = parse(multiple, single)
+    require(
+        [call.name for call in output.tool_calls] == ["read"] and output.content == "Let me look.\n\nDone.",
+        f"parallel_tool_calls false kept more than the first call: {output}",
+    )
+
+    truncated = parse(TOOL_CALL_OUTPUT[: TOOL_CALL_OUTPUT.index("<parameter=path>") + 20], thinking)
+    require(
+        truncated.open_call
+        and truncated.completed_call_count == 0
+        and json.loads(truncated.tool_calls[0].arguments) == {"path": "/et"},
+        f"a truncated call was not closed and marked open: {truncated}",
+    )
+    buffered_cut = parse("<tool_call>\n<function=read>\n<parameter=limit>\n1", no_think)
+    require(
+        buffered_cut.open_call and json.loads(buffered_cut.tool_calls[0].arguments) == {"limit": 1},
+        f"a truncated typed value did not close: {buffered_cut}",
+    )
+
+    unclosed = parse("still thinking <tool_call>\n<function=read>", thinking)
+    require(
+        unclosed.reasoning == "still thinking <tool_call>\n<function=read>"
+        and not unclosed.tool_calls
+        and unclosed.content == "",
+        "output without </think> was not all reasoning",
+    )
+    require(
+        parse("Hi.\n</think>\n\n", chat_output_plan("x", [], True)).content == "Hi.\n</think>",
+        "a no-think output lost text",
+    )
+    hidden = parse("Use <tool_call>\n<function=read>\n</function>\n</tool_call>", chat_output_plan("x", [], True))
+    require(
+        hidden.content == "Use <tool_call>\n<function=read>\n</function>\n</tool_call>" and not hidden.tool_calls,
+        "a call was parsed with no tools offered",
+    )
+    malformed = parse('<tool_call>\n{"name": "read"}\n</tool_call>', no_think)
+    require(
+        malformed.content == '<tool_call>\n{"name": "read"}\n</tool_call>' and not malformed.tool_calls,
+        "a call block without a function header was dropped",
+    )
+
+    # Argument types from the schema: strings stay raw, typed and anyOf/oneOf values are JSON.
+    require(schema_types({"type": "string"}) == frozenset({"string"}), "a string schema lost its type")
+    require(
+        schema_types({"anyOf": [{"type": "object"}, {"type": ["null", "integer"]}]})
+        == frozenset({"object", "null", "integer"}),
+        "anyOf member types were not collected",
+    )
+    require(schema_types({"oneOf": [{"type": "string"}, {}]}) is None, "an untyped oneOf member was typed")
+    require(schema_types({"enum": ["a", "b"]}) == frozenset({"string"}), "enum values were not typed")
+    string_only = frozenset({"string"})
+    coercions = (
+        ("12", string_only, "12"),
+        ("12", frozenset({"integer"}), 12),
+        ("12", frozenset({"number"}), 12),
+        ("1.5", frozenset({"integer"}), "1.5"),
+        ('{"k": [1]}', frozenset({"object", "null"}), {"k": [1]}),
+        ("null", frozenset({"object", "null"}), None),
+        ("12", frozenset({"integer", "string"}), 12),
+        ('"quoted"', frozenset({"integer", "string"}), '"quoted"'),
+        ("true", None, True),
+        ("plain words", None, "plain words"),
+        ("NaN", None, "NaN"),
+        ("1e999", frozenset({"number"}), "1e999"),
+        ("{broken", frozenset({"object"}), "{broken"),
+    )
+    for raw, admitted, expected in coercions:
+        value = coerce_argument(raw, admitted)
+        require(
+            value == expected and type(value) is type(expected),
+            f"{raw!r} with {admitted} coerced to {value!r}",
+        )
+    typed = parse(
+        "<tool_call>\n<function=read>\n<parameter=path>\n12\n</parameter>\n<parameter=state>\n"
+        '{"open": true}\n</parameter>\n<parameter=extra>\n[1, 2]\n</parameter>\n</function>\n</tool_call>',
+        no_think,
+    )
+    require(
+        typed.tool_calls[0].arguments == '{"path": "12", "state": {"open": true}, "extra": [1, 2]}',
+        f"typed arguments did not follow the schema: {typed.tool_calls[0].arguments}",
+    )
+
+    # Tags split anywhere: character-by-character and small chunks equal the one-shot parse.
+    samples = (
+        (TOOL_CALL_OUTPUT, thinking),
+        (multiple, no_think),
+        (multiple, single),
+        ("Plan <tool_c\n</think>\n\nA < B </thinking> <tool_callx>\n\n", thinking),
+        ('<tool_call>\n<function=read>\n<parameter=path>\nx\n</param\n</parameter>\n</function>', no_think),
+        ("a</think>b<tool_call>\n<function=read>\n<parameter=path>\n/et", thinking),
+        ("r</think>\n\n<tool_call>\n<function= read >\ngarbage<parameter=limit>7</parameter></tool_call>tail", thinking),
+        ("\n\n  indented\n\n", no_think),
+    )
+    for text, plan in samples:
+        whole = parse(text, plan)
+        for size in (1, 2, 3, 7):
+            pieces, _events = chunked(text, plan, size)
+            require(pieces == whole, f"chunks of {size} parsed {text!r} differently: {pieces} != {whole}")
+
+    _output, events = chunked(TOOL_CALL_OUTPUT, thinking, 1)
+    deltas = event_deltas(events)
+    reasoning = [delta for delta in deltas if "reasoning_content" in delta]
+    calls = deltas[len(reasoning) :]
+    require(
+        "".join(delta["reasoning_content"] for delta in reasoning) == "reasoning"
+        and calls[0]
+        == {
+            "tool_calls": [
+                {"function": {"arguments": "", "name": "read"}, "id": "call_0", "index": 0, "type": "function"}
+            ]
+        }
+        and all(set(delta) == {"tool_calls"} and set(delta["tool_calls"][0]) == {"function", "index"} for delta in calls[1:])
+        and "".join(delta["tool_calls"][0]["function"]["arguments"] for delta in calls[1:]) == '{"path": "/etc/hosts"}',
+        f"stream deltas have the wrong shape: {deltas}",
+    )
+    require(len(calls) > 3, "a string argument was not streamed as it arrived")
+
+
+def probe_chat_template_rendering():
+    """Chat requests render through the template with tools; template errors are request errors."""
+    from qwen36_service.core import (
+        ChatMessage,
+        CompletionRequest,
+        Endpoint,
+        RequestValidationError,
+        ToolCall,
+        admit_prompt,
+        parse_completion_request,
+    )
+    from qwen36_service.server import render_prompt
+
+    tokenizer = FixtureTokenizer()
+
+    def parse(payload):
+        return parse_completion_request(payload, Endpoint.CHAT_COMPLETIONS, "Qwen3.8-27B", 64)
+
+    request = parse(
+        {
+            "messages": [
+                {"content": "Show /etc/hosts.", "role": "user"},
+                {
+                    "content": "",
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "function": {"arguments": '{"path": "/etc/hosts", "limit": 3}', "name": "read"},
+                            "id": "call_1",
+                            "type": "function",
+                        }
+                    ],
+                },
+                {"content": "127.0.0.1 localhost", "role": "tool", "tool_call_id": "call_1"},
+            ],
+            "tools": [READ_TOOL],
+        }
+    )
+    prompt = render_prompt(request, tokenizer)
+    require(
+        "<parameter=path>\n/etc/hosts\n</parameter>\n<parameter=limit>\n3\n</parameter>" in prompt
+        and "<tool_response>\n127.0.0.1 localhost\n</tool_response>" in prompt
+        and json.dumps(READ_TOOL, ensure_ascii=False) in prompt,
+        f"history or tools did not render: {prompt!r}",
+    )
+    require(
+        prompt.endswith("<think>\n") and admit_prompt(request, prompt, 10, 2048).output_plan.starts_in_reasoning,
+        "the default prompt did not open reasoning",
+    )
+    quiet = parse({"enable_thinking": False, "messages": [{"content": "hi", "role": "user"}], "tools": [READ_TOOL]})
+    quiet_prompt = render_prompt(quiet, tokenizer)
+    plan = admit_prompt(quiet, quiet_prompt, 10, 2048).output_plan
+    require(
+        quiet_prompt.endswith("</think>\n\n") and not plan.starts_in_reasoning and plan.parse_tool_calls,
+        "enable_thinking false did not close the reasoning section",
+    )
+    hidden = parse({"messages": [{"content": "hi", "role": "user"}], "tool_choice": "none", "tools": [READ_TOOL]})
+    hidden_prompt = render_prompt(hidden, tokenizer)
+    require(
+        "<tools>" not in hidden_prompt and not admit_prompt(hidden, hidden_prompt, 10, 2048).output_plan.parse_tool_calls,
+        "tool_choice none still offered tools",
+    )
+
+    failing = (
+        parse({"messages": [{"content": "template error", "role": "user"}]}),
+        # A string reaching `arguments|items` raises TypeError inside the template.
+        CompletionRequest(
+            endpoint=Endpoint.CHAT_COMPLETIONS,
+            model="Qwen3.8-27B",
+            max_tokens=4,
+            prompt=None,
+            messages=(
+                ChatMessage(role="user", content="hi"),
+                ChatMessage(role="assistant", content="", tool_calls=(ToolCall(name="read", arguments='{"a": 1}'),)),
+            ),
+        ),
+    )
+    for request in failing:
+        try:
+            render_prompt(request, tokenizer)
+        except RequestValidationError as error:
+            require("chat template rejected" in str(error), f"wrong template diagnostic: {error}")
+        else:
+            require(False, "a template failure was not a request error")
+
+
 def probe_streaming():
-    """Server-sent events: whole characters, the stop token, one id, usage, and JSON errors."""
+    """Server-sent events: whole characters, parsed deltas, one id, usage, and JSON errors."""
     import http.client
     import threading
     from http.server import ThreadingHTTPServer
 
-    from qwen36_service.core import RequestValidationError, build_completion_response
-    from qwen36_service.server import make_handler
+    from qwen36_service.core import (
+        admit_prompt,
+        build_completion_response,
+        finish_generation,
+    )
+    from qwen36_service.server import PreparedGeneration, make_handler, render_prompt
     from qwen36_service.stream_core import IncrementalDetokenizer
 
     # "€" is split across tokens 3 and 4; token 9 is the stop token.
     pieces = {1: b"Hel", 2: b"lo ", 3: b"\xe2\x82", 4: b"\xac", 5: b"!", 9: b""}
     stop_token_ids = frozenset({9})
+    decoded_lengths = []
 
     def decode(token_ids, skip_special_tokens=True):
+        decoded_lengths.append(len(token_ids))
         return b"".join(pieces[token] for token in token_ids).decode("utf-8", errors="replace")
 
     detokenizer = IncrementalDetokenizer(decode, stop_token_ids)
@@ -4110,13 +4677,34 @@ def probe_streaming():
     )
     require(detokenizer.stopped, "the stop token did not end the stream")
     require(
-        detokenizer.finish("Hello €") == "" and not detokenizer.diverged,
+        detokenizer.finish([1, 2, 3, 4]) == "" and not detokenizer.diverged,
         "a complete stream sent a tail",
     )
     late = IncrementalDetokenizer(decode, stop_token_ids)
     late.push(1)
-    require(late.finish("Hello") == "lo" and not late.diverged, "the final text did not complete the stream")
-    require(late.finish("Goodbye") == "" and late.diverged, "a diverging final text was not flagged")
+    require(late.finish([1, 2, 5]) == "lo !" and not late.diverged, "the final tokens did not complete the stream")
+    require(late.finish([2]) == "" and late.diverged, "diverging final tokens were not flagged")
+    cut = IncrementalDetokenizer(decode, stop_token_ids)
+    cut.push(3)
+    require(cut.finish([3]) == "\ufffd", "the final flush held back a partial character")
+    decoded_lengths.clear()
+    long = IncrementalDetokenizer(decode, stop_token_ids)
+    long_text = "".join(long.push(token) for token in [1, 2, 3, 4, 5] * 400)
+    require(long_text == "Hello €!" * 400, "a long stream lost text")
+    require(max(decoded_lengths) <= 3, f"streaming decoded a growing window: {max(decoded_lengths)} tokens")
+
+    # The model's chat output as small text pieces; tags split across pieces.
+    script_pieces = [TOOL_CALL_OUTPUT[index : index + 3] for index in range(0, len(TOOL_CALL_OUTPUT), 3)]
+    for index, piece in enumerate(script_pieces):
+        pieces[100 + index] = piece.encode("utf-8")
+    tool_tokens = [100 + index for index in range(len(script_pieces))]
+    cut_tokens = tool_tokens[: len(tool_tokens) - 12]
+    scripts = {
+        "call": tool_tokens + [9],
+        "cut": cut_tokens,
+        "hi": [1, 2, 3, 4, 9, 5],
+        "late": tool_tokens + [9],
+    }
 
     class FakeEngine:
         model_alias = "Qwen3.8-27B"
@@ -4125,75 +4713,176 @@ def probe_streaming():
         stop_token_ids = frozenset({9})
         tokenizer = SimpleNamespace(decode=decode)
 
+        def prepare(self, request):
+            prompt = render_prompt(request, FixtureTokenizer())
+            prompt_tokens = 2048 if request.messages and request.messages[-1].content == "too long" else 3
+            return PreparedGeneration(
+                request=admit_prompt(request, prompt, prompt_tokens, 2048),
+                token_ids=None,
+                prompt_token_count=prompt_tokens,
+            )
+
         def generate(self, request, token_sink=None, request_id=None):
-            if request.messages[-1].content == "too long":
-                raise RequestValidationError("prompt and generation require 9000 tokens; limit is 2048")
-            for token in (1, 2, 3, 4, 9, 5):
-                if token_sink is not None:
+            return self.generate_prepared(self.prepare(request), token_sink, request_id)
+
+        def generate_prepared(self, prepared, token_sink=None, request_id=None):
+            request = prepared.request
+            name = request.messages[-1].content if request.messages else "hi"
+            tokens = scripts[name]
+            # The MTP and eager routes send no tokens early.
+            if token_sink is not None and name != "late":
+                for token in tokens:
                     token_sink(token)
-            return build_completion_response(
+            kept, finish_reason = finish_generation(tokens, self.stop_token_ids)
+            response = build_completion_response(
                 request=request,
                 request_id=request_id or "cmpl-plain",
                 created=0,
-                generated_text="Hello €",
-                prompt_token_count=3,
-                generated_token_count=4,
-                finish_reason="stop",
+                generated_text=decode(kept),
+                prompt_token_count=prepared.prompt_token_count,
+                generated_token_count=len(kept),
+                finish_reason=finish_reason,
             )
+            response["x_onix_decode_evidence"] = {"generated_token_ids": kept}
+            return response
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(FakeEngine(), 64))
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    def post(body):
+    def post(body, path="/v1/chat/completions"):
         payload = json.dumps(body)
         connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=30)
         connection.request(
             "POST",
-            "/v1/chat/completions",
+            path,
             body=payload,
             headers={"Content-Type": "application/json", "Content-Length": str(len(payload))},
         )
         response = connection.getresponse()
         return response.status, response.getheader("Content-Type"), response.read().decode("utf-8")
 
-    try:
-        status, content_type, body = post(
-            {
-                "messages": [{"content": "hi", "role": "user"}],
-                "stream": True,
-                "stream_options": {"include_usage": True},
-            }
-        )
+    def stream(body, path="/v1/chat/completions"):
+        status, content_type, text = post({**body, "stream": True, "stream_options": {"include_usage": True}}, path)
         require(
             status == 200 and content_type == "text/event-stream",
-            f"a stream answered {status} {content_type}",
+            f"a stream answered {status} {content_type}: {text[:200]}",
         )
-        events = [line[len("data: ") :] for line in body.split("\n") if line.startswith("data: ")]
+        events = [line[len("data: ") :] for line in text.split("\n") if line.startswith("data: ")]
         require(events[-1] == "[DONE]", "the stream did not end with [DONE]")
         chunks = [json.loads(event) for event in events[:-1]]
+        require(len({chunk["id"] for chunk in chunks}) == 1, "stream chunks carry different ids")
+        require(
+            chunks[-1]["choices"] == [] and "completion_tokens" in chunks[-1]["usage"],
+            "the stream lacks its usage chunk",
+        )
+        finals = [chunk for chunk in chunks if chunk["choices"] and chunk["choices"][0]["finish_reason"]]
+        require(len(finals) == 1 and finals[0] is chunks[-2], "the stream lacks exactly one finish chunk")
+        return chunks, finals[0]["choices"][0]["finish_reason"]
+
+    def joined(chunks):
+        """The complete message the client assembles from the deltas."""
+        message = {"content": "", "reasoning_content": "", "tool_calls": {}}
+        for chunk in chunks:
+            if not chunk["choices"]:
+                continue
+            delta = chunk["choices"][0]["delta"]
+            message["content"] += delta.get("content", "")
+            message["reasoning_content"] += delta.get("reasoning_content", "")
+            for call in delta.get("tool_calls", []):
+                entry = message["tool_calls"].setdefault(call["index"], {"arguments": "", "name": None, "id": None})
+                entry["id"] = call.get("id", entry["id"])
+                entry["name"] = call["function"].get("name", entry["name"])
+                entry["arguments"] += call["function"]["arguments"]
+        return message
+
+    def no_think(content):
+        return {"enable_thinking": False, "messages": [{"content": content, "role": "user"}]}
+
+    tool_request = {"messages": [{"content": "call", "role": "user"}], "tools": [READ_TOOL]}
+    try:
+        chunks, finish_reason = stream(no_think("hi"))
         require(
             chunks[0]["choices"][0]["delta"] == {"content": "", "role": "assistant"},
             "the stream did not open with the assistant role",
         )
-        text = "".join(chunk["choices"][0]["delta"].get("content", "") for chunk in chunks if chunk["choices"])
-        require(text == "Hello €", f"the streamed text differs: {text!r}")
-        finals = [chunk for chunk in chunks if chunk["choices"] and chunk["choices"][0]["finish_reason"]]
-        require(
-            len(finals) == 1 and finals[0]["choices"][0]["finish_reason"] == "stop",
-            "the stream lacks exactly one finish chunk",
-        )
-        require(
-            chunks[-1]["choices"] == [] and chunks[-1]["usage"]["completion_tokens"] == 4,
-            "the stream lacks its usage chunk",
-        )
-        require(len({chunk["id"] for chunk in chunks}) == 1, "stream chunks carry different ids")
+        message = joined(chunks)
+        require(message["content"] == "Hello €" and finish_reason == "stop", f"the streamed text differs: {message}")
 
-        status, _content_type, body = post({"messages": [{"content": "too long", "role": "user"}], "stream": True})
+        for name in ("call", "late"):
+            chunks, finish_reason = stream({**tool_request, "messages": [{"content": name, "role": "user"}]})
+            message = joined(chunks)
+            call = message["tool_calls"].get(0, {})
+            require(
+                finish_reason == "tool_calls"
+                and message["content"] == ""
+                and message["reasoning_content"] == "reasoning"
+                and list(message["tool_calls"]) == [0]
+                and call["name"] == "read"
+                and call["id"].startswith("call_")
+                and call["arguments"] == '{"path": "/etc/hosts"}',
+                f"the {name} stream did not carry the tool call: {finish_reason} {message}",
+            )
+            require(
+                all(
+                    set(chunk["choices"][0]["delta"]) <= {"content", "role", "reasoning_content", "tool_calls"}
+                    for chunk in chunks
+                    if chunk["choices"]
+                ),
+                "a stream delta carried an unexpected field",
+            )
+        streamed_arguments = [
+            chunk
+            for chunk in stream(tool_request)[0]
+            if chunk["choices"] and "tool_calls" in chunk["choices"][0]["delta"]
+        ]
+        require(len(streamed_arguments) > 2, "the call arguments were not streamed as they arrived")
+
+        status, _content_type, body = post(tool_request)
+        choice = json.loads(body)["choices"][0]
         require(
-            status == 400 and "limit is 2048" in json.loads(body)["error"]["message"],
-            "a rejected stream did not answer with a JSON error",
+            status == 200
+            and choice["finish_reason"] == "tool_calls"
+            and choice["message"]["content"] is None
+            and choice["message"]["reasoning_content"] == "reasoning"
+            and choice["message"]["tool_calls"][0]["function"] == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
+            f"the complete tool-call response differs: {choice}",
         )
-        status, _content_type, body = post({"messages": [{"content": "hi", "role": "user"}]})
+
+        cut_request = {**tool_request, "messages": [{"content": "cut", "role": "user"}]}
+        chunks, finish_reason = stream(cut_request)
+        cut_arguments = joined(chunks)["tool_calls"][0]["arguments"]
+        status, _content_type, body = post(cut_request)
+        cut_choice = json.loads(body)["choices"][0]
+        require(
+            finish_reason == "length"
+            and cut_choice["finish_reason"] == "length"
+            and json.loads(cut_arguments) == json.loads(cut_choice["message"]["tool_calls"][0]["function"]["arguments"]),
+            f"a call cut by the budget did not finish with length: {finish_reason} {cut_arguments!r} {cut_choice}",
+        )
+
+        # Plain completions keep raw text: no reasoning split, no call parsing.
+        chunks, finish_reason = stream({"prompt": "x", "max_tokens": 8}, "/v1/completions")
+        require(
+            "".join(chunk["choices"][0]["text"] for chunk in chunks if chunk["choices"]) == "Hello €"
+            and finish_reason == "stop",
+            "a completion stream changed its text",
+        )
+
+        for body, diagnostic in (
+            (no_think("too long"), "limit is 2048"),
+            (no_think("template error"), "chat template rejected"),
+            (
+                {"messages": [{"content": "hi", "role": "user"}, {"content": "x", "role": "tool"}]},
+                "must follow an assistant",
+            ),
+        ):
+            for streaming in (True, False):
+                status, _content_type, answer = post({**body, "stream": streaming})
+                require(
+                    status == 400 and diagnostic in json.loads(answer)["error"]["message"],
+                    f"a rejected request (stream={streaming}) did not answer a JSON 400: {status} {answer}",
+                )
+        status, _content_type, body = post(no_think("hi"))
         require(
             status == 200 and json.loads(body)["choices"][0]["message"]["content"] == "Hello €",
             "a plain request stopped answering JSON",
@@ -4201,7 +4890,6 @@ def probe_streaming():
     finally:
         server.shutdown()
         server.server_close()
-
 
 
 # r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stage_probe]
@@ -8229,6 +8917,8 @@ def main():
     probe("decode component attribution", probe_decode_component_attribution)
     probe("same-process TTFT control", probe_ttft_control)
     probe("serialized service request contract", probe_service_contract)
+    probe("chat output parser", probe_chat_output_parser)
+    probe("chat template rendering", probe_chat_template_rendering)
     probe("streaming responses", probe_streaming)
     probe("kernel distribution admission", probe_kernel_distribution_admission)
     probe("kernel distribution probe builder", probe_kernel_distribution_probe)

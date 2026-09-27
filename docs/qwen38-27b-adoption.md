@@ -623,14 +623,40 @@ only B=4. Requests with a temperature above zero need `sampledFusion`; without i
 the service is greedy-only.
 
 Both completion routes accept `"stream": true` and answer with server-sent events.
-The first chat chunk carries the assistant role. Text deltas follow as the batch
-worker decodes each token; a character split across tokens is held back until it
-is complete. One chunk then carries the finish reason and the decode evidence. With
+The first chat chunk carries the assistant role. Deltas follow as the batch worker
+decodes each token; the detokenizer decodes only the tokens since its last output,
+and a character split across tokens is held back until it is complete. One chunk
+then carries the finish reason and the decode evidence. With
 `"stream_options": {"include_usage": true}` a usage chunk follows, and the stream
 ends with `data: [DONE]`. A request rejected before generation, for example one
-over the sequence limit, still gets a plain JSON error. The MTP and eager routes
-send their whole text in one delta. Chat messages may carry `content` as a list
-of text parts, which are joined as the chat template joins them.
+over the sequence limit or one the chat template refuses, still gets a plain JSON
+400. The MTP and eager routes send their whole text when generation ends.
+`max_completion_tokens` is an alias of `max_tokens` (both must agree). Without
+either, a request may generate up to `--max-generation-tokens` or the room its
+prompt leaves in `--max-sequence-length`, whichever is smaller.
+
+Chat requests follow the OpenAI tool-calling contract. `tools` are rendered by the
+model's chat template. `tool_choice` `auto` (default) and `required` offer every
+tool, a named function offers only that tool, and `none` offers none and turns
+off call parsing; nothing constrains decoding, so `required` and a named choice
+are best effort. `parallel_tool_calls: false` keeps only the first call. History
+may hold `system` (first only), `user`, `assistant` and `tool` messages: assistant
+`content` may be empty or null, `reasoning_content` is replayed, `tool_calls`
+arguments may be a JSON string or an object, and tool results follow an assistant
+or tool message. Content may be a list of text parts, joined as the template joins
+them. `enable_thinking`, `preserve_thinking` and `reasoning_effort` are read from
+the top level first, then from `chat_template_kwargs`; no other template argument
+is forwarded. Efforts map `minimal`/`low` to `low`, `medium` to `medium` and
+`high`/`xhigh`/`max` to `xhigh`. Thinking stays on unless disabled. Output before
+`</think>` becomes `message.reasoning_content`, the text after it `content`, and
+each `<tool_call>` becomes a `tool_calls` entry whose `arguments` is a JSON object
+string typed from the tool's parameter schema; text around calls stays content,
+and `content` is null when only calls remain. The stream carries the same result
+as `reasoning_content`, `content` and indexed `tool_calls` deltas (id and name
+first, then argument fragments). `finish_reason` is `tool_calls` only when
+generation ended on the stop token with every call closed, `length` whenever the
+token budget ran out (a truncated call is never reported as `tool_calls`), and
+`stop` otherwise. `/v1/completions` returns the raw text.
 
 The B=4 admission receipt used exact `single,batch,batch,single` order on the
 Python 3.14 deployment runtime. It preserved every generated token, text,
