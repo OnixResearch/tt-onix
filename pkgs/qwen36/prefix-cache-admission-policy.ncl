@@ -1,24 +1,35 @@
-# Predeclared gates for admitting the hybrid prefix-cache profile (task p6).
+# Predeclared gates for admitting the hybrid prefix-cache profile (tasks p6 and p7).
 #
 # r[impl tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
 #
-# A cold root (continuous slots, no cache) and a cached root run the same agent-shaped
-# conversations on one package. The first workload has fewer conversations than state
-# buffers, so every turn after the first resumes. The second has more, so turns miss
-# after eviction and must cost no more than cold prefill plus the save. Fixed before the
-# physical measurement.
+# Cold roots (continuous slots, no cache) and cached roots run the same agent-shaped
+# conversations on one package, each root in a fresh process. The first workload has
+# fewer conversations than state buffers, so every turn after the first resumes. The
+# second has more, so turns miss after eviction and must cost no more than cold prefill
+# plus the save.
+#
+# The host that serves Qwen also runs unrelated work, and its load drifts. Version 1
+# compared one cold root with one cached root measured ten minutes apart, so drift and
+# cache cost were confounded. Version 2 keeps every gate bound and measures four roots
+# per workload in ABBA order: cold, cached, cached, cold. Each gate compares, turn by
+# turn, the mean of the two cached roots with the mean of the two cold roots, which
+# cancels load that drifts linearly across the four roots. Fixed before the physical
+# measurement.
 let contracts = import "prefix-cache-admission-contracts.ncl" in
 {
-  schema_version = 1,
-  profile_id = "qwen38-p150x2-prefix-cache-admission-v1",
+  schema_version = 2,
+  profile_id = "qwen38-p150x2-prefix-cache-admission-v2",
   prefix_cache_profile_id = "qwen38-p150x2-prefix-cache-v1",
+  root_order = ["cold", "cached", "cached", "cold"],
   workloads = [
     { conversations = 3, turns = 4 },
     { conversations = 5, turns = 2 },
   ],
   gates = {
+    # One package, runtime and device pair; roots measured in root_order, and both
+    # cached roots resuming the same prefix on every turn.
     require_matched_identity = true,
-    # Every turn decodes exactly the tokens it decodes with cold prefill.
+    # Every turn decodes exactly the same tokens in all four roots.
     require_exact_parity = true,
     require_resumed_hits = true,
     # A resumed turn's first token, and its whole request, must be clearly faster.

@@ -20,6 +20,8 @@ Positive tests cover an identical prefix, an empty suffix, and repeated continua
 
 Matched hardware compares cold prefill with lookup plus full restore. It includes cache misses and eviction. A useful hit must improve complete request latency without a failed memory or quality gate.
 
+The serving host also runs unrelated work, so its load drifts between roots. Admission therefore measures four fresh roots per workload in ABBA order (cold, cached, cached, cold). Each gate compares the per-turn mean of the two cached roots with that of the two cold roots, which cancels linear drift. Per-pair ratios and per-turn host CPU pressure are diagnostics, not gates.
+
 ## Alternatives and rollback
 
 A KV-only cache is rejected. Unbounded per-conversation snapshots are rejected. Cross-restart persistence and automatic cross-tenant sharing are deferred.

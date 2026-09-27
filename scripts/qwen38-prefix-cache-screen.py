@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Measure one hybrid prefix-cache root against a running Qwen3.8 P150x2 server.
 
-Evidence driver for tasks p5 and p6 of `.cairn/changes/qwen38-hybrid-prefix-cache`. The
-operator starts the continuous-slot server on a diagnostic port without the cache (the
-cold root) or with `--prefix-cache-policy` (the cached root), and stops it after.
+Evidence driver for tasks p5 to p7 of `.cairn/changes/qwen38-hybrid-prefix-cache`. The
+operator starts the continuous-slot server on a diagnostic port without the cache (a cold
+root) or with `--prefix-cache-policy` (a cached root), and stops it after. Admission needs
+four roots per workload, each from a fresh process, measured in ABBA order: cold, cached,
+cached, cold.
 
 The workload is agent-shaped: several conversations, each turn resending the whole
 conversation plus the previous reply and a new passage, as an agent resends its history
@@ -11,8 +13,10 @@ with a new tool result. Turns run one at a time in a fixed interleaved order, so
 request's time is its own. Every request is streamed and timed at the client; the server's
 evidence reports the prefix it resumed from and the prefix it saved.
 
-The output root lists every turn's tokens, client TTFT and wall, and evidence. The
-evaluator compares a cold root and a cached root turn by turn.
+The output root lists every turn's tokens, client TTFT and wall, and evidence, and when
+the root was measured. When the server listens on loopback, each turn also records the
+host's CPU pressure (`/proc/pressure/cpu`) over the request; it is a diagnostic, not a
+gate. The evaluator compares the four roots turn by turn.
 """
 
 from __future__ import annotations
@@ -20,8 +24,10 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import os
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -31,6 +37,7 @@ WORKLOAD_ID = "qwen38-agent-conversations-v1"
 MAX_TOKENS = 48
 REQUEST_TIMEOUT_SECONDS = 1800
 EXPECTED_DEVICE_IDS = [0, 1]
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 SYSTEM_PROMPT_CHARACTERS = 6000
 TURN_PASSAGE_CHARACTERS = 5000
 QUESTION = "Summarize the newest passage in one sentence."
@@ -38,6 +45,21 @@ QUESTION = "Summarize the newest passage in one sentence."
 
 def log(stage: str, **fields: Any) -> None:
     print(json.dumps({"stage": stage, **fields}, sort_keys=True), flush=True)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def cpu_pressure() -> tuple[float, int, float]:
+    """(some avg10 percent, some total stall microseconds, 1-minute load average)."""
+    some = next(
+        line
+        for line in Path("/proc/pressure/cpu").read_text().splitlines()
+        if line.startswith("some ")
+    )
+    fields = dict(item.split("=", 1) for item in some.split()[1:])
+    return float(fields["avg10"]), int(fields["total"]), os.getloadavg()[0]
 
 
 def conversations(filler: str, count: int) -> list[dict[str, Any]]:
@@ -64,6 +86,7 @@ class Server:
         if parts.scheme != "http" or not parts.hostname or not parts.port:
             raise SystemExit("--base-url must be http://host:port")
         self.host, self.port = parts.hostname, parts.port
+        self.on_this_host = parts.hostname in LOOPBACK_HOSTS
 
     def health(self) -> dict[str, Any]:
         connection = http.client.HTTPConnection(self.host, self.port, timeout=30)
@@ -93,10 +116,12 @@ class Server:
             "evidence": None,
             "usage": None,
             "error": None,
+            "host_cpu_pressure": None,
         }
         connection = http.client.HTTPConnection(
             self.host, self.port, timeout=REQUEST_TIMEOUT_SECONDS
         )
+        before = cpu_pressure() if self.on_this_host else None
         started = time.monotonic()
         try:
             connection.request(
@@ -141,6 +166,15 @@ class Server:
             record["error"] = {"type": type(error).__name__, "message": str(error)}
         finally:
             connection.close()
+            if before is not None:
+                elapsed = time.monotonic() - started
+                after = cpu_pressure()
+                record["host_cpu_pressure"] = {
+                    "some_avg10_percent_at_start": before[0],
+                    # Share of the request during which runnable tasks waited for a CPU.
+                    "some_stall_fraction": (after[1] - before[1]) / (elapsed * 1e6),
+                    "load_average_1m_at_start": before[2],
+                }
         return record
 
 
@@ -212,6 +246,7 @@ def main() -> None:
     }
     turns = []
     identity = None
+    started_utc = utc_now()
     for step in plan:
         messages = history[step["conversation"]] + [
             {"role": "user", "content": step["passage"] + "\n\n" + QUESTION}
@@ -256,6 +291,7 @@ def main() -> None:
             "prefix_saved_tokens": evidence.get("prefix_saved_tokens", 0),
             "prefill_seconds": evidence.get("prefill_seconds"),
             "server_ttft_seconds": evidence.get("ttft_seconds"),
+            "host_cpu_pressure": record["host_cpu_pressure"],
         })
         log(
             "turn",
@@ -266,14 +302,16 @@ def main() -> None:
             wall=round(record["wall_seconds"], 3),
             hit=turns[-1]["prefix_hit_tokens"],
             saved=turns[-1]["prefix_saved_tokens"],
+            cpu_stall=(record["host_cpu_pressure"] or {}).get("some_stall_fraction"),
         )
+    finished_utc = utc_now()
     policy_blake3 = (
         blake3_bytes(args.b3sum, args.prefix_policy.read_bytes())
         if args.prefix_policy
         else None
     )
     root = {
-        "schema_version": 1,
+        "schema_version": 2,
         "root_kind": args.root_kind,
         "simulated": False,
         "identity": {
@@ -290,6 +328,7 @@ def main() -> None:
             "conversations": args.conversations,
             "turns": args.turns,
         },
+        "measured_at": {"started_utc": started_utc, "finished_utc": finished_utc},
         "startup": {"device_dram_free_bytes": args.device_dram_free_bytes},
         "requests": turns,
     }

@@ -2877,10 +2877,13 @@ def probe_prefix_cache_restore():
 
 # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
 def probe_prefix_cache_admission():
-    """Prefix-cache admission: faster resumed turns with exact parity admit; a parity loss,
-    no benefit, costly misses, a memory overrun, a cache in the cold root, or a missing
-    turn each reject with its own reason."""
+    """Prefix-cache admission over four ABBA roots: faster resumed turns with exact parity
+    admit, and host load drifting linearly across the roots cancels; a parity loss in any
+    root, no benefit, costly misses, a memory overrun, a cache in a cold root, roots out of
+    order, cached roots resuming different prefixes, or a missing root or turn each reject
+    with its own reason."""
     import copy
+    from datetime import datetime, timedelta, timezone
 
     from qwen36_service import prefix_cache_admission_core as admission
     from qwen36_service.prefix_cache_receipt import build_receipt
@@ -2888,16 +2891,27 @@ def probe_prefix_cache_admission():
     with Path(__file__).with_name("prefix-cache-admission-policy.json").open(encoding="utf-8") as handle:
         policy_mapping = json.load(handle)
     policy = admission.PrefixAdmissionPolicy.from_mapping(policy_mapping)
-    broken = copy.deepcopy(policy_mapping)
-    broken["gates"]["require_exact_parity"] = False
-    try:
-        admission.PrefixAdmissionPolicy.from_mapping(broken)
-    except admission.PrefixAdmissionPolicyError:
-        pass
-    else:
-        require(False, "an admission without exact parity was accepted")
+    for path, value, message in (
+        (("gates", "require_exact_parity"), False, "an admission without exact parity was accepted"),
+        (("root_order",), ["cold", "cached"], "an admission from one cold and one cached root was accepted"),
+    ):
+        broken = copy.deepcopy(policy_mapping)
+        target = broken
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        try:
+            admission.PrefixAdmissionPolicy.from_mapping(broken)
+        except admission.PrefixAdmissionPolicyError:
+            pass
+        else:
+            require(False, message)
 
-    def root(kind, conversations, turns, *, ttft, wall, hits=True, dram=9_900_000_000, profile=None, tokens=None):
+    epoch = datetime(2026, 9, 27, 20, 0, tzinfo=timezone.utc)
+
+    def root(kind, position, workload_index, conversations, turns, *, ttft, wall, hits=True, dram=9_900_000_000,
+             drift=0.0):
+        # Each process measures every workload in turn; drift slows a whole root.
         requests = []
         for turn in range(turns):
             for conversation in range(conversations):
@@ -2906,29 +2920,36 @@ def probe_prefix_cache_admission():
                     {
                         "conversation": conversation,
                         "turn": turn,
-                        "token_ids": (tokens or {}).get((conversation, turn), [conversation, turn, 7]),
-                        "ttft_seconds": ttft(turn, hit),
-                        "wall_seconds": wall(turn, hit),
+                        "token_ids": [conversation, turn, 7],
+                        "ttft_seconds": ttft(turn, hit) + drift * position,
+                        "wall_seconds": wall(turn, hit) + drift * position,
                         "prefix_hit_tokens": 3072 if hit else 0,
                     }
                 )
+        started = epoch + timedelta(minutes=15 * position + 5 * workload_index)
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "root_kind": kind,
             "simulated": False,
             "identity": {
                 "package": "/nix/store/p", "execution_identity": "/nix/store/e", "runtime_identity": "/nix/store/r",
                 "physical_pcie_device_ids": [0, 1],
-                "prefix_cache_profile_id": profile if profile is not None else (policy.prefix_cache_profile_id if kind == "cached" else None),
+                "prefix_cache_profile_id": policy.prefix_cache_profile_id if kind == "cached" else None,
                 "prefix_policy_blake3": "a" * 64 if kind == "cached" else None,
             },
-            "workload": {"workload_id": "w", "blake3": "b" * 64, "conversations": conversations, "turns": turns},
+            "workload": {"workload_id": "w", "blake3": f"{workload_index:064d}", "conversations": conversations,
+                         "turns": turns},
+            "measured_at": {"started_utc": started.isoformat(),
+                            "finished_utc": (started + timedelta(minutes=3)).isoformat()},
             "startup": {"device_dram_free_bytes": [dram]},
             "requests": requests,
         }
 
-    def cold_timing(turn, hit):
+    def cold_ttft(turn, hit):
         return 3.0 + turn
+
+    def cold_wall(turn, hit):
+        return 5.0 + turn
 
     def fast_ttft(turn, hit):
         return 1.0 if hit else 3.0 + turn
@@ -2936,72 +2957,89 @@ def probe_prefix_cache_admission():
     def fast_wall(turn, hit):
         return 3.0 if hit else 5.0 + turn
 
-    def cold_wall(turn, hit):
-        return 5.0 + turn
-
-    def pairs(**cached_options):
+    def groups(drift=0.0, **cached_options):
         result = []
-        for conversations, turns in policy.workloads:
-            evicting = conversations > 4
-            cold = root("cold", conversations, turns, ttft=cold_timing, wall=cold_wall)
-            options = {"ttft": fast_ttft, "wall": fast_wall, "hits": not evicting, **cached_options}
-            result.append((cold, root("cached", conversations, turns, **options)))
+        for index, (conversations, turns) in enumerate(policy.workloads):
+            options = {"ttft": fast_ttft, "wall": fast_wall, "hits": conversations <= 4, **cached_options}
+            result.append(
+                [
+                    root(kind, position, index, conversations, turns, drift=drift,
+                         **(options if kind == "cached" else {"ttft": cold_ttft, "wall": cold_wall}))
+                    for position, kind in enumerate(policy.root_order)
+                ]
+            )
         return result
 
-    def judge(pair_mappings):
+    def judge(group_mappings):
         return admission.evaluate(
             policy,
             [
-                (admission.root_from_mapping(cold, expected_kind="cold"), admission.root_from_mapping(cached, expected_kind="cached"))
-                for cold, cached in pair_mappings
+                [admission.root_from_mapping(mapping, expected_kind=kind) for mapping, kind in zip(group, policy.root_order)]
+                for group in group_mappings
             ],
         )
 
-    result = judge(pairs())
+    def receipt_for(group_mappings):
+        return build_receipt(
+            policy_mapping=policy_mapping,
+            group_mappings=group_mappings,
+            policy_blake3="c" * 64,
+            root_blake3s=[["d" * 64] * 4] * len(policy.workloads),
+        )
+
+    result = judge(groups())
     require(result.admitted and result.hit_turns == 9 and result.miss_turns == 13,
             f"a faster exact cache was rejected: {result.reasons} ({result.hit_turns} hits, {result.miss_turns} misses)")
-    receipt = build_receipt(
-        policy_mapping=policy_mapping,
-        pair_mappings=pairs(),
-        policy_blake3="c" * 64,
-        root_blake3s=[("d" * 64, "e" * 64)] * len(policy.workloads),
-    )
+    receipt = receipt_for(groups())
     require(receipt["admission"]["admitted"] and receipt["admission"]["admitted_profile"]["prefix_cache_profile_id"]
             == policy.prefix_cache_profile_id, "the receipt does not name the measured cache profile")
 
-    def rejected(pair_mappings, reason, message):
-        verdict = judge(pair_mappings)
+    # Load that slows each later root by 1.5 s makes the first pair's misses look 30%
+    # slower; the ABBA means cancel it exactly.
+    drifting = judge(groups(drift=1.5))
+    gates = {gate.name: gate for gate in drifting.gates}
+    require(drifting.admitted and abs(gates["miss_wall_ratio"].measured - 1.0) < 1e-9,
+            f"linear drift was not cancelled: {drifting.reasons} {gates['miss_wall_ratio']}")
+    require(drifting.pairs[0]["miss_wall_ratio"] > policy.maximum_miss_wall_ratio,
+            f"the drift diagnostic lost the first pair's apparent miss cost: {drifting.pairs}")
+
+    def rejected(group_mappings, reason, message):
+        verdict = judge(group_mappings)
         require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
 
-    lost = pairs()
-    lost[0][1]["requests"][5]["token_ids"] = [9, 9, 9]
-    rejected(lost, "gate-failed:exact_parity", "a changed continuation was admitted")
-    rejected(pairs(ttft=cold_timing, wall=cold_wall), "gate-failed:hit_median_ttft_ratio",
+    lost = groups()
+    lost[0][3]["requests"][5]["token_ids"] = [9, 9, 9]
+    rejected(lost, "gate-failed:exact_parity", "a root that decoded different tokens was admitted")
+    rejected(groups(ttft=cold_ttft, wall=cold_wall), "gate-failed:hit_median_ttft_ratio",
              "resumed turns without a speedup were admitted")
-    rejected(pairs(wall=lambda turn, hit: 3.0 if hit else 8.0 + turn), "gate-failed:miss_wall_ratio",
+    rejected(groups(drift=1.5, wall=lambda turn, hit: 3.0 if hit else 8.0 + turn), "gate-failed:miss_wall_ratio",
              "misses much slower than cold prefill were admitted")
-    rejected(pairs(dram=9_900_000_000 - 600 * 2**20), "gate-failed:startup_dram_drop_bytes",
+    rejected(groups(dram=9_900_000_000 - 600 * 2**20), "gate-failed:startup_dram_drop_bytes",
              "a memory overrun was admitted")
-    no_hits = pairs(hits=False)
     try:
-        judge(no_hits)
+        judge(groups(hits=False))
     except admission.PrefixAdmissionEvidenceError as error:
         require("no turn resumed" in str(error), f"unspecific error: {error}")
     else:
         require(False, "a cache that never resumed was evaluated")
-    cold_with_cache = pairs()
-    cold_with_cache[0][0]["identity"]["prefix_cache_profile_id"] = policy.prefix_cache_profile_id
+    cold_with_cache = groups()
+    cold_with_cache[0][3]["identity"]["prefix_cache_profile_id"] = policy.prefix_cache_profile_id
     rejected(cold_with_cache, "cold-root-used-a-cache", "a cold root with a cache was accepted")
-    missing = pairs()
-    del missing[1][1]["requests"][3]
-    receipt = build_receipt(
-        policy_mapping=policy_mapping,
-        pair_mappings=missing,
-        policy_blake3="c" * 64,
-        root_blake3s=[("d" * 64, "e" * 64)] * len(policy.workloads),
-    )
-    require(receipt["admission"]["admitted"] is False and "every declared turn" in (receipt["admission"]["evidence_error"] or ""),
-            f"a missing turn disappeared from the receipt: {receipt['admission']}")
+    reordered = groups()
+    reordered[0][3]["measured_at"] = copy.deepcopy(reordered[0][0]["measured_at"])
+    rejected(reordered, "roots-out-of-order", "a second cold root measured before the cached roots was accepted")
+    disagreeing = groups()
+    disagreeing[0][2]["requests"][4]["prefix_hit_tokens"] = 2048
+    rejected(disagreeing, "cached-roots-disagree", "cached roots that resumed different prefixes were accepted")
+    for mutate, expected, message in (
+        (lambda mappings: mappings[1][1]["requests"].pop(3), "every declared turn", "a missing turn"),
+        (lambda mappings: mappings[1].pop(3), "four roots", "a missing root"),
+    ):
+        incomplete = groups()
+        mutate(incomplete)
+        receipt = receipt_for(incomplete)
+        require(receipt["admission"]["admitted"] is False and expected in (receipt["admission"]["evidence_error"] or ""),
+                f"{message} disappeared from the receipt: {receipt['admission']}")
 
 
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]

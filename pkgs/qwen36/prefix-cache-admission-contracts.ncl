@@ -15,8 +15,10 @@ let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
   && std.array.length (std.record.fields value) == std.array.length allowed
   && std.array.all (fun field => std.array.elem field allowed) (std.record.fields value)
 ) in
+# Cold and cached roots alternate in ABBA order, so linear load drift cancels.
+let AbbaOrderC = std.contract.from_predicate (fun value => value == ["cold", "cached", "cached", "cold"]) in
 {
-  Closed = ClosedRecordC ["schema_version", "profile_id", "prefix_cache_profile_id", "workloads", "gates"],
+  Closed = ClosedRecordC ["schema_version", "profile_id", "prefix_cache_profile_id", "root_order", "workloads", "gates"],
   GatesClosed = ClosedRecordC [
     "require_matched_identity",
     "require_exact_parity",
@@ -28,9 +30,10 @@ let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
     "maximum_startup_dram_drop_bytes",
   ],
   Fields = {
-    schema_version | std.contract.from_predicate (fun value => value == 1),
+    schema_version | std.contract.from_predicate (fun value => value == 2),
     profile_id | IdC,
     prefix_cache_profile_id | IdC,
+    root_order | AbbaOrderC,
     workloads | Array { conversations | CountC, turns | CountC },
     gates | {
       require_matched_identity | TrueC,
