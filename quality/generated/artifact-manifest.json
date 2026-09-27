@@ -1808,6 +1808,36 @@
       "blake3": "488dd6db1a1001fc03f82655899e59807c5a8ad0816b52efd74cff6f7c96deb3"
     },
     {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 2718,
+      "blake3": "e7c8ec4f66f5cfd7729428a154a78427c8f073266b41e01f23e892227ffd3166"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-cached-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2140,
+      "blake3": "96ce016f987ff1d45b06a42cfdf107d2ee28b46af0b734ac063c09525927f4b0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-cached-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2071,
+      "blake3": "7a89fe94d9c87008c7f300a203c5ba4ce6a65c1135fca2c5393d862e35ce0090"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-cold-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2048,
+      "blake3": "2c6a3ab564695d4dfeb2ee8f8efecabbb136054af82ba1752d05e8bb1b9adf13"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-cold-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1996,
+      "blake3": "ebfbabc8cd4f5416a3875eb4b2a45245f614f641c22cc973f751916a1c208352"
+    },
+    {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
       "class": "large_fixture",
       "byte_count": 4981056,

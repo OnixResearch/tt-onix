@@ -45,13 +45,11 @@ def conversations(filler: str, count: int) -> list[dict[str, Any]]:
     result = []
     for index in range(count):
         start = index * 7000
-        result.append(
-            {
-                "name": f"c{index}",
-                "system": "You are a careful research assistant.\n\n"
-                + filler[start : start + SYSTEM_PROMPT_CHARACTERS],
-            }
-        )
+        result.append({
+            "name": f"c{index}",
+            "system": "You are a careful research assistant.\n\n"
+            + filler[start : start + SYSTEM_PROMPT_CHARACTERS],
+        })
     return result
 
 
@@ -72,7 +70,10 @@ class Server:
         try:
             connection.request("GET", "/healthz")
             response = connection.getresponse()
-            return {"status": response.status, **json.loads(response.read() or b"{}")}
+            return {
+                **json.loads(response.read() or b"{}"),
+                "http_status": response.status,
+            }
         finally:
             connection.close()
 
@@ -85,14 +86,31 @@ class Server:
             "stream_options": {"include_usage": True},
             "enable_thinking": False,
         }
-        record: dict[str, Any] = {"ttft_seconds": None, "wall_seconds": None, "text": "", "evidence": None, "usage": None, "error": None}
-        connection = http.client.HTTPConnection(self.host, self.port, timeout=REQUEST_TIMEOUT_SECONDS)
+        record: dict[str, Any] = {
+            "ttft_seconds": None,
+            "wall_seconds": None,
+            "text": "",
+            "evidence": None,
+            "usage": None,
+            "error": None,
+        }
+        connection = http.client.HTTPConnection(
+            self.host, self.port, timeout=REQUEST_TIMEOUT_SECONDS
+        )
         started = time.monotonic()
         try:
-            connection.request("POST", "/v1/chat/completions", json.dumps(payload).encode(), {"Content-Type": "application/json"})
+            connection.request(
+                "POST",
+                "/v1/chat/completions",
+                json.dumps(payload).encode(),
+                {"Content-Type": "application/json"},
+            )
             response = connection.getresponse()
             if response.status != 200:
-                record["error"] = {"status": response.status, "body": response.read().decode(errors="replace")}
+                record["error"] = {
+                    "status": response.status,
+                    "body": response.read().decode(errors="replace"),
+                }
                 return record
             while True:
                 line = response.readline()
@@ -127,11 +145,18 @@ class Server:
 
 
 def blake3_bytes(b3sum: str, data: bytes) -> str:
-    return subprocess.run([b3sum, "--no-names"], input=data, check=True, capture_output=True).stdout.decode().strip()
+    return (
+        subprocess
+        .run([b3sum, "--no-names"], input=data, check=True, capture_output=True)
+        .stdout.decode()
+        .strip()
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--root-kind", required=True, choices=("cold", "cached"))
     parser.add_argument("--package", required=True)
@@ -140,28 +165,51 @@ def main() -> None:
     parser.add_argument("--conversations", type=int, default=3)
     parser.add_argument("--turns", type=int, default=4)
     parser.add_argument("--device-dram-free-bytes", type=int, nargs="+", required=True)
-    parser.add_argument("--prefix-policy", type=Path, help="prefix-cache policy JSON (cached root)")
+    parser.add_argument(
+        "--prefix-policy", type=Path, help="prefix-cache policy JSON (cached root)"
+    )
     parser.add_argument("--b3sum", required=True)
     args = parser.parse_args()
     if (args.root_kind == "cached") != (args.prefix_policy is not None):
-        raise SystemExit("--prefix-policy is required for, and only for, the cached root")
+        raise SystemExit(
+            "--prefix-policy is required for, and only for, the cached root"
+        )
     server = Server(args.base_url)
     health = server.health()
-    if health.get("status") != 200 or health.get("model") != MODEL_ALIAS:
+    if (
+        health.get("http_status") != 200
+        or health.get("status") != "ok"
+        or health.get("model") != MODEL_ALIAS
+    ):
         raise SystemExit(f"the listener is not a ready {MODEL_ALIAS} service: {health}")
     filler = args.filler.read_text(encoding="utf-8")
     opened = conversations(filler, args.conversations)
     plan = [
-        {"conversation": index, "turn": turn, "passage": turn_passage(filler, index, turn)}
+        {
+            "conversation": index,
+            "turn": turn,
+            "passage": turn_passage(filler, index, turn),
+        }
         for turn in range(args.turns)
         for index in range(args.conversations)
     ]
     workload_blake3 = blake3_bytes(
         args.b3sum,
-        json.dumps({"conversations": opened, "plan": plan, "question": QUESTION, "max_tokens": MAX_TOKENS}, sort_keys=True).encode(),
+        json.dumps(
+            {
+                "conversations": opened,
+                "plan": plan,
+                "question": QUESTION,
+                "max_tokens": MAX_TOKENS,
+            },
+            sort_keys=True,
+        ).encode(),
     )
     log("workload", blake3=workload_blake3, requests=len(plan))
-    history = {index: [{"role": "system", "content": conversation["system"]}] for index, conversation in enumerate(opened)}
+    history = {
+        index: [{"role": "system", "content": conversation["system"]}]
+        for index, conversation in enumerate(opened)
+    }
     turns = []
     identity = None
     for step in plan:
@@ -172,36 +220,58 @@ def main() -> None:
         evidence = record["evidence"] or {}
         if record["error"] is not None or record["wall_seconds"] is None:
             raise SystemExit(f"turn {step} failed: {record['error']}")
-        if evidence.get("decode_path") != "continuous-slot" or evidence.get("simulated") is not False:
-            raise SystemExit(f"the listener is not the continuous-slot service: {evidence.get('decode_path')}")
+        if (
+            evidence.get("decode_path") != "continuous-slot"
+            or evidence.get("simulated") is not False
+        ):
+            raise SystemExit(
+                f"the listener is not the continuous-slot service: {evidence.get('decode_path')}"
+            )
         if list(evidence.get("physical_pcie_device_ids") or ()) != EXPECTED_DEVICE_IDS:
             raise SystemExit("the listener did not report devices 0 and 1")
-        seen = (evidence["package_identity"], evidence["runtime_identity"], evidence.get("prefix_cache_profile_id"))
+        seen = (
+            evidence["package_identity"],
+            evidence["runtime_identity"],
+            evidence.get("prefix_cache_profile_id"),
+        )
         if identity is None:
             identity = seen
         elif seen != identity:
             raise SystemExit(f"the listener's identity changed: {identity} -> {seen}")
-        if (args.root_kind == "cached") != (evidence.get("prefix_cache_profile_id") is not None):
+        if (args.root_kind == "cached") != (
+            evidence.get("prefix_cache_profile_id") is not None
+        ):
             raise SystemExit("the listener's prefix cache does not match the root kind")
-        history[step["conversation"]] = messages + [{"role": "assistant", "content": record["text"]}]
-        turns.append(
-            {
-                "conversation": step["conversation"],
-                "turn": step["turn"],
-                "prompt_tokens": (record["usage"] or {}).get("prompt_tokens"),
-                "token_ids": evidence["generated_token_ids"],
-                "ttft_seconds": record["ttft_seconds"],
-                "wall_seconds": record["wall_seconds"],
-                "prefix_hit_tokens": evidence.get("prefix_hit_tokens", 0),
-                "prefix_saved_tokens": evidence.get("prefix_saved_tokens", 0),
-                "prefill_seconds": evidence.get("prefill_seconds"),
-                "server_ttft_seconds": evidence.get("ttft_seconds"),
-            }
+        history[step["conversation"]] = messages + [
+            {"role": "assistant", "content": record["text"]}
+        ]
+        turns.append({
+            "conversation": step["conversation"],
+            "turn": step["turn"],
+            "prompt_tokens": (record["usage"] or {}).get("prompt_tokens"),
+            "token_ids": evidence["generated_token_ids"],
+            "ttft_seconds": record["ttft_seconds"],
+            "wall_seconds": record["wall_seconds"],
+            "prefix_hit_tokens": evidence.get("prefix_hit_tokens", 0),
+            "prefix_saved_tokens": evidence.get("prefix_saved_tokens", 0),
+            "prefill_seconds": evidence.get("prefill_seconds"),
+            "server_ttft_seconds": evidence.get("ttft_seconds"),
+        })
+        log(
+            "turn",
+            conversation=step["conversation"],
+            turn=step["turn"],
+            prompt_tokens=turns[-1]["prompt_tokens"],
+            ttft=round(record["ttft_seconds"], 3),
+            wall=round(record["wall_seconds"], 3),
+            hit=turns[-1]["prefix_hit_tokens"],
+            saved=turns[-1]["prefix_saved_tokens"],
         )
-        log("turn", conversation=step["conversation"], turn=step["turn"], prompt_tokens=turns[-1]["prompt_tokens"],
-            ttft=round(record["ttft_seconds"], 3), wall=round(record["wall_seconds"], 3),
-            hit=turns[-1]["prefix_hit_tokens"], saved=turns[-1]["prefix_saved_tokens"])
-    policy_blake3 = blake3_bytes(args.b3sum, args.prefix_policy.read_bytes()) if args.prefix_policy else None
+    policy_blake3 = (
+        blake3_bytes(args.b3sum, args.prefix_policy.read_bytes())
+        if args.prefix_policy
+        else None
+    )
     root = {
         "schema_version": 1,
         "root_kind": args.root_kind,
@@ -214,11 +284,18 @@ def main() -> None:
             "prefix_cache_profile_id": identity[2],
             "prefix_policy_blake3": policy_blake3,
         },
-        "workload": {"workload_id": WORKLOAD_ID, "blake3": workload_blake3, "conversations": args.conversations, "turns": args.turns},
+        "workload": {
+            "workload_id": WORKLOAD_ID,
+            "blake3": workload_blake3,
+            "conversations": args.conversations,
+            "turns": args.turns,
+        },
         "startup": {"device_dram_free_bytes": args.device_dram_free_bytes},
         "requests": turns,
     }
-    args.output.write_text(json.dumps(root, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(root, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
     log("root-written", path=str(args.output))
 
 

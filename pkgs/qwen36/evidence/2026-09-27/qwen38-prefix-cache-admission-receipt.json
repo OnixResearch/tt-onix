@@ -1,0 +1,98 @@
+{
+  "admission": {
+    "admitted": false,
+    "admitted_profile": null,
+    "evidence_error": null,
+    "reasons": [
+      "gate-failed:miss_median_wall_ratio",
+      "gate-failed:miss_wall_ratio"
+    ]
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_parity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "resumed_hits",
+      "passed": true
+    },
+    {
+      "bound": 0.7,
+      "measured": 0.4301169855509622,
+      "name": "hit_median_ttft_ratio",
+      "passed": true
+    },
+    {
+      "bound": 0.85,
+      "measured": 0.7098076540549259,
+      "name": "hit_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.1,
+      "measured": 1.1320110630388325,
+      "name": "miss_median_wall_ratio",
+      "passed": false
+    },
+    {
+      "bound": 1.25,
+      "measured": 1.954661310955089,
+      "name": "miss_wall_ratio",
+      "passed": false
+    },
+    {
+      "bound": 536870912.0,
+      "measured": 364904448.0,
+      "name": "startup_dram_drop_bytes",
+      "passed": true
+    }
+  ],
+  "identity": {
+    "execution_identity": "/nix/store/mi1rjghx7g0d7039jzmzkd885c38dmlh-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/43ayflq56m4yhx3p5n6ds6mishwki1gd-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-v1",
+    "prefix_policy_blake3": "f4567693570cb0e85213c83f6c08e91179b065c9beed1ea2479abdca97ab0ea6",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "non_claims": [
+    "The receipt compares one declared agent-shaped workload on one package; it is not a general latency claim.",
+    "Admission covers only the named prefix-cache profile on that package; the cache stays off until a deployment enables it.",
+    "Entries live in one process and are lost on restart."
+  ],
+  "policy": {
+    "blake3": "b5f87652c3710f0a321673aeaa1fef461d655faec48d2ec7da9b21d296e60586",
+    "profile_id": "qwen38-p150x2-prefix-cache-admission-v1"
+  },
+  "receipt_kind": "prefix-cache-admission",
+  "roots": [
+    {
+      "cached": "756b16b50c6f870570a753cb21a836abf1a58d06fa5a83d85480871d0b3ceb66",
+      "cold": "1aaf2929531b5e15186ecd5e4856af27fde45e3dd0e01860ae033d42edb8f882"
+    },
+    {
+      "cached": "515089675c1d735db27ec0192d695d59630b9d9fffa6fe2160c7ce5f28955c03",
+      "cold": "e300bf6044bb340e72ae878d5ab5a202bbc99542749a3085eac752996c6d8de7"
+    }
+  ],
+  "schema_version": 1,
+  "simulated": false,
+  "turns": {
+    "missed": 13,
+    "resumed": 9
+  }
+}
