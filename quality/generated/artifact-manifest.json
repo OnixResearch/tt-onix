@@ -1160,6 +1160,12 @@
       "blake3": "ecd9a7123a999fc4c85fe0b2e69db44e6d9c314ab4067afb58192323610cebfe"
     },
     {
+      "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/refill-coexistence.md",
+      "class": "portable_evidence",
+      "byte_count": 3655,
+      "blake3": "c9e338560b2f0c0d1a1cd6faa0d6063228827cb29cf8bf8a3baecdc937fa4cd8"
+    },
+    {
       "path": "docs/research/qwen38-orcarouter-switch-2026-09-04.md",
       "class": "portable_evidence",
       "byte_count": 7090,
