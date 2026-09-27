@@ -1,0 +1,121 @@
+{
+  "admission": {
+    "admitted": true,
+    "admitted_profile": {
+      "execution_identity": "/nix/store/52cjnyvcv27imscmhp3b3y2pnayw1z2x-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0",
+      "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-v1",
+      "prefix_policy_blake3": "f4567693570cb0e85213c83f6c08e91179b065c9beed1ea2479abdca97ab0ea6"
+    },
+    "evidence_error": null,
+    "reasons": []
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_parity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "resumed_hits",
+      "passed": true
+    },
+    {
+      "bound": 0.7,
+      "measured": 0.4173368311344719,
+      "name": "hit_median_ttft_ratio",
+      "passed": true
+    },
+    {
+      "bound": 0.85,
+      "measured": 0.6620761983709289,
+      "name": "hit_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.1,
+      "measured": 1.0211529678319924,
+      "name": "miss_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.25,
+      "measured": 1.080108215960099,
+      "name": "miss_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 536870912.0,
+      "measured": 364904448.0,
+      "name": "startup_dram_drop_bytes",
+      "passed": true
+    }
+  ],
+  "identity": {
+    "execution_identity": "/nix/store/52cjnyvcv27imscmhp3b3y2pnayw1z2x-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/vvi5i8wyxm3i4bjf1vb9fwxpxbvzcrs8-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-v1",
+    "prefix_policy_blake3": "f4567693570cb0e85213c83f6c08e91179b065c9beed1ea2479abdca97ab0ea6",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "non_claims": [
+    "The receipt compares declared agent-shaped workloads on one package; it is not a general latency claim.",
+    "Gates compare per-turn means of two cold and two cached roots measured in ABBA order. That cancels host load that drifts linearly, not bursts; per-pair ratios are diagnostics only.",
+    "Admission covers only the named prefix-cache profile on that package; the cache stays off until a deployment enables it.",
+    "Entries live in one process and are lost on restart."
+  ],
+  "pair_diagnostics": [
+    {
+      "hit_median_ttft_ratio": 0.4160702263899096,
+      "hit_median_wall_ratio": 0.6651240243548893,
+      "miss_median_wall_ratio": 1.0209012317000912,
+      "miss_wall_ratio": 1.0595871658477187,
+      "pair": "cold_first/cached_first"
+    },
+    {
+      "hit_median_ttft_ratio": 0.41860916864646225,
+      "hit_median_wall_ratio": 0.633067903845977,
+      "miss_median_wall_ratio": 1.0327130639466537,
+      "miss_wall_ratio": 1.134335836550073,
+      "pair": "cached_second/cold_second"
+    }
+  ],
+  "policy": {
+    "blake3": "3c862396f7028b45e83d78bfa5f2cf25aaa5092c23e8e64acd60b78341ca046c",
+    "profile_id": "qwen38-p150x2-prefix-cache-admission-v2"
+  },
+  "receipt_kind": "prefix-cache-admission",
+  "roots": [
+    {
+      "cached_first": "6a22d11810ef868404f012af80f51993596f5cd8beb4e3c87993064ee49d77a6",
+      "cached_second": "2d3c20e760eb8a125126a7fb8887c7606606287e57cf3f989db9c58a316aaf39",
+      "cold_first": "2ed2ed11d0d1e3ba79172dce98c3db328324b626b035df5941da7cddead10300",
+      "cold_second": "3e82cea308019e8b30844c9317c05d1d04831ca2f03dc6efcef92b3626b91937"
+    },
+    {
+      "cached_first": "9219b4a78ccd33a05a7c0e113979cf4c445085d84658fc82ceefc4ec800458a9",
+      "cached_second": "b381b9e86d0fb8f8884e1f0f91c18f41ef87aa5a7fb38005e598e2d808e67923",
+      "cold_first": "2a02254cf515a0c1f672c0186b92e257365d2185c9556bd9ffd8aed438c44ac3",
+      "cold_second": "6e43163d30b098a046681ad8e4c4cab5321c1d2ca821fd69e40861cd414da615"
+    }
+  ],
+  "schema_version": 2,
+  "simulated": false,
+  "turns": {
+    "missed": 13,
+    "resumed": 9
+  }
+}

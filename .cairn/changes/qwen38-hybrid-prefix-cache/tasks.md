@@ -6,4 +6,4 @@
 - [x] Run cold-versus-restored continuation, missing-state, wrong-shape, corrupt-digest, partial-copy, and eviction tests, then rerun the baseline. [task:p4] [after:p3] r[tenstorrent.qwen38_p150x2.hybrid_prefix_state]
 - [x] Measure actual snapshot memory and representative simulator restore, or preserve the exact simulator blocker. [task:p5] [after:p4] r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
 - [x] Compare complete cache hit, miss, and eviction costs within an approved physical window and record the bounded verdict. [task:p6] [after:p5] r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
-- [ ] Repeat the comparison as four fresh roots per workload in declared ABBA order, record host CPU pressure beside each turn, and record the bounded verdict. [task:p7] [after:p6] r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+- [x] Repeat the comparison as four fresh roots per workload in declared ABBA order, record host CPU pressure beside each turn, and record the bounded verdict. [task:p7] [after:p6] r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]

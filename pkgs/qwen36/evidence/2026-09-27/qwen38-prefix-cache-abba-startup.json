@@ -1,0 +1,270 @@
+{
+ "a1": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T21:35:08.190572139Z",
+    "some avg10=19.45 avg60=19.83 avg300=20.18 total=365913798789",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "32.63 32.00 31.14 43/4483 2462932"
+   ],
+   "start": [
+    "2026-09-27T21:20:05.619606503Z",
+    "some avg10=19.89 avg60=16.25 avg300=17.36 total=365708786430",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "22.70 26.30 28.69 19/4632 2285575"
+   ]
+  },
+  "kind": "cold",
+  "ready_seconds": 766,
+  "startup_events": [
+   {
+    "elapsed_seconds": 134.3178031258285,
+    "prefill_seconds": 93.96023576427251,
+    "replay_seconds": 0.0454779383726418,
+    "reset_seconds": 0.04102363530546427,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 39.2637706506066,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 55.66130825411528,
+    "prefill_seconds": 40.886959998868406,
+    "replay_seconds": 0.045565332286059856,
+    "reset_seconds": 0.038798256777226925,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 14.578777874819934,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 412.5993676041253,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 602.5791443930939,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23185597440,
+    "banks": 8,
+    "free_bytes": 9919391744,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "a2": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T21:55:00.507259098Z",
+    "some avg10=19.78 avg60=20.97 avg300=22.85 total=366211807842",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "30.16 32.78 32.99 26/4474 2651782"
+   ],
+   "start": [
+    "2026-09-27T21:48:09.301246028Z",
+    "some avg10=22.57 avg60=22.01 avg300=22.67 total=366108747787",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "30.85 33.51 32.88 28/4462 2584228"
+   ]
+  },
+  "kind": "cold",
+  "ready_seconds": 273,
+  "startup_events": [
+   {
+    "elapsed_seconds": 7.218621568288654,
+    "prefill_seconds": 5.330852020997554,
+    "replay_seconds": 0.049115648958832026,
+    "reset_seconds": 0.051760023925453424,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.4976802389137447,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 8.558728627860546,
+    "prefill_seconds": 6.880363678094,
+    "replay_seconds": 0.06379608297720551,
+    "reset_seconds": 0.14264010917395353,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.3508407338522375,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 150.25530804228038,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 166.0333973839879,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23185597440,
+    "banks": 8,
+    "free_bytes": 9919391744,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "b1": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T21:41:36.121261828Z",
+    "some avg10=18.69 avg60=19.68 avg300=21.30 total=366006604140",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "29.51 31.61 31.60 20/4454 2523167"
+   ],
+   "start": [
+    "2026-09-27T21:35:08.295509648Z",
+    "some avg10=19.45 avg60=19.83 avg300=20.18 total=365913816476",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "32.63 32.00 31.14 22/4481 2462959"
+   ]
+  },
+  "kind": "cached",
+  "ready_seconds": 273,
+  "startup_events": [
+   {
+    "elapsed_seconds": 8.044695610646158,
+    "prefill_seconds": 6.306719623040408,
+    "replay_seconds": 0.04418951040133834,
+    "reset_seconds": 0.0407744268886745,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.4739230978302658,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 8.624793021008372,
+    "prefill_seconds": 7.1012077373452485,
+    "replay_seconds": 0.045765858609229326,
+    "reset_seconds": 0.031539186835289,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.3264273637905717,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 140.04297828208655,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 156.7129093259573,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ },
+ "b2": {
+  "host_cpu_pressure_and_load": {
+   "end": [
+    "2026-09-27T21:48:07.299025430Z",
+    "some avg10=23.36 avg60=22.12 avg300=22.70 total=366108375115",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "30.85 33.51 32.88 31/4450 2583902"
+   ],
+   "start": [
+    "2026-09-27T21:41:37.302948079Z",
+    "some avg10=18.69 avg60=19.68 avg300=21.30 total=366006799937",
+    "full avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "29.51 31.61 31.60 26/4463 2523317"
+   ]
+  },
+  "kind": "cached",
+  "ready_seconds": 272,
+  "startup_events": [
+   {
+    "elapsed_seconds": 7.976728920824826,
+    "prefill_seconds": 6.229890355840325,
+    "replay_seconds": 0.04823304200544953,
+    "reset_seconds": 0.03697526501491666,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.5140765537507832,
+    "trace_reused": false,
+    "width": 1
+   },
+   {
+    "elapsed_seconds": 7.922477851156145,
+    "prefill_seconds": 6.103134701028466,
+    "replay_seconds": 0.047434693202376366,
+    "reset_seconds": 0.04622181598097086,
+    "resident_trace_count": 1,
+    "stage": "startup-warmup-width-passed",
+    "trace_capture_seconds": 1.5807072292082012,
+    "trace_reused": false,
+    "width": 4
+   },
+   {
+    "buckets": [
+     128,
+     256,
+     512,
+     1024
+    ],
+    "elapsed_seconds": 155.73203395307064,
+    "stage": "masked-prefill-traces-captured"
+   },
+   {
+    "elapsed_seconds": 171.63170831277966,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23550501888,
+    "banks": 8,
+    "free_bytes": 9554487296,
+    "largest_free_bytes_per_bank": 1104700416,
+    "stage": "device-dram"
+   }
+  ]
+ }
+}

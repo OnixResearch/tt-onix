@@ -1808,6 +1808,66 @@
       "blake3": "488dd6db1a1001fc03f82655899e59807c5a8ad0816b52efd74cff6f7c96deb3"
     },
     {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-a1-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2461,
+      "blake3": "43a451b9a976cccd4b14cbe2090e14170f9ab0a31d2b1e9c953210d2f7514007"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-a1-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2379,
+      "blake3": "fd2d48606cf1d7a29effd769183b2138215b869d7eab1ab7524d4de4a510ee2a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-a2-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2469,
+      "blake3": "97fa6f22c58f5194b520bd74e6bd9b370a35088bc0d15eb0b08cee378dbf72b8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-a2-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2377,
+      "blake3": "cb06552b8d2ac1039ff5e59a64b7d31368c19f34c7a004f12400b954da50641b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4082,
+      "blake3": "8c5e612048bc805b750829ea49393c9e23bafddb826107b6202056050fd8bf23"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-b1-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2555,
+      "blake3": "9b8bc4ed03f28bb933379dff448cbe57a1af6723266e86d17a7b974cd9541e6f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-b1-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2447,
+      "blake3": "5fea2e7d152fbb8aeaa8fa48560faa02c021eee43dd2c42f8f7457ac50e03629"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-b2-w3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2567,
+      "blake3": "599fbad4d935a938c4ff755ecf84b0bdbd6489cea04acdae8a2d794c9d910d6d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-b2-w5.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 2454,
+      "blake3": "51678dd47d527b67e19d36a972f300533a816e562eeb0f99042077ea14ab8dae"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-abba-startup.json",
+      "class": "portable_evidence",
+      "byte_count": 6834,
+      "blake3": "294941cafa6df0a5b7756fadb65baa0dc20de83e1c209b3313d6415ee0162302"
+    },
+    {
       "path": "pkgs/qwen36/evidence/2026-09-27/qwen38-prefix-cache-admission-receipt.json",
       "class": "portable_evidence",
       "byte_count": 2718,

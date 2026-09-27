@@ -132,6 +132,9 @@ admission attempt needs a new protocol, declared before its measurement, that co
 for host load. For example, it could interleave cold and cached roots in ABBA order and
 record CPU pressure beside each root.
 
+Follow-up: protocol v2 did this, and its screen admitted the profile. See
+`p7-abba-hardware-screen.md`.
+
 ## Observations
 
 - Every request starts a new continuous-slot group, and every group re-captures the
