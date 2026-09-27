@@ -1,0 +1,35 @@
+--- a/ttnn/cpp/ttnn-nanobind/operations/core.cpp
++++ b/ttnn/cpp/ttnn-nanobind/operations/core.cpp
+@@ -180,7 +180,9 @@
+ 
+             Returns:
+                 ttnn.Tensor: the host tensor copy.
+-        )doc");
++        )doc",
++        // A blocking read waits for every queued command; other Python threads must keep running.
++        nb::call_guard<nb::gil_scoped_release>());
+ 
+     mod.def(
+         "deallocate",
+@@ -360,7 +362,9 @@
+ 
+             Limitations:
+                 -  Host and Device tensors must be the same shape, have the same datatype, and have the same data layout (ROW_MAJOR or TILE).
+-        )doc");
++        )doc",
++        // The copy can wait for command-queue space; other Python threads must keep running.
++        nb::call_guard<nb::gil_scoped_release>());
+ 
+     mod.def(
+         "copy_host_to_device_tensor_partial",
+@@ -423,7 +427,9 @@
+ 
+             Limitations:
+                 -  Host and Device tensors must be the same shape, have the same datatype, and have the same data layout (ROW_MAJOR or TILE).
+-        )doc");
++        )doc",
++        // A blocking read waits for every queued command; other Python threads must keep running.
++        nb::call_guard<nb::gil_scoped_release>());
+ 
+     ttnn::bind_function<"to_layout">(
+         mod,

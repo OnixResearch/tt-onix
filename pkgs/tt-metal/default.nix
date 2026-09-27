@@ -80,6 +80,10 @@ stdenv.mkDerivation (
       # Fuse the fp32 single-token gated-delta recurrence into one device program.
       # The public path stays opt-in at the Qwen model layer until physical admission.
       ./gdn-decode-fp32.patch
+      # Release the GIL in from_device and the host/device tensor copies. A blocking
+      # read after a long prefill waited ~17 s holding it, so the Qwen service's HTTP
+      # threads (health checks, /v1/models) stalled until the prefill finished.
+      ./transfer-bindings-release-gil.patch
     ];
 
     patchFlags = [

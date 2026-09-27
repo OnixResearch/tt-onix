@@ -641,6 +641,15 @@ kept the short outputs equal to their solo runs. Prefill still runs one user
 after another within a group, and a group runs until its last request finishes,
 so a long prompt or generation delays the requests queued behind it.
 
+A request without `temperature` decodes greedily, including thinking. On
+2026-09-27, eight reasoning prompts with known answers were run at the
+template's default effort (`xhigh`) with `max_tokens` 8,192. Greedy (one
+batch) and temperature 0.6 (sampled, two batches of four) each answered all
+eight correctly, none reached the token cap, and neither repeated itself. The
+median length was 181 and 179 tokens. Sampled decode ran at 11.5 tokens/s per
+user against 21.8 greedy, so greedy stays the default. Clients that want
+sampling send a temperature.
+
 Both completion routes accept `"stream": true` and answer with server-sent events.
 The first chat chunk carries the assistant role. Deltas follow as the batch worker
 decodes each token; the detokenizer decodes only the tokens since its last output,
