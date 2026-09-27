@@ -622,6 +622,25 @@ assemble one active-prefix decode batch through B=16. Formal admission covers
 only B=4. Requests with a temperature above zero need `sampledFusion`; without it
 the service is greedy-only.
 
+One request may hold 65,536 tokens (prompt and generation) and generate 8,192;
+the module options `maximumSequenceLength` and `maximumGenerationTokens` default
+to these ceilings. KV comes from one pool of 4,096 blocks of 64 tokens (8 GiB of
+bf16 per chip, `kv_pool_blocks` in `decode-profile.ncl`). Each batch group gives
+every row a contiguous run sized to its request: whole 1,024-token prefill
+buckets plus every decoded position. The worker adds requests to a group only
+while the pool holds them all, so one long request leaves fewer rows for short
+ones. The pool's first 16 blocks keep a structured read's saved prefix, and its
+last block backs unused page-table entries. Startup logs the allocator's DRAM
+totals as the `device-dram` stage.
+
+On britton-desktop the pooled build became ready in 700 s with 9.2 GiB of DRAM
+free per chip. A needle placed at the start of the prompt was recalled at 6K,
+16K, 32K and 60K tokens. TTFT was 3.3, 9.2, 19.2 and 39.2 s, and decode was
+23.2, 22.7, 22.0 and 21.1 tokens/s. A group of one 30K row and three short rows
+kept the short outputs equal to their solo runs. Prefill still runs one user
+after another within a group, and a group runs until its last request finishes,
+so a long prompt or generation delays the requests queued behind it.
+
 Both completion routes accept `"stream": true` and answer with server-sent events.
 The first chat chunk carries the assistant role. Deltas follow as the batch worker
 decodes each token; the detokenizer decodes only the tokens since its last output,

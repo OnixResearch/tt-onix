@@ -215,8 +215,10 @@ were unchanged: 128/132 at 2.14 decisions/s.
   decision waits for any running generation batch, and generation waits for
   queued reads.
 - **Sequence length.** A read may use up to `--max-sequence-length` tokens
-  (2,048). One read holds at most 31 slots. Larger schemas are chunked, as in the
-  PR.
+  (65,536). It writes KV through a fixed full-length row whose first 1,024
+  tokens sit in pool blocks no generation group is given, so the saved prefix
+  survives generation. One read holds at most 31 slots. Larger schemas are
+  chunked, as in the PR.
 - **Disk.** Every rebuilt package compiles a new tt-metal kernel cache, about
   2.2 GB per package, under `<model>/.cache/tt-metal-cache`. Remove stale entries
   when the disk fills. A full disk fails the trace capture with

@@ -1141,9 +1141,8 @@ def probe_batch_decode_scheduler():
 
     from unittest import mock
 
-    import torch
-
     import qwen36_service.batch_decode_adapter as batch_decode_adapter_module
+    import torch
 
     resident_trace = SimpleNamespace(device_inputs=("tokens", "positions", "rope", "page-table"))
     adapter.vocabulary_size = test_vocabulary_size
