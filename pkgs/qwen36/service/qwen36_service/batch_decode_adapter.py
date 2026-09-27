@@ -228,6 +228,7 @@ class BatchedTracedDecodeAdapter:
         model: Any,
         profile: DecodeProfile,
         maximum_width: int = MAXIMUM_ACTIVE_BATCH_WIDTH,
+        prefix_states: int = 0,
     ) -> None:
         if model.num_devices <= MINIMUM_ACTIVE_BATCH_WIDTH:
             raise BatchDecodeAdapterError(
@@ -250,6 +251,9 @@ class BatchedTracedDecodeAdapter:
         self.model = model
         self.profile = profile
         self.maximum_width = maximum_width
+        # Saved carried-state buffers for the hybrid prefix cache, allocated with the masked
+        # prefill traces; 0 disables the cache.
+        self.prefix_states = prefix_states
         self.mesh = model.mesh_device
         self.vocabulary_size = int(model.args.vocab_size)
         self.device_count = int(model.num_devices)
@@ -838,6 +842,19 @@ class BatchedTracedDecodeAdapter:
         self._slot_runs = {}
         self._slot_inputs_stale = True
 
+    def prefix_cache_available(self) -> bool:
+        """Whether a refill can restore and save hybrid prefix state now.
+
+        Prefix restore replays the masked prefill traces from a chunk boundary; eager prefill
+        would rewrite the shared prefix blocks from position 0, so no traces, no cache."""
+        return (
+            self.prefix_states > 0
+            and bool(self.model.masked_prefill_trace_buckets())
+            and not self.model.masked_prefill_traces_stale()
+            and self.model.prefix_cache_state_count() == self.prefix_states
+        )
+
+    # r[impl tenstorrent.qwen38_p150x2.hybrid_prefix_state]
     def refill_slot(
         self,
         *,
@@ -845,8 +862,19 @@ class BatchedTracedDecodeAdapter:
         token_ids: torch.Tensor,
         block_start: int,
         block_count: int,
+        prefix_ranges: tuple[tuple[int, int], ...] = (),
+        prefix_tokens: int = 0,
+        resume_state: int | None = None,
+        save_state: int | None = None,
+        save_at: int = 0,
     ) -> SlotRefillResult:
-        """Prefill one request into an unowned slot while the other slots stay live."""
+        """Prefill one request into an unowned slot while the other slots stay live.
+
+        With a prefix hit, the page-table row starts with the cached entry's KV blocks
+        (`prefix_ranges`, covering tokens [0, prefix_tokens)), the saved carried state
+        `resume_state` is restored, and only the rest of the prompt is prefilled; the
+        request's own run starts at block_start. `save_state` saves the carried state after
+        the chunk ending at `save_at` for a new cache entry."""
         width = self._require_slot_group()
         self._require_slot_index(slot, width)
         if slot in self._slot_runs:
@@ -856,15 +884,31 @@ class BatchedTracedDecodeAdapter:
         if token_ids.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH or token_ids.shape[1] < 1:
             raise BatchDecodeAdapterError("prefill tokens must contain one prompt")
         prompt_tokens = int(token_ids.shape[1])
-        if block_count < self.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=1):
+        prefix_blocks = [block for start, count in prefix_ranges for block in range(start, start + count)]
+        if len(prefix_blocks) * self.profile.kv_block_size != prefix_tokens:
+            raise BatchDecodeAdapterError("the prefix blocks must cover exactly the prefix tokens")
+        if (resume_state is None) != (prefix_tokens == 0):
+            raise BatchDecodeAdapterError("a prefix needs a saved state to resume from, and only then")
+        if prefix_tokens >= prompt_tokens:
+            raise BatchDecodeAdapterError("a prefix hit must leave prompt tokens to prefill")
+        if save_state is not None and not prefix_tokens < save_at < prompt_tokens:
+            raise BatchDecodeAdapterError("a save point must lie past the prefix inside the prompt")
+        needed = self.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=1)
+        if block_count + len(prefix_blocks) < needed:
             raise BatchDecodeAdapterError("the KV run does not cover the prompt's prefill")
         block_end = block_start + block_count
         if (
             block_start < self.kv_pool.reserved_prefix_blocks
             or block_end > self.kv_pool.scratch_block
-            or block_count > self.blocks_per_user
+            or block_count + len(prefix_blocks) > self.blocks_per_user
+            or any(
+                not self.kv_pool.reserved_prefix_blocks <= block < self.kv_pool.scratch_block
+                for block in prefix_blocks
+            )
         ):
             raise BatchDecodeAdapterError("the KV run leaves the generation block range")
+        if any(block_start <= block < block_end for block in prefix_blocks):
+            raise BatchDecodeAdapterError("the KV run overlaps its own prefix blocks")
         for owner, (start, count) in self._slot_runs.items():
             if block_start < start + count and start < block_end:
                 raise BatchDecodeAdapterError(f"the KV run overlaps slot {owner}")
@@ -876,9 +920,18 @@ class BatchedTracedDecodeAdapter:
             self.model.release_masked_prefill_traces()
             masked_traces_released = True
         use_masked_traces = bool(self.model.masked_prefill_trace_buckets())
+        plan: dict[str, tuple[int, int]] = {}
+        if resume_state is not None:
+            plan["resume"] = (resume_state, prefix_tokens)
+        if save_state is not None:
+            plan["save"] = (save_state, save_at)
+        if plan and not self.prefix_cache_available():
+            raise BatchDecodeAdapterError("prefix restore and save need the masked prefill traces")
 
         row = self._scratch_row()
-        row[:block_count] = torch.arange(block_start, block_end, dtype=torch.int32)
+        own = torch.arange(block_start, block_end, dtype=torch.int32)
+        row[: len(prefix_blocks)] = torch.tensor(prefix_blocks, dtype=torch.int32)
+        row[len(prefix_blocks) : len(prefix_blocks) + block_count] = own
         self.page_table[slot] = row
         self._slot_runs[slot] = (block_start, block_count)
         self._slot_inputs_stale = True
@@ -901,6 +954,7 @@ class BatchedTracedDecodeAdapter:
             valid_lens=[prompt_tokens],
             first_token_callback=observe_first_token,
             masked_traces=use_masked_traces,
+            **({"prefixes": [plan]} if plan else {}),
         )
         ttnn.synchronize_device(self.mesh)
         elapsed_seconds = time.monotonic() - started
@@ -1702,6 +1756,7 @@ class BatchedTracedDecodeAdapter:
         self.model.capture_masked_prefill_traces(
             self.page_table[:1].contiguous(),
             read_page_table=self.page_table[: int(self.model.READ_BATCH_WIDTH)].contiguous(),
+            **({"prefix_states": self.prefix_states} if self.prefix_states else {}),
         )
         return self.model.masked_prefill_trace_buckets()
 

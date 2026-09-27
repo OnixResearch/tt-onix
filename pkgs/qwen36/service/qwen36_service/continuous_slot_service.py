@@ -45,6 +45,7 @@ from .batch_service import (
 )
 from .core import CompletionRequest, build_completion_response, finish_generation
 from .decode_adapter import DecodeAdapterError
+from .prefix_cache_core import PrefixCachePolicy, cached_blocks, prefix_digests
 from .sampled_decode_core import (
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
@@ -96,6 +97,8 @@ class _SlotRun:
     # occupied slot once it was admitted.
     captures_at_admission: int = 0
     kv_blocks_in_use: int = 0
+    prefix_hit_tokens: int = 0
+    prefix_saved_tokens: int = 0
     tokens: list[int] = field(default_factory=list)
     refill: SlotRefillResult | None = None
     first_token_ready: float | None = None
@@ -105,7 +108,15 @@ class _SlotRun:
 class ContinuousSlotCoordinator(BatchGenerationCoordinator):
     """Serve generation requests from continuously refilled decode slots."""
 
-    def __init__(self, *, slot_policy: slots.ContinuousSlotPolicy, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        slot_policy: slots.ContinuousSlotPolicy,
+        prefix_policy: PrefixCachePolicy | None = None,
+        prefix_identity: str = "",
+        blake3_digest: Callable[[bytes], bytes] | None = None,
+        **kwargs: Any,
+    ) -> None:
         if kwargs.get("batch_admission_enabled") or kwargs.get("trace_reuse_admission_enabled"):
             raise BatchDecodeAdapterError(
                 "continuous slots cannot run a fixed-group admission measurement"
@@ -114,11 +125,20 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         if adapter.maximum_width < slot_policy.slot_capacity:
             raise BatchDecodeAdapterError("the adapter holds fewer rows than the slot policy")
         pool = adapter.kv_pool
+        if prefix_policy is not None:
+            if adapter.prefix_states != prefix_policy.state_slots:
+                raise BatchDecodeAdapterError("the adapter's prefix states differ from the prefix policy")
+            if not prefix_identity or blake3_digest is None:
+                raise BatchDecodeAdapterError("the prefix cache needs a serving identity and BLAKE3")
         self.slot_policy = slot_policy
+        self.prefix_policy = prefix_policy
+        self._prefix_identity = prefix_identity
+        self._blake3_digest = blake3_digest
         self._kv_range = slots.KvBlockRange(
             first_block=pool.reserved_prefix_blocks,
             end_block=pool.scratch_block,
             row_blocks=pool.row_blocks,
+            block_tokens=pool.kv_block_size,
         )
         self._schedule = slots.initial_schedule(slot_policy)
         self._waiting: dict[str, _PendingBatchRequest] = {}
@@ -161,6 +181,14 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         blocks = self.adapter.request_blocks(
             prompt_tokens=prompt_token_count, generation_tokens=request.max_tokens
         )
+        digests: tuple[str, ...] = ()
+        if self.prefix_policy is not None:
+            digests = prefix_digests(
+                [int(token) for token in token_ids[0].tolist()],
+                identity=self._prefix_identity,
+                tenant=self.prefix_policy.tenant,
+                blake3_digest=self._blake3_digest,
+            )
         pending = _PendingBatchRequest(
             request=request,
             request_id=request_id,
@@ -178,6 +206,7 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             blocks=blocks,
             arrival_seconds=started,
             deadline_seconds=deadline,
+            prefix_digests=digests,
         )
         with self._condition:
             self._require_serving()
@@ -316,6 +345,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                     self._kv_range,
                     now=time.monotonic(),
                     reads_waiting=reads_waiting,
+                    prefix_policy=self.prefix_policy,
+                    prefix_available=self.prefix_policy is not None
+                    and self.adapter.prefix_cache_available(),
                 )
                 reads: tuple[_PendingRead, ...] = ()
                 if reads_waiting and not self._occupied():
@@ -323,6 +355,8 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                         self._queue.popleft()
                         for _ in range(min(len(self._queue), MAXIMUM_MERGED_READ_JOBS))
                     )
+                    # A read writes KV through the read row, over blocks cached prefixes hold.
+                    self._schedule = slots.invalidate_prefix_cache(self._schedule)
             try:
                 self._apply_boundary(effects)
                 if reads:
@@ -402,10 +436,13 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 generation=effect.generation,
                 admitted=time.monotonic(),
                 captures_at_admission=self.adapter.slot_trace_captures,
-                kv_blocks_in_use=sum(
-                    slot.request.blocks
-                    for slot in self._schedule.slots
-                    if slot.state in slots.OCCUPYING_STATES and slot.request is not None
+                kv_blocks_in_use=len(
+                    cached_blocks(self._schedule.prefix_entries).union(
+                        block
+                        for slot in self._schedule.slots
+                        if slot.state in slots.OCCUPYING_STATES and slot.request is not None
+                        for block in range(slot.block_start, slot.block_start + slot.block_count)
+                    )
                 ),
             )
             self._runs[effect.request_id] = run
@@ -415,6 +452,11 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 token_ids=pending.token_ids,
                 block_start=effect.block_start,
                 block_count=effect.block_count,
+                prefix_ranges=effect.prefix_ranges,
+                prefix_tokens=effect.prefix_tokens,
+                resume_state=effect.resume_state,
+                save_state=effect.save_state,
+                save_at=effect.save_at,
             )
         run.refill = result
         run.first_token_ready = run.admitted + result.first_token_ready_seconds
@@ -428,6 +470,11 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             )
             if result.decode_trace_released:
                 self._schedule = slots.mark_draining(self._schedule)
+            if result.masked_traces_released:
+                # Prefix state can no longer be restored or saved in this process.
+                self._schedule = slots.invalidate_prefix_cache(self._schedule)
+        run.prefix_hit_tokens = effect.prefix_tokens
+        run.prefix_saved_tokens = effect.save_at
         run.tokens.append(result.first_token_id)
         self._publish(pending, result.first_token_id)
         if result.masked_traces_released:
@@ -596,6 +643,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             "slot": run.slot,
             "slot_generation": run.generation,
             "kv_blocks_in_use": run.kv_blocks_in_use,
+            "prefix_cache_profile_id": self.prefix_policy.profile_id if self.prefix_policy else None,
+            "prefix_hit_tokens": run.prefix_hit_tokens,
+            "prefix_saved_tokens": run.prefix_saved_tokens,
             "tail_token_latency_seconds": max(steps) if steps else 0.0,
             "trace_captures": self.adapter.slot_trace_captures - run.captures_at_admission,
             "ttft_seconds": refill.first_token_ready_seconds,

@@ -42,6 +42,7 @@ let
     packages.seaborn
     packages.websockets
     # Model-stack deps (qwen36 + gated DeltaNet + tt_transformers + vLLM-adjacent).
+    packages.blake3
     packages.pydantic
     packages.pytest
     packages.safetensors
@@ -70,6 +71,7 @@ let
     ./grouped-prefill-exact.patch
     ./masked-prefill-traces.patch
     ./structured-read-rows.patch
+    ./prefix-cache.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:
@@ -112,6 +114,10 @@ let
     (stableIdentityPath "qwen36-continuous-slot-contracts.ncl" ./continuous-slot-contracts.ncl)
     (stableIdentityPath "qwen36-continuous-slot-admission-policy.ncl" ./continuous-slot-admission-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-admission-contracts.ncl" ./continuous-slot-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-policy.ncl" ./prefix-cache-policy.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-contracts.ncl" ./prefix-cache-contracts.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-admission-policy.ncl" ./prefix-cache-admission-policy.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-admission-contracts.ncl" ./prefix-cache-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-policy-validated.ncl" ./kernel-distribution-admission-policy-validated.ncl)
@@ -271,6 +277,16 @@ stdenvNoCC.mkDerivation {
     cp continuous-slot-policy-export/continuous-slot-admission-*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/continuous-slot-admission-policy.ncl \
       > "$out/share/qwen36/continuous-slot-admission-policy.json"
+    cp ${./prefix-cache-policy.ncl} continuous-slot-policy-export/prefix-cache-policy.ncl
+    cp ${./prefix-cache-contracts.ncl} continuous-slot-policy-export/prefix-cache-contracts.ncl
+    cp continuous-slot-policy-export/prefix-cache-*.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-policy.ncl \
+      > "$out/share/qwen36/prefix-cache-policy.json"
+    cp ${./prefix-cache-admission-policy.ncl} continuous-slot-policy-export/prefix-cache-admission-policy.ncl
+    cp ${./prefix-cache-admission-contracts.ncl} continuous-slot-policy-export/prefix-cache-admission-contracts.ncl
+    cp continuous-slot-policy-export/prefix-cache-admission-*.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-admission-policy.ncl \
+      > "$out/share/qwen36/prefix-cache-admission-policy.json"
     cp ${./ttft-control-profile.ncl} "$out/share/qwen36/ttft-control-profile.ncl"
     cp ${./ttft-control-contracts.ncl} "$out/share/qwen36/ttft-control-contracts.ncl"
     mkdir -p decode-profile-export
@@ -867,6 +883,16 @@ stdenvNoCC.mkDerivation {
       --add-flags "--policy" \
       --add-flags "$out/share/qwen36/continuous-slot-admission-policy.json"
 
+    # r[impl tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+    # Evaluates matched cold and cached prefix-cache roots against the predeclared gates.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36-prefix-cache-receipt" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --prefix PATH : ${lib.makeBinPath [ b3sum ]} \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.prefix_cache_receipt" \
+      --add-flags "--policy" \
+      --add-flags "$out/share/qwen36/prefix-cache-admission-policy.json"
+
     # Public commands use the checkpoint version. Preserve old consumers with
     # relative aliases, without renaming upstream modules or receipt schemas.
     for legacy_command in "$out"/bin/qwen36*; do
@@ -1343,6 +1369,25 @@ PROFILE_CHECK
       exit 1
     fi
     test -s invalid-continuous-slot-admission-policy.log
+
+    # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+    # Negative: a minimum prefix off the chunk boundary must fail its contract.
+    cp ${./prefix-cache-contracts.ncl} continuous-slot-policy-negative/prefix-cache-contracts.ncl
+    cp ${./fixtures/invalid-prefix-cache-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl \
+        > invalid-prefix-cache-policy.json 2> invalid-prefix-cache-policy.log; then
+      echo "invalid prefix cache policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-prefix-cache-policy.log
+    cp ${./prefix-cache-admission-contracts.ncl} continuous-slot-policy-negative/prefix-cache-admission-contracts.ncl
+    cp ${./fixtures/invalid-prefix-cache-admission-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl \
+        > invalid-prefix-cache-admission-policy.json 2> invalid-prefix-cache-admission-policy.log; then
+      echo "invalid prefix cache admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-prefix-cache-admission-policy.log
 
     # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
     # Negative: an invalid slot count must fail its typed contract.

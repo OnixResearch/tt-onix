@@ -29,6 +29,16 @@ slot ahead of the head only while the head does not fit (another route runs, or 
 run is free), and only `maximum_head_bypasses` times; after that nothing is admitted
 until the head fits, which it does once the group drains. Budget limits delay the head
 to the next boundary but never let another request pass it.
+
+With a prefix-cache policy, admission also consults the cached hybrid prefixes
+(prefix_cache_core). A request whose prompt extends a ready entry reads the entry's KV
+blocks and resumes from its saved carried state, so it needs KV blocks only past the
+prefix. A request whose prompt is long enough donates a new entry: its prefill saves the
+carried state at the last chunk boundary before the prompt's end, and the entry keeps
+the KV blocks for [0, that boundary) when the request retires. Entries in use are
+pinned; the rest are evicted least recently used first, whenever a live request needs
+their KV blocks, a donation needs their state buffer, or the cache exceeds its block
+budget. A device failure drops every entry.
 """
 
 from __future__ import annotations
@@ -38,6 +48,17 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from .decode_core import request_deadline_expired
+from .prefix_cache_core import (
+    CHUNK_TOKENS,
+    DIGEST_HEX_LENGTH,
+    PrefixCachePolicy,
+    PrefixEntry,
+    cached_blocks,
+    eviction_order,
+    expand_blocks,
+    free_state_index,
+    lookup,
+)
 
 PROFILE_SCHEMA_VERSION = 1
 SLOT_CAPACITY = 4
@@ -178,11 +199,16 @@ class KvBlockRange:
     first_block: int
     end_block: int
     row_blocks: int
+    # Tokens one KV block holds.
+    block_tokens: int
 
     def __post_init__(self) -> None:
         _require_int(self.first_block, "first_block", 0, 2**31 - 1)
         _require_int(self.row_blocks, "row_blocks", 1, 2**31 - 1)
         _require_int(self.end_block, "end_block", self.first_block + self.row_blocks, 2**31 - 1)
+        _require_int(self.block_tokens, "block_tokens", 1, CHUNK_TOKENS)
+        if CHUNK_TOKENS % self.block_tokens:
+            raise ContinuousSlotPolicyError("a KV block must divide the prefill chunk")
 
 
 @dataclass(frozen=True)
@@ -196,6 +222,8 @@ class SlotRequest:
     blocks: int
     arrival_seconds: float
     deadline_seconds: float
+    # Chained prefix digests (prefix_cache_core.prefix_digests); empty opts out of the cache.
+    prefix_digests: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_id, str) or not self.request_id:
@@ -205,6 +233,10 @@ class SlotRequest:
         _require_int(self.prompt_tokens, "prompt_tokens", 1, 2**31 - 1)
         _require_int(self.max_tokens, "max_tokens", 1, 2**31 - 1)
         _require_int(self.blocks, "blocks", 1, 2**31 - 1)
+        if len(self.prefix_digests) > (self.prompt_tokens - 1) // CHUNK_TOKENS or any(
+            not isinstance(digest, str) or len(digest) != DIGEST_HEX_LENGTH for digest in self.prefix_digests
+        ):
+            raise ContinuousSlotPolicyError("prefix digests must cover chunks strictly inside the prompt")
         # Both are validated as finite by request_deadline_expired.
         request_deadline_expired(self.arrival_seconds, self.deadline_seconds)
 
@@ -222,7 +254,13 @@ class Slot:
     state: str = SLOT_FREE
     generation: int = 0
     request: SlotRequest | None = None
+    # The request's own KV run; a prefix hit adds the entry's blocks before it.
     block_start: int = 0
+    block_count: int = 0
+    prefix_entry: int | None = None
+    prefix_tokens: int = 0
+    prefix_ranges: tuple[tuple[int, int], ...] = ()
+    donation_entry: int | None = None
     # The token the next decode step consumes, and the position it is written at.
     token_id: int = 0
     position: int = 0
@@ -239,6 +277,8 @@ class SlotSchedule:
     # No refill until the group is empty (an unsafe refill transition was observed).
     draining: bool
     next_generation: int
+    prefix_entries: tuple[PrefixEntry, ...] = ()
+    next_entry_id: int = 1
 
 
 @dataclass(frozen=True)
@@ -261,6 +301,17 @@ class PrefillSlot:
     request_id: str
     block_start: int
     block_count: int
+    # A prefix hit: the entry's KV block ranges come first in the page-table row, the
+    # saved state `resume_state` is restored, and prefill resumes at `prefix_tokens`.
+    prefix_ranges: tuple[tuple[int, int], ...] = ()
+    prefix_tokens: int = 0
+    resume_state: int | None = None
+    hit_entry: int | None = None
+    # A donation: after the segment ending at `save_at`, save the carried state into
+    # `save_state` for entry `donation_entry`.
+    save_state: int | None = None
+    save_at: int = 0
+    donation_entry: int | None = None
 
 
 @dataclass(frozen=True)
@@ -347,12 +398,32 @@ def _with_slot(schedule: SlotSchedule, slot: Slot) -> SlotSchedule:
     return replace(schedule, slots=slots)
 
 
-def _free_run(slots: tuple[Slot, ...], kv_range: KvBlockRange, blocks: int) -> int | None:
-    """First block of the lowest free contiguous run of `blocks`, or None."""
+def _block_intervals(blocks: frozenset[int]) -> list[tuple[int, int]]:
+    intervals: list[tuple[int, int]] = []
+    for block in sorted(blocks):
+        if intervals and intervals[-1][1] == block:
+            intervals[-1] = (intervals[-1][0], block + 1)
+        else:
+            intervals.append((block, block + 1))
+    return intervals
+
+
+def _free_run(
+    slots: tuple[Slot, ...],
+    kv_range: KvBlockRange,
+    blocks: int,
+    entries: tuple[PrefixEntry, ...] | list[PrefixEntry] = (),
+) -> int | None:
+    """First block of the lowest free contiguous run of `blocks`, or None.
+
+    Live requests' own runs and every cached entry's blocks are occupied."""
     runs = sorted(
-        (slot.block_start, slot.block_start + slot.request.blocks)
-        for slot in slots
-        if slot.state in OCCUPYING_STATES and slot.request is not None
+        [
+            (slot.block_start, slot.block_start + slot.block_count)
+            for slot in slots
+            if slot.state in OCCUPYING_STATES and slot.request is not None
+        ]
+        + _block_intervals(cached_blocks(entries))
     )
     start = kv_range.first_block
     for run_start, run_end in runs:
@@ -362,6 +433,117 @@ def _free_run(slots: tuple[Slot, ...], kv_range: KvBlockRange, blocks: int) -> i
     return start if kv_range.end_block - start >= blocks else None
 
 
+@dataclass(frozen=True)
+class _Placement:
+    block_start: int
+    block_count: int
+    hit: PrefixEntry | None
+    entries: tuple[PrefixEntry, ...]
+
+
+def _place(
+    slots: list[Slot],
+    entries: tuple[PrefixEntry, ...],
+    kv_range: KvBlockRange,
+    request: SlotRequest,
+    caching: bool,
+) -> _Placement | None:
+    """Where a request's own KV run fits, evicting unused cache entries if that makes room."""
+    hit = lookup(entries, request.prefix_digests) if caching else None
+    prefix_blocks = hit.prefix_tokens // kv_range.block_tokens if hit is not None else 0
+    own_blocks = request.blocks - prefix_blocks
+    keep = frozenset({hit.entry_id}) if hit is not None else frozenset()
+    current = list(entries)
+    while True:
+        block_start = _free_run(tuple(slots), kv_range, own_blocks, current)
+        if block_start is not None:
+            return _Placement(block_start, own_blocks, hit, tuple(current))
+        victims = eviction_order(current, keep)
+        if not victims:
+            return None
+        current.remove(victims[0])
+
+
+def _plan_donation(
+    entries: tuple[PrefixEntry, ...],
+    request: SlotRequest,
+    placement: _Placement,
+    prefix_policy: PrefixCachePolicy,
+    kv_range: KvBlockRange,
+    entry_id: int,
+    now: float,
+) -> tuple[PrefixEntry, tuple[PrefixEntry, ...]] | None:
+    """A new entry for this request's longest cacheable prefix, or None when it cannot fit.
+
+    When the request extends an entry only it reads, the new entry supersedes that one: it
+    takes over the entry's state buffer (the restore runs before the save on the same
+    queue), its KV blocks, and its pin, so a conversation holds one entry, not a chain."""
+    save_at = (request.prompt_tokens - 1) // CHUNK_TOKENS * CHUNK_TOKENS
+    prefix_tokens = placement.hit.prefix_tokens if placement.hit is not None else 0
+    if save_at < prefix_policy.minimum_prefix_tokens or save_at <= prefix_tokens:
+        return None
+    digest = request.prefix_digests[save_at // CHUNK_TOKENS - 1] if request.prefix_digests else None
+    if digest is None or len(request.prefix_digests) < save_at // CHUNK_TOKENS:
+        return None
+    if any(entry.digest == digest for entry in entries):
+        return None
+    donated_blocks = (save_at - prefix_tokens) // kv_range.block_tokens
+    if donated_blocks > placement.block_count:
+        return None
+    ranges = (placement.hit.block_ranges if placement.hit is not None else ()) + (
+        (placement.block_start, donated_blocks),
+    )
+    # The hit as recorded now, with this request's pin already counted.
+    hit = (
+        next(entry for entry in entries if entry.entry_id == placement.hit.entry_id)
+        if placement.hit is not None
+        else None
+    )
+    supersede = hit is not None and hit.pins == 1
+    keep = frozenset({hit.entry_id}) if hit is not None else frozenset()
+    trial = [entry for entry in entries if not (supersede and entry.entry_id == hit.entry_id)]
+    new_blocks = frozenset(expand_blocks(ranges))
+    while len(cached_blocks(trial) | new_blocks) > prefix_policy.maximum_cached_blocks:
+        victims = eviction_order(trial, keep)
+        if not victims:
+            return None
+        trial.remove(victims[0])
+    state_index = hit.state_index if supersede else free_state_index(trial, prefix_policy.state_slots)
+    while state_index is None:
+        victims = eviction_order(trial, keep)
+        if not victims:
+            return None
+        trial.remove(victims[0])
+        state_index = free_state_index(trial, prefix_policy.state_slots)
+    entry = PrefixEntry(
+        entry_id=entry_id,
+        digest=digest,
+        prefix_tokens=save_at,
+        block_ranges=ranges,
+        state_index=state_index,
+        ready=False,
+        pins=1 if supersede else 0,
+        last_used=now,
+    )
+    entry.validate(kv_range.block_tokens, prefix_policy.state_slots)
+    return entry, tuple(trial) + (entry,)
+
+
+def _repin(entries: tuple[PrefixEntry, ...], entry_id: int | None, delta: int, now: float | None = None) -> tuple[PrefixEntry, ...]:
+    if entry_id is None:
+        return entries
+    updated = []
+    for entry in entries:
+        if entry.entry_id == entry_id:
+            entry = replace(
+                entry,
+                pins=entry.pins + delta,
+                last_used=entry.last_used if now is None else now,
+            )
+        updated.append(entry)
+    return tuple(updated)
+
+
 def plan_boundary(
     schedule: SlotSchedule,
     policy: ContinuousSlotPolicy,
@@ -369,15 +551,21 @@ def plan_boundary(
     *,
     now: float,
     reads_waiting: bool = False,
+    prefix_policy: PrefixCachePolicy | None = None,
+    prefix_available: bool = False,
 ) -> tuple[SlotSchedule, tuple[BoundaryEffect, ...]]:
     """Decide everything that happens between two decode windows.
 
     Effects are ordered for execution: retirements, refusals, then one optional group
     start and the prefills. A waiting structured read admits nothing, so the group
-    drains and the read runs on an idle device.
+    drains and the read runs on an idle device. Prefix hits and donations are planned
+    only with a prefix policy and while the device can restore and save prefix state.
     """
     effects: list[BoundaryEffect] = []
     slots = list(schedule.slots)
+    entries = schedule.prefix_entries
+    next_entry_id = schedule.next_entry_id
+    caching = prefix_policy is not None and prefix_available
 
     # Retire finished and timed-out requests; their slots and KV runs become free.
     for position, slot in enumerate(slots):
@@ -392,6 +580,7 @@ def plan_boundary(
         if reason is None:
             continue
         effects.append(RetireSlot(slot.index, slot.generation, request.request_id, reason))
+        entries = _repin(entries, slot.prefix_entry, -1)
         slots[position] = Slot(index=slot.index, generation=slot.generation)
 
     # Refuse queued requests that can no longer be served in time.
@@ -434,15 +623,16 @@ def plan_boundary(
                     # Waiting for the next boundary is not a reason to pass anyone.
                     break
                 if route is None or request.route == route:
-                    block_start = _free_run(tuple(slots), kv_range, request.blocks)
-                    if block_start is not None:
-                        chosen = (queue_index, block_start)
+                    placement = _place(slots, entries, kv_range, request, caching)
+                    if placement is not None:
+                        chosen = (queue_index, placement)
                         break
                 if queue_index == 0 and queued.bypassed >= policy.maximum_head_bypasses:
                     break
             if chosen is None:
                 break
-            queue_index, block_start = chosen
+            queue_index, placement = chosen
+            entries = placement.entries
             request = queue.pop(queue_index).request
             if queue_index > 0:
                 head = queue[0]
@@ -453,16 +643,48 @@ def plan_boundary(
             slot = free[0]
             generation = next_generation
             next_generation += 1
+            hit = placement.hit
+            entries = _repin(entries, hit.entry_id if hit is not None else None, 1, now)
+            donation = None
+            if caching:
+                donation = _plan_donation(
+                    entries, request, placement, prefix_policy, kv_range, next_entry_id, now
+                )
+            reads_entry = hit.entry_id if hit is not None else None
+            if donation is not None:
+                donated, entries = donation
+                next_entry_id += 1
+                if donated.pins:
+                    # The new entry superseded the one this request reads, and holds its pin.
+                    reads_entry = donated.entry_id
             slots[slot.index] = Slot(
                 index=slot.index,
                 state=SLOT_PREFILLING,
                 generation=generation,
                 request=request,
-                block_start=block_start,
+                block_start=placement.block_start,
+                block_count=placement.block_count,
+                prefix_entry=reads_entry,
+                prefix_tokens=hit.prefix_tokens if hit is not None else 0,
+                prefix_ranges=hit.block_ranges if hit is not None else (),
+                donation_entry=donated.entry_id if donation is not None else None,
                 position=request.prompt_tokens,
             )
             effects.append(
-                PrefillSlot(slot.index, generation, request.request_id, block_start, request.blocks)
+                PrefillSlot(
+                    slot.index,
+                    generation,
+                    request.request_id,
+                    placement.block_start,
+                    placement.block_count,
+                    prefix_ranges=hit.block_ranges if hit is not None else (),
+                    prefix_tokens=hit.prefix_tokens if hit is not None else 0,
+                    resume_state=hit.state_index if hit is not None else None,
+                    hit_entry=hit.entry_id if hit is not None else None,
+                    save_state=donated.state_index if donation is not None else None,
+                    save_at=donated.prefix_tokens if donation is not None else 0,
+                    donation_entry=donated.entry_id if donation is not None else None,
+                )
             )
             admitted += 1
             admitted_tokens += request.prompt_tokens
@@ -474,6 +696,8 @@ def plan_boundary(
             route=route,
             draining=draining,
             next_generation=next_generation,
+            prefix_entries=entries,
+            next_entry_id=next_entry_id,
         ),
         tuple(effects),
     )
@@ -510,9 +734,19 @@ def _advance(slot: Slot, token_id: int, stopped: bool) -> Slot:
 def observe_prefill(
     schedule: SlotSchedule, *, slot: int, generation: int, token_id: int, stopped: bool
 ) -> SlotSchedule:
-    """Record a prefill's first token; the slot decodes from its prompt length."""
+    """Record a prefill's first token; the slot decodes from its prompt length.
+
+    A donation planned for this prefill becomes a ready entry: its state was saved and its
+    KV blocks are written."""
     current = _require_slot(schedule, slot, generation, SLOT_PREFILLING)
-    return _with_slot(schedule, _advance(current, token_id, stopped))
+    advanced = _with_slot(schedule, _advance(current, token_id, stopped))
+    if current.donation_entry is None:
+        return advanced
+    entries = tuple(
+        replace(entry, ready=True) if entry.entry_id == current.donation_entry else entry
+        for entry in advanced.prefix_entries
+    )
+    return replace(advanced, prefix_entries=entries)
 
 
 def observe_step(
@@ -575,7 +809,8 @@ def quarantine_group(schedule: SlotSchedule) -> tuple[SlotSchedule, tuple[Retire
             slots.append(replace(slot, state=SLOT_QUARANTINED))
         else:
             slots.append(slot)
-    return replace(schedule, slots=tuple(slots), draining=True), tuple(failed)
+    # The device state behind every cached prefix is unknown after a failure.
+    return replace(schedule, slots=tuple(slots), draining=True, prefix_entries=()), tuple(failed)
 
 
 def release_quarantine(schedule: SlotSchedule) -> SlotSchedule:
@@ -590,6 +825,12 @@ def release_quarantine(schedule: SlotSchedule) -> SlotSchedule:
     if any(slot.state in OCCUPYING_STATES for slot in slots):
         return released
     return replace(released, route=None, draining=False)
+
+
+def invalidate_prefix_cache(schedule: SlotSchedule) -> SlotSchedule:
+    """Drop every entry no live request reads: a structured read rewrote KV blocks, or the
+    device can no longer restore prefix state."""
+    return replace(schedule, prefix_entries=tuple(entry for entry in schedule.prefix_entries if entry.pins))
 
 
 def drain_queue(schedule: SlotSchedule, reason: str) -> tuple[SlotSchedule, tuple[RejectRequest, ...]]:

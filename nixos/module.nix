@@ -160,6 +160,18 @@ in
         '';
       };
 
+      prefixCache = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Keep hybrid prefix state for prompts that extend an earlier prompt, as an agent's
+          next turn extends its conversation. A long prompt saves the carried GDN state at
+          its last 1,024-token boundary and keeps the KV blocks before it; a later prompt
+          with the same token prefix restores that state and prefills only the rest. Bounds
+          come from the package's prefix-cache policy. Requires continuousSlotScheduler.
+        '';
+      };
+
       groupedPrefill = mkOption {
         type = types.bool;
         default = true;
@@ -337,6 +349,10 @@ in
           message = "MTP speculation has no evidence on the fused GDN decode step; disable gdnDecodeStep";
         }
         {
+          assertion = !qwen38.prefixCache || qwen38.continuousSlotScheduler;
+          message = "The Qwen prefix cache needs the continuous-slot scheduler";
+        }
+        {
           assertion = !(qwen38.mtpSpeculation && qwen38.continuousSlotScheduler);
           message = "The continuous-slot scheduler needs the batch worker; MTP speculation serves the eager route";
         }
@@ -393,6 +409,9 @@ in
           ] ++ lib.optionals qwen38.continuousSlotScheduler [
             "--continuous-slot-policy"
             "${qwen38.package}/share/qwen36/continuous-slot-policy.json"
+          ] ++ lib.optionals qwen38.prefixCache [
+            "--prefix-cache-policy"
+            "${qwen38.package}/share/qwen36/prefix-cache-policy.json"
           ] ++ lib.optionals qwen38.mtpSpeculation [
             "--decode-mode"
             "eager"

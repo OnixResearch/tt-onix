@@ -1,0 +1,194 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -1624,7 +1624,7 @@
+         ttnn.synchronize_device(self.device)
+ 
+     def capture_masked_prefill_traces(
+-        self, page_table_row, buckets=MASKED_PREFILL_TRACE_BUCKETS, read_page_table=None
++        self, page_table_row, buckets=MASKED_PREFILL_TRACE_BUCKETS, read_page_table=None, prefix_states=0
+     ):
+         """Capture one B=1 masked-bucket prefill trace per bucket on the persistent GDN scratch.
+ 
+@@ -1639,6 +1639,8 @@
+         read_page_table: optional torch [READ_BATCH_WIDTH, W] int32; when given, one batched
+         structured-read trace per READ_BATCH_BUCKETS bucket is captured too, user u reading
+         through row u.
++        prefix_states: saved carried-state buffers for the generation prefix cache
++        (prefill_masked_traced resume/save), allocated before the first capture.
+         """
+         from models.demos.blackhole.qwen36.tt.gdn.fused_chunk import fused_chunk_enabled
+ 
+@@ -1653,6 +1655,7 @@
+         # capture could sit in that trace's scratch and be overwritten by its replays.
+         self._alloc_masked_install_buffers()
+         self._alloc_read_prefix_buffers()
++        self._alloc_prefix_cache_states(prefix_states)
+         traces = {bucket: self._alloc_masked_prefill_inputs(bucket, page_table_row) for bucket in sorted(buckets)}
+         read_batches = (
+             {bucket: self._alloc_masked_read_batch_inputs(bucket, read_page_table) for bucket in self.READ_BATCH_BUCKETS}
+@@ -1719,6 +1722,11 @@
+             ttnn.deallocate(rec_saved)
+             ttnn.deallocate(carry_saved)
+         self._read_prefix_state = None
++        for state in getattr(self, "_prefix_cache_states", None) or ():
++            for rec_saved, carry_saved in state:
++                ttnn.deallocate(rec_saved)
++                ttnn.deallocate(carry_saved)
++        self._prefix_cache_states = []
+         self._read_prefix = None
+         for name in (
+             "_masked_slot_buf",
+@@ -1748,6 +1756,44 @@
+         self._read_prefix_state = state
+         self._read_prefix = None
+ 
++    def _alloc_prefix_cache_states(self, count):
++        """Persistent copies of the B=1 scratch's carried GDN state (recurrent state and conv
++        carry), one per generation prefix-cache entry.
++
++        Allocated, like the read prefix, before the first trace capture: a buffer allocated after
++        a capture could sit in a trace's scratch. The copies in both directions compile here."""
++        self._ensure_gdn_prefill_scratch()
++        states = []
++        for _ in range(int(count)):
++            state = []
++            for _dn, rec, _conv, carry, _zero0 in self._gdn_prefill_scratch:
++                rec_saved, carry_saved = ttnn.clone(rec), ttnn.clone(carry)
++                ttnn.copy(rec_saved, rec)
++                ttnn.copy(carry_saved, carry)
++                ttnn.copy(rec, rec_saved)
++                ttnn.copy(carry, carry_saved)
++                state.append((rec_saved, carry_saved))
++            states.append(state)
++        self._prefix_cache_states = states
++
++    def prefix_cache_state_count(self):
++        """Saved carried-state buffers available to the generation prefix cache."""
++        return len(getattr(self, "_prefix_cache_states", None) or ())
++
++    def _copy_prefix_state(self, index, to_saved):
++        """Copy the scratch's carried GDN state into saved state `index`, or back."""
++        states = getattr(self, "_prefix_cache_states", None) or ()
++        assert 0 <= index < len(states), f"prefix state {index} is not allocated"
++        for (_dn, rec, _conv, carry, _zero0), (rec_saved, carry_saved) in zip(
++            self._gdn_prefill_scratch, states[index]
++        ):
++            if to_saved:
++                ttnn.copy(rec, rec_saved)
++                ttnn.copy(carry, carry_saved)
++            else:
++                ttnn.copy(rec_saved, rec)
++                ttnn.copy(carry_saved, carry)
++
+     def _save_read_prefix(self, page_table_row, prefix_tokens):
+         """Save the scratch's carried GDN state after a read's first full chunk, keyed by the
+         chunk's tokens and the page-table row whose blocks hold its KV."""
+@@ -2003,21 +2049,46 @@
+         smallest bucket that holds it, each replay continuing the previous one's state."""
+         return masked_prefill_plan(actual_len, self.masked_prefill_trace_buckets())
+ 
+-    def prefill_masked_traced(self, token_ids, page_table_row, actual_len, slot):
++    def prefill_masked_traced(self, token_ids, page_table_row, actual_len, slot, resume=None, save=None):
+         """Enqueue the masked prefill replays that install the prompt's decode state into `slot`.
+ 
+         Same contract as prefill_traced_chunked for a text prompt followed by a write_slot of the
+         result. Nothing is read back; masked_prefill_slot_logits returns the next-token logits once
+-        every replay is enqueued."""
++        every replay is enqueued.
++
++        resume: (state index, start). Restore saved prefix state `index` and replay only the
++        segments from `start`, a segment boundary below actual_len; the KV of [0, start) must
++        already be in page_table_row's blocks, and no replay writes those blocks.
++        save: (state index, at). After the segment ending at `at`, a segment boundary below
++        actual_len and past any resume start, copy the carried state into saved state `index`."""
+         plan = self.masked_prefill_trace_for(actual_len)
+         assert plan is not None, f"no captured masked prefill trace holds {actual_len} tokens"
++        starts = {start for _bucket, start, _length in plan}
++        ends = {start + length for _bucket, start, length in plan}
++        resume_start = 0
++        if resume is not None:
++            resume_index, resume_start = int(resume[0]), int(resume[1])
++            assert 0 < resume_start < actual_len and resume_start in starts, (
++                f"resume start {resume_start} is not a segment boundary below {actual_len}"
++            )
++        if save is not None:
++            save_index, save_at = int(save[0]), int(save[1])
++            assert resume_start < save_at < actual_len and save_at in ends, (
++                f"save point {save_at} is not a segment boundary in ({resume_start}, {actual_len})"
++            )
+         self._build_request_rope(token_ids[:, :actual_len], None)
+         for bucket, start, length in plan:
++            if start < resume_start:
++                continue
++            if resume is not None and start == resume_start:
++                self._copy_prefix_state(resume_index, to_saved=False)
+             bufs = self._masked_prefill_traces[bucket]
+             self._stage_masked_prefill_inputs(
+                 bufs, token_ids[:, start : start + length], page_table_row, length, slot, chunk_start=start
+             )
+             ttnn.execute_trace(self.device, bufs["trace_id"], cq_id=0, blocking=False)
++            if save is not None and start + length == save_at:
++                self._copy_prefix_state(save_index, to_saved=True)
+ 
+     def masked_prefill_slot_logits(self, slots):
+         """Host next-token logits [1, 1, vocab] for each slot, after its replay."""
+@@ -2459,7 +2530,14 @@
+         ]
+ 
+     def prefill_paged_slots(
+-        self, token_ids_list, page_table, empty_slots, valid_lens=None, first_token_callback=None, masked_traces=True
++        self,
++        token_ids_list,
++        page_table,
++        empty_slots,
++        valid_lens=None,
++        first_token_callback=None,
++        masked_traces=True,
++        prefixes=None,
+     ):
+         """vLLM continuous-batching TP prefill: prefill each new request into ITS decode slot.
+ 
+@@ -2481,6 +2559,8 @@
+         masked_traces:  replay captured masked prefill traces for prompts they hold (requires a row
+                         covering each trace's bucket). False keeps eager prefill, for callers with
+                         another trace's buffers alive.
++        prefixes:       optional list of N dicts or None: prefill_masked_traced `resume` and `save`
++                        plans. A user with a plan must be served by the masked traces.
+ 
+         Call allocate_kv_caches(batch_size=B) + the batched warmup first. Any prompt length is served:
+         prefill_traced_chunked chunks long prompts via pre-warmed programs (no post-park compile).
+@@ -2496,6 +2576,11 @@
+         assert all(n >= 1 for n in lengths), f"empty prompt in {lengths}"
+         traced = [u for u in range(N) if masked_traces and self.masked_prefill_trace_for(lengths[u]) is not None]
+         eager = [u for u in range(N) if u not in traced]
++        plans = list(prefixes) if prefixes is not None else [None] * N
++        assert len(plans) == N, "one prefix plan (or None) per request"
++        if any(plans[u] for u in eager):
++            # A cold eager prefill would rewrite the shared prefix blocks from position 0.
++            raise ValueError("a prefix plan needs the masked prefill traces")
+         if not traced:
+             return self._prefill_slots_eager(token_ids_list, pt, empty_slots, lengths, first_token_callback)
+         logits = [None] * N
+@@ -2508,6 +2593,8 @@
+             for u, row in zip(eager, rows):
+                 logits[u] = row
+             if self.masked_prefill_traces_stale():
++                if any(plans[u] for u in traced):
++                    raise ValueError("a prefix plan needs the masked prefill traces")
+                 # A first-time program may own memory the traces use as scratch: never replay again.
+                 self.release_masked_prefill_traces()
+                 rows = self._prefill_slots_eager(
+@@ -2526,7 +2613,11 @@
+             try:
+                 for u in traced:
+                     self.prefill_masked_traced(
+-                        token_ids_list[u][:, : lengths[u]], pt[u : u + 1], lengths[u], int(empty_slots[u])
++                        token_ids_list[u][:, : lengths[u]],
++                        pt[u : u + 1],
++                        lengths[u],
++                        int(empty_slots[u]),
++                        **(plans[u] or {}),
+                     )
+                 rows = self.masked_prefill_slot_logits([int(empty_slots[u]) for u in traced])
+             finally:

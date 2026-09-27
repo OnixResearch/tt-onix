@@ -63,6 +63,7 @@ from .mtp_serving_core import MTP_PREFILL_BUCKET
 from .mtp_trace_core import MtpTraceProfile
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
+from .prefix_cache_core import PrefixCachePolicy, PrefixCachePolicyError
 from .readiness_core import (
     StartupReadiness,
     begin_warmup,
@@ -191,7 +192,10 @@ class QwenEngine:
         mtp_drafter_profile: Any | None = None,
         mtp_trace_profile: Any | None = None,
         continuous_slot_policy: ContinuousSlotPolicy | None = None,
+        prefix_cache_policy: PrefixCachePolicy | None = None,
     ) -> None:
+        if prefix_cache_policy is not None and continuous_slot_policy is None:
+            raise ValueError("the prefix cache needs the continuous-slot scheduler")
         self.model = model
         self.tokenizer = tokenizer
         self.model_alias = model_alias
@@ -246,6 +250,9 @@ class QwenEngine:
                 model=model,
                 profile=decode_profile,
                 maximum_width=MAXIMUM_BATCH_WIDTH,
+                prefix_states=(
+                    prefix_cache_policy.state_slots if prefix_cache_policy is not None else 0
+                ),
             )
             if candidate_requested or admitted_requested
             else None
@@ -268,6 +275,14 @@ class QwenEngine:
             if continuous_slot_policy is None
             else {"slot_policy": continuous_slot_policy}
         )
+        if prefix_cache_policy is not None:
+            import blake3
+
+            coordinator_kwargs.update(
+                prefix_policy=prefix_cache_policy,
+                prefix_identity=prefix_cache_identity(package_identity, model_identity),
+                blake3_digest=lambda data: blake3.blake3(data).digest(),
+            )
         coordinator_type = (
             BatchGenerationCoordinator
             if continuous_slot_policy is None
@@ -1238,6 +1253,22 @@ def make_handler(
     return Handler
 
 
+PREFIX_IDENTITY_ENVIRONMENT = (
+    "QWEN35_GROUPED_PREFILL",
+    "QWEN36_GDN_BF4",
+    "QWEN36_GDN_FUSED_PREFILL",
+    "QWEN36_TRACED_PREFILL",
+)
+
+
+def prefix_cache_identity(package_identity: str, model_identity: str) -> str:
+    """What a cached prefix state depends on besides its tokens: the execution closure, the
+    checkpoint (model, tokenizer, and chat template), and the flags that change prefill
+    numerics or precision."""
+    flags = ",".join(f"{name}={os.environ.get(name, '')}" for name in PREFIX_IDENTITY_ENVIRONMENT)
+    return f"{package_identity}|{model_identity}|{flags}"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=DEFAULT_LISTEN_HOST)
@@ -1250,6 +1281,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trace-reuse-profile")
     parser.add_argument("--trace-reuse-admission", action="store_true")
     parser.add_argument("--continuous-slot-policy")
+    parser.add_argument("--prefix-cache-policy")
     parser.add_argument("--mtp-drafter-profile")
     parser.add_argument("--mtp-trace-profile")
     parser.add_argument(
@@ -1354,6 +1386,18 @@ def main() -> None:
                 continuous_slot_policy = ContinuousSlotPolicy.from_mapping(json.load(policy_file))
         except (ContinuousSlotPolicyError, OSError, json.JSONDecodeError) as error:
             raise SystemExit(f"continuous slot policy is invalid: {error}") from error
+    prefix_cache_policy = None
+    if args.prefix_cache_policy is not None:
+        if continuous_slot_policy is None:
+            raise SystemExit("--prefix-cache-policy requires --continuous-slot-policy")
+        prefix_cache_policy_path = Path(args.prefix_cache_policy).expanduser()
+        if not prefix_cache_policy_path.is_absolute() or not prefix_cache_policy_path.is_file():
+            raise SystemExit("--prefix-cache-policy must be an existing absolute file")
+        try:
+            with prefix_cache_policy_path.open(encoding="utf-8") as policy_file:
+                prefix_cache_policy = PrefixCachePolicy.from_mapping(json.load(policy_file))
+        except (PrefixCachePolicyError, OSError, json.JSONDecodeError) as error:
+            raise SystemExit(f"prefix cache policy is invalid: {error}") from error
     if not model_path.is_absolute() or not model_path.is_dir():
         raise SystemExit("--model-path must be an existing absolute directory")
     if not (model_path / "config.json").is_file():
@@ -1468,6 +1512,7 @@ def main() -> None:
             trace_reuse_profile=trace_reuse_profile,
             trace_reuse_admission_enabled=args.trace_reuse_admission,
             continuous_slot_policy=continuous_slot_policy,
+            prefix_cache_policy=prefix_cache_policy,
             sampled_serving_enabled=os.environ.get("QWEN36_SAMPLED_FUSION", "0") == "1",
             mtp_serving_enabled=(
                 os.environ.get("QWEN36_MTP_SERVING", "0") == "1"

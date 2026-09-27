@@ -258,6 +258,15 @@
       qwenServiceContinuousUnit =
         (qwenServiceEval { hardware.tenstorrent.qwen38.continuousSlotScheduler = true; })
         .config.systemd.services.qwen38-p150x2;
+      qwenServiceCacheUnit =
+        (qwenServiceEval {
+          hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
+          hardware.tenstorrent.qwen38.prefixCache = true;
+        })
+        .config.systemd.services.qwen38-p150x2;
+      qwenServiceCacheWithoutSlotsRejected =
+        hasFailedAssertion "The Qwen prefix cache needs the continuous-slot scheduler"
+          (qwenServiceEval { hardware.tenstorrent.qwen38.prefixCache = true; });
       qwenServiceContinuousSpeculativeRejected =
         hasFailedAssertion "The continuous-slot scheduler needs the batch worker"
           (qwenServiceEval {
@@ -341,6 +350,15 @@
         ) "the continuous-slot option must pass the packaged scheduler policy";
         assert lib.assertMsg qwenServiceContinuousSpeculativeRejected
           "the Qwen service must reject the continuous-slot scheduler with speculative serving";
+        assert lib.assertMsg (
+          !(lib.hasInfix "--prefix-cache-policy" qwenServiceContinuousUnit.serviceConfig.ExecStart)
+        ) "the continuous-slot scheduler must keep the prefix cache opt-in";
+        assert lib.assertMsg (
+          lib.hasInfix "--prefix-cache-policy" qwenServiceCacheUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/prefix-cache-policy.json" qwenServiceCacheUnit.serviceConfig.ExecStart
+        ) "the prefix-cache option must pass the packaged policy";
+        assert lib.assertMsg qwenServiceCacheWithoutSlotsRejected
+          "the Qwen service must reject the prefix cache without the continuous-slot scheduler";
         pkgs.runCommand "qwen38-nixos-service" { } ''
           set -euo pipefail
           test -x ${qwen38}/bin/qwen38-p150x2-serve

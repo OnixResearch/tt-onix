@@ -973,7 +973,9 @@ def probe_continuous_slot_policy():
             require(False, reason)
 
     layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
-    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks)
+    kv = core.KvBlockRange(
+        layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks, layout.kv_block_size
+    )
 
     def request(request_id, prompt, max_tokens, *, route="step", arrival=0.0, deadline=1000.0):
         return core.SlotRequest(
@@ -1349,6 +1351,10 @@ def probe_continuous_slot_worker():
             self.hooks = {}
             self.release_trace_on_refill = False
             self.slot_trace_captures = 0
+            self.prefix_states = 0
+
+        def prefix_cache_available(self):
+            return False
 
         def _enter(self, name, **fields):
             with self.lock:
@@ -1384,7 +1390,9 @@ def probe_continuous_slot_worker():
             self.fusion_mode = route
             self._exit()
 
-        def refill_slot(self, *, slot, token_ids, block_start, block_count):
+        def refill_slot(self, *, slot, token_ids, block_start, block_count, **prefix):
+            if any(prefix.get(key) for key in ("prefix_ranges", "prefix_tokens", "resume_state", "save_state")):
+                raise BatchDecodeAdapterError("a prefix plan reached an adapter without a prefix cache")
             self._enter("refill_slot", slot=slot, block_start=block_start, block_count=block_count)
             try:
                 if self.width is None:
@@ -1923,6 +1931,7 @@ def probe_continuous_slot_adapter():
     adapter._slot_runs = {}
     adapter._slot_inputs_stale = False
     adapter.slot_trace_captures = 0
+    adapter.prefix_states = 0
     adapter.reset_all = lambda: resets.append(True)
     adapter._observe_binding = lambda _inputs, _logits: binding["value"]
     streams = []
@@ -2322,6 +2331,677 @@ def probe_continuous_slot_admission():
         and "every declared request" in (receipt["admission"]["evidence_error"] or ""),
         f"an incomplete root disappeared from the receipt: {receipt['admission']}",
     )
+
+
+# r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_identity]
+def probe_prefix_cache_policy():
+    """Hybrid prefix keys bind tokens, identity, and tenant; the scheduler donates, hits,
+    pins, evicts, and drops entries without ever lending a live request's blocks."""
+    import copy
+    import hashlib
+
+    from qwen36_service import continuous_slot_core as core
+    from qwen36_service import prefix_cache_core as prefix
+    from qwen36_service.kv_pool_core import KvPoolLayout
+
+    def digest(data):
+        return hashlib.blake2b(data, digest_size=32).digest()
+
+    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+        mapping = json.load(handle)
+    policy = prefix.PrefixCachePolicy.from_mapping(mapping)
+    require(policy.tenant == "local" and policy.state_slots >= 1, "the packaged policy changed shape")
+    for change, reason in (
+        ({"extra": 1}, "an undeclared policy field was accepted"),
+        ({"minimum_prefix_tokens": 1500}, "a minimum prefix off the chunk boundary was accepted"),
+        ({"state_slots": 0}, "a cache without state buffers was accepted"),
+        ({"tenant": ""}, "an empty tenant scope was accepted"),
+    ):
+        try:
+            prefix.PrefixCachePolicy.from_mapping({**mapping, **change})
+        except prefix.PrefixCachePolicyError:
+            pass
+        else:
+            require(False, reason)
+
+    # Keys: exact token ids under one identity and tenant, prefixes strictly inside the prompt.
+    tokens = list(range(5000))
+    base = prefix.prefix_digests(tokens, identity="model-a", tenant="local", blake3_digest=digest)
+    require(len(base) == 4, f"a 5,000-token prompt should have 4 chunk prefixes, got {len(base)}")
+    require(
+        prefix.prefix_digests(tokens[:4097], identity="model-a", tenant="local", blake3_digest=digest)
+        == base,
+        "the same prefixes of a longer prompt changed digest",
+    )
+    require(
+        prefix.prefix_digests(tokens[:1024], identity="model-a", tenant="local", blake3_digest=digest) == (),
+        "a prompt no longer than one chunk got a prefix digest",
+    )
+    drifted = tokens[:]
+    drifted[1500] += 1
+    drift = prefix.prefix_digests(drifted, identity="model-a", tenant="local", blake3_digest=digest)
+    require(drift[0] == base[0] and all(a != b for a, b in zip(drift[1:], base[1:])),
+            "a changed token id did not change every digest from its chunk on")
+    for identity, tenant, reason in (
+        ("model-b", "local", "another model or precision matched"),
+        ("model-a", "other", "another tenant matched"),
+    ):
+        other = prefix.prefix_digests(tokens, identity=identity, tenant=tenant, blake3_digest=digest)
+        require(not set(other) & set(base), reason)
+
+    # Entries must name KV and state; a KV-only or mis-sized entry is invalid.
+    good = prefix.PrefixEntry(1, "a" * 64, 2048, ((16, 32),), 0, True, 0, 0.0)
+    good.validate(64, policy.state_slots)
+    for broken, reason in (
+        (copy.replace(good, block_ranges=()), "an entry without KV blocks was accepted"),
+        (copy.replace(good, block_ranges=((16, 31),)), "an entry whose blocks miss part of its prefix was accepted"),
+        (copy.replace(good, state_index=policy.state_slots), "an entry without a state buffer was accepted"),
+        (copy.replace(good, prefix_tokens=2000), "an entry off the chunk boundary was accepted"),
+    ):
+        try:
+            broken.validate(64, policy.state_slots)
+        except prefix.PrefixCachePolicyError:
+            pass
+        else:
+            require(False, reason)
+
+    layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks, 64)
+    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+        slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
+
+    def request(name, prompt, *, max_tokens=64, identity="model-a", tenant="local", arrival=0.0):
+        return core.SlotRequest(
+            request_id=name,
+            prompt_tokens=len(prompt),
+            max_tokens=max_tokens,
+            route="step",
+            blocks=layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=max_tokens),
+            arrival_seconds=arrival,
+            deadline_seconds=1000.0,
+            prefix_digests=prefix.prefix_digests(prompt, identity=identity, tenant=tenant, blake3_digest=digest),
+        )
+
+    def boundary(schedule, now, *, use=policy, available=True):
+        return core.plan_boundary(
+            schedule, slot_policy, kv, now=now, prefix_policy=use, prefix_available=available
+        )
+
+    def run_to_completion(schedule, effects, now):
+        for effect in effects:
+            if isinstance(effect, core.PrefillSlot):
+                schedule = core.observe_prefill(
+                    schedule, slot=effect.slot, generation=effect.generation, token_id=5, stopped=True
+                )
+        return boundary(schedule, now)
+
+    def prefills(effects):
+        return [effect for effect in effects if isinstance(effect, core.PrefillSlot)]
+
+    def entry_blocks(schedule):
+        return prefix.cached_blocks(schedule.prefix_entries)
+
+    # Turn 1 of a conversation donates its longest prefix; retiring keeps those blocks.
+    turn1 = list(range(100, 100 + 5000))
+    schedule = core.initial_schedule(slot_policy)
+    schedule, _ = core.submit(schedule, slot_policy, kv, request("t1", turn1))
+    schedule, effects = boundary(schedule, 1.0)
+    (p1,) = prefills(effects)
+    require(p1.save_at == 4096 and p1.save_state is not None and p1.resume_state is None,
+            f"turn 1 did not plan its donation: {p1}")
+    require(not schedule.prefix_entries[0].ready, "a donation was ready before its prefill ran")
+    schedule, effects = run_to_completion(schedule, effects, 2.0)
+    (entry1,) = schedule.prefix_entries
+    require(entry1.ready and entry1.prefix_tokens == 4096 and entry1.pins == 0, f"turn 1's entry: {entry1}")
+    require(entry_blocks(schedule) == frozenset(range(p1.block_start, p1.block_start + 64)),
+            "the entry did not keep exactly the donor's first 64 blocks")
+
+    # Turn 2 extends turn 1: it resumes from the entry, owns blocks only past the prefix,
+    # and donates a longer chained entry.
+    turn2 = turn1 + list(range(9000, 9000 + 3000))
+    schedule, _ = core.submit(schedule, slot_policy, kv, request("t2", turn2))
+    schedule, effects = boundary(schedule, 3.0)
+    (p2,) = prefills(effects)
+    require(
+        p2.hit_entry == entry1.entry_id
+        and p2.prefix_tokens == 4096
+        and p2.resume_state == entry1.state_index
+        and p2.prefix_ranges == entry1.block_ranges,
+        f"turn 2 did not resume from turn 1's entry: {p2}",
+    )
+    full = layout.request_blocks(prompt_tokens=len(turn2), generation_tokens=64)
+    require(p2.block_count == full - 64, "a hit still reserved KV for the cached prefix")
+    require(
+        not set(range(p2.block_start, p2.block_start + p2.block_count))
+        & prefix.cached_blocks([entry1]),
+        "a live request's own run overlaps the cached prefix it reads",
+    )
+    require(p2.save_at == 7168 and p2.save_state == entry1.state_index, f"turn 2's donation: {p2}")
+    (chained,) = schedule.prefix_entries
+    require(chained.entry_id == p2.donation_entry, "turn 2's entry did not supersede turn 1's")
+    require(chained.block_ranges == entry1.block_ranges + ((p2.block_start, 48),),
+            f"the superseding entry does not reuse the prefix blocks: {chained.block_ranges}")
+    require(chained.pins == 1, "the superseding entry did not take over its reader's pin")
+    schedule, effects = run_to_completion(schedule, effects, 4.0)
+    require(all(entry.pins == 0 for entry in schedule.prefix_entries), "retirement left an entry pinned")
+    # Turn 3 resumes from the longest cached prefix, the chained one.
+    turn3 = turn2 + list(range(30000, 30000 + 1500))
+    turn3_schedule, _ = core.submit(schedule, slot_policy, kv, request("t3", turn3))
+    turn3_schedule, effects = boundary(turn3_schedule, 4.5)
+    require(prefills(effects)[0].hit_entry == chained.entry_id and prefills(effects)[0].prefix_tokens == 7168,
+            f"turn 3 did not resume from the longest prefix: {prefills(effects)[0]}")
+
+    # Another tenant or identity never hits.
+    for name, identity, tenant in (("other-tenant", "model-a", "other"), ("other-model", "model-b", "local")):
+        probe_schedule, _ = core.submit(schedule, slot_policy, kv, request(name, turn2, identity=identity, tenant=tenant))
+        probe_schedule, effects = boundary(probe_schedule, 5.0)
+        require(prefills(effects)[0].hit_entry is None, f"{name} hit another scope's entry")
+
+    # No prefix plans while the device cannot restore or save.
+    unavailable, _ = core.submit(schedule, slot_policy, kv, request("t3", turn2 + [1] * 2000))
+    unavailable, effects = boundary(unavailable, 5.0, available=False)
+    (p3,) = prefills(effects)
+    require(p3.hit_entry is None and p3.save_state is None, "a prefix was planned while unavailable")
+
+    # State buffers run out: the least recently used unpinned entry is evicted.
+    small = copy.replace(policy, state_slots=1)
+    schedule = core.initial_schedule(slot_policy)
+    for index, now in ((0, 1.0), (1, 3.0)):
+        prompt = list(range(20000 * (index + 1), 20000 * (index + 1) + 3000))
+        schedule, _ = core.submit(schedule, slot_policy, kv, request(f"s{index}", prompt))
+        schedule, effects = boundary(schedule, now, use=small)
+        schedule, _ = run_to_completion(schedule, effects, now + 1)
+    require(len(schedule.prefix_entries) == 1 and schedule.prefix_entries[0].prefix_tokens == 2048,
+            "a donation beyond the state buffers did not evict the older entry")
+    require(entry_blocks(schedule) == frozenset(expand for expand in prefix.expand_blocks(schedule.prefix_entries[0].block_ranges)),
+            "an evicted entry kept its blocks")
+
+    # The KV budget evicts, and a pinned entry is never evicted.
+    tight = copy.replace(policy, maximum_cached_blocks=40)
+    schedule = core.initial_schedule(slot_policy)
+    first = list(range(3000))
+    schedule, _ = core.submit(schedule, slot_policy, kv, request("b0", first))
+    schedule, effects = boundary(schedule, 1.0, use=tight)
+    schedule, _ = run_to_completion(schedule, effects, 2.0)
+    reader = first + list(range(70000, 70000 + 2000))
+    schedule, _ = core.submit(schedule, slot_policy, kv, request("reader", reader, max_tokens=500))
+    schedule, effects = boundary(schedule, 3.0, use=tight)
+    (hit,) = prefills(effects)
+    require(hit.hit_entry is not None and hit.save_state is None,
+            "a donation over the block budget was planned while the only victim was pinned")
+    schedule = core.observe_prefill(schedule, slot=hit.slot, generation=hit.generation, token_id=5, stopped=False)
+    before = schedule.prefix_entries
+    schedule, _ = core.submit(schedule, slot_policy, kv, request("other", list(range(90000, 93000))))
+    schedule, effects = boundary(schedule, 4.0, use=tight)
+    require(any(entry.entry_id == hit.hit_entry for entry in schedule.prefix_entries),
+            "a pinned entry was evicted")
+    require(schedule.prefix_entries == before, "an over-budget donation displaced a pinned entry")
+
+    # A live request takes an unused entry's blocks back when nothing else fits.
+    small_kv = core.KvBlockRange(16, 16 + layout.row_blocks + 20, layout.row_blocks, 64)
+
+    def small_boundary(schedule, now):
+        return core.plan_boundary(
+            schedule, slot_policy, small_kv, now=now, prefix_policy=policy, prefix_available=True
+        )
+
+    crowded = core.initial_schedule(slot_policy)
+    crowded, _ = core.submit(crowded, slot_policy, small_kv, request("seed", list(range(3000))))
+    crowded, effects = small_boundary(crowded, 1.0)
+    for effect in prefills(effects):
+        crowded = core.observe_prefill(
+            crowded, slot=effect.slot, generation=effect.generation, token_id=5, stopped=True
+        )
+    crowded, _ = small_boundary(crowded, 2.0)
+    held = entry_blocks(crowded)
+    (seed_entry,) = crowded.prefix_entries
+    require(len(held) == 32, f"the seed entry should hold 32 blocks, held {len(held)}")
+    long_max = layout.row_blocks * 64 - 60000
+    crowded, _ = core.submit(crowded, slot_policy, small_kv, request("big", [7] * 60000, max_tokens=long_max))
+    crowded, effects = small_boundary(crowded, 3.0)
+    (admitted,) = prefills(effects)
+    run = set(range(admitted.block_start, admitted.block_start + admitted.block_count))
+    require(admitted.block_count == layout.row_blocks, "the full-length request was not admitted whole")
+    require(
+        all(entry.entry_id != seed_entry.entry_id for entry in crowded.prefix_entries) and run & held,
+        "an unused entry kept blocks a live request needed",
+    )
+
+    # Reads and failures drop entries; a pinned entry survives invalidation.
+    schedule2 = core.invalidate_prefix_cache(schedule)
+    require(all(entry.pins for entry in schedule2.prefix_entries), "invalidation kept an unpinned entry")
+    failed, _ = core.quarantine_group(schedule)
+    require(failed.prefix_entries == (), "a device failure kept cached prefixes")
+
+
+# r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_state]
+def probe_prefix_cache_restore():
+    """Hybrid restore: the adapter composes shared prefix blocks with the request's own run
+    and plans resume/save; a multi-turn conversation served from cached prefixes decodes
+    exactly what cold prefill decodes, including across eviction."""
+    import hashlib
+    import threading
+    import time
+
+    import torch
+    from qwen36_service import batch_decode_adapter as adapter_module
+    from qwen36_service import continuous_slot_core as core
+    from qwen36_service.batch_decode_adapter import (
+        BatchDecodeAdapterError,
+        BatchedTracedDecodeAdapter,
+        SlotRefillResult,
+    )
+    from qwen36_service.continuous_slot_service import ContinuousSlotCoordinator
+    from qwen36_service.core import CompletionRequest, Endpoint
+    from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
+    from qwen36_service.prefix_cache_core import PrefixCachePolicy, expand_blocks
+
+    # Part 1: the real adapter's row composition and plans, on fake TTNN.
+    plans = []
+
+    class FakeModel:
+        def __init__(self):
+            self.layers = [SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(_decode_fusion_mode="step"))]
+            self.buckets = (1024,)
+            self.rows = []
+
+        def masked_prefill_traces_stale(self):
+            return False
+
+        def masked_prefill_trace_buckets(self):
+            return self.buckets
+
+        def release_masked_prefill_traces(self):
+            self.buckets = ()
+
+        def prefix_cache_state_count(self):
+            return 2
+
+        def prefill_paged_slots(self, tokens, page_table, slots, valid_lens, first_token_callback, masked_traces, prefixes=None):
+            self.rows.append(page_table.clone())
+            plans.append(prefixes)
+            logits = torch.zeros((1, 1, 64))
+            logits[0, 0, 7] = 1.0
+            first_token_callback([logits])
+            return [logits]
+
+    layout = KvPoolLayout(pool_blocks=256, row_blocks=128, kv_block_size=64)
+    model = FakeModel()
+    adapter = object.__new__(BatchedTracedDecodeAdapter)
+    adapter.model = model
+    adapter.profile = SimpleNamespace(maximum_sequence_length=8192, kv_block_size=64)
+    adapter.maximum_width = 4
+    adapter.mesh = SimpleNamespace(num_program_cache_entries=lambda: 1)
+    adapter.vocabulary_size = 64
+    adapter.blocks_per_user = layout.row_blocks
+    adapter.kv_pool = layout
+    adapter.page_table = torch.zeros((4, layout.row_blocks), dtype=torch.int32)
+    adapter._traces = {}
+    adapter._pending_trace_plan = None
+    adapter._prior_reset_complete = True
+    adapter._closed = False
+    adapter._slot_width = None
+    adapter._slot_runs = {}
+    adapter._slot_inputs_stale = False
+    adapter.slot_trace_captures = 0
+    adapter.prefix_states = 2
+    adapter.reset_all = lambda: None
+    original_ttnn = adapter_module.ttnn
+    adapter_module.ttnn = SimpleNamespace(synchronize_device=lambda _mesh: None, release_trace=lambda *_: None, deallocate=lambda _t: None)
+    scratch = layout.scratch_block
+
+    def prompt(length):
+        return torch.ones((1, length), dtype=torch.int64)
+
+    def rejects(reason, **fields):
+        before = (adapter.page_table.clone(), dict(adapter._slot_runs), len(plans))
+        try:
+            adapter.refill_slot(**fields)
+        except BatchDecodeAdapterError:
+            pass
+        else:
+            require(False, reason)
+        require(
+            torch.equal(before[0], adapter.page_table) and before[1] == adapter._slot_runs and before[2] == len(plans),
+            f"a rejected prefix refill changed adapter state: {reason}",
+        )
+
+    try:
+        adapter.begin_slots(width=4, route="step")
+        require(adapter.prefix_cache_available(), "the fake adapter did not offer the prefix cache")
+        adapter.refill_slot(slot=0, token_ids=prompt(3000), block_start=16, block_count=48, save_state=0, save_at=2048)
+        require(plans[-1] == [{"save": (0, 2048)}], f"the donation plan did not reach the model: {plans[-1]}")
+        adapter.refill_slot(
+            slot=1,
+            token_ids=prompt(5000),
+            block_start=64,
+            block_count=48,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+            save_state=1,
+            save_at=4096,
+        )
+        require(plans[-1] == [{"resume": (0, 2048), "save": (1, 4096)}], f"the resume plan: {plans[-1]}")
+        row = model.rows[-1][0].tolist()
+        require(row[:32] == list(range(16, 48)) and row[32:80] == list(range(64, 112)) and set(row[80:]) == {scratch},
+                "the page-table row is not prefix blocks, then the own run, then scratch")
+        # A second reader shares the same prefix blocks.
+        adapter.refill_slot(slot=2, token_ids=prompt(3000), block_start=112, block_count=16,
+                            prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        require(plans[-1] == [{"resume": (0, 2048)}], "a shared prefix was refused")
+        rejects("an own run overlapping its prefix was accepted", slot=3, token_ids=prompt(3000), block_start=40,
+                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        rejects("prefix blocks that do not cover the prefix were accepted", slot=3, token_ids=prompt(3000),
+                block_start=128, block_count=16, prefix_ranges=((16, 31),), prefix_tokens=2048, resume_state=0)
+        rejects("a resume without a prefix was accepted", slot=3, token_ids=prompt(3000), block_start=128,
+                block_count=48, resume_state=0)
+        rejects("a prefix covering the whole prompt was accepted", slot=3, token_ids=prompt(2048), block_start=128,
+                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        rejects("a save point inside the prefix was accepted", slot=3, token_ids=prompt(3000), block_start=128,
+                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0, save_state=1, save_at=2048)
+        rejects("a run too short for the rest of the prompt was accepted", slot=3, token_ids=prompt(5000),
+                block_start=128, block_count=8, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        model.buckets = ()
+        rejects("a prefix plan ran without the masked traces", slot=3, token_ids=prompt(3000), block_start=128,
+                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        model.buckets = (1024,)
+        adapter.refill_slot(slot=3, token_ids=prompt(100), block_start=128, block_count=16)
+        require(plans[-1] is None, "a cold refill passed a prefix plan")
+    finally:
+        adapter_module.ttnn = original_ttnn
+
+    # Part 2: a conversation through the shell on a fake device that checks every restore.
+    def token_after(sequence):
+        return 10 + int(hashlib.blake2b(bytes(str(sequence[-64:]) + str(len(sequence)), "utf-8"), digest_size=4).hexdigest(), 16) % 1000
+
+    class FakePrefixDevice:
+        """Row-independent fake device with a KV store and saved states it verifies."""
+
+        maximum_width = 16
+
+        def __init__(self, states):
+            self.kv_pool = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+            self.fusion_mode = "step"
+            self.prefix_states = states
+            self.slot_trace_captures = 0
+            self.kv = {}
+            self.saved = {}
+            self.owned = {}
+            self.width = None
+            self.restores = 0
+            self.lock = threading.Lock()
+
+        def prefix_cache_available(self):
+            return self.prefix_states > 0
+
+        def request_blocks(self, *, prompt_tokens, generation_tokens):
+            try:
+                return self.kv_pool.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=generation_tokens)
+            except KvPoolError as error:
+                raise BatchDecodeAdapterError(str(error)) from error
+
+        def begin_slots(self, *, width, route):
+            self.width = width
+            self.owned = {}
+
+        def refill_slot(self, *, slot, token_ids, block_start, block_count, prefix_ranges=(), prefix_tokens=0,
+                        resume_state=None, save_state=None, save_at=0):
+            sequence = tuple(int(token) for token in token_ids[0].tolist())
+            row = expand_blocks(prefix_ranges) + list(range(block_start, block_start + block_count))
+            for other in self.owned.values():
+                if set(row[len(expand_blocks(prefix_ranges)):]) & set(other["own"]):
+                    raise BatchDecodeAdapterError("own KV runs overlap")
+            if resume_state is not None:
+                if self.saved.get(resume_state) != sequence[:prefix_tokens]:
+                    raise BatchDecodeAdapterError("the restored state belongs to another prefix")
+                for index in range(prefix_tokens // 64):
+                    if self.kv.get(row[index]) != sequence[index * 64 : (index + 1) * 64]:
+                        raise BatchDecodeAdapterError("a cached prefix block was overwritten")
+                self.restores += 1
+            extent = -(-len(sequence) // 1024) * 1024
+            for index in range(prefix_tokens // 64, extent // 64):
+                self.kv[row[index]] = sequence[index * 64 : (index + 1) * 64]
+            if save_state is not None:
+                self.saved[save_state] = sequence[:save_at]
+            first = token_after(sequence)
+            self.owned[slot] = {"sequence": list(sequence) + [first], "row": row,
+                                "own": list(range(block_start, block_start + block_count))}
+            return SlotRefillResult(first, 0.002, 0.001, True, False, False)
+
+        def retire_slot(self, *, slot):
+            self.owned.pop(slot)
+
+        def abandon_slots(self):
+            self.width = None
+            self.owned = {}
+
+        def decode_slots_greedy(self, *, token_ids, positions, steps):
+            def stream():
+                for _ in range(steps):
+                    tokens = []
+                    for row in range(self.width):
+                        state = self.owned.get(row)
+                        if state is None:
+                            tokens.append(0)
+                            continue
+                        position = len(state["sequence"]) - 1
+                        self.kv[state["row"][position // 64]] = ("decoded", row, position)
+                        token = token_after(state["sequence"])
+                        state["sequence"].append(token)
+                        tokens.append(token)
+                    yield tuple(tokens)
+
+            return stream()
+
+    class FakeTokenizer:
+        @staticmethod
+        def decode(tokens, skip_special_tokens=True):
+            return " ".join(str(token) for token in tokens)
+
+    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+        slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
+    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+        prefix_mapping = json.load(handle)
+
+    def serve(conversations, *, states):
+        device = FakePrefixDevice(states)
+        prefix_policy = (
+            PrefixCachePolicy.from_mapping({**prefix_mapping, "state_slots": states}) if states else None
+        )
+        coordinator = ContinuousSlotCoordinator(
+            slot_policy=slot_policy,
+            prefix_policy=prefix_policy,
+            prefix_identity="fake-identity" if states else "",
+            blake3_digest=(lambda data: hashlib.blake2b(data, digest_size=32).digest()) if states else None,
+            adapter=device,
+            tokenizer=FakeTokenizer(),
+            model=SimpleNamespace(args=SimpleNamespace(vocab_size=2048)),
+            profile=SimpleNamespace(profile_id="decode-test"),
+            model_alias="model-test",
+            model_identity="model-identity-test",
+            package_identity="package-test",
+            runtime_identity="runtime-test",
+            maximum_sequence_length=65536,
+            physical_pcie_device_ids=(0, 1),
+            emitter=lambda *_args, **_fields: None,
+            stop_token_ids=frozenset(),
+        )
+        with coordinator._condition:
+            coordinator._accepting_requests = True
+        history = {name: list(start) for name, start in conversations["starts"].items()}
+        results = []
+        try:
+            for name, extra in conversations["turns"]:
+                sequence = history[name] + extra
+                started = time.monotonic()
+                response = coordinator.generate(
+                    request=CompletionRequest(endpoint=Endpoint.COMPLETIONS, model="m", max_tokens=12, prompt="x", messages=()),
+                    request_id=f"{name}-{len(results)}",
+                    token_ids=torch.tensor([sequence], dtype=torch.int64),
+                    prompt_token_count=len(sequence),
+                    started=started,
+                    deadline=started + 60,
+                )
+                evidence = response["x_onix_decode_evidence"]
+                history[name] = sequence + evidence["generated_token_ids"]
+                results.append((name, evidence["generated_token_ids"], evidence["prefix_hit_tokens"], evidence["prefix_saved_tokens"]))
+        finally:
+            coordinator.close()
+        return results, device
+
+    conversation = {
+        "starts": {"a": list(range(100, 3600)), "b": list(range(5000, 7600))},
+        "turns": [("a", []), ("a", list(range(20000, 21800))), ("a", list(range(22000, 23500)))],
+    }
+    cold, _ = serve(conversation, states=0)
+    warm, device = serve(conversation, states=4)
+    require([r[1] for r in warm] == [r[1] for r in cold], "cached prefixes changed a conversation's tokens")
+    require([r[2] for r in warm] == [0, 3072, 5120], f"the turns did not resume from their prefixes: {warm}")
+    require([r[3] for r in warm] == [3072, 5120, 6144], f"the turns did not save their prefixes: {warm}")
+    require(device.restores == 2, "the device did not restore two prefixes")
+    require(all(r[2] == 0 and r[3] == 0 for r in cold), "the cold path used the cache")
+
+    interleaved = {
+        "starts": conversation["starts"],
+        "turns": [("a", []), ("b", []), ("a", list(range(20000, 21800))), ("b", list(range(30000, 31200)))],
+    }
+    cold, _ = serve(interleaved, states=0)
+    evicting, device = serve(interleaved, states=1)
+    require([r[1] for r in evicting] == [r[1] for r in cold], "eviction changed a conversation's tokens")
+    require([r[2] for r in evicting] == [0, 0, 0, 0], f"an evicted prefix was resumed: {evicting}")
+    roomy, device = serve(interleaved, states=2)
+    require([r[1] for r in roomy] == [r[1] for r in cold], "two cached conversations changed tokens")
+    require([r[2] for r in roomy] == [0, 0, 3072, 2048], f"interleaved turns did not resume: {roomy}")
+
+
+# r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+def probe_prefix_cache_admission():
+    """Prefix-cache admission: faster resumed turns with exact parity admit; a parity loss,
+    no benefit, costly misses, a memory overrun, a cache in the cold root, or a missing
+    turn each reject with its own reason."""
+    import copy
+
+    from qwen36_service import prefix_cache_admission_core as admission
+    from qwen36_service.prefix_cache_receipt import build_receipt
+
+    with Path(__file__).with_name("prefix-cache-admission-policy.json").open(encoding="utf-8") as handle:
+        policy_mapping = json.load(handle)
+    policy = admission.PrefixAdmissionPolicy.from_mapping(policy_mapping)
+    broken = copy.deepcopy(policy_mapping)
+    broken["gates"]["require_exact_parity"] = False
+    try:
+        admission.PrefixAdmissionPolicy.from_mapping(broken)
+    except admission.PrefixAdmissionPolicyError:
+        pass
+    else:
+        require(False, "an admission without exact parity was accepted")
+
+    def root(kind, conversations, turns, *, ttft, wall, hits=True, dram=9_900_000_000, profile=None, tokens=None):
+        requests = []
+        for turn in range(turns):
+            for conversation in range(conversations):
+                hit = kind == "cached" and hits and turn > 0
+                requests.append(
+                    {
+                        "conversation": conversation,
+                        "turn": turn,
+                        "token_ids": (tokens or {}).get((conversation, turn), [conversation, turn, 7]),
+                        "ttft_seconds": ttft(turn, hit),
+                        "wall_seconds": wall(turn, hit),
+                        "prefix_hit_tokens": 3072 if hit else 0,
+                    }
+                )
+        return {
+            "schema_version": 1,
+            "root_kind": kind,
+            "simulated": False,
+            "identity": {
+                "package": "/nix/store/p", "execution_identity": "/nix/store/e", "runtime_identity": "/nix/store/r",
+                "physical_pcie_device_ids": [0, 1],
+                "prefix_cache_profile_id": profile if profile is not None else (policy.prefix_cache_profile_id if kind == "cached" else None),
+                "prefix_policy_blake3": "a" * 64 if kind == "cached" else None,
+            },
+            "workload": {"workload_id": "w", "blake3": "b" * 64, "conversations": conversations, "turns": turns},
+            "startup": {"device_dram_free_bytes": [dram]},
+            "requests": requests,
+        }
+
+    def cold_timing(turn, hit):
+        return 3.0 + turn
+
+    def fast_ttft(turn, hit):
+        return 1.0 if hit else 3.0 + turn
+
+    def fast_wall(turn, hit):
+        return 3.0 if hit else 5.0 + turn
+
+    def cold_wall(turn, hit):
+        return 5.0 + turn
+
+    def pairs(**cached_options):
+        result = []
+        for conversations, turns in policy.workloads:
+            evicting = conversations > 4
+            cold = root("cold", conversations, turns, ttft=cold_timing, wall=cold_wall)
+            options = {"ttft": fast_ttft, "wall": fast_wall, "hits": not evicting, **cached_options}
+            result.append((cold, root("cached", conversations, turns, **options)))
+        return result
+
+    def judge(pair_mappings):
+        return admission.evaluate(
+            policy,
+            [
+                (admission.root_from_mapping(cold, expected_kind="cold"), admission.root_from_mapping(cached, expected_kind="cached"))
+                for cold, cached in pair_mappings
+            ],
+        )
+
+    result = judge(pairs())
+    require(result.admitted and result.hit_turns == 9 and result.miss_turns == 13,
+            f"a faster exact cache was rejected: {result.reasons} ({result.hit_turns} hits, {result.miss_turns} misses)")
+    receipt = build_receipt(
+        policy_mapping=policy_mapping,
+        pair_mappings=pairs(),
+        policy_blake3="c" * 64,
+        root_blake3s=[("d" * 64, "e" * 64)] * len(policy.workloads),
+    )
+    require(receipt["admission"]["admitted"] and receipt["admission"]["admitted_profile"]["prefix_cache_profile_id"]
+            == policy.prefix_cache_profile_id, "the receipt does not name the measured cache profile")
+
+    def rejected(pair_mappings, reason, message):
+        verdict = judge(pair_mappings)
+        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+
+    lost = pairs()
+    lost[0][1]["requests"][5]["token_ids"] = [9, 9, 9]
+    rejected(lost, "gate-failed:exact_parity", "a changed continuation was admitted")
+    rejected(pairs(ttft=cold_timing, wall=cold_wall), "gate-failed:hit_median_ttft_ratio",
+             "resumed turns without a speedup were admitted")
+    rejected(pairs(wall=lambda turn, hit: 3.0 if hit else 8.0 + turn), "gate-failed:miss_wall_ratio",
+             "misses much slower than cold prefill were admitted")
+    rejected(pairs(dram=9_900_000_000 - 600 * 2**20), "gate-failed:startup_dram_drop_bytes",
+             "a memory overrun was admitted")
+    no_hits = pairs(hits=False)
+    try:
+        judge(no_hits)
+    except admission.PrefixAdmissionEvidenceError as error:
+        require("no turn resumed" in str(error), f"unspecific error: {error}")
+    else:
+        require(False, "a cache that never resumed was evaluated")
+    cold_with_cache = pairs()
+    cold_with_cache[0][0]["identity"]["prefix_cache_profile_id"] = policy.prefix_cache_profile_id
+    rejected(cold_with_cache, "cold-root-used-a-cache", "a cold root with a cache was accepted")
+    missing = pairs()
+    del missing[1][1]["requests"][3]
+    receipt = build_receipt(
+        policy_mapping=policy_mapping,
+        pair_mappings=missing,
+        policy_blake3="c" * 64,
+        root_blake3s=[("d" * 64, "e" * 64)] * len(policy.workloads),
+    )
+    require(receipt["admission"]["admitted"] is False and "every declared turn" in (receipt["admission"]["evidence_error"] or ""),
+            f"a missing turn disappeared from the receipt: {receipt['admission']}")
 
 
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
@@ -9617,6 +10297,7 @@ def probe_masked_prefill_traces():
         prepare_width=lambda token_ids, positions: None,
         decode_width_supported=one_per_core.decode_width_supported,
         sampled_width_supported=one_per_core.sampled_width_supported,
+        prefix_states=0,
     )
 
     def switch_fusion_mode(mode):
@@ -10456,6 +11137,9 @@ def main():
     probe("continuous slot worker", probe_continuous_slot_worker)
     probe("continuous slot adapter", probe_continuous_slot_adapter)
     probe("continuous slot admission", probe_continuous_slot_admission)
+    probe("prefix cache policy", probe_prefix_cache_policy)
+    probe("prefix cache restore", probe_prefix_cache_restore)
+    probe("prefix cache admission", probe_prefix_cache_admission)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)
