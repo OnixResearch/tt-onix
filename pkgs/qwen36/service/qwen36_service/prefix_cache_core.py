@@ -29,6 +29,7 @@ from typing import Any
 # Prefill segment length of the masked prefill traces (EAGER_PREFILL_CHUNK_TOKENS).
 CHUNK_TOKENS = 1024
 PROFILE_SCHEMA_VERSION = 1
+ROOT_PROFILE_SCHEMA_VERSION = 2
 MAXIMUM_STATE_SLOTS = 16
 DIGEST_DOMAIN = b"qwen38-hybrid-prefix-v1"
 # BLAKE3's default 32-byte output, in hex.
@@ -44,6 +45,7 @@ POLICY_FIELDS = frozenset(
         "tenant",
     }
 )
+ROOT_POLICY_FIELDS = POLICY_FIELDS | {"shared_root_minimum_tokens"}
 
 
 class PrefixCachePolicyError(ValueError):
@@ -58,13 +60,15 @@ def _require_int(value: Any, name: str, minimum: int, maximum: int) -> int:
 
 @dataclass(frozen=True)
 class PrefixCachePolicy:
-    """Closed prefix-cache bounds projected from prefix-cache-policy.ncl."""
+    """Closed v1 and opt-in shared-root v2 prefix-cache bounds."""
 
     profile_id: str
     state_slots: int
     minimum_prefix_tokens: int
     maximum_cached_blocks: int
     tenant: str
+    # Zero keeps the v1 last-turn-only donation policy.
+    shared_root_minimum_tokens: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.profile_id, str) or not self.profile_id:
@@ -76,19 +80,45 @@ class PrefixCachePolicy:
         if self.minimum_prefix_tokens % CHUNK_TOKENS:
             raise PrefixCachePolicyError("minimum_prefix_tokens must be a whole number of chunks")
         _require_int(self.maximum_cached_blocks, "maximum_cached_blocks", 1, 2**20)
+        _require_int(self.shared_root_minimum_tokens, "shared_root_minimum_tokens", 0, 2**20)
+        if self.shared_root_minimum_tokens:
+            _require_int(
+                self.shared_root_minimum_tokens,
+                "shared_root_minimum_tokens",
+                self.minimum_prefix_tokens,
+                2**20,
+            )
+            if self.shared_root_minimum_tokens % CHUNK_TOKENS:
+                raise PrefixCachePolicyError("shared_root_minimum_tokens must be a whole number of chunks")
+            if self.state_slots < 2:
+                raise PrefixCachePolicyError("a shared root needs a separate conversation state buffer")
 
     @classmethod
     def from_mapping(cls, root: Mapping[str, Any]) -> PrefixCachePolicy:
-        if not isinstance(root, Mapping) or set(root) != POLICY_FIELDS:
+        if not isinstance(root, Mapping):
+            raise PrefixCachePolicyError("policy must be a mapping")
+        version = _require_int(
+            root.get("schema_version"), "schema_version", 1, ROOT_PROFILE_SCHEMA_VERSION
+        )
+        fields = POLICY_FIELDS if version == PROFILE_SCHEMA_VERSION else ROOT_POLICY_FIELDS
+        if set(root) != fields:
             raise PrefixCachePolicyError("policy fields differ from the closed schema")
-        if _require_int(root["schema_version"], "schema_version", 1, 1) != PROFILE_SCHEMA_VERSION:
-            raise PrefixCachePolicyError("schema_version is unsupported")
         return cls(
             profile_id=root["profile_id"],
             state_slots=root["state_slots"],
             minimum_prefix_tokens=root["minimum_prefix_tokens"],
             maximum_cached_blocks=root["maximum_cached_blocks"],
             tenant=root["tenant"],
+            shared_root_minimum_tokens=(
+                _require_int(
+                    root["shared_root_minimum_tokens"],
+                    "shared_root_minimum_tokens",
+                    CHUNK_TOKENS,
+                    2**20,
+                )
+                if version == ROOT_PROFILE_SCHEMA_VERSION
+                else 0
+            ),
         )
 
 
@@ -127,6 +157,8 @@ class PrefixEntry:
     ready: bool
     pins: int
     last_used: float
+    # One soft-retained system/tool root; live requests can still evict it for KV.
+    root: bool = False
 
     def validate(self, block_tokens: int, state_slots: int) -> None:
         if self.prefix_tokens % CHUNK_TOKENS or self.prefix_tokens <= 0:
@@ -161,11 +193,11 @@ def lookup(entries: Sequence[PrefixEntry], digests: Sequence[str]) -> PrefixEntr
 
 
 def eviction_order(entries: Sequence[PrefixEntry], keep: frozenset[int] = frozenset()) -> list[PrefixEntry]:
-    """Entries that may be evicted, least recently used first: ready, unpinned, not kept."""
+    """Ready, unpinned victims: conversation entries first, then the shared root."""
     candidates = [
         entry for entry in entries if entry.ready and entry.pins == 0 and entry.entry_id not in keep
     ]
-    return sorted(candidates, key=lambda entry: (entry.last_used, entry.entry_id))
+    return sorted(candidates, key=lambda entry: (entry.root, entry.last_used, entry.entry_id))
 
 
 def free_state_index(entries: Sequence[PrefixEntry], state_slots: int) -> int | None:

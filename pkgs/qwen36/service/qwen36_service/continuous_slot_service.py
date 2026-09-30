@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
+from jinja2 import TemplateError
 
 from . import continuous_slot_core as slots
 from .batch_decode_adapter import (
@@ -43,9 +44,16 @@ from .batch_service import (
     _PendingBatchRequest,
     _PendingRead,
 )
-from .core import CompletionRequest, build_completion_response, finish_generation
+from .core import (
+    CompletionRequest,
+    Endpoint,
+    build_completion_response,
+    finish_generation,
+    template_arguments,
+    template_messages,
+)
 from .decode_adapter import DecodeAdapterError
-from .prefix_cache_core import PrefixCachePolicy, cached_blocks, prefix_digests
+from .prefix_cache_core import CHUNK_TOKENS, PrefixCachePolicy, cached_blocks, prefix_digests
 from .sampled_decode_core import (
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
@@ -103,6 +111,48 @@ class _SlotRun:
     refill: SlotRefillResult | None = None
     first_token_ready: float | None = None
     step_seconds: list[float] = field(default_factory=list)
+
+
+def shared_system_root_tokens(
+    request: CompletionRequest, tokenizer: Any, token_ids: list[int], minimum: int
+) -> int:
+    """Find a common system/tool header in the *actual* full prompt's token ids.
+
+    The Qwen3.8 template needs a user query. Render an empty one to locate the header's
+    closing delimiter, then require exact token-prefix equality. Unknown template
+    formatting or tokenization falls back to ordinary conversation caching.
+    """
+    if (
+        request.endpoint is not Endpoint.CHAT_COMPLETIONS
+        or not request.messages
+        or (request.messages[0].role != "system" and not request.tools)
+        or (len(token_ids) - 1) // CHUNK_TOKENS * CHUNK_TOKENS < minimum
+    ):
+        return 0
+    messages = template_messages(request)
+    probe = messages[:1] if messages[0]["role"] == "system" else []
+    probe.append({"role": "user", "content": ""})
+    user_suffix = "<|im_start|>user\n<|im_end|>\n"
+    try:
+        rendered = tokenizer.apply_chat_template(
+            probe,
+            tools=list(request.tools) or None,
+            add_generation_prompt=False,
+            tokenize=False,
+            **template_arguments(request),
+        )
+        if not isinstance(rendered, str) or not rendered.endswith(user_suffix):
+            return 0
+        header = rendered[: -len(user_suffix)]
+        if not header.endswith("<|im_end|>\n"):
+            return 0
+        header_ids = tokenizer.encode(header, add_special_tokens=False)
+    except (TemplateError, TypeError, ValueError):
+        return 0
+    root_tokens = len(header_ids) // CHUNK_TOKENS * CHUNK_TOKENS
+    if root_tokens < minimum or root_tokens >= len(token_ids):
+        return 0
+    return root_tokens if token_ids[:root_tokens] == header_ids[:root_tokens] else 0
 
 
 class ContinuousSlotCoordinator(BatchGenerationCoordinator):
@@ -182,13 +232,19 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             prompt_tokens=prompt_token_count, generation_tokens=request.max_tokens
         )
         digests: tuple[str, ...] = ()
+        root_tokens = 0
         if self.prefix_policy is not None:
+            tokens = [int(token) for token in token_ids[0].tolist()]
             digests = prefix_digests(
-                [int(token) for token in token_ids[0].tolist()],
+                tokens,
                 identity=self._prefix_identity,
                 tenant=self.prefix_policy.tenant,
                 blake3_digest=self._blake3_digest,
             )
+            if self.prefix_policy.shared_root_minimum_tokens:
+                root_tokens = shared_system_root_tokens(
+                    request, self.tokenizer, tokens, self.prefix_policy.shared_root_minimum_tokens
+                )
         pending = _PendingBatchRequest(
             request=request,
             request_id=request_id,
@@ -207,6 +263,7 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             arrival_seconds=started,
             deadline_seconds=deadline,
             prefix_digests=digests,
+            shared_root_tokens=root_tokens,
         )
         with self._condition:
             self._require_serving()

@@ -214,11 +214,14 @@ were unchanged: 128/132 at 2.14 decisions/s.
 - **Service time.** Reads run on the batch worker between generation batches. A
   decision waits for any running generation batch, and generation waits for
   queued reads.
-- **Sequence length.** A read may use up to `--max-sequence-length` tokens
-  (65,536). It writes KV through a fixed full-length row whose first 1,024
-  tokens sit in pool blocks no generation group is given, so the saved prefix
-  survives generation. One read holds at most 31 slots. Larger schemas are
-  chunked, as in the PR.
+- **Sequence length.** A read may use up to the configured
+  `--max-sequence-length` (131,072 tokens in the updated module and the running
+  runtime-overridden service; the unchanged NixOS generation reverts to 65,536
+  after reboot). It writes KV through a fixed
+  full-length row whose first 1,024 tokens sit in pool blocks no generation
+  group is given, so the saved prefix survives generation. One read holds at
+  most 31 slots. Larger schemas are chunked, as in the PR. The measured read
+  corpus uses short prompts; 128K-token structured-read quality is untested.
 - **Disk.** Every rebuilt package compiles a new tt-metal kernel cache, about
   2.2 GB per package, under `<model>/.cache/tt-metal-cache`. Remove stale entries
   when the disk fills. A full disk fails the trace capture with

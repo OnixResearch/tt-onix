@@ -3,9 +3,9 @@
 # r[impl tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
 #
 # An agent turn resends the whole conversation, so its prompt extends the previous
-# turn's. Each long prompt saves the carried GDN state at its last chunk boundary, and
-# the entry keeps the KV blocks before it; the next turn restores that state and
-# prefills only the rest. Entries are in process only and are lost on restart.
+# turn's. An eligible long prompt saves the carried GDN state at the longest
+# chunk boundary below its end that fits the KV budget, keeping the preceding
+# KV blocks for the next turn. Entries are in process only and lost on restart.
 let contracts = import "prefix-cache-contracts.ncl" in
 {
   schema_version = 1,

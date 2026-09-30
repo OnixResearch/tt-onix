@@ -5,10 +5,11 @@ let candidate_slot_count = 1 in
 let configured_trace_command_queue_id = 0 in
 let configured_trace_capture_timeout_seconds = 300 in
 let configured_request_timeout_seconds = 1800 in
-# One request's page-table row: 65,536 tokens. Rows are cut from a shared pool per
-# generation group (kv_pool_core.py), so the pool, not 16 x the row, sets the KV memory:
-# 4,096 blocks of 64 tokens, 8 GiB of bf16 KV per chip.
-let configured_maximum_sequence_length = 65536 in
+# One request's page-table row: 131,072 tokens (2,048 blocks). Rows are cut
+# from a shared 4,096-block pool (8 GiB of bf16 KV per chip), not preallocated
+# per slot. The reserved read prefix and scratch block leave room for one
+# full-length request, but not two full-length requests in the same group.
+let configured_maximum_sequence_length = 131072 in
 let configured_kv_block_size = 64 in
 let configured_kv_pool_blocks = 4096 in
 let configured_trace_region_size_bytes = 1073741824 in

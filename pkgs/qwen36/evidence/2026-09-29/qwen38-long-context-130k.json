@@ -1,0 +1,53 @@
+{
+  "decode_evidence": {
+    "admission_eligible": false,
+    "decode_path": "continuous-slot",
+    "decode_tokens_per_second": 4.1199406227717725,
+    "fallback_reason": null,
+    "generated_token_ids": [
+      85,
+      29899,
+      18106,
+      284
+    ],
+    "kv_blocks_in_use": 2048,
+    "measurement_mode": "continuous-slot-candidate",
+    "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "package_identity": "/nix/store/5nwan4dsk5s3qwlv0jyy9hkcscfxc1qj-qwen36-execution-identity-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefill_decode_trace_released": false,
+    "prefill_masked_traces": true,
+    "prefill_seconds": 103.5656508631073,
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-v1",
+    "prefix_hit_tokens": 0,
+    "prefix_saved_tokens": 0,
+    "profile_id": "qwen38-p150x2-continuous-slot-b4-v1",
+    "queue_seconds": 0.035162623040378094,
+    "request_wall_seconds": 104.62903102813289,
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "sampled_decode": false,
+    "serving_route": "step",
+    "simulated": false,
+    "slot": 0,
+    "slot_generation": 1,
+    "tail_token_latency_seconds": 0.8052802928723395,
+    "trace_captures": 1,
+    "ttft_seconds": 103.55878745624796
+  },
+  "expected_reject": false,
+  "http_status": 200,
+  "local_chat_tokens": 130544,
+  "repetitions": 43500,
+  "request_bytes": 435297,
+  "status": "verified",
+  "text": "violet ibis",
+  "usage": {
+    "completion_tokens": 4,
+    "prompt_tokens": 130544,
+    "total_tokens": 130548
+  },
+  "wall_seconds": 104.78958761366084
+}

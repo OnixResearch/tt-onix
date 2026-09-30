@@ -116,8 +116,11 @@ let
     (stableIdentityPath "qwen36-continuous-slot-admission-contracts.ncl" ./continuous-slot-admission-contracts.ncl)
     (stableIdentityPath "qwen36-prefix-cache-policy.ncl" ./prefix-cache-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-contracts.ncl" ./prefix-cache-contracts.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-root-policy.ncl" ./prefix-cache-root-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-policy.ncl" ./prefix-cache-admission-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-contracts.ncl" ./prefix-cache-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-root-admission-policy.ncl" ./prefix-cache-root-admission-policy.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-tool-admission-policy.ncl" ./prefix-cache-tool-admission-policy.ncl)
     (stableIdentityPath "qwen36-resident-trace-admission-policy.ncl" ./resident-trace-admission-policy.ncl)
     (stableIdentityPath "qwen36-resident-trace-admission-contracts.ncl" ./resident-trace-admission-contracts.ncl)
     (stableIdentityPath "qwen36-kernel-distribution-admission-contracts.ncl" ./kernel-distribution-admission-contracts.ncl)
@@ -281,14 +284,25 @@ stdenvNoCC.mkDerivation {
       > "$out/share/qwen36/continuous-slot-admission-policy.json"
     cp ${./prefix-cache-policy.ncl} continuous-slot-policy-export/prefix-cache-policy.ncl
     cp ${./prefix-cache-contracts.ncl} continuous-slot-policy-export/prefix-cache-contracts.ncl
+    cp ${./prefix-cache-root-policy.ncl} continuous-slot-policy-export/prefix-cache-root-policy.ncl
     cp continuous-slot-policy-export/prefix-cache-*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/prefix-cache-policy.ncl \
       > "$out/share/qwen36/prefix-cache-policy.json"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-root-policy.ncl \
+      > "$out/share/qwen36/prefix-cache-root-policy.json"
     cp ${./prefix-cache-admission-policy.ncl} continuous-slot-policy-export/prefix-cache-admission-policy.ncl
     cp ${./prefix-cache-admission-contracts.ncl} continuous-slot-policy-export/prefix-cache-admission-contracts.ncl
     cp continuous-slot-policy-export/prefix-cache-admission-*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/prefix-cache-admission-policy.ncl \
       > "$out/share/qwen36/prefix-cache-admission-policy.json"
+    cp ${./prefix-cache-root-admission-policy.ncl} continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl
+    cp continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl \
+      > "$out/share/qwen36/prefix-cache-root-admission-policy.json"
+    cp ${./prefix-cache-tool-admission-policy.ncl} continuous-slot-policy-export/prefix-cache-tool-admission-policy.ncl
+    cp continuous-slot-policy-export/prefix-cache-tool-admission-policy.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-tool-admission-policy.ncl \
+      > "$out/share/qwen36/prefix-cache-tool-admission-policy.json"
     cp ${./resident-trace-admission-policy.ncl} continuous-slot-policy-export/resident-trace-admission-policy.ncl
     cp ${./resident-trace-admission-contracts.ncl} continuous-slot-policy-export/resident-trace-admission-contracts.ncl
     cp continuous-slot-policy-export/resident-trace-admission-*.ncl "$out/share/qwen36/"

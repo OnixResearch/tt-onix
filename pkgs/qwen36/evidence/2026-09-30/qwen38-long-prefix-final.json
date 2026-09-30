@@ -1,0 +1,79 @@
+{
+  "mode": "physical P150x2 final deployed long-prefix verification",
+  "simulated": false,
+  "package": "/nix/store/fgz9698w8g8c1qnz9hi3x3c59qanlkhw-qwen38-0.1.0",
+  "package_identity": "/nix/store/wchbrbkn3533sjp9nycqp2mqx1f2sk8f-qwen36-execution-identity-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "model_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "fixture": "../2026-09-29/qwen38-long-prefix-baseline.json",
+  "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+  "startup_warmup_seconds": 544.2143309349194,
+  "health_before": {"ready": true, "status": "ok"},
+  "responses": [
+    {
+      "turn": 1,
+      "request_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+      "body_bytes": 435291,
+      "http_status": 200,
+      "prompt_tokens": 130549,
+      "completion_tokens": 3,
+      "answer": "amber thrush",
+      "generated_token_ids": [14778, 8541, 1080],
+      "ttft_seconds": 103.6073390878737,
+      "prefill_seconds": 103.6170171899721,
+      "elapsed_seconds": 105.272,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 65536,
+      "kv_blocks_in_use": 2048,
+      "prefill_masked_traces": true,
+      "prefill_decode_trace_released": false,
+      "physical_pcie_device_ids": [0, 1]
+    },
+    {
+      "turn": 2,
+      "request_sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+      "body_bytes": 435334,
+      "http_status": 200,
+      "prompt_tokens": 130559,
+      "completion_tokens": 3,
+      "answer": "amber thrush",
+      "generated_token_ids": [14778, 8541, 1080],
+      "ttft_seconds": 60.27802124992013,
+      "prefill_seconds": 60.28863242501393,
+      "elapsed_seconds": 60.724,
+      "prefix_hit_tokens": 65536,
+      "prefix_saved_tokens": 0,
+      "kv_blocks_in_use": 2048,
+      "prefill_masked_traces": true,
+      "prefill_decode_trace_released": false,
+      "physical_pcie_device_ids": [0, 1]
+    }
+  ],
+  "matched_previous_service_warm_ttft_seconds": 103.4306922107935,
+  "warm_ttft_reduction_percent": 41.72134019264561,
+  "warm_speedup": 1.7158939538170481,
+  "gateway_short": {
+    "http_status": 200,
+    "answer": "READY",
+    "physical_pcie_device_ids": [0, 1]
+  },
+  "gateway_overflow": {
+    "http_status": 400,
+    "body_bytes": 437291,
+    "prompt_tokens": 131149,
+    "generation_tokens": 16,
+    "maximum_sequence_length": 131072,
+    "message": "This model's maximum context length is 131072 tokens. The prompt (131149 tokens) and generation (16 tokens) require 131165. Please reduce the length of the messages or max_tokens."
+  },
+  "health_after": {"ready": true, "status": "ok"},
+  "systemd": {
+    "active_state": "active",
+    "main_pid": 952935,
+    "runtime_dropins": [
+      "/run/systemd/system/qwen38-p150x2.service.d/90-context-128k.conf",
+      "/run/systemd/system/qwen38-p150x2.service.d/95-prefix-65k.conf"
+    ],
+    "package_gc_root": "/nix/var/nix/gcroots/qwen38-prefix-65k-final"
+  },
+  "completed_utc": "2026-09-30T00:29:14.724707+00:00"
+}

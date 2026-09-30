@@ -1,0 +1,127 @@
+{
+  "admission": {
+    "admitted": true,
+    "admitted_profile": {
+      "execution_identity": "/nix/store/kw7idl8jhl9vbrrbfbk269y3bzilnkfy-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/fz8pq66iwji7hnssy1xnqfzw0c037pzr-qwen38-0.1.0",
+      "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-root-v2",
+      "prefix_policy_blake3": "d917d9eaa8ee6961c9f0929b679f68fa7ac4e15a9dd30347aaef77381a4c6e44"
+    },
+    "evidence_error": null,
+    "reasons": []
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_parity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "resumed_hits",
+      "passed": true
+    },
+    {
+      "bound": 0.7,
+      "measured": 0.6814893442103649,
+      "name": "hit_median_ttft_ratio",
+      "passed": true
+    },
+    {
+      "bound": 0.85,
+      "measured": 0.8022721211390199,
+      "name": "hit_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.1,
+      "measured": 0.933937165559448,
+      "name": "miss_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.25,
+      "measured": 0.933937165559448,
+      "name": "miss_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 536870912.0,
+      "measured": 364904448.0,
+      "name": "startup_dram_drop_bytes",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "shared_root_reuse",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "evicted_leaf_fallback",
+      "passed": true
+    }
+  ],
+  "identity": {
+    "execution_identity": "/nix/store/kw7idl8jhl9vbrrbfbk269y3bzilnkfy-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/fz8pq66iwji7hnssy1xnqfzw0c037pzr-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-root-v2",
+    "prefix_policy_blake3": "d917d9eaa8ee6961c9f0929b679f68fa7ac4e15a9dd30347aaef77381a4c6e44",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "non_claims": [
+    "The receipt compares declared agent-shaped workloads on one package; it is not a general latency claim.",
+    "Gates compare per-turn means of two cold and two cached roots measured in ABBA order. That cancels host load that drifts linearly, not bursts; per-pair ratios are diagnostics only.",
+    "Admission covers only the named prefix-cache profile on that package; the cache stays off until a deployment enables it.",
+    "Entries live in one process and are lost on restart."
+  ],
+  "pair_diagnostics": [
+    {
+      "hit_median_ttft_ratio": 0.682554447290211,
+      "hit_median_wall_ratio": 0.8034688925714257,
+      "miss_median_wall_ratio": 0.9962534867798658,
+      "miss_wall_ratio": 0.9962534867798658,
+      "pair": "cold_first/cached_first"
+    },
+    {
+      "hit_median_ttft_ratio": 0.6797730613733888,
+      "hit_median_wall_ratio": 0.8010774977682404,
+      "miss_median_wall_ratio": 0.8796217258708209,
+      "miss_wall_ratio": 0.8796217258708209,
+      "pair": "cached_second/cold_second"
+    }
+  ],
+  "policy": {
+    "blake3": "8a3d73ecc890cce9150165e3545ba247679348c825e2aed8add162e6e299fd65",
+    "profile_id": "qwen38-p150x2-prefix-cache-root-admission-v3"
+  },
+  "receipt_kind": "prefix-cache-admission",
+  "roots": [
+    {
+      "cached_first": "0e3900c9e3c244d79fba18eeef852f291b73eeba8c0a92ffe243a0a09d487760",
+      "cached_second": "89752950f20f58a4f76f379c96da3883c89c8b69e168a32f4ce35752a190b57b",
+      "cold_first": "bcd82ee5c9b5e6d96c01be6e026fbb4f646a6ef74661e14a62790e553668723d",
+      "cold_second": "9d1e75494ec233a81c52154de1621cb42c2cdeb9f08fd7f072dcf7dec5aaf683"
+    }
+  ],
+  "schema_version": 2,
+  "simulated": false,
+  "turns": {
+    "missed": 1,
+    "resumed": 14
+  }
+}

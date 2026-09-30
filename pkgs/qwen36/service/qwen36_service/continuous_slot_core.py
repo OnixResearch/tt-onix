@@ -33,12 +33,12 @@ to the next boundary but never let another request pass it.
 With a prefix-cache policy, admission also consults the cached hybrid prefixes
 (prefix_cache_core). A request whose prompt extends a ready entry reads the entry's KV
 blocks and resumes from its saved carried state, so it needs KV blocks only past the
-prefix. A request whose prompt is long enough donates a new entry: its prefill saves the
-carried state at the last chunk boundary before the prompt's end, and the entry keeps
-the KV blocks for [0, that boundary) when the request retires. Entries in use are
-pinned; the rest are evicted least recently used first, whenever a live request needs
-their KV blocks, a donation needs their state buffer, or the cache exceeds its block
-budget. A device failure drops every entry.
+prefix. Ordinarily it donates the longest chunk boundary that fits the cache's KV
+budget; the opt-in root policy instead donates the chunk-aligned system/tool header
+once, then later requests donate their conversation prefixes. The root retains its
+own state buffer when a descendant is saved. Entries in use are pinned; unpinned
+conversation entries are evicted before the one soft-retained root. A live request
+can still evict the root for KV, and a device failure drops every entry.
 """
 
 from __future__ import annotations
@@ -224,6 +224,8 @@ class SlotRequest:
     deadline_seconds: float
     # Chained prefix digests (prefix_cache_core.prefix_digests); empty opts out of the cache.
     prefix_digests: tuple[str, ...] = ()
+    # Chunk-aligned boundary of the rendered system/tool header, verified against token ids.
+    shared_root_tokens: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.request_id, str) or not self.request_id:
@@ -237,6 +239,11 @@ class SlotRequest:
             not isinstance(digest, str) or len(digest) != DIGEST_HEX_LENGTH for digest in self.prefix_digests
         ):
             raise ContinuousSlotPolicyError("prefix digests must cover chunks strictly inside the prompt")
+        _require_int(self.shared_root_tokens, "shared_root_tokens", 0, self.prompt_tokens - 1)
+        if self.shared_root_tokens % CHUNK_TOKENS or (
+            self.shared_root_tokens and len(self.prefix_digests) < self.shared_root_tokens // CHUNK_TOKENS
+        ):
+            raise ContinuousSlotPolicyError("shared root must have a digest strictly inside the prompt")
         # Both are validated as finite by request_deadline_expired.
         request_deadline_expired(self.arrival_seconds, self.deadline_seconds)
 
@@ -473,12 +480,26 @@ def _plan_donation(
     entry_id: int,
     now: float,
 ) -> tuple[PrefixEntry, tuple[PrefixEntry, ...]] | None:
-    """A new entry for this request's longest cacheable prefix, or None when it cannot fit.
+    """A new entry for the root or longest budget-fitting conversation prefix.
 
-    When the request extends an entry only it reads, the new entry supersedes that one: it
-    takes over the entry's state buffer (the restore runs before the save on the same
-    queue), its KV blocks, and its pin, so a conversation holds one entry, not a chain."""
+    A single system/tool root is soft-retained; a leaf never overwrites its saved state.
+    An ordinary hit with one reader may still be superseded by its longer leaf."""
     save_at = (request.prompt_tokens - 1) // CHUNK_TOKENS * CHUNK_TOKENS
+    root = False
+    if (
+        prefix_policy.shared_root_minimum_tokens
+        and request.shared_root_tokens >= prefix_policy.shared_root_minimum_tokens
+        and request.shared_root_tokens <= save_at
+        and request.shared_root_tokens > (placement.hit.prefix_tokens if placement.hit is not None else 0)
+        and not any(entry.root for entry in entries)
+    ):
+        save_at = request.shared_root_tokens
+        root = True
+    if not root:
+        # A long turn can still donate a reusable prefix when its last chunk
+        # exceeds the KV budget; keep the exact root boundary when present.
+        maximum_chunks = prefix_policy.maximum_cached_blocks * kv_range.block_tokens // CHUNK_TOKENS
+        save_at = min(save_at, maximum_chunks * CHUNK_TOKENS)
     prefix_tokens = placement.hit.prefix_tokens if placement.hit is not None else 0
     if save_at < prefix_policy.minimum_prefix_tokens or save_at <= prefix_tokens:
         return None
@@ -499,7 +520,7 @@ def _plan_donation(
         if placement.hit is not None
         else None
     )
-    supersede = hit is not None and hit.pins == 1
+    supersede = hit is not None and hit.pins == 1 and not hit.root
     keep = frozenset({hit.entry_id}) if hit is not None else frozenset()
     trial = [entry for entry in entries if not (supersede and entry.entry_id == hit.entry_id)]
     new_blocks = frozenset(expand_blocks(ranges))
@@ -524,6 +545,7 @@ def _plan_donation(
         ready=False,
         pins=1 if supersede else 0,
         last_used=now,
+        root=root,
     )
     entry.validate(kv_range.block_tokens, prefix_policy.state_slots)
     return entry, tuple(trial) + (entry,)

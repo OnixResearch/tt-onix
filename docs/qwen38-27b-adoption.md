@@ -622,16 +622,32 @@ assemble one active-prefix decode batch through B=16. Formal admission covers
 only B=4. Requests with a temperature above zero need `sampledFusion`; without it
 the service is greedy-only.
 
-One request may hold 65,536 tokens (prompt and generation) and generate 8,192;
-the module options `maximumSequenceLength` and `maximumGenerationTokens` default
-to these ceilings. KV comes from one pool of 4,096 blocks of 64 tokens (8 GiB of
-bf16 per chip, `kv_pool_blocks` in `decode-profile.ncl`). Each batch group gives
-every row a contiguous run sized to its request: whole 1,024-token prefill
-buckets plus every decoded position. The worker adds requests to a group only
-while the pool holds them all, so one long request leaves fewer rows for short
-ones. The pool's first 16 blocks keep a structured read's saved prefix, and its
-last block backs unused page-table entries. Startup logs the allocator's DRAM
-totals as the `device-dram` stage.
+The updated package and module allow 131,072 combined prompt and generation
+tokens per request, with at most 8,192 generated tokens. On britton-desktop the
+live unit runs this package with `--max-sequence-length 131072` through a
+Qwen-only runtime drop-in. The booted NixOS generation still defines the older
+65,536-token unit; the drop-in disappears on reboot and a host rebuild can
+replace the service definition.
+
+OMP keeps `contextWindow: 65536` for ordinary `mesh/Qwen3.8-27B` sessions and
+uses `maxContextWindow: 131072` in `~/.omp/agent/models.yml` for optional
+`/extended-context on` sessions. `maxTokens` remains 8,192. Check the running
+service's `ExecStart` and `/healthz` before using extended context, especially
+after a reboot or NixOS switch; the OMP override alone cannot enlarge the
+server's limit.
+
+The HTTP endpoint also caps JSON request bodies at 1,048,576 bytes,
+independently of token count; byte-heavy prompts can reach that limit first.
+
+KV comes from one pool of 4,096 blocks of 64 tokens (8 GiB of bf16 per chip,
+`kv_pool_blocks` in `decode-profile.ncl`). Each batch group gives every row a
+contiguous run sized to its request: whole 1,024-token prefill buckets plus
+every decoded position. A full 131,072-token row takes 2,048 blocks; the
+reserved 16-block structured-read prefix and one scratch block leave at most
+2,031 blocks for shorter requests before any prefix-cache residency. Two
+full-length rows do not fit. The worker adds requests only while the pool
+holds them all. Startup logs the allocator's DRAM totals as the
+`device-dram` stage.
 
 On britton-desktop the pooled build became ready in 700 s with 9.2 GiB of DRAM
 free per chip. A needle placed at the start of the prompt was recalled at 6K,
@@ -640,6 +656,121 @@ free per chip. A needle placed at the start of the prompt was recalled at 6K,
 kept the short outputs equal to their solo runs. Prefill still runs one user
 after another within a group, and a group runs until its last request finishes,
 so a long prompt or generation delays the requests queued behind it.
+
+On 2026-09-29 the rebuilt `/nix/store/clm5m3463xsyw1q93ivqpf13i2gbya1w-qwen38-0.1.0`
+started without `--max-sequence-length`, captured its traces, and completed a
+physical `P150x2` warm-up. TT-SMI identified the serving process on device
+IDs 0 and 1 (firmware 19.11.0.0, TT-KMD 2.10.0). Through the local OMP gateway
+at `127.0.0.1:9337`, an uncached 130,544-token prompt recalled the two-word
+passphrase from its start and generated four tokens; the 2,048-block row,
+103.56 s TTFT, and zero prefix-cache hits are recorded in the
+[physical receipt](../pkgs/qwen36/evidence/2026-09-29/qwen38-long-context-130k.json).
+The fixture placed `violet ibis` at the start, repeated ` filler.\n` 43,500
+times, then asked for the passphrase (`temperature: 0`,
+`enable_thinking: false`, `max_tokens: 16`).
+A 131,144-token prompt plus 16 generated tokens returned a 400 naming the
+131,072-token cap; see the
+[overflow receipt](../pkgs/qwen36/evidence/2026-09-29/qwen38-long-context-overflow.json).
+`/healthz` still reported ready afterward. The rebuilt package's device-free
+checks and the NixOS service check passed. This is one bounded recall and
+admission check, not a quality survey, long-request concurrency or latency
+admission, 262K support, or proof that the old systemd generation was upgraded.
+
+After the candidate test, `ttwkv7-owner-control restore` restarted the old
+65,536-token service. A subsequent root SSH maintenance session used
+`ttwkv7-owner-control isolate`, pinned the tested package at
+`/nix/var/nix/gcroots/qwen38-context-128k`, and loaded only
+`/run/systemd/system/qwen38-p150x2.service.d/90-context-128k.conf` to replace
+its `ExecStart`. `ttwkv7-owner-control restore` started the new package; systemd
+reported notify-ready after 1,002.94 s of warm-up. The active service ran as PID
+1889532 with `--max-sequence-length 131072` and remained healthy.
+
+The drop-in leaves the base unit's environment, user, and notify settings
+unchanged. Its `ExecStart` changes only the package path, sequence limit, and
+continuous-slot/prefix-cache policy paths to files in the tested package.
+
+Through the OMP gateway, the restarted service recalled `cobalt otter` from an
+uncached 130,545-token prompt and generated four tokens on physical devices 0
+and 1. Its 2,048-block row took 103.68 s to first token; a 131,145-token
+prompt plus 16 requested generation tokens returned HTTP 400 naming the
+131,072-token limit. `/healthz` was ready both before and after. See the
+[live-service receipt](../pkgs/qwen36/evidence/2026-09-29/qwen38-live-128k-service.json).
+This is one bounded physical recall, not a concurrency, quality, or latency
+admission.
+
+A separate non-interactive OMP run selected `mesh/Qwen3.8-27B` with a temporary
+`extendedContext: true` config overlay and no tools. A 22,500-repeat prompt
+returned `copper wren` with 69,459 input and 53 output tokens through the mesh
+provider; see the [OMP receipt](../pkgs/qwen36/evidence/2026-09-29/qwen38-live-omp-extended.json).
+The interactive `/extended-context on` command also reported enabled, while
+ordinary OMP sessions remain in the 65,536-token mode. This proves a request
+above the old limit reached the live model through OMP; it does not establish
+general 128K quality or compaction behavior.
+
+At 128K the generation prefix cache can hold at most 1,024 KV blocks of 64
+tokens, or 65,536 tokens. The old scheduler tried to donate the last 1,024-token
+boundary of a long prompt; a boundary beyond that budget discarded the entire
+donation. It now saves the longest chunk-aligned conversation prefix within the
+budget. The opt-in shared system/tool root is still saved only at its exact
+verified boundary, never truncated into a different digest or state.
+
+A matched physical two-turn baseline on the previous service used 130,549 and
+130,559 prompt tokens with 130,540 identical leading token IDs. Both turns
+answered `amber thrush`, but neither saved or hit a prefix; TTFT was 103.65
+and 103.43 s. See the [baseline receipt](../pkgs/qwen36/evidence/2026-09-29/qwen38-long-prefix-baseline.json).
+On the first bounded-prefix package, the same two requests returned the same
+answer on physical device IDs 0 and 1. The cold turn saved 65,536 tokens at
+103.69 s TTFT; the follow-up hit those 65,536 tokens and reached its first
+token in 61.00 s, about 41% below the old follow-up. The saved carried GDN
+state and cached KV remained coupled; masked-prefill traces stayed available.
+See the [physical trial](../pkgs/qwen36/evidence/2026-09-30/qwen38-long-prefix-trial.json).
+Immediately after that restart, the gateway temporarily answered 503 despite
+direct `/healthz` reporting ready; a later short gateway request succeeded.
+The final package
+`/nix/store/fgz9698w8g8c1qnz9hi3x3c59qanlkhw-qwen38-0.1.0` was rebuilt
+after correcting the policy-source comment. Its scheduler module and exported
+cache-policy JSON are byte-identical to the physical trial's, and its packaged
+device-free checks pass. The final live service repeated the exact two request
+hashes on physical device IDs 0 and 1: the cold turn saved 65,536 tokens at
+103.61 s TTFT; the follow-up hit them at 60.28 s TTFT, **41.7% less** than the
+previous service's matched 103.43 s follow-up. Both produced `amber thrush`
+with token IDs `[14778, 8541, 1080]`. A short request through the gateway
+returned `READY`; an over-limit prompt of 131,149 tokens plus 16 generation
+tokens returned HTTP 400, and `/healthz` stayed ready. See the
+[deployed-package receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-long-prefix-final.json).
+This is a bounded sequential 128K-prefix reuse and recall check, not an
+admission of throughput, competing cache residents, arbitrary long-form
+quality, or long-request concurrency.
+
+TTsim's 0.77 fused GDN numerical gate stops on an unsupported FP32 matmul
+control flag (see [the port blocker](tt-metal-0.77-port.md)); it cannot prove
+the carried-state restore needed here. These receipts are physical, not
+simulator recurrence evidence.
+
+The final package is GC-rooted at
+`/nix/var/nix/gcroots/qwen38-prefix-65k-final`. After
+`ttwkv7-owner-control isolate` and `restore`, systemd reports the owner
+active with `--max-sequence-length 131072`: the runtime-only
+`/run/systemd/system/qwen38-p150x2.service.d/95-prefix-65k.conf` replaces
+`ExecStart` from the earlier `90-context-128k.conf` drop-in. Both policies
+point into the final package. The superseded trial's GC root and override
+were removed; the previous 128K package and its GC root remain for rollback.
+
+This activation did **not** switch NixOS. `/etc/systemd/system` resolves into
+the read-only Nix store and `/run` is tmpfs. The unrelated, heavily edited
+`onix-core` checkout currently masks Qwen and explicitly sets a 2,048-token
+sequence limit, so switching that checkout would not preserve this service.
+After reboot both runtime drop-ins disappear and the booted generation reverts
+to its 65,536-token command; before opting into OMP extended context, reapply
+validated overrides or deploy a reviewed host generation that pins the final
+package, unmasks Qwen, and sets the 131,072-token limit. Keep the final GC
+root until that declarative deployment. To roll back only prefix donation,
+isolate the owner, remove `95-prefix-65k.conf`, reload systemd, restore the
+owner onto the retained 128K drop-in, and then remove the final GC root. To
+roll back the entire 128K activation, first remove OMP's `maxContextWindow`
+override, then isolate, remove both runtime drop-ins, reload, restore, and
+remove both package GC roots. The ordinary 65,536-token OMP budget remains
+safe while extended mode is off.
 
 A continuous-slot scheduler is available behind a flag. With
 `--continuous-slot-policy $out/share/qwen36/continuous-slot-policy.json`, in

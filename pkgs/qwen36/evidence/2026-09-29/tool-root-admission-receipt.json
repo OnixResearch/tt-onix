@@ -1,0 +1,139 @@
+{
+  "admission": {
+    "admitted": true,
+    "admitted_profile": {
+      "execution_identity": "/nix/store/h4g29zbz4lkaw5zcrkyr9q3hygnyqq0w-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/i64cdsnjqdvv1vx69c36cndff17ncgns-qwen38-0.1.0",
+      "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-root-v2",
+      "prefix_policy_blake3": "d917d9eaa8ee6961c9f0929b679f68fa7ac4e15a9dd30347aaef77381a4c6e44"
+    },
+    "evidence_error": null,
+    "reasons": []
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_parity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "resumed_hits",
+      "passed": true
+    },
+    {
+      "bound": 0.7,
+      "measured": 0.6838118953170147,
+      "name": "hit_median_ttft_ratio",
+      "passed": true
+    },
+    {
+      "bound": 0.85,
+      "measured": 0.8035806541565902,
+      "name": "hit_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.1,
+      "measured": 1.0036741368947049,
+      "name": "miss_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.25,
+      "measured": 1.0036741368947049,
+      "name": "miss_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 536870912.0,
+      "measured": 364904448.0,
+      "name": "startup_dram_drop_bytes",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "shared_root_reuse",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "evicted_leaf_fallback",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "changed_tool_isolation",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "changed_tool_parity",
+      "passed": true
+    }
+  ],
+  "identity": {
+    "execution_identity": "/nix/store/h4g29zbz4lkaw5zcrkyr9q3hygnyqq0w-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/i64cdsnjqdvv1vx69c36cndff17ncgns-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "prefix_cache_profile_id": "qwen38-p150x2-prefix-cache-root-v2",
+    "prefix_policy_blake3": "d917d9eaa8ee6961c9f0929b679f68fa7ac4e15a9dd30347aaef77381a4c6e44",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "non_claims": [
+    "The receipt compares declared agent-shaped workloads on one package; it is not a general latency claim.",
+    "Gates compare per-turn means of two cold and two cached roots measured in ABBA order. That cancels host load that drifts linearly, not bursts; per-pair ratios are diagnostics only.",
+    "Admission covers only the named prefix-cache profile on that package; the cache stays off until a deployment enables it.",
+    "Entries live in one process and are lost on restart."
+  ],
+  "pair_diagnostics": [
+    {
+      "hit_median_ttft_ratio": 0.6834294682095713,
+      "hit_median_wall_ratio": 0.8036421893200851,
+      "miss_median_wall_ratio": 1.0195788516048583,
+      "miss_wall_ratio": 1.0195788516048583,
+      "pair": "cold_first/cached_first"
+    },
+    {
+      "hit_median_ttft_ratio": 0.6826778940254119,
+      "hit_median_wall_ratio": 0.8035198655304725,
+      "miss_median_wall_ratio": 0.9881797249616044,
+      "miss_wall_ratio": 0.9881797249616044,
+      "pair": "cached_second/cold_second"
+    }
+  ],
+  "policy": {
+    "blake3": "dbcbcd1f25c1f723eb0a87da46529d270ad39e2f52ae3b009674579659a140f3",
+    "profile_id": "qwen38-p150x2-prefix-cache-tool-admission-v4"
+  },
+  "receipt_kind": "prefix-cache-admission",
+  "roots": [
+    {
+      "cached_first": "24e29b4e7a36d9105d7808213299d5216edead4ea23a4989dedcffefbe332d96",
+      "cached_second": "743f1397d36e04b948fd290c63a17b93fd397d321907ea57cf4607c45f671246",
+      "cold_first": "d39bef574ad3aba2c4f441430d9b8a4ab7f326b5b3037e0373e724d366bf1d62",
+      "cold_second": "0b895148cf81674190483e8a14b3879641ec70e09b8d9a2df6b24b89e63ca746"
+    }
+  ],
+  "schema_version": 2,
+  "simulated": false,
+  "turns": {
+    "missed": 1,
+    "resumed": 14
+  }
+}

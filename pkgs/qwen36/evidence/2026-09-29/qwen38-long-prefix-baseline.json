@@ -1,0 +1,54 @@
+{
+  "mode": "physical two-turn baseline before bounded-prefix donation",
+  "simulated": false,
+  "package": "/nix/store/clm5m3463xsyw1q93ivqpf13i2gbya1w-qwen38-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "gateway": "http://127.0.0.1:9337/v1/chat/completions",
+  "fixture": {
+    "passphrase": "amber thrush",
+    "first_user_message_prefix": "Remember this two-word passphrase: amber thrush. Do not output it until the final question.\n",
+    "repeated_text": " filler.\n",
+    "repetitions": 43500,
+    "first_user_message_suffix": "\nWhat were the two words at the very start? Reply with only those two words.",
+    "second_user_message_suffix": "\nAgain, give only the two-word passphrase.",
+    "request_settings": {"temperature": 0, "max_tokens": 16, "enable_thinking": false},
+    "tokenizer_verification": {
+      "method": "pinned AutoTokenizer.apply_chat_template(add_generation_prompt=True, enable_thinking=False)",
+      "identical_leading_tokens": 130540
+    },
+    "body_encoding": "json.dumps(..., separators=(',', ':')).encode()"
+  },
+  "turns": [
+    {
+      "prompt_tokens": 130549,
+      "completion_tokens": 3,
+      "body_bytes": 435291,
+      "request_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+      "http_status": 200,
+      "answer": "amber thrush",
+      "ttft_seconds": 103.64839715324342,
+      "prefill_seconds": 103.66504445113242,
+      "elapsed_seconds": 104.443,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 0,
+      "kv_blocks_in_use": 2048,
+      "physical_pcie_device_ids": [0, 1]
+    },
+    {
+      "prompt_tokens": 130559,
+      "completion_tokens": 3,
+      "body_bytes": 435334,
+      "request_sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+      "http_status": 200,
+      "answer": "amber thrush",
+      "ttft_seconds": 103.4306922107935,
+      "prefill_seconds": 103.45737835811452,
+      "elapsed_seconds": 105.446,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 0,
+      "kv_blocks_in_use": 2048,
+      "physical_pcie_device_ids": [0, 1]
+    }
+  ],
+  "completed_utc": "2026-09-29T23:52:18.741748+00:00"
+}

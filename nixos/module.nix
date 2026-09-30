@@ -32,7 +32,7 @@ let
   evidenceRootMode = "0770";
   defaultQwenListenAddress = "127.0.0.1";
   defaultQwenPort = 8000;
-  defaultQwenMaximumSequenceLength = 65536;
+  defaultQwenMaximumSequenceLength = 131072;
   defaultQwenMaximumGenerationTokens = 8192;
   qwenRestartSeconds = 10;
   qwenStopTimeoutSeconds = 120;
@@ -251,7 +251,7 @@ in
       maximumSequenceLength = mkOption {
         type = types.ints.positive;
         default = defaultQwenMaximumSequenceLength;
-        description = "Maximum prompt and generation token count for one request. The package's decode profile sets the ceiling (65,536); requests share one pooled KV cache, so long requests leave fewer rows for others in the same batch.";
+        description = "Maximum combined prompt and generation tokens for one request. The default 131,072-token row uses half of the shared 4,096-block KV pool, so two full-length requests cannot run in the same batch; shorter requests can use the remaining blocks.";
       };
 
       maximumGenerationTokens = mkOption {

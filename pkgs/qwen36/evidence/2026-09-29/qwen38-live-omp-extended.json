@@ -1,0 +1,21 @@
+{
+  "command_mode": "omp --config <extendedContext: true overlay> --model mesh/Qwen3.8-27B --no-session --no-tools --thinking=off --mode=json -p @<prompt file>",
+  "fixture": {
+    "passphrase": "copper wren",
+    "repetitions": 22500,
+    "repeated_text": " filler.\n",
+    "request_bytes": 202646
+  },
+  "model": "Qwen3.8-27B",
+  "provider": "mesh",
+  "response": "copper wren",
+  "stop_reason": "stop",
+  "ttft_ms": 47440.110316,
+  "usage": {
+    "input": 69459,
+    "output": 53,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 69512
+  }
+}

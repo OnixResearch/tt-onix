@@ -896,6 +896,44 @@ def probe_kv_pool():
     else:
         require(False, "a pool without room for one row, the prefix and scratch was accepted")
 
+    # The candidate 128k row fits the unchanged pool alongside a short request,
+    # but two full rows would consume the reserved read prefix and scratch block.
+    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as profile_file:
+        buffers = json.load(profile_file)["buffers"]
+    sequence_limit = buffers["maximum_sequence_length"]
+    extended = KvPoolLayout(
+        pool_blocks=buffers["kv_pool_blocks"],
+        row_blocks=(sequence_limit + buffers["kv_block_size"] - 1) // buffers["kv_block_size"],
+        kv_block_size=buffers["kv_block_size"],
+    )
+    require(sequence_limit == 131072, "the 128k context candidate is not configured")
+    require(
+        extended.request_blocks(prompt_tokens=65536, generation_tokens=1) > row_blocks
+        and extended.request_blocks(prompt_tokens=sequence_limit - 1, generation_tokens=1)
+        == extended.row_blocks,
+        "a request beyond the old context or at the 128k boundary did not fit",
+    )
+    long_rows = extended.assign_group((extended.row_blocks, 16), width=4)
+    require(
+        long_rows[0][0] == extended.reserved_prefix_blocks
+        and long_rows[1][0] == extended.reserved_prefix_blocks + extended.row_blocks
+        and all(len(row) == extended.row_blocks for row in long_rows),
+        "a full-length request did not coexist with a short request",
+    )
+    for blocks in ((extended.row_blocks,) * 2, (extended.row_blocks + 1,)):
+        try:
+            extended.assign_group(blocks, width=4)
+        except KvPoolError:
+            pass
+        else:
+            require(False, "an oversized long-context group consumed reserved KV blocks")
+    try:
+        extended.request_blocks(prompt_tokens=sequence_limit, generation_tokens=1)
+    except KvPoolError:
+        pass
+    else:
+        require(False, "generation past the 128k row was accepted")
+
     # The batch worker stops adding rows once the pool would overflow.
     class PoolAdapter:
         group_capacity_blocks = pool.group_capacity_blocks
@@ -2468,21 +2506,22 @@ def probe_prefix_cache_policy():
     with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
         slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
 
-    def request(name, prompt, *, max_tokens=64, identity="model-a", tenant="local", arrival=0.0):
+    def request(name, prompt, *, max_tokens=64, identity="model-a", tenant="local", arrival=0.0, root=0, row_layout=layout):
         return core.SlotRequest(
             request_id=name,
             prompt_tokens=len(prompt),
             max_tokens=max_tokens,
             route="step",
-            blocks=layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=max_tokens),
+            blocks=row_layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=max_tokens),
             arrival_seconds=arrival,
             deadline_seconds=1000.0,
             prefix_digests=prefix.prefix_digests(prompt, identity=identity, tenant=tenant, blake3_digest=digest),
+            shared_root_tokens=root,
         )
 
-    def boundary(schedule, now, *, use=policy, available=True):
+    def boundary(schedule, now, *, use=policy, available=True, row_range=kv):
         return core.plan_boundary(
-            schedule, slot_policy, kv, now=now, prefix_policy=use, prefix_available=available
+            schedule, slot_policy, row_range, now=now, prefix_policy=use, prefix_available=available
         )
 
     def run_to_completion(schedule, effects, now):
@@ -2548,6 +2587,57 @@ def probe_prefix_cache_policy():
     turn3_schedule, effects = boundary(turn3_schedule, 4.5)
     require(prefills(effects)[0].hit_entry == chained.entry_id and prefills(effects)[0].prefix_tokens == 7168,
             f"turn 3 did not resume from the longest prefix: {prefills(effects)[0]}")
+
+    # A 128K row must retain the largest cacheable prefix instead of forfeiting
+    # the entire donation when its last chunk exceeds the 1,024-block KV budget.
+    long_layout = KvPoolLayout(pool_blocks=4096, row_blocks=2048, kv_block_size=64)
+    long_kv = core.KvBlockRange(
+        long_layout.reserved_prefix_blocks, long_layout.scratch_block, long_layout.row_blocks, 64
+    )
+    long_prompt = list(range(130545))
+    long_request = request("long", long_prompt, max_tokens=16, row_layout=long_layout)
+    long_schedule, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
+    long_schedule, effects = boundary(long_schedule, 1.0, row_range=long_kv)
+    (first_long,) = prefills(effects)
+    require(first_long.prefix_tokens == 0 and first_long.save_at == 65536,
+            f"a cold 128K turn did not save its 65K prefix: {first_long}")
+    long_schedule = core.observe_prefill(
+        long_schedule, slot=first_long.slot, generation=first_long.generation, token_id=5, stopped=True
+    )
+    long_schedule, _ = boundary(long_schedule, 2.0, row_range=long_kv)
+    (long_entry,) = long_schedule.prefix_entries
+    require(long_entry.ready and len(entry_blocks(long_schedule)) == 1024,
+            "the long turn did not retain exactly 1,024 KV blocks with its state")
+    extended = long_prompt + list(range(200000, 200020))
+    extended_request = request("longer", extended, max_tokens=16, row_layout=long_layout)
+    long_schedule, _ = core.submit(long_schedule, slot_policy, long_kv, extended_request)
+    long_schedule, effects = boundary(long_schedule, 3.0, row_range=long_kv)
+    (continued,) = prefills(effects)
+    require(
+        continued.hit_entry == long_entry.entry_id
+        and continued.prefix_tokens == 65536
+        and continued.resume_state == long_entry.state_index
+        and continued.prefix_ranges == long_entry.block_ranges
+        and continued.block_count == extended_request.blocks - 1024
+        and continued.save_state is None,
+        f"a later 128K turn did not reuse the 65K KV and carried state: {continued}",
+    )
+    require(
+        not set(range(continued.block_start, continued.block_start + continued.block_count))
+        & entry_blocks(long_schedule),
+        "a continued long turn overwrote its saved prefix KV",
+    )
+    too_small = copy.replace(policy, maximum_cached_blocks=15)
+    insufficient, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
+    insufficient, effects = boundary(insufficient, 1.0, use=too_small, row_range=long_kv)
+    require(prefills(effects)[0].save_state is None and not insufficient.prefix_entries,
+            "a sub-chunk KV budget saved an invalid prefix")
+    oversized_root = copy.replace(policy, shared_root_minimum_tokens=69632)
+    root_request = copy.replace(long_request, shared_root_tokens=69632)
+    rooted, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, root_request)
+    rooted, effects = boundary(rooted, 1.0, use=oversized_root, row_range=long_kv)
+    require(prefills(effects)[0].save_state is None and not rooted.prefix_entries,
+            "an oversized shared root was silently truncated to another digest")
 
     # Another tenant or identity never hits.
     for name, identity, tenant in (("other-tenant", "model-a", "other"), ("other-model", "model-b", "local")):
@@ -2630,6 +2720,171 @@ def probe_prefix_cache_policy():
     require(all(entry.pins for entry in schedule2.prefix_entries), "invalidation kept an unpinned entry")
     failed, _ = core.quarantine_group(schedule)
     require(failed.prefix_entries == (), "a device failure kept cached prefixes")
+
+    # Opt-in v2: one common header survives five interleaved conversations despite
+    # four saved states. Its first donor saves the root, not its private suffix.
+    with Path(__file__).with_name("prefix-cache-root-policy.json").open(encoding="utf-8") as handle:
+        root_mapping = json.load(handle)
+    root_policy = prefix.PrefixCachePolicy.from_mapping(root_mapping)
+    require(root_policy.shared_root_minimum_tokens == 2048, "the candidate root floor changed")
+    for change in (
+        {"shared_root_minimum_tokens": 0},
+        {"shared_root_minimum_tokens": 1500},
+        {"state_slots": 1},
+        {"schema_version": 1},
+        {"extra": 1},
+    ):
+        try:
+            prefix.PrefixCachePolicy.from_mapping({**root_mapping, **change})
+        except prefix.PrefixCachePolicyError:
+            pass
+        else:
+            require(False, f"an invalid root policy was accepted: {change}")
+    system = list(range(300000, 302600))
+    conversations = [
+        system + list(range(400000 + 5000 * index, 401800 + 5000 * index))
+        for index in range(5)
+    ]
+    for bad in (True, 1500, 5120):
+        try:
+            request("bad-root", conversations[0], root=bad)
+        except core.ContinuousSlotPolicyError:
+            pass
+        else:
+            require(False, f"an invalid root boundary was accepted: {bad}")
+    root_schedule = core.initial_schedule(slot_policy)
+    root_entry = None
+    for index, prompt in enumerate(conversations):
+        root_schedule, _ = core.submit(
+            root_schedule, slot_policy, kv, request(f"chat-{index}", prompt, root=2048)
+        )
+        root_schedule, effects = boundary(root_schedule, 2.0 * index + 1, use=root_policy)
+        (effect,) = prefills(effects)
+        if index == 0:
+            require(effect.prefix_tokens == 0 and effect.save_at == 2048,
+                    "the first shared-system request did not save its header")
+        else:
+            require(
+                effect.prefix_tokens == 2048 and effect.hit_entry == root_entry.entry_id
+                and effect.resume_state == root_entry.state_index and effect.save_at == 4096
+                and effect.save_state != root_entry.state_index,
+                f"conversation {index} overwrote or missed the shared root: {effect}",
+            )
+            require(
+                next(entry for entry in root_schedule.prefix_entries if entry.root).pins == 1,
+                "a root reader did not pin the shared state and KV",
+            )
+        root_schedule, effects = run_to_completion(root_schedule, effects, 2.0 * index + 2)
+        if index == 0:
+            (root_entry,) = root_schedule.prefix_entries
+            require(root_entry.root and root_entry.ready, "the donated header is not a ready root")
+        else:
+            require(
+                sum(entry.root for entry in root_schedule.prefix_entries) == 1
+                and next(entry for entry in root_schedule.prefix_entries if entry.root).state_index
+                == root_entry.state_index,
+                "an interleaved conversation displaced the shared header",
+            )
+    require(len(root_schedule.prefix_entries) == root_policy.state_slots,
+            "the state budget did not evict an older conversation entry")
+    root_schedule, _ = core.submit(root_schedule, slot_policy, kv, request("old-chat", conversations[0], root=2048))
+    root_schedule, effects = boundary(root_schedule, 11.0, use=root_policy)
+    require(prefills(effects)[0].prefix_tokens == 2048,
+            "a conversation evicted from the leaf cache did not fall back to the root")
+    root_schedule, effects = run_to_completion(root_schedule, effects, 12.0)
+    changed = conversations[0][:]
+    changed[10] += 1
+    for name, prompt, identity, tenant in (
+        ("different-system", changed, "model-a", "local"),
+        ("different-identity", conversations[0], "model-b", "local"),
+        ("different-tenant", conversations[0], "model-a", "other"),
+    ):
+        other, _ = core.submit(root_schedule, slot_policy, kv, request(name, prompt, identity=identity, tenant=tenant, root=2048))
+        other, effects = boundary(other, 13.0, use=root_policy)
+        require(prefills(effects)[0].hit_entry is None, f"{name} read the shared root")
+    require(not core.invalidate_prefix_cache(root_schedule).prefix_entries,
+            "a structured read kept an unused shared root")
+    require(not core.quarantine_group(root_schedule)[0].prefix_entries,
+            "a device failure kept a shared root")
+
+    # Root retention is soft: a full-row live request can reclaim its KV blocks.
+    root_schedule = core.initial_schedule(slot_policy)
+    narrow = core.KvBlockRange(kv.first_block, kv.first_block + kv.row_blocks + 20, kv.row_blocks, 64)
+    root_schedule, _ = core.submit(root_schedule, slot_policy, narrow, request("root", conversations[0], root=2048))
+    root_schedule, effects = core.plan_boundary(
+        root_schedule, slot_policy, narrow, now=1.0, prefix_policy=root_policy, prefix_available=True
+    )
+    root_schedule = core.observe_prefill(
+        root_schedule, slot=prefills(effects)[0].slot, generation=prefills(effects)[0].generation,
+        token_id=5, stopped=True,
+    )
+    root_schedule, _ = core.plan_boundary(
+        root_schedule, slot_policy, narrow, now=2.0, prefix_policy=root_policy, prefix_available=True
+    )
+    root_schedule, _ = core.submit(
+        root_schedule, slot_policy, narrow,
+        request("full-row", [7] * 60000, max_tokens=layout.row_blocks * 64 - 60000),
+    )
+    root_schedule, effects = core.plan_boundary(
+        root_schedule, slot_policy, narrow, now=3.0, prefix_policy=root_policy, prefix_available=True
+    )
+    require(prefills(effects)[0].hit_entry is None and not any(entry.root for entry in root_schedule.prefix_entries),
+            "the root kept KV needed by a live cold request")
+
+
+def probe_shared_system_root_boundary():
+    """Only an exact rendered system/tool token prefix may get root retention."""
+    from dataclasses import replace
+
+    from qwen36_service.continuous_slot_service import shared_system_root_tokens
+    from qwen36_service.core import ChatMessage, CompletionRequest, Endpoint
+
+    class Tokenizer:
+        @staticmethod
+        def header(system, tools):
+            offered = "tools: " + ",".join(tool["function"]["name"] for tool in tools) + "\n" if tools else ""
+            return "<|im_start|>system\n" + offered + system + "<|im_end|>\n"
+
+        def apply_chat_template(self, messages, *, tools, add_generation_prompt, tokenize, **_options):
+            system = messages[0]["content"] if messages[0]["role"] == "system" else ""
+            return self.header(system, tools or ()) + "<|im_start|>user\n<|im_end|>\n"
+
+        @staticmethod
+        def encode(text, *, add_special_tokens=False):
+            return [ord(char) for char in text]
+
+    tokenizer = Tokenizer()
+    system = "A" * 2400
+    request = CompletionRequest(
+        endpoint=Endpoint.CHAT_COMPLETIONS,
+        model="m",
+        max_tokens=8,
+        prompt=None,
+        messages=(ChatMessage("system", system), ChatMessage("user", "first")),
+    )
+    header = tokenizer.header(system, ())
+    prompt = tokenizer.encode(header + "<|im_start|>user\nfirst<|im_end|>\n")
+    require(shared_system_root_tokens(request, tokenizer, prompt, 2048) == 2048,
+            "an exact system header did not produce a chunk-aligned root")
+    changed = prompt[:]
+    changed[1024] += 1
+    require(shared_system_root_tokens(request, tokenizer, changed, 2048) == 0,
+            "a mismatched rendered/tokenized header was retained")
+    require(shared_system_root_tokens(request, tokenizer, prompt[:2048], 2048) == 0,
+            "a root without a token left for logits was accepted")
+    tool = {"type": "function", "function": {"name": "lookup"}}
+    with_tool = replace(request, tools=(tool,))
+    tool_header = tokenizer.header(system, (tool,))
+    tool_prompt = tokenizer.encode(tool_header + "<|im_start|>user\nfirst<|im_end|>\n")
+    require(shared_system_root_tokens(with_tool, tokenizer, tool_prompt, 2048) == 2048,
+            "the shared tool header was not found")
+    require(shared_system_root_tokens(with_tool, tokenizer, prompt, 2048) == 0,
+            "a tool change reused another tool header")
+    no_system = replace(request, messages=(ChatMessage("user", "first"),))
+    require(shared_system_root_tokens(no_system, tokenizer, prompt, 2048) == 0,
+            "a request without system or tools retained a root")
+    require(shared_system_root_tokens(replace(request, endpoint=Endpoint.COMPLETIONS), tokenizer, prompt, 2048) == 0,
+            "raw completions were treated as chat headers")
 
 
 # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_state]
@@ -3101,6 +3356,143 @@ def probe_prefix_cache_admission():
         require(receipt["admission"]["admitted"] is False and expected in (receipt["admission"]["evidence_error"] or ""),
                 f"{message} disappeared from the receipt: {receipt['admission']}")
 
+
+    # V3 compares a shared system root across five conversations and requires
+    # a conversation whose leaf was saved and evicted to fall back to that root.
+    with Path(__file__).with_name("prefix-cache-root-admission-policy.json").open(encoding="utf-8") as handle:
+        shared_mapping = json.load(handle)
+    shared_policy = admission.PrefixAdmissionPolicy.from_mapping(shared_mapping)
+    require(shared_policy.workloads == ((5, 3),) and shared_policy.state_slots == 4,
+            "the shared-root gate lost its bounded eviction workload")
+    for change in (
+        {"schema_version": 2},
+        {"shared_root_minimum_tokens": 1500},
+        {"state_slots": 5},
+        {"extra": 1},
+    ):
+        try:
+            admission.PrefixAdmissionPolicy.from_mapping({**shared_mapping, **change})
+        except admission.PrefixAdmissionPolicyError:
+            pass
+        else:
+            require(False, f"an invalid shared-root admission policy was accepted: {change}")
+
+    def shared_groups():
+        group = [
+            root(
+                kind, position, 0, 5, 3,
+                ttft=fast_ttft if kind == "cached" else cold_ttft,
+                wall=fast_wall if kind == "cached" else cold_wall,
+                hits=False,
+            )
+            for position, kind in enumerate(shared_policy.root_order)
+        ]
+        for mapping in group:
+            mapping["workload"]["workload_id"] = "qwen38-agent-shared-system-v1"
+            if mapping["root_kind"] == "cached":
+                mapping["identity"]["prefix_cache_profile_id"] = shared_policy.prefix_cache_profile_id
+                for request in mapping["requests"]:
+                    first = request["conversation"] == 0 and request["turn"] == 0
+                    request["prefix_hit_tokens"] = 0 if first else 2048
+                    request["prefix_saved_tokens"] = 2048 if first else 4096
+                    request["ttft_seconds"] = 3.0 if first else 1.0
+                    request["wall_seconds"] = 5.0 if first else 3.0
+        return [group]
+
+    def shared_receipt(group_mappings):
+        return build_receipt(
+            policy_mapping=shared_mapping,
+            group_mappings=group_mappings,
+            policy_blake3="e" * 64,
+            root_blake3s=[["f" * 64] * 4],
+        )
+
+    shared = shared_receipt(shared_groups())
+    require(shared["admission"]["admitted"] and shared["turns"] == {"resumed": 14, "missed": 1},
+            f"a faster retained root was rejected: {shared['admission']}")
+    for index, field, value, reason in (
+        (0, "prefix_saved_tokens", 1024, "gate-failed:shared_root_reuse"),
+        (1, "prefix_hit_tokens", 0, "gate-failed:shared_root_reuse"),
+        (1, "prefix_saved_tokens", 2048, "gate-failed:evicted_leaf_fallback"),
+        (6, "prefix_hit_tokens", 4096, "gate-failed:evicted_leaf_fallback"),
+    ):
+        damaged = shared_groups()
+        damaged[0][1]["requests"][index][field] = value
+        damaged[0][2]["requests"][index][field] = value
+        receipt = shared_receipt(damaged)
+        require(not receipt["admission"]["admitted"] and reason in receipt["admission"]["reasons"],
+                f"invalid root reuse or eviction was admitted: {field}={value} {receipt['admission']}")
+    damaged = shared_groups()
+    damaged[0][2]["requests"][2]["token_ids"] = [99]
+    require("gate-failed:exact_parity" in shared_receipt(damaged)["admission"]["reasons"],
+            "a divergent shared-root completion was admitted")
+
+    # The v4 tool-header gate also requires a changed description with the same
+    # function name to miss the retained root, with cold/cached token parity.
+    with Path(__file__).with_name("prefix-cache-tool-admission-policy.json").open(encoding="utf-8") as handle:
+        tool_mapping = json.load(handle)
+    tool_policy = admission.PrefixAdmissionPolicy.from_mapping(tool_mapping)
+    require(tool_policy.workload_id == "qwen38-agent-shared-tools-v1" and tool_policy.require_changed_tool_miss,
+            "the tool-change workload lost its declared isolation requirement")
+    for change in (
+        {"require_changed_tool_miss": False},
+        {"workload_id": ""},
+        {"extra": 1},
+    ):
+        try:
+            admission.PrefixAdmissionPolicy.from_mapping({**tool_mapping, **change})
+        except admission.PrefixAdmissionPolicyError:
+            pass
+        else:
+            require(False, f"an invalid tool-header admission policy was accepted: {change}")
+
+    def tool_groups():
+        mappings = shared_groups()
+        for mapping in mappings[0]:
+            mapping["workload"]["workload_id"] = tool_policy.workload_id
+            mapping["tool_change"] = {
+                "baseline_tools_blake3": "a" * 64,
+                "changed_tools_blake3": "b" * 64,
+                "prompt_tokens": 4600,
+                "prefix_hit_tokens": 0,
+                "token_ids": [11, 12, 13],
+            }
+        return mappings
+
+    def tool_receipt(mappings):
+        return build_receipt(
+            policy_mapping=tool_mapping,
+            group_mappings=mappings,
+            policy_blake3="e" * 64,
+            root_blake3s=[["f" * 64] * 4],
+        )
+
+    tool_positive = tool_receipt(tool_groups())
+    require(tool_positive["admission"]["admitted"] and {gate["name"] for gate in tool_positive["gates"]} >=
+            {"changed_tool_isolation", "changed_tool_parity"},
+            f"a changed tool schema that missed without changing tokens was rejected: {tool_positive['admission']}")
+    for root_index, mutate, reason in (
+        (1, lambda probe: probe.__setitem__("prefix_hit_tokens", 2048), "gate-failed:changed_tool_isolation"),
+        (1, lambda probe: probe.__setitem__("changed_tools_blake3", "a" * 64), "gate-failed:changed_tool_isolation"),
+        (2, lambda probe: probe.__setitem__("token_ids", [99, 12, 13]), "gate-failed:changed_tool_parity"),
+    ):
+        bad = tool_groups()
+        mutate(bad[0][root_index]["tool_change"])
+        require(reason in tool_receipt(bad)["admission"]["reasons"],
+                f"a broken changed-tool probe was admitted: {reason}")
+    missing_probe = tool_groups()
+    missing_probe[0][2].pop("tool_change")
+    require("gate-failed:changed_tool_isolation" in tool_receipt(missing_probe)["admission"]["reasons"],
+            "a missing changed-tool probe was admitted")
+    incomplete_probe = tool_groups()
+    incomplete_probe[0][1]["tool_change"]["token_ids"] = []
+    require("needs generated token IDs" in (tool_receipt(incomplete_probe)["admission"]["evidence_error"] or ""),
+            "an empty changed-tool response did not fail closed")
+    wrong_workload = tool_groups()
+    for mapping in wrong_workload[0]:
+        mapping["workload"]["workload_id"] = "qwen38-agent-shared-system-v1"
+    require("tool-workload-differs" in tool_receipt(wrong_workload)["admission"]["reasons"],
+            "a different tool-header workload was admitted")
 
 # r[verify tenstorrent.qwen38_p150x2.resident_slot_trace]
 def probe_resident_trace_admission():
@@ -11423,6 +11815,7 @@ def main():
     probe("continuous slot adapter", probe_continuous_slot_adapter)
     probe("continuous slot admission", probe_continuous_slot_admission)
     probe("prefix cache policy", probe_prefix_cache_policy)
+    probe("shared system root boundary", probe_shared_system_root_boundary)
     probe("prefix cache restore", probe_prefix_cache_restore)
     probe("prefix cache admission", probe_prefix_cache_admission)
     probe("resident trace admission", probe_resident_trace_admission)

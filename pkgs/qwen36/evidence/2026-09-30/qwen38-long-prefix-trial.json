@@ -1,0 +1,60 @@
+{
+  "mode": "physical P150x2 long-prefix trial",
+  "simulated": false,
+  "package": "/nix/store/6z8yr2d7m73q46hgwp6lklnjds1yb3yb-qwen38-0.1.0",
+  "package_identity": "/nix/store/a6la4cphzpn0m7gx2j55ys7kgskd66n1-qwen36-execution-identity-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "fixture": "../2026-09-29/qwen38-long-prefix-baseline.json",
+  "endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+  "startup_warmup_seconds": 540.6098970649764,
+  "responses": [
+    {
+      "turn": 1,
+      "request_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+      "body_bytes": 435291,
+      "http_status": 200,
+      "prompt_tokens": 130549,
+      "completion_tokens": 3,
+      "answer": "amber thrush",
+      "generated_token_ids": [14778, 8541, 1080],
+      "ttft_seconds": 103.68835989804938,
+      "prefill_seconds": 103.71508776396513,
+      "elapsed_seconds": 109.829,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 65536,
+      "kv_blocks_in_use": 2048,
+      "prefill_masked_traces": true,
+      "prefill_decode_trace_released": false,
+      "physical_pcie_device_ids": [0, 1]
+    },
+    {
+      "turn": 2,
+      "request_sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+      "body_bytes": 435334,
+      "http_status": 200,
+      "prompt_tokens": 130559,
+      "completion_tokens": 3,
+      "answer": "amber thrush",
+      "generated_token_ids": [14778, 8541, 1080],
+      "ttft_seconds": 61.00083414185792,
+      "prefill_seconds": 61.01253944076598,
+      "elapsed_seconds": 66.006,
+      "prefix_hit_tokens": 65536,
+      "prefix_saved_tokens": 0,
+      "kv_blocks_in_use": 2048,
+      "prefill_masked_traces": true,
+      "prefill_decode_trace_released": false,
+      "physical_pcie_device_ids": [0, 1]
+    }
+  ],
+  "health_after": {"ready": true, "status": "ok"},
+  "gateway_after_restart": {
+    "initial_status": 503,
+    "initial_message": "model 'Qwen3.8-27B' is not currently available; retry later",
+    "direct_health_at_initial_rejection": "ready",
+    "recovered_short_request_status": 200,
+    "recovered_short_answer": "READY",
+    "recovered_short_physical_pcie_device_ids": [0, 1]
+  },
+  "completed_utc": "2026-09-30T00:10:38.612975+00:00"
+}

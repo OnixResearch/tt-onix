@@ -28,6 +28,15 @@ let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
     "maximum_cached_blocks",
     "tenant",
   ],
+  RootClosed = ClosedRecordC [
+    "schema_version",
+    "profile_id",
+    "state_slots",
+    "minimum_prefix_tokens",
+    "maximum_cached_blocks",
+    "tenant",
+    "shared_root_minimum_tokens",
+  ],
   Fields = {
     schema_version | std.contract.from_predicate (fun value => value == 1),
     profile_id | IdC,
@@ -37,5 +46,14 @@ let ClosedRecordC = fun allowed => std.contract.from_predicate (fun value =>
     minimum_prefix_tokens | ChunkMultipleC,
     maximum_cached_blocks | PositiveIntC 4096,
     tenant | IdC,
+  },
+  RootFields = {
+    schema_version | std.contract.from_predicate (fun value => value == 2),
+    profile_id | IdC,
+    state_slots | PositiveIntC 16,
+    minimum_prefix_tokens | ChunkMultipleC,
+    maximum_cached_blocks | PositiveIntC 4096,
+    tenant | IdC,
+    shared_root_minimum_tokens | ChunkMultipleC,
   },
 }

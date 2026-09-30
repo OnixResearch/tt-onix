@@ -26,6 +26,8 @@ from typing import Any
 POLICY_FIELDS = frozenset(
     {"schema_version", "profile_id", "prefix_cache_profile_id", "root_order", "workloads", "gates"}
 )
+ROOT_POLICY_FIELDS = POLICY_FIELDS | {"shared_root_minimum_tokens", "state_slots"}
+TOOL_POLICY_FIELDS = ROOT_POLICY_FIELDS | {"workload_id", "require_changed_tool_miss"}
 GATE_FIELDS = frozenset(
     {
         "require_matched_identity",
@@ -68,14 +70,23 @@ class PrefixAdmissionPolicy:
     maximum_miss_median_wall_ratio: float
     maximum_miss_wall_ratio: float
     maximum_startup_dram_drop_bytes: int
+    # Zero for the existing v2 turn-cache gate; v3 measures a retained shared root.
+    shared_root_minimum_tokens: int = 0
+    state_slots: int = 0
+    workload_id: str | None = None
+    require_changed_tool_miss: bool = False
 
     @classmethod
     def from_mapping(cls, root: Mapping[str, Any]) -> PrefixAdmissionPolicy:
         error = PrefixAdmissionPolicyError
-        if not isinstance(root, Mapping) or set(root) != POLICY_FIELDS:
-            raise error("policy fields differ from the closed schema")
-        if root["schema_version"] != 2:
+        if not isinstance(root, Mapping):
+            raise error("policy must be a mapping")
+        version = root.get("schema_version")
+        if isinstance(version, bool) or version not in (2, 3, 4):
             raise error("schema_version is unsupported")
+        fields = POLICY_FIELDS if version == 2 else ROOT_POLICY_FIELDS if version == 3 else TOOL_POLICY_FIELDS
+        if set(root) != fields:
+            raise error("policy fields differ from the closed schema")
         if not isinstance(root["root_order"], Sequence) or tuple(root["root_order"]) != ROOT_ORDER:
             raise error("root_order must be cold, cached, cached, cold")
         gates = root["gates"]
@@ -103,12 +114,32 @@ class PrefixAdmissionPolicy:
         drop = gates["maximum_startup_dram_drop_bytes"]
         if isinstance(drop, bool) or not isinstance(drop, int) or drop < 0:
             raise error("the DRAM budget must be a non-negative byte count")
+        minimum = 0
+        states = 0
+        if version >= 3:
+            minimum = root["shared_root_minimum_tokens"]
+            states = root["state_slots"]
+            if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 2048 or minimum % 1024:
+                raise error("shared_root_minimum_tokens must be a whole number of chunks >= 2048")
+            if isinstance(states, bool) or not isinstance(states, int) or not 2 <= states <= 16:
+                raise error("state_slots must be between 2 and 16")
+            if len(workloads) != 1 or workloads[0][0] <= states or workloads[0][1] < 2:
+                raise error("a shared-root workload needs more conversations than states and at least two turns")
+        workload_id = None
+        if version == 4:
+            workload_id = root["workload_id"]
+            if not isinstance(workload_id, str) or not workload_id or root["require_changed_tool_miss"] is not True:
+                raise error("a tool-change admission requires its workload_id and changed-tool miss gate")
         return cls(
             profile_id=str(root["profile_id"]),
             prefix_cache_profile_id=str(root["prefix_cache_profile_id"]),
             root_order=ROOT_ORDER,
             workloads=workloads,
             maximum_startup_dram_drop_bytes=drop,
+            shared_root_minimum_tokens=minimum,
+            state_slots=states,
+            workload_id=workload_id,
+            require_changed_tool_miss=version == 4,
             **ratios,
         )
 
@@ -124,6 +155,14 @@ class Turn:
     prefix_saved_tokens: int
     # Decode traces the server captured while serving the turn; None when not reported.
     trace_captures: int | None
+
+@dataclass(frozen=True)
+class ToolChange:
+    baseline_tools_blake3: str
+    changed_tools_blake3: str
+    token_ids: tuple[int, ...]
+    prompt_tokens: int
+    prefix_hit_tokens: int
 
 
 def _count(value: Any, name: str, *, optional: bool = False) -> int | None:
@@ -147,6 +186,7 @@ class Root:
     finished: datetime
     startup_dram_free_bytes: tuple[int, ...]
     turns: tuple[Turn, ...]
+    tool_change: ToolChange | None = None
 
 
 def _utc(value: Any, name: str) -> datetime:
@@ -217,6 +257,32 @@ def root_from_mapping(mapping: Mapping[str, Any], *, expected_kind: str) -> Root
     dram = mapping.get("startup", {}).get("device_dram_free_bytes")
     if not isinstance(dram, Sequence) or not dram:
         raise error("the root lacks the startup DRAM view")
+    change = mapping.get("tool_change")
+    tool_change = None
+    if change is not None:
+        if not isinstance(change, Mapping) or set(change) != {
+            "baseline_tools_blake3", "changed_tools_blake3", "token_ids", "prompt_tokens", "prefix_hit_tokens"
+        }:
+            raise error("the tool-change probe has invalid fields")
+        for name in ("baseline_tools_blake3", "changed_tools_blake3"):
+            digest = change[name]
+            if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                raise error(f"tool_change.{name} must be a BLAKE3 hex digest")
+        probe_tokens = change["token_ids"]
+        if not isinstance(probe_tokens, Sequence) or isinstance(probe_tokens, (str, bytes)) or not probe_tokens or any(
+            isinstance(token, bool) or not isinstance(token, int) or token < 0 for token in probe_tokens
+        ):
+            raise error("the tool-change probe needs generated token IDs")
+        prompt_tokens = _count(change["prompt_tokens"], "tool_change.prompt_tokens")
+        if prompt_tokens == 0:
+            raise error("the tool-change probe needs a prompt")
+        tool_change = ToolChange(
+            baseline_tools_blake3=change["baseline_tools_blake3"],
+            changed_tools_blake3=change["changed_tools_blake3"],
+            token_ids=tuple(probe_tokens),
+            prompt_tokens=prompt_tokens,
+            prefix_hit_tokens=_count(change["prefix_hit_tokens"], "tool_change.prefix_hit_tokens"),
+        )
     return Root(
         kind=expected_kind,
         identity=identity,
@@ -226,6 +292,7 @@ def root_from_mapping(mapping: Mapping[str, Any], *, expected_kind: str) -> Root
         finished=finished,
         startup_dram_free_bytes=tuple(int(value) for value in dram),
         turns=tuple(turns),
+        tool_change=tool_change,
     )
 
 
@@ -300,7 +367,65 @@ def _group_reasons(policy: PrefixAdmissionPolicy, group: Sequence[Root], shape: 
         reasons.append("roots-out-of-order")
     if any(root.workload != first.workload for root in group) or first.workload[2:] != shape:
         reasons.append("workload-differs")
+    if policy.workload_id is not None and first.workload[0] != policy.workload_id:
+        reasons.append("tool-workload-differs")
     return reasons
+
+
+def _shared_root_gates(
+    policy: PrefixAdmissionPolicy, group: Sequence[Root]
+) -> tuple[Gate, Gate]:
+    """Require cross-chat reuse and a saved leaf that subsequently falls back to root."""
+    reuse = all(root.workload[2:] == policy.workloads[0] for root in group)
+    eviction = reuse
+    root_lengths = []
+    if reuse:
+        for root in group:
+            if root.kind != "cached":
+                continue
+            by_turn = {(turn.conversation, turn.turn): turn for turn in root.turns}
+            first = by_turn[(0, 0)]
+            root_tokens = first.prefix_saved_tokens
+            root_lengths.append(root_tokens)
+            reuse = reuse and (
+                first.prefix_hit_tokens == 0
+                and root_tokens >= policy.shared_root_minimum_tokens
+                and root_tokens % 1024 == 0
+            )
+            reuse = reuse and all(
+                turn.prefix_hit_tokens >= root_tokens
+                and (turn.turn != 0 or turn.prefix_hit_tokens == root_tokens)
+                for turn in root.turns
+                if (turn.conversation, turn.turn) != (0, 0)
+            )
+            eviction = eviction and (
+                by_turn[(1, 0)].prefix_saved_tokens > root_tokens
+                and by_turn[(1, 1)].prefix_hit_tokens == root_tokens
+            )
+    reuse = reuse and len(set(root_lengths)) == 1
+    return (
+        Gate("shared_root_reuse", reuse, True, reuse),
+        Gate("evicted_leaf_fallback", eviction, True, eviction),
+    )
+
+
+def _tool_change_gates(policy: PrefixAdmissionPolicy, group: Sequence[Root]) -> tuple[Gate, Gate]:
+    """A changed schema within the saved header must miss, without changing generated tokens."""
+    changes = [root.tool_change for root in group]
+    complete = all(change is not None for change in changes)
+    isolation = complete and len({
+        (change.baseline_tools_blake3, change.changed_tools_blake3) for change in changes
+    }) == 1 and all(
+        change.baseline_tools_blake3 != change.changed_tools_blake3
+        and change.prompt_tokens > policy.shared_root_minimum_tokens
+        and change.prefix_hit_tokens == 0
+        for change in changes
+    )
+    parity = complete and len({change.token_ids for change in changes}) == 1
+    return (
+        Gate("changed_tool_isolation", isolation, True, isolation),
+        Gate("changed_tool_parity", parity, True, parity),
+    )
 
 
 def evaluate(policy: PrefixAdmissionPolicy, groups: Sequence[Sequence[Root]]) -> PrefixAdmission:
@@ -348,8 +473,8 @@ def evaluate(policy: PrefixAdmissionPolicy, groups: Sequence[Sequence[Root]]) ->
             )
             for ratios, cold, cached in ((pairs[0], cold_first, cached_first), (pairs[1], cold_second, cached_second)):
                 ratios.add(hit, ttft=cached.ttft_seconds / cold.ttft_seconds, wall=cached.wall_seconds / cold.wall_seconds)
-        # The first declared workload has at most as many conversations as state
-        # buffers, so every later turn must resume in both cached roots.
+        # Later turns must resume: v2 uses conversation leaves, while v3/v4
+        # can fall back to the shared root even after a leaf is evicted.
         if shape == policy.workloads[0]:
             resumed = resumed and all(
                 turn.prefix_hit_tokens > 0 for root in group if root.kind == "cached" for turn in root.turns if turn.turn > 0
@@ -379,6 +504,10 @@ def evaluate(policy: PrefixAdmissionPolicy, groups: Sequence[Sequence[Root]]) ->
             dram_drop <= policy.maximum_startup_dram_drop_bytes,
         ),
     ]
+    if policy.shared_root_minimum_tokens:
+        gates.extend(_shared_root_gates(policy, groups[0]))
+    if policy.require_changed_tool_miss:
+        gates.extend(_tool_change_gates(policy, groups[0]))
     return PrefixAdmission(
         admitted=all(gate.passed for gate in gates),
         gates=tuple(gates),
