@@ -117,18 +117,28 @@ Device side, in `pkgs/qwen36/structured-read-rows.patch`:
   bursts retained A's 130,048-token and B's 16,384-token generation prefixes
   and preserved generated token IDs. This does not measure longer reads or
   establish general throughput.
-  A later [paired root-systemd receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-read-batch-lanes-systemd-paired.json)
-  ran the built 4,113-block unit with identical six-request SHA-256 inputs
+  A historical [y58 paired root-systemd receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-read-batch-lanes-systemd-paired.json)
+  ran the first built 4,113-block unit with identical six-request SHA-256 inputs
   against the old package. Both 82-token and 198-token bursts took three
   batched traces plus one masked trace and returned the same numeric answers
   as baseline; A and B generated the same token IDs. The candidate kept
   130,048- and 16,384-token prefix hits through both bursts. The old
   2,048-cached-block package lost B's 16,384-token hit after the short burst;
   the candidate also raises that budget to 4,064, so continuation TTFT
-  differences cannot be ascribed to the read lanes alone. The root unit
+  differences cannot be ascribed to the read lanes alone. That root unit
   passed notify readiness, but its temporary override was removed and
-  the old package restored. This remains bounded evidence, not broad
-  throughput or production admission.
+  the old package restored. This is bounded evidence for y58, not broad
+  throughput or production admission for another package output.
+  The [committed e3cfded han2 physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-han2-committed-read-lanes-physical.json)
+  separately exercised its changed package output under root-owned
+  `Type=notify`, ready after 622 s. It replayed the same six exact request
+  hashes and matched the **preserved**, not freshly rerun, old and y58
+  generated-token IDs and numeric read answers. Both four-way 82- and
+  198-token bursts took three batched routes and one masked route and
+  retained A's 130,048-token and B's 16,384-token prefixes before and after
+  each burst. The temporary candidate stopped and the original `gfvkac4`
+  root service returned ready with unchanged 90/95/96 drop-ins. This is
+  bounded requalification of han2, not a durable host-generation switch.
   The preceding [4,097-block candidate](../pkgs/qwen36/evidence/2026-09-30/qwen38-cache-aware-batched-read-physical.json)
   instead used startup generation rows for batches and routed overlapping
   batches to single-read traces. Its four 84-token decisions preserved a
@@ -264,8 +274,8 @@ were unchanged: 128/132 at 2.14 decisions/s.
   invalidate overlapping cached prefixes. In the undeployed 4,113-block
   read-lane candidate, four short batched reads instead use separate blocks
   4,096–4,111 outside the 4,080-block generation range, with block 4,112 as
-  scratch. The direct and later paired root-systemd receipts cover 82- and
-  198-token reads, not a longer single read; this candidate remains
+  scratch. The direct, historical y58 and committed han2 physical receipts
+  cover 82- and 198-token reads, not a longer single read; han2 remains
   undeployed. The first direct attempt omitted production grouped and traced
   prefill flags and did not measure a batched read route.
   One read holds at most 31 slots. Larger schemas are chunked, as in the PR.
@@ -278,8 +288,9 @@ were unchanged: 128/132 at 2.14 decisions/s.
 
 ## Non-claims
 
-- The corpus sessions are diagnostic; the later paired root-systemd receipt
-  is bounded to its exact A/B and cached-read fixture, not general admission.
+- The corpus sessions are diagnostic; the historical y58 and committed han2
+  root-systemd receipts cover only their exact A/B and cached-read fixture,
+  not general throughput, broad quality or TT-Metal 0.77 production admission.
 - The corpus is small and hand-labelled.
 - Qwen3.8's accuracy is not comparable to the DiffusionGemma numbers in the PR.
 - The shared host's accuracy and latency may differ from a deployed host.

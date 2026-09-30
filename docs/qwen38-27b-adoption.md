@@ -1056,9 +1056,37 @@ The candidate remains undeployed. A root GC link at
 `/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial` retains its
 package for review; it does not persist the service configuration.
 
-Both packages currently link the TT-Metal 0.77 candidate; a bounded HiFi4
-GDN recurrence pass does not resolve its outstanding production numerical
-gate or make 0.77 a production release.
+The old and y58 packages in that historical comparison link the TT-Metal
+0.77 candidate; the later han2 package links the same runtime. A bounded
+HiFi4 GDN recurrence pass does not resolve its outstanding production
+numerical gate or make 0.77 a production release.
+
+The one-line pool-geometry comment correction in source commit
+`e3cfded523e873f51da87f9ff0ba46831884f636` changed the ordinary
+Git-flake Qwen output to
+`/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0`.
+The separate [han2 physical requalification](../pkgs/qwen36/evidence/2026-09-30/qwen38-han2-committed-read-lanes-physical.json)
+ran that exact output as a temporary root-owned P150x2 `Type=notify` service:
+candidate PID 835106 was ready after 622 s within its 1,250 s startup bound,
+and the identical six-SHA-256 fixture completed in 125 s within its 1,100 s
+bound. The old `gfvkac4` and historical y58 answers came from preserved
+exact-byte response files, **not** from another baseline service run in this
+trial. A/B answers and generated token IDs, plus the numeric answers to all
+four 82-token and four 198-token reads, matched those preserved responses.
+Each four-way read burst took three batched traces and one masked trace; the
+han2 service retained A's 130,048-token and B's 16,384-token prefix hits
+before and after both bursts. Its 4,064-block cache budget differs from the
+old package's 2,048 blocks, so continuation TTFT changes are not an isolated
+read-lane speedup.
+
+The temporary candidate was stopped, only its `/run` 97 drop-in removed, and
+the old root-owned `gfvkac4` service restored at PID 964848: `Type=notify`
+active/running, zero restarts, `/healthz` 200 and ready after a 104 s warm-up.
+Drop-ins 90/95/96 remained byte-identical; old, y58 and han2 package GC pins
+were retained. No host generation was switched. This gate qualifies only the
+exact six-request physical and root-systemd path for han2, not longer reads,
+broad throughput, model quality, reboot persistence or TT-Metal 0.77
+production numerical admission.
 
 ### Reviewed read-lane NixOS deployment (paired gate passed; not deployed)
 
@@ -1069,23 +1097,24 @@ and traced prefill, sampled fusion, continuous slots, and prefix cache. The
 module's service already requires device nodes 0 and 1, starts the serialized
 P150x2 executable, and reads both scheduler policies from that same package.
 This example does not import or switch the dirty `onix-core` checkout, and
-does not replace the running service. The host's `onix-core` tree has 230
-dirty entries, explicitly masks Qwen and sets 2,048/64 tokens; its lock pins
-`tenstorrent-nix` at `cbfcab9`, not this checkout's `b7e362c` HEAD. This
-candidate also includes local, not-yet-pinned changes. A durable deployment
-requires a reviewed, reproducible host-generation source selecting this
-exact package and preserving other host settings. Review owner conflicts,
-model path, driver, firmware and OMP separately. The previous 65,536-token
-boot generation and `/run/systemd` overrides do **not** provide durable
-131,072-token rollback after reboot.
+does not replace the running service. That host configuration masks Qwen and
+sets 2,048/64 tokens; its lock pins `tenstorrent-nix` at `cbfcab9`, not the
+reviewed `e3cfded` read-lane source commit. The profile and candidate source
+are now committed here, but no reviewed host input or generation has selected
+them. A durable deployment requires a pinned host-generation source selecting
+the exact paired package while preserving other host settings. Review owner
+conflicts, model path, driver, firmware and OMP separately. The previous
+65,536-token boot generation and `/run/systemd` overrides do **not** provide
+durable 131,072-token rollback after reboot.
 
 For `onix-core/machines/britton-desktop/configuration.nix`, the smallest
 reviewable integration is:
 
-1. Pin a reviewed `tenstorrent-nix` flake input containing this profile **and**
-   the qualified candidate package; update the host lock from `cbfcab9`
-   only after comparing the entire host closure. The 30 local candidate
-   source entries alone are not a reproducible pin.
+1. Pin the final reviewed `tenstorrent-nix` flake revision containing this
+   requalified package **and** updated profile guard; update the host lock
+   from `cbfcab9` only after comparing the entire host closure. Pinning
+   `e3cfded` alone would retain the old y58 guard, and a local store path
+   alone is not a reproducible host-generation pin.
 2. Import `inputs.tenstorrent-nix.nixosModules.qwen38-p150x2-read-lanes`
    beside the existing default module. Replace the host's explicit
    `hardware.tenstorrent.qwen38` attrset (including its
@@ -1111,34 +1140,32 @@ to `onix-core`. A profile imported into its current host config is not
 deployable: same-priority limits/package definitions conflict, while a
 forced 2,048/64 override or the current mask fails the profile assertions.
 The profile selects the matched flake's `pkgs.qwen38` derivation but
-also fails closed unless its output is the physically paired
-`/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0`.
+also fails closed unless its output is the requalified
+`/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0`.
 This is an admission invariant, not a store-path package fallback.
 Compare the *rendered host unit* against the same output and retain the
 verified old-package rollback generation.
 
-The example file is not yet in the git-filtered flake source. A direct
-`nix eval --offline .#nixosModules.qwen38-p150x2-read-lanes` does not
-exercise its contents; importing that export in a throwaway NixOS eval
-failed because the source-store example path was absent. A local
-`path:.#` flake evaluation includes untracked files and can exercise
-the example, but in this checkout it resolved `pkgs.qwen38` to
-`/nix/store/q291n7j5q72bdh8fllkkd2l6pisp31c0-qwen38-0.1.0`;
-the profile now rejects that unqualified output with its package
-identity assertion. An explicit local example path alongside the
-git-filtered default module selected y58 and rebuilt the exact
-`hd0r2drbsacdz14vdbw3ssv8sy8j6nxf` unit from the physical trial.
-None of these pre-commit checks replaces committing and pinning the
-reviewed example and package source before building a durable host
-generation. If the reviewed commit changes the Qwen output hash,
-requalify the new package on physical P150x2 and update this guard;
-never weaken it to admit an unmeasured derivation.
+Before the source commit, the untracked example was missing from the
+Git-filtered flake, while a `path:` checkout included extra local files and
+resolved an unqualified `q291n7j5q72bdh8fllkkd2l6pisp31c0` package. Those
+were pre-commit diagnostics, not the current source identity. Commit
+`739abbf` added the reviewed example and y58-matched source; the one-line
+cache-policy geometry comment correction in `e3cfded` changed the package
+output. From `e3cfded`, both the ordinary Git flake and a revision-pinned
+`git+file:` evaluation select the exact `han2q1h90mcp8ad1k9qq7bz7sl8r4rf9`
+package. Offline package, device-free Qwen and NixOS service checks built.
+The separate NixOS profile asserts the exact han2 output; a different
+package fails closed. A flake export and local evaluation are not a pinned
+host input, a rendered host generation or an activation. Future source
+changes that alter the output require their own paired physical gate before
+the guard can change again.
 
 Before a privileged activation, evaluate/build the **reviewed host generation**
-and inspect its rendered `qwen38-p150x2.service`, not just this example. In
-this checkout `nix eval --offline --raw
+and inspect its rendered `qwen38-p150x2.service`, not just this example. For
+`e3cfded`, `nix eval --offline --raw
 .#packages.x86_64-linux.qwen38.outPath` resolved to
-`/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0`; reject a
+`/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0`; reject a
 different output unless separately requalified. Verify the generated
 `ExecStart`, `Environment`, device-node conditions and owner conflicts:
 `--max-sequence-length 131072`, `--require-systemd-notify`, both policy

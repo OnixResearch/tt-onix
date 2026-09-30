@@ -25,11 +25,11 @@
       message = "The Qwen read-lane profile requires the reviewed 131072/8192 grouped, traced, sampled, cached continuous-slot configuration";
     }
     {
-      # Only this derivation ran the paired P150x2 root-systemd trial.
+      # Only this output from e3cfded passed the paired P150x2 root-systemd gate.
       assertion =
         config.hardware.tenstorrent.qwen38.package.outPath
-        == "/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0";
-      message = "The Qwen read-lane profile requires the physically paired y58n6n12g680m4g9bqmd5n68smhs0ha9 package; requalify a changed package output";
+        == "/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0";
+      message = "The Qwen read-lane profile requires the physically paired han2q1h90mcp8ad1k9qq7bz7sl8r4rf9 package; requalify a changed package output";
     }
   ];
 

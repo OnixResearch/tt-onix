@@ -1,0 +1,98 @@
+{
+  "schema": "onix.qwen38.committed-read-lanes-paired-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "scope": "One bounded physical P150x2 root-systemd requalification of the committed e3cfded han2 package against the preserved exact-request gfvkac4 baseline and earlier y58 paired candidate. Covers A/B generation prefixes and four concurrent 82-token and 198-token structured reads in the 128/256 buckets only; not general throughput, longer reads, reboot persistence, a reviewed host generation, or broad model-quality admission.",
+  "source_commit": "e3cfded523e873f51da87f9ff0ba46831884f636",
+  "method": "Strict-known-host root SSH; verify old notify service and preserved 90/95/96; create a separate candidate package GC pin; isolate original device owner with ttwkv7-owner-control; install only a temporary /run 97 candidate ExecStart matching the committed-flake base-module rendering with TimeoutStartSec=1250s and Restart=no; daemon-reload and start Type=notify; run exact-byte HTTP fixture under timeout 1100s; EXIT/HUP/INT/TERM trap stops candidate, removes only 97, daemon-reloads, restores old owner and verifies old Type=notify active/running and healthz 200 ready. No firmware or host-generation switch.",
+  "raw_evidence_outside_repo": {
+    "fixture_manifest": {"path": "/tmp/qwen-systemd-trial/fixture-manifest.json", "sha256": "1cd89e0e8063dc96e062aaff49bede042b9950c20eee8e2c80c799542a0085fe"},
+    "old_baseline_response": {"path": "/tmp/qwen-systemd-trial/baseline-raw.json", "sha256": "936fb4baf0d19686be8acf242d93cb80d711f86e8641fa35850113b8d5377aeb"},
+    "previous_y58_response": {"path": "/tmp/qwen-systemd-trial/candidate-raw.json", "sha256": "a3582551493758840c5a2ef60a4b69f28e2c718119f925bf7638e60593713904"},
+    "new_han2_response": {"path": "/tmp/qwen-systemd-trial/han2-candidate-raw.json", "sha256": "fedebbd37777ad02a7f477d35bb3de82018e978023ea9568fa2e5fced0bb5967"},
+    "root_transaction_log": {"path": "/tmp/qwen-systemd-trial/han2-root-trial.log", "sha256": "62f6d6b6185eea848ea3b591314a780b10e60068cae34765e0a82cbcb950b649"}
+  },
+  "fixture_sha256": {
+    "A_cold": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+    "A_continue": "a31d7b2253d29e77cf9dcabbe505d97a5feac2cb39362d593d528ccba14b140b",
+    "B_cold": "dc181174a5322b5160cc620f692d5d58b57e93d66044ac25f3d4c81716d4607c",
+    "B_continue": "3a5562bdea1a922926a069aaeb0d9c389f04592b7b2a82c0ee11dc0b0da146e2",
+    "short_128": "de4243c77de56d4222e0143a30cd69d3ca9d9621fbba94c9ff6406563f8a9763",
+    "medium_256": "99d7f5996cd7cd246957bd0d2a68bed67f01f75de97a5e6cdb3b830e823f0e00"
+  },
+  "identities": {
+    "old_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "old_execution_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+    "previous_y58_package": "/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0",
+    "new_han2_package": "/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0",
+    "new_han2_execution_identity": "/nix/store/3f24p5jh5prdv91hbp5jgkblw1f43xbj-qwen36-execution-identity-0.1.0",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "model_snapshot": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "physical_pcie_device_ids_in_every_generation_response": [0, 1],
+    "han2_kv_pool_blocks": 4113,
+    "old_maximum_cached_generation_blocks": 2048,
+    "han2_maximum_cached_generation_blocks": 4064
+  },
+  "service_trial": {
+    "old_initial_pid": 658860,
+    "candidate_root_pid": 835106,
+    "notify_start_utc": "2026-09-30T22:18:39Z",
+    "notify_ready_utc": "2026-09-30T22:29:01Z",
+    "candidate_notify_ready_startup_seconds": 622,
+    "candidate_start_timeout_seconds": 1250,
+    "candidate_n_restarts": 0,
+    "candidate_healthz_http_status": 200,
+    "candidate_healthz_ready": true,
+    "candidate_environment_verified": ["MESH_DEVICE=P150x2", "QWEN35_GROUPED_PREFILL=1", "QWEN36_TRACED_PREFILL=1", "QWEN36_SAMPLED_FUSION=1", "CI absent"],
+    "candidate_execstart_verified": ["--max-sequence-length 131072", "--max-generation-tokens 8192", "--require-systemd-notify", "both continuous-slot and prefix-cache policies from han2 package"],
+    "http_probe_started_utc": "2026-09-30T22:29:01Z",
+    "http_probe_completed_utc": "2026-09-30T22:31:06Z",
+    "http_probe_timeout_seconds": 1100,
+    "http_probe_elapsed_seconds": 125,
+    "http_probe_complete": true
+  },
+  "generation": {
+    "A_cold": {"prompt_tokens": 130549, "old_hit_tokens": 0, "previous_y58_hit_tokens": 0, "han2_hit_tokens": 0, "han2_ttft_seconds": 103.63638890022412},
+    "B_cold": {"prompt_tokens": 16684, "old_hit_tokens": 0, "previous_y58_hit_tokens": 0, "han2_hit_tokens": 0, "han2_ttft_seconds": 9.595361681189388},
+    "B_before_reads": {"prompt_tokens": 16699, "old_hit_tokens": 16384, "previous_y58_hit_tokens": 16384, "han2_hit_tokens": 16384, "han2_ttft_seconds": 0.4166999920271337},
+    "A_before_short": {"prompt_tokens": 130564, "old_hit_tokens": 0, "previous_y58_hit_tokens": 130048, "han2_hit_tokens": 130048, "han2_ttft_seconds": 1.0912093338556588},
+    "B_after_short": {"prompt_tokens": 16699, "old_hit_tokens": 0, "previous_y58_hit_tokens": 16384, "han2_hit_tokens": 16384, "han2_ttft_seconds": 0.4321552002802491},
+    "A_after_short": {"prompt_tokens": 130564, "old_hit_tokens": 0, "previous_y58_hit_tokens": 130048, "han2_hit_tokens": 130048, "han2_ttft_seconds": 1.1024988507851958},
+    "B_after_medium": {"prompt_tokens": 16699, "old_hit_tokens": 0, "previous_y58_hit_tokens": 16384, "han2_hit_tokens": 16384, "han2_ttft_seconds": 0.4173686569556594},
+    "A_after_medium": {"prompt_tokens": 130564, "old_hit_tokens": 0, "previous_y58_hit_tokens": 130048, "han2_hit_tokens": 130048, "han2_ttft_seconds": 1.0922176782041788}
+  },
+  "generation_output_parity": {
+    "A_answer_every_phase_all_three_packages": "amber thrush",
+    "A_generated_token_ids_every_phase_all_three_packages": [14778, 8541, 1080],
+    "B_answer_every_phase_all_three_packages": "copper wren",
+    "B_generated_token_ids_every_phase_all_three_packages": [66, 17936, 288, 1388],
+    "exact_prompt_token_counts_and_answers_matched_preserved_baseline_and_y58": true
+  },
+  "structured_reads": {
+    "short_128": {"prompt_tokens_each": 82, "http_statuses": [200, 200, 200, 200], "han2_routes": ["masked-trace", "batched-read-trace", "batched-read-trace", "batched-read-trace"], "device_reads_each": 1, "answer_each_all_three_packages": {"urgent": {"noul": 0.000552778597921133, "type": "noul"}}, "request_wall_seconds": [0.24176, 0.66092, 0.66093, 0.66056]},
+    "medium_256": {"prompt_tokens_each": 198, "http_statuses": [200, 200, 200, 200], "han2_routes": ["batched-read-trace", "masked-trace", "batched-read-trace", "batched-read-trace"], "device_reads_each": 1, "answer_each_all_three_packages": {"urgent": {"noul": 0.00247262348420918, "type": "noul"}}, "request_wall_seconds": [0.95709, 0.26543, 0.95606, 0.95557]}
+  },
+  "rollback": {
+    "began_utc": "2026-09-30T22:31:06Z",
+    "verified_utc": "2026-09-30T22:34:30Z",
+    "candidate_stopped": true,
+    "temporary_run_dropin_97_removed": true,
+    "dropins_90_95_96_byte_identical_to_preflight": true,
+    "original_owner_restored_via_ttwkv7_owner_control": true,
+    "old_root_pid_after_restore": 964848,
+    "old_package_execstart_restored": true,
+    "old_max_sequence_length": 131072,
+    "old_requires_systemd_notify": true,
+    "old_service_type_notify_active_running": true,
+    "old_n_restarts_after_restore": 0,
+    "old_healthz_http_status": 200,
+    "old_healthz_ready": true,
+    "old_startup_warmup_seconds": 104.33929524803534,
+    "old_package_gc_root_preserved": "/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate",
+    "previous_y58_gc_root_preserved": "/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial",
+    "han2_package_gc_pin_intentionally_retained": "/nix/var/nix/gcroots/qwen38-han2-physical-requal",
+    "han2_gc_pin_is_package_retention_not_service_activation": true,
+    "exceptional_recovery_needed": false
+  },
+  "interpretation": "PASS for the exact six-request physical generation/read-lane and root-owned systemd-notify path of the committed han2 output, with the old service restored. The old 2048-block budget cannot simultaneously retain the 2032-block A and 256-block B prefixes, while the han2 4064-block budget retains both; do not attribute continuation TTFT differences solely to read lanes or claim broad throughput. This receipt does not qualify longer reads, untested model quality, TT-Metal 0.77 numerical production admission, the unchanged y58-guarded profile for han2, or any durable/reboot-persistent host-generation activation. TTsim does not model the fused GDN recurrence control flag, so this is silicon evidence, not a simulator pass."
+}
