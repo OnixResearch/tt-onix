@@ -1,6 +1,6 @@
 # Candidate profile for the dedicated 4,113-block structured-read lanes.
 # Import alongside tenstorrent-nix.nixosModules.default into a reviewed host
-# generation only after the paired physical admission described in
+# generation only after the same-fixture physical requalification described in
 # docs/qwen38-27b-adoption.md. This profile does not activate the host.
 { config, pkgs, ... }:
 {
@@ -25,11 +25,12 @@
       message = "The Qwen read-lane profile requires the reviewed 131072/8192 grouped, traced, sampled, cached continuous-slot configuration";
     }
     {
-      # Only this output from e3cfded passed the paired P150x2 root-systemd gate.
+      # e3cfded's han2 output passed a same-fixture root-systemd requalification
+      # against preserved exact-byte old/y58 responses, not a fresh old baseline.
       assertion =
         config.hardware.tenstorrent.qwen38.package.outPath
         == "/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0";
-      message = "The Qwen read-lane profile requires the physically paired han2q1h90mcp8ad1k9qq7bz7sl8r4rf9 package; requalify a changed package output";
+      message = "The Qwen read-lane profile requires the han2q1h90mcp8ad1k9qq7bz7sl8r4rf9 output requalified against preserved baseline responses; requalify a changed package output";
     }
   ];
 

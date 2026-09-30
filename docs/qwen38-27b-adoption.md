@@ -1088,7 +1088,7 @@ exact six-request physical and root-systemd path for han2, not longer reads,
 broad throughput, model quality, reboot persistence or TT-Metal 0.77
 production numerical admission.
 
-### Reviewed read-lane NixOS deployment (paired gate passed; not deployed)
+### Reviewed read-lane NixOS deployment (same-fixture han2 requalification passed; not deployed)
 
 `nixosModules.qwen38-p150x2-read-lanes` is a host-specific example to import
 **alongside** `nixosModules.default` in a reviewed host generation. It selects
@@ -1098,14 +1098,15 @@ module's service already requires device nodes 0 and 1, starts the serialized
 P150x2 executable, and reads both scheduler policies from that same package.
 This example does not import or switch the dirty `onix-core` checkout, and
 does not replace the running service. That host configuration masks Qwen and
-sets 2,048/64 tokens; its lock pins `tenstorrent-nix` at `cbfcab9`, not the
-reviewed `e3cfded` read-lane source commit. The profile and candidate source
-are now committed here, but no reviewed host input or generation has selected
-them. A durable deployment requires a pinned host-generation source selecting
-the exact paired package while preserving other host settings. Review owner
-conflicts, model path, driver, firmware and OMP separately. The previous
-65,536-token boot generation and `/run/systemd` overrides do **not** provide
-durable 131,072-token rollback after reboot.
+sets 2,048/64 tokens; its lock pins `tenstorrent-nix` at `cbfcab9`, not a
+revision containing both the reviewed read-lane source and the qualified
+han2 profile guard (`e3cfded` alone retains the stale y58 guard). The source
+and guard are committed here, but no reviewed host input or generation has
+selected them. A durable deployment requires a pinned host-generation source
+selecting the exact requalified package while preserving other host settings.
+Review owner conflicts, model path, driver, firmware and OMP separately.
+The previous 65,536-token boot generation and `/run/systemd` overrides do
+**not** provide durable 131,072-token rollback after reboot.
 
 For `onix-core/machines/britton-desktop/configuration.nix`, the smallest
 reviewable integration is:
@@ -1139,12 +1140,14 @@ These are instructions for a **future reviewed host edit**, not edits made
 to `onix-core`. A profile imported into its current host config is not
 deployable: same-priority limits/package definitions conflict, while a
 forced 2,048/64 override or the current mask fails the profile assertions.
-The profile selects the matched flake's `pkgs.qwen38` derivation but
-also fails closed unless its output is the requalified
+The profile selects the host's overlaid `pkgs.qwen38` derivation and fails
+closed unless its output is the requalified
 `/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0`.
-This is an admission invariant, not a store-path package fallback.
-Compare the *rendered host unit* against the same output and retain the
-verified old-package rollback generation.
+This is an admission invariant, not a store-path package fallback. A host
+with different `nixpkgs` or extra overlays can produce a different output;
+the local flake result does not qualify that host package. Compare the
+*rendered host unit* and package path against han2, and retain the verified
+old-package rollback generation.
 
 Before the source commit, the untracked example was missing from the
 Git-filtered flake, while a `path:` checkout included extra local files and
@@ -1176,14 +1179,15 @@ mask the unit. The existing device-free package and service checks are build
 gates, not physical admission. Physical IDs 0 and 1 must still be checked
 against the actual serving process after activation.
 
-The paired systemd gate above passed for the exact six-input fixture and
-128/256 cached reads; its baseline and candidate hashes matched. Unlike
-the earlier direct receipt, it exercised the root-owned notify unit and
-measured the old package on the same A/B/read inputs. The changed prefix
-budget is part of this comparison, so do not credit the observed TTFT
-difference to the read lanes alone. It does not qualify longer reads,
-general throughput, 128K structured-read quality, an unreconciled host
-generation or TT-Metal 0.77 as a production release.
+The **historical y58 paired** systemd gate measured the old `gfvkac4` package
+on the same exact six-input fixture and exercised root-owned notify readiness.
+The later **han2 same-fixture requalification** compared its newly captured
+answers to preserved exact-byte old and y58 responses; it did not rerun the
+old baseline. Both are bounded correctness and cache-retention gates. The
+changed prefix budget is part of the comparison, so do not credit continuation
+TTFT differences to read lanes alone. Neither qualifies longer reads, general
+throughput, 128K structured-read quality, a reviewed host generation or
+TT-Metal 0.77 production admission.
 
 Preserve the old package at
 `/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` under its
@@ -1194,15 +1198,19 @@ the same 131,072-token service settings; verify its rendered unit and path.
 The booted 65,536-token generation is not a suitable 128K rollback.
 If admission or health fails, a privileged operator can restore that prebuilt
 generation, check `/healthz`, the process package path and the 131,072 limit,
-then restore/confirm the original device owner as required. Do not remove
-either GC root until the chosen durable generation and its rollback are retained.
+then restore/confirm the original device owner as required. Retain all three
+package GC pins — old
+`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`, historical y58
+`/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial`, and requalified
+han2 `/nix/var/nix/gcroots/qwen38-han2-physical-requal` — until the chosen
+durable generation and its reviewed rollback are retained.
 
 `ttwkv7-owner-control` isolates/restores service owners but does not install
 a host generation. Root SSH access to `root@britton-desktop` is available
 via batch authentication for an approved reviewed switch; `sudo -n` does
-not grant root writes. Privilege is **not** the present blocker: the
-paired fixture passed, but the host-generation source and durable rollback
-remain unreconciled.
+not grant root writes. Privilege is **not** the present blocker: han2's
+same-fixture physical requalification passed, but the host-generation
+source and durable rollback remain unreconciled.
 Do not use an unmanaged persistent systemd override as a substitute.
 OMP's 131,072 `maxContextWindow` remains unsafe if the actual serving
 generation falls back to 65,536 after reboot.
