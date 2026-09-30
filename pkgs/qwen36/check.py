@@ -818,10 +818,11 @@ def probe_kv_pool():
     row_blocks = 1024
     pool = KvPoolLayout(pool_blocks=pool_blocks, row_blocks=row_blocks, kv_block_size=64)
     prefix = set(range(pool.reserved_prefix_blocks))
+    lanes = set().union(*(set(row) - {pool.scratch_block} for row in pool.batch_read_rows()))
     require(pool.scratch_block == pool_blocks - 1, "the scratch block is not the last block")
     require(
-        pool.group_capacity_blocks == pool_blocks - len(prefix) - 1,
-        "the group capacity counts the read prefix or the scratch block",
+        pool.group_capacity_blocks == pool_blocks - len(prefix | lanes) - 1,
+        "the group capacity counts a reserved read block or the scratch block",
     )
 
     # A row covers its whole prefill buckets and every decoded position.
@@ -859,8 +860,8 @@ def probe_kv_pool():
         "two group rows share a KV block",
     )
     require(
-        not any(run & (prefix | {pool.scratch_block}) for run in assigned),
-        "a group row took a read-prefix or scratch block",
+        not any(run & (prefix | lanes | {pool.scratch_block}) for run in assigned),
+        "a group row took a read-prefix, batched-read, or scratch block",
     )
     require(
         all(set(row[count:]) <= {pool.scratch_block} for row, count in zip(rows, counts))
@@ -885,9 +886,9 @@ def probe_kv_pool():
     require(
         all(len(row) >= 16 for row in generation_rows)
         and sum(len(row) for row in generation_rows) == len(set().union(*generation_rows))
-        and not any(row & set(startup[-1]) for row in generation_rows)
-        and max(max(row) for row in generation_rows) < pool.scratch_block,
-        "startup rows overlap, exceed the pool, or cannot hold one prefill bucket",
+        and not any(row & (set(startup[-1]) | lanes) for row in generation_rows)
+        and max(max(row) for row in generation_rows) < pool.generation_end_block,
+        "startup rows overlap the read rows, exceed generation, or cannot hold one prefill bucket",
     )
     try:
         KvPoolLayout(pool_blocks=row_blocks, row_blocks=row_blocks, kv_block_size=64)
@@ -983,6 +984,261 @@ def probe_kv_pool():
     )
 
 
+def probe_read_batch_kv_lanes():
+    """Batched structured reads write only their own KV lanes: two cached generation prefixes
+    survive bursts of short batched reads, and generation keeps its whole group capacity."""
+    import hashlib
+    import threading
+    import time
+    from unittest import mock
+
+    import torch
+    from models.demos.blackhole.qwen36.tt.model import Qwen36Model
+    from qwen36_service import batch_decode_adapter as adapter_module
+    from qwen36_service import continuous_slot_core as core
+    from qwen36_service import prefix_cache_core as prefix
+    from qwen36_service.batch_decode_adapter import (
+        READ_ROUTE_BATCHED_TRACE,
+        TRACED_PREFILL_ENV,
+        BatchedTracedDecodeAdapter,
+    )
+    from qwen36_service.batch_service import _PendingRead
+    from qwen36_service.continuous_slot_service import ContinuousSlotCoordinator
+    from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
+
+    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle:
+        buffers = json.load(handle)["buffers"]
+    block_tokens = buffers["kv_block_size"]
+    layout = KvPoolLayout(
+        pool_blocks=buffers["kv_pool_blocks"],
+        row_blocks=-(-buffers["maximum_sequence_length"] // block_tokens),
+        kv_block_size=block_tokens,
+    )
+    kv = core.KvBlockRange(
+        layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, block_tokens
+    )
+    width = Qwen36Model.READ_BATCH_WIDTH
+
+    def written_by_batch(table, bucket):
+        """Blocks each captured user row writes in one replay of `bucket`, used or not."""
+        return [frozenset(int(block) for block in row[: bucket // block_tokens]) for row in table[:width]]
+
+    # The physical receipt's scenario through the real planner: A caches a near-full
+    # 130,048-token prefix, then B a 16,384-token prefix beside it.
+    def digest(data):
+        return hashlib.blake2b(data, digest_size=32).digest()
+
+    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+        slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
+    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+        prefix_policy = prefix.PrefixCachePolicy.from_mapping(json.load(handle))
+
+    def turn(schedule, name, prompt, now):
+        request = core.SlotRequest(
+            request_id=name,
+            prompt_tokens=len(prompt),
+            max_tokens=16,
+            route="step",
+            blocks=layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=16),
+            arrival_seconds=now,
+            deadline_seconds=now + 1000.0,
+            prefix_digests=prefix.prefix_digests(
+                prompt, identity="qwen38", tenant=prefix_policy.tenant, blake3_digest=digest
+            ),
+            shared_root_tokens=0,
+        )
+        schedule, _ = core.submit(schedule, slot_policy, kv, request)
+        schedule, effects = core.plan_boundary(
+            schedule, slot_policy, kv, now=now, prefix_policy=prefix_policy, prefix_available=True
+        )
+        (prefill,) = [effect for effect in effects if isinstance(effect, core.PrefillSlot)]
+        schedule = core.observe_prefill(
+            schedule, slot=prefill.slot, generation=prefill.generation, token_id=5, stopped=True
+        )
+        schedule, _ = core.plan_boundary(
+            schedule, slot_policy, kv, now=now + 0.5, prefix_policy=prefix_policy, prefix_available=True
+        )
+        return schedule, prefill
+
+    a_prompt = list(range(130549))
+    b_prompt = list(range(200000, 200000 + 16684))
+    schedule = core.initial_schedule(slot_policy)
+    schedule, a_cold = turn(schedule, "A-cold", a_prompt, 1.0)
+    schedule, b_cold = turn(schedule, "B-cold", b_prompt, 2.0)
+    cached = {entry.prefix_tokens: entry for entry in schedule.prefix_entries}
+    require(
+        a_cold.save_at == 130048
+        and b_cold.save_at == 16384
+        and set(cached) == {130048, 16384}
+        and all(entry.ready for entry in cached.values()),
+        f"the planner did not cache both prefixes: {schedule.prefix_entries}",
+    )
+
+    # The real adapter on a fake model and TTNN: it captures the batched-read traces, and the
+    # service's read path serves each burst and drops the cached prefixes the burst wrote.
+    class LaneModel:
+        READ_BATCH_WIDTH = Qwen36Model.READ_BATCH_WIDTH
+        READ_BATCH_BUCKETS = Qwen36Model.READ_BATCH_BUCKETS
+        MASKED_PREFILL_TRACE_BUCKETS = Qwen36Model.MASKED_PREFILL_TRACE_BUCKETS
+        MASKED_LOGIT_ROWS = Qwen36Model.MASKED_LOGIT_ROWS
+        num_devices = 2
+
+        def __init__(self):
+            state = torch.zeros(1)
+            self.args = SimpleNamespace(max_batch_size=16, vocab_size=8, n_local_kv_heads=1, head_dim=32)
+            self.mesh_device = SimpleNamespace()
+            self.layers = [SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(
+                rec_state=state, conv_states=[state], conv_carry=state, _zero_rec=state,
+                _zero_conv0=state, _zero_conv_carry=state, _decode_fusion_mode="step",
+            ))]
+            self.read_table = None
+            self.device_writes = set()
+            self.replays = []
+
+        def allocate_kv_caches(self, shape, dtype, batch_size):
+            pass
+
+        def warm_serving_programs(self, page_table):
+            pass
+
+        def capture_masked_prefill_traces(self, page_table_row, read_page_table=None, **_states):
+            self.read_table = read_page_table.clone()
+
+        def masked_prefill_trace_buckets(self):
+            return self.MASKED_PREFILL_TRACE_BUCKETS
+
+        def masked_read_batch_buckets(self):
+            return self.READ_BATCH_BUCKETS if self.read_table is not None else ()
+
+        def masked_prefill_traces_stale(self):
+            return False
+
+        def prefill_masked_read(self, token_ids, page_table_row, length, slot, positions):
+            self.replays.append("single")
+            return torch.zeros(len(positions), self.args.vocab_size), 0
+
+        def prefill_masked_read_batch(self, token_ids_list, positions_list):
+            # The replay fills every captured user row through its bucket, used or not.
+            longest = max(int(tokens.shape[1]) for tokens in token_ids_list)
+            bucket = min(b for b in self.READ_BATCH_BUCKETS if b >= longest)
+            for lane in written_by_batch(self.read_table, bucket):
+                self.device_writes |= lane
+            self.replays.append(bucket)
+            return [torch.zeros(len(rows), self.args.vocab_size) for rows in positions_list]
+
+    fake_ttnn = SimpleNamespace(
+        ConcatMeshToTensor=lambda mesh, dim: None,
+        bfloat16=None,
+        release_trace=lambda *_args: None,
+        synchronize_device=lambda _mesh: None,
+    )
+    profile = SimpleNamespace(
+        kv_pool_blocks=layout.pool_blocks,
+        kv_block_size=block_tokens,
+        maximum_sequence_length=buffers["maximum_sequence_length"],
+    )
+    model = LaneModel()
+    worker = object.__new__(ContinuousSlotCoordinator)
+    worker._condition = threading.Condition()
+    worker._quarantine_reason = None
+    worker._effect_started = None
+    worker._schedule = schedule
+    worker.emitter = lambda *_args, **_fields: None
+    with mock.patch.object(adapter_module, "ttnn", fake_ttnn), mock.patch.dict(os.environ, {TRACED_PREFILL_ENV: "1"}):
+        worker.adapter = BatchedTracedDecodeAdapter(model=model, profile=profile)
+        worker.adapter.reset_all = lambda: None  # zeroing GDN state is device work
+        worker.adapter.prepare_masked_prefill_traces(7, ())
+        # Four 84-token reads share one 128-token replay; three 200-token reads share a
+        # 256-token replay that also fills the unused fourth lane.
+        for count, length, bucket in ((4, 84, 128), (3, 200, 256)):
+            model.device_writes.clear()
+            model.replays.clear()
+            reads = tuple(
+                _PendingRead(
+                    requests=((torch.zeros(1, length, dtype=torch.int32), (length - 1,)),),
+                    deadline=time.monotonic() + 3600.0,
+                )
+                for _ in range(count)
+            )
+            worker._serve_reads(reads)
+            results = [result for job in reads for result in job.results or ()]
+            require(
+                len(results) == count
+                and model.replays == [bucket]
+                and all(result.route == READ_ROUTE_BATCHED_TRACE for result in results),
+                f"{count} {length}-token reads beside cached prefixes left the batched route: "
+                f"{model.replays} {sorted({result.route for result in results})}",
+            )
+            reported = frozenset().union(*(result.kv_written_blocks for result in results))
+            require(
+                model.device_writes <= reported,
+                f"a {bucket}-token batch wrote KV blocks the service was not told about",
+            )
+            require(
+                model.device_writes.isdisjoint(prefix.cached_blocks(cached.values()))
+                and {entry.entry_id for entry in worker._schedule.prefix_entries}
+                == {entry.entry_id for entry in cached.values()},
+                f"a {bucket}-token batch overwrote or evicted a cached prefix",
+            )
+
+    # Both conversations still resume from their own KV and carried state.
+    schedule = worker._schedule
+    for now, (name, prompt, saved) in enumerate((
+        ("A-continued", a_prompt + list(range(300000, 300015)), cached[130048]),
+        ("B-continued", b_prompt + list(range(400000, 400015)), cached[16384]),
+    ), start=5):
+        schedule, resumed = turn(schedule, name, prompt, float(now))
+        require(
+            resumed.hit_entry == saved.entry_id
+            and resumed.prefix_tokens == saved.prefix_tokens
+            and resumed.resume_state == saved.state_index,
+            f"{name} missed its cached prefix after the batched reads: {resumed}",
+        )
+
+    # A replay's rows, padding included, leave the saved single-read prefix in place.
+    saved_read = SimpleNamespace(_read_prefix=(None, None, frozenset(range(layout.reserved_prefix_blocks))))
+    Qwen36Model._invalidate_read_prefix(saved_read, model.read_table)
+    require(saved_read._read_prefix is not None, "a batched read replay dropped the saved single-read prefix")
+
+    # Generation keeps room for two near-full prefixes and one continuation in a group, and
+    # the continuous-slot range is exactly the set of blocks a full group can be assigned.
+    near_full = 130048 // block_tokens
+    try:
+        layout.assign_group((near_full, near_full, 16), width=16)
+    except KvPoolError as error:
+        require(False, f"two near-full prefixes and a continuation no longer fit one group: {error}")
+    capacity = layout.group_capacity_blocks
+    full = [layout.row_blocks] * (capacity // layout.row_blocks)
+    full += [capacity % layout.row_blocks] if capacity % layout.row_blocks else []
+    generation = frozenset().union(
+        *(frozenset(row[:count]) for row, count in zip(layout.assign_group(full, width=16), full))
+    )
+    reserved = frozenset(range(layout.reserved_prefix_blocks)) | {layout.scratch_block}
+    require(
+        generation == frozenset(range(kv.first_block, kv.end_block))
+        and generation.isdisjoint(reserved)
+        and max(generation) < layout.pool_blocks,
+        "the continuous-slot range, a full group, and the reserved blocks disagree",
+    )
+    # Every batched bucket keeps each user's lane apart from the other users, from every
+    # block generation can be assigned, from the single-read prefix, and from scratch.
+    for source, table in (
+        ("the pool's batched-read rows", layout.batch_read_rows()),
+        ("the captured batched-read trace", model.read_table),
+    ):
+        for bucket in Qwen36Model.READ_BATCH_BUCKETS:
+            lanes = written_by_batch(table, bucket)
+            written = frozenset().union(*lanes)
+            require(
+                len(lanes) == width and len(written) == width * (bucket // block_tokens),
+                f"{source}: {bucket}-token batch users share KV blocks",
+            )
+            require(
+                written.isdisjoint(generation | reserved) and max(written) < layout.pool_blocks,
+                f"{source}: a {bucket}-token batch writes generation, read-prefix, or scratch KV",
+            )
+
+
 # r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
 def probe_continuous_slot_policy():
     """Continuous slots: B4 admission, staggered refill, stale events, cancellation, deadlines,
@@ -1012,7 +1268,7 @@ def probe_continuous_slot_policy():
 
     layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
     kv = core.KvBlockRange(
-        layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks, layout.kv_block_size
+        layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, layout.kv_block_size
     )
 
     def request(request_id, prompt, max_tokens, *, route="step", arrival=0.0, deadline=1000.0):
@@ -1954,7 +2210,8 @@ def probe_continuous_slot_adapter():
                 None if page_table is None else page_table.clone(),
             )
 
-    layout = KvPoolLayout(pool_blocks=96, row_blocks=16, kv_block_size=64)
+    # 79 generation blocks after the read prefix, then the batched-read lanes and scratch.
+    layout = KvPoolLayout(pool_blocks=112, row_blocks=16, kv_block_size=64)
     scratch = layout.scratch_block
     model = FakeModel()
     adapter = object.__new__(BatchedTracedDecodeAdapter)
@@ -2060,8 +2317,10 @@ def probe_continuous_slot_adapter():
             "a KV run in the reserved read prefix was accepted",
         )
         rejects(
-            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=82, block_count=16),
-            "a KV run reaching the scratch block was accepted",
+            lambda: adapter.refill_slot(
+                slot=2, token_ids=prompt(100), block_start=layout.generation_end_block - 8, block_count=16
+            ),
+            "a KV run reaching the batched-read lanes was accepted",
         )
         rejects(
             lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=40, block_count=4),
@@ -2502,7 +2761,7 @@ def probe_prefix_cache_policy():
             require(False, reason)
 
     layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
-    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.scratch_block, layout.row_blocks, 64)
+    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, 64)
     with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
         slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
 
@@ -2588,26 +2847,30 @@ def probe_prefix_cache_policy():
     require(prefills(effects)[0].hit_entry == chained.entry_id and prefills(effects)[0].prefix_tokens == 7168,
             f"turn 3 did not resume from the longest prefix: {prefills(effects)[0]}")
 
-    # A 128K row must retain the largest cacheable prefix instead of forfeiting
-    # the entire donation when its last chunk exceeds the 1,024-block KV budget.
-    long_layout = KvPoolLayout(pool_blocks=4096, row_blocks=2048, kv_block_size=64)
+    # A 128K row retains its last whole chunk; one extra KV pool block lets a
+    # second cold full row run without evicting the first 2,032-block prefix.
+    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle:
+        long_pool_blocks = json.load(handle)["buffers"]["kv_pool_blocks"]
+    long_layout = KvPoolLayout(pool_blocks=long_pool_blocks, row_blocks=2048, kv_block_size=64)
+    require(long_layout.group_capacity_blocks >= 2032 + long_layout.row_blocks,
+            "one cold full row cannot fit beside an existing near-full prefix")
     long_kv = core.KvBlockRange(
-        long_layout.reserved_prefix_blocks, long_layout.scratch_block, long_layout.row_blocks, 64
+        long_layout.reserved_prefix_blocks, long_layout.generation_end_block, long_layout.row_blocks, 64
     )
     long_prompt = list(range(130545))
     long_request = request("long", long_prompt, max_tokens=16, row_layout=long_layout)
     long_schedule, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
     long_schedule, effects = boundary(long_schedule, 1.0, row_range=long_kv)
     (first_long,) = prefills(effects)
-    require(first_long.prefix_tokens == 0 and first_long.save_at == 65536,
-            f"a cold 128K turn did not save its 65K prefix: {first_long}")
+    require(first_long.prefix_tokens == 0 and first_long.save_at == 130048,
+            f"a cold 128K turn did not save its longest prefix: {first_long}")
     long_schedule = core.observe_prefill(
         long_schedule, slot=first_long.slot, generation=first_long.generation, token_id=5, stopped=True
     )
     long_schedule, _ = boundary(long_schedule, 2.0, row_range=long_kv)
     (long_entry,) = long_schedule.prefix_entries
-    require(long_entry.ready and len(entry_blocks(long_schedule)) == 1024,
-            "the long turn did not retain exactly 1,024 KV blocks with its state")
+    require(long_entry.ready and len(entry_blocks(long_schedule)) == 2032,
+            "the long turn did not retain exactly 2,032 KV blocks with its state")
     extended = long_prompt + list(range(200000, 200020))
     extended_request = request("longer", extended, max_tokens=16, row_layout=long_layout)
     long_schedule, _ = core.submit(long_schedule, slot_policy, long_kv, extended_request)
@@ -2615,24 +2878,159 @@ def probe_prefix_cache_policy():
     (continued,) = prefills(effects)
     require(
         continued.hit_entry == long_entry.entry_id
-        and continued.prefix_tokens == 65536
+        and continued.prefix_tokens == 130048
         and continued.resume_state == long_entry.state_index
         and continued.prefix_ranges == long_entry.block_ranges
-        and continued.block_count == extended_request.blocks - 1024
+        and continued.block_count == extended_request.blocks - 2032
         and continued.save_state is None,
-        f"a later 128K turn did not reuse the 65K KV and carried state: {continued}",
+        f"a later 128K turn did not reuse the near-full KV and carried state: {continued}",
     )
     require(
         not set(range(continued.block_start, continued.block_start + continued.block_count))
         & entry_blocks(long_schedule),
         "a continued long turn overwrote its saved prefix KV",
     )
+
+    # The quota remains configurable: the old quarter-pool budget must still
+    # reuse a shorter prefix, rather than silently reserving the full row.
+    quarter = copy.replace(policy, maximum_cached_blocks=1024)
+    quarter_schedule, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
+    quarter_schedule, effects = boundary(quarter_schedule, 1.0, use=quarter, row_range=long_kv)
+    (quarter_first,) = prefills(effects)
+    require(quarter_first.save_at == 65536, "the smaller budget did not cap the saved prefix")
+    quarter_schedule = core.observe_prefill(
+        quarter_schedule, slot=quarter_first.slot, generation=quarter_first.generation, token_id=5, stopped=True
+    )
+    quarter_schedule, _ = boundary(quarter_schedule, 2.0, use=quarter, row_range=long_kv)
+    quarter_schedule, _ = core.submit(quarter_schedule, slot_policy, long_kv, extended_request)
+    quarter_schedule, effects = boundary(quarter_schedule, 3.0, use=quarter, row_range=long_kv)
+    require(prefills(effects)[0].prefix_tokens == 65536 and prefills(effects)[0].resume_state is not None,
+            "a budget-limited continuation failed to reuse its shorter state and KV")
+
+    # A pinned reader cannot be displaced by a foreign full row. With one
+    # additional KV block, that row fits without evicting either prefix after
+    # the reader retires; both independent continuations must then hit.
+    foreign_prompt = long_prompt[:]
+    foreign_prompt[0] += 1
+    foreign_request = request("foreign-long", foreign_prompt, max_tokens=16, row_layout=long_layout)
+    long_schedule, _ = core.submit(long_schedule, slot_policy, long_kv, foreign_request)
+    long_schedule, effects = boundary(long_schedule, 3.5, row_range=long_kv)
+    require(not prefills(effects) and len(long_schedule.queue) == 1 and long_schedule.prefix_entries[0].pins == 1,
+            "a foreign full row displaced a pinned prefix")
+    long_schedule = core.observe_prefill(
+        long_schedule, slot=continued.slot, generation=continued.generation, token_id=5, stopped=True
+    )
+    long_schedule, effects = boundary(long_schedule, 4.0, row_range=long_kv)
+    (foreign_effect,) = prefills(effects)
+    require(
+        foreign_effect.hit_entry is None
+        and foreign_effect.block_count == long_layout.row_blocks
+        and foreign_effect.save_at == 130048
+        and any(entry.entry_id == long_entry.entry_id for entry in long_schedule.prefix_entries),
+        "a cold foreign full row evicted the first near-full prefix or failed to save its own",
+    )
+    long_schedule = core.observe_prefill(
+        long_schedule, slot=foreign_effect.slot, generation=foreign_effect.generation, token_id=5, stopped=True
+    )
+    long_schedule, _ = boundary(long_schedule, 5.0, row_range=long_kv)
+    require(len(long_schedule.prefix_entries) == 2
+            and all(entry.ready and entry.prefix_tokens == 130048 for entry in long_schedule.prefix_entries)
+            and len({entry.state_index for entry in long_schedule.prefix_entries}) == 2
+            and len(entry_blocks(long_schedule)) == 4064,
+            "both long prefixes and distinct carried states did not remain resident")
+    for name, prompt, prior in (
+        ("first-return", extended, long_entry),
+        ("foreign-return", foreign_prompt + list(range(300000, 300020)),
+         next(entry for entry in long_schedule.prefix_entries if entry.entry_id != long_entry.entry_id)),
+    ):
+        long_schedule, _ = core.submit(
+            long_schedule, slot_policy, long_kv, request(name, prompt, max_tokens=16, row_layout=long_layout)
+        )
+        long_schedule, effects = boundary(long_schedule, 6.0, row_range=long_kv)
+        (resumed,) = prefills(effects)
+        require(resumed.hit_entry == prior.entry_id and resumed.prefix_tokens == 130048
+                and resumed.resume_state == prior.state_index and resumed.block_count == 16,
+                f"{name} did not reuse its own near-full KV and carried state")
+        require(len(long_schedule.prefix_entries) == 2, f"{name} evicted the other conversation")
+        long_schedule = core.observe_prefill(
+            long_schedule, slot=resumed.slot, generation=resumed.generation, token_id=5, stopped=True
+        )
+        long_schedule, _ = boundary(long_schedule, 7.0, row_range=long_kv)
+
+    # When the oldest prefix is at the low end, evicting its newer neighbor
+    # alone opens a full row. Plain LRU evicts both, losing a reusable state.
+    third_prompt = long_prompt[:]
+    third_prompt[0] += 2
+    long_schedule, _ = core.submit(
+        long_schedule, slot_policy, long_kv,
+        request("third-long", third_prompt, max_tokens=16, row_layout=long_layout),
+    )
+    long_schedule, effects = boundary(long_schedule, 8.0, row_range=long_kv)
+    (third,) = prefills(effects)
+    require(third.hit_entry is None and third.block_count == long_layout.row_blocks
+            and third.save_at == 130048 and third.block_start == 2048
+            and {entry.entry_id for entry in long_schedule.prefix_entries}
+            == {long_entry.entry_id, third.donation_entry},
+            "third full row evicted both long prefixes instead of one contiguous-space victim")
+    long_schedule = core.observe_prefill(
+        long_schedule, slot=third.slot, generation=third.generation, token_id=5, stopped=True
+    )
+    long_schedule, _ = boundary(long_schedule, 9.0, row_range=long_kv)
+    third_entry = next(entry for entry in long_schedule.prefix_entries if entry.entry_id != long_entry.entry_id)
+    require(len(long_schedule.prefix_entries) == 2 and all(e.ready for e in long_schedule.prefix_entries)
+            and len({e.state_index for e in long_schedule.prefix_entries}) == 2
+            and len(entry_blocks(long_schedule)) == 4064,
+            "third conversation did not retain its own state beside the first conversation")
+    for name, prompt, prior in (
+        ("first-after-third", extended, long_entry),
+        ("third-return", third_prompt + list(range(400000, 400020)), third_entry),
+    ):
+        long_schedule, _ = core.submit(
+            long_schedule, slot_policy, long_kv, request(name, prompt, max_tokens=16, row_layout=long_layout)
+        )
+        long_schedule, effects = boundary(long_schedule, 10.0, row_range=long_kv)
+        (resumed,) = prefills(effects)
+        require(resumed.hit_entry == prior.entry_id and resumed.prefix_tokens == 130048
+                and resumed.resume_state == prior.state_index and resumed.block_count == 16
+                and {e.entry_id for e in long_schedule.prefix_entries}
+                == {long_entry.entry_id, third_entry.entry_id},
+                f"{name} did not retain and resume its own KV and carried state")
+        long_schedule = core.observe_prefill(
+            long_schedule, slot=resumed.slot, generation=resumed.generation, token_id=5, stopped=True
+        )
+        long_schedule, _ = boundary(long_schedule, 11.0, row_range=long_kv)
+
+    # The old 4,096-block geometry, which had no batched-read lanes, was short by one
+    # block and had to evict the unused first prefix to admit the second full row.
+    old_layout = KvPoolLayout(pool_blocks=4096, row_blocks=2048, kv_block_size=64, batch_read_width=0)
+    old_kv = core.KvBlockRange(old_layout.reserved_prefix_blocks, old_layout.generation_end_block, 2048, 64)
+    old_quota = copy.replace(policy, maximum_cached_blocks=2048)
+    old_schedule, _ = core.submit(
+        core.initial_schedule(slot_policy), slot_policy, old_kv,
+        request("old-first", long_prompt, max_tokens=16, row_layout=old_layout),
+    )
+    old_schedule, effects = boundary(old_schedule, 1.0, use=old_quota, row_range=old_kv)
+    old_schedule = core.observe_prefill(
+        old_schedule, slot=prefills(effects)[0].slot, generation=prefills(effects)[0].generation,
+        token_id=5, stopped=True,
+    )
+    old_schedule, _ = boundary(old_schedule, 2.0, use=old_quota, row_range=old_kv)
+    old_first_id = old_schedule.prefix_entries[0].entry_id
+    old_schedule, _ = core.submit(
+        old_schedule, slot_policy, old_kv,
+        request("old-second", foreign_prompt, max_tokens=16, row_layout=old_layout),
+    )
+    old_schedule, effects = boundary(old_schedule, 3.0, use=old_quota, row_range=old_kv)
+    require(len(prefills(effects)) == 1
+            and all(entry.entry_id != old_first_id for entry in old_schedule.prefix_entries),
+            "the old pool unexpectedly held a full cold row beside a near-full prefix")
+
     too_small = copy.replace(policy, maximum_cached_blocks=15)
     insufficient, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
     insufficient, effects = boundary(insufficient, 1.0, use=too_small, row_range=long_kv)
     require(prefills(effects)[0].save_state is None and not insufficient.prefix_entries,
             "a sub-chunk KV budget saved an invalid prefix")
-    oversized_root = copy.replace(policy, shared_root_minimum_tokens=69632)
+    oversized_root = copy.replace(policy, maximum_cached_blocks=1024, shared_root_minimum_tokens=69632)
     root_request = copy.replace(long_request, shared_root_tokens=69632)
     rooted, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, root_request)
     rooted, effects = boundary(rooted, 1.0, use=oversized_root, row_range=long_kv)
@@ -2715,11 +3113,40 @@ def probe_prefix_cache_policy():
         "an unused entry kept blocks a live request needed",
     )
 
-    # Reads and failures drop entries; a pinned entry survives invalidation.
+    # Conservative invalidation retains only pinned entries when written blocks are unknown.
     schedule2 = core.invalidate_prefix_cache(schedule)
     require(all(entry.pins for entry in schedule2.prefix_entries), "invalidation kept an unpinned entry")
     failed, _ = core.quarantine_group(schedule)
     require(failed.prefix_entries == (), "a device failure kept cached prefixes")
+
+    # A successful read invalidates only entries whose physical KV blocks it wrote,
+    # including a pinned or not-yet-ready entry; gaps in discontiguous ranges are safe.
+    shared_root = copy.replace(good, entry_id=11, block_ranges=((16, 16), (80, 16)),
+                               last_used=1.0, root=True)
+    suffix = copy.replace(good, entry_id=12, prefix_tokens=3072,
+                          block_ranges=((16, 16), (80, 16), (160, 16)),
+                          state_index=1, last_used=2.0)
+    unrelated = copy.replace(good, entry_id=13, block_ranges=((256, 16), (320, 16)),
+                             state_index=2, last_used=3.0)
+    pinned = copy.replace(good, entry_id=14, block_ranges=((400, 16), (480, 16)),
+                          state_index=3, ready=False, pins=1, last_used=4.0)
+    cached = copy.replace(core.initial_schedule(slot_policy),
+                          prefix_entries=(shared_root, suffix, unrelated, pinned), next_entry_id=15)
+    require(core.invalidate_written_prefixes(cached, frozenset()) is cached,
+            "an empty read changed the cache")
+    require(core.invalidate_written_prefixes(
+        cached, frozenset({15, 32, 79, 96, 159, 176, 255, 272, 319, 336, 399, 416, 479, 496})
+    ) is cached, "writes outside entry ranges discarded a prefix")
+    require(core.invalidate_written_prefixes(cached, frozenset({175})).prefix_entries
+            == (shared_root, unrelated, pinned), "a suffix write discarded a disjoint root")
+    require(core.invalidate_written_prefixes(cached, frozenset({95})).prefix_entries
+            == (unrelated, pinned), "a shared root write left a dependent suffix or discarded unrelated entries")
+    require(core.invalidate_written_prefixes(cached, frozenset({256})).prefix_entries
+            == (shared_root, suffix, pinned), "a write in an unrelated entry discarded the root or suffix")
+    require(core.invalidate_written_prefixes(cached, frozenset({495})).prefix_entries
+            == (shared_root, suffix, unrelated), "an overwritten pinned, unready entry survived")
+    require(core.invalidate_written_prefixes(cached, frozenset({95, 495})).prefix_entries
+            == (unrelated,), "multiple writes did not preserve only the disjoint entry with its state")
 
     # Opt-in v2: one common header survives five interleaved conversations despite
     # four saved states. Its first donor saves the root, not its private suffix.
@@ -2803,7 +3230,7 @@ def probe_prefix_cache_policy():
         other, effects = boundary(other, 13.0, use=root_policy)
         require(prefills(effects)[0].hit_entry is None, f"{name} read the shared root")
     require(not core.invalidate_prefix_cache(root_schedule).prefix_entries,
-            "a structured read kept an unused shared root")
+            "full invalidation kept an unused shared root")
     require(not core.quarantine_group(root_schedule)[0].prefix_entries,
             "a device failure kept a shared root")
 
@@ -10961,6 +11388,7 @@ def probe_masked_prefill_traces():
         maximum_width=16,
         page_table=torch.zeros(16, 4, dtype=torch.int32),
         _startup_page_table=torch.zeros(16, 4, dtype=torch.int32),
+        _batch_read_page_table=torch.zeros(4, 4, dtype=torch.int32),
         fusion_mode=ROUTE_FUSED_STEP,
         model=SimpleNamespace(
             READ_BATCH_WIDTH=4,
@@ -11751,6 +12179,69 @@ def probe_structured_reads():
     require(batches([200, 100, 200, 100], [3] * 4) == ((1, 3, 0, 2),), "reads were not grouped shortest first")
     require(batches([100], [40]) == ((0,),), "a read wider than the logit tile was batched")
 
+    # A short read touches only reserved KV blocks; a read beyond 1,024 tokens
+    # reaches the cached generation range.
+    from qwen36_service.batch_decode_adapter import (
+        BatchedTracedDecodeAdapter, READ_ROUTE_BATCHED_TRACE, READ_ROUTE_MASKED_TRACE,
+        StructuredReadRows,
+    )
+    from qwen36_service.kv_pool_core import KvPoolLayout
+
+    layout = KvPoolLayout(pool_blocks=4113, row_blocks=2048, kv_block_size=64)
+    reader = object.__new__(BatchedTracedDecodeAdapter)
+    reader.kv_pool = layout
+    reader._startup_page_table = torch.tensor(layout.startup_rows(width=16), dtype=torch.int32)
+    reader._read_page_table = reader._startup_page_table[-1:].clone()
+    reader._batch_read_page_table = torch.tensor(layout.batch_read_rows(), dtype=torch.int32)
+    reader.model = SimpleNamespace(
+        MASKED_PREFILL_TRACE_BUCKETS=(128, 256, 512, 1024),
+        masked_prefill_trace_buckets=lambda: (128, 256, 512, 1024),
+        READ_BATCH_WIDTH=4,
+    )
+    require(
+        reader._single_read_written_blocks(800, True) == frozenset(range(16))
+        and reader._single_read_written_blocks(1025, True) == frozenset(range(18))
+        and reader._single_read_written_blocks(1431, False) == frozenset(range(24)),
+        "single reads misidentified the KV blocks written by their padded segments",
+    )
+
+    # Batches write only their own lanes, so cached generation KV anywhere keeps them
+    # batched. A batch whose rows, unused lanes included, hold protected KV reads singly.
+    batch_calls = []
+    reader.vocabulary_size = 2
+    reader.model.MASKED_LOGIT_ROWS = 32
+    reader.model.masked_read_batch_buckets = lambda: (128, 256)
+    reader._validated_read = lambda tokens, positions: (int(tokens.shape[1]), positions)
+    reader._prepare_read = lambda: False
+
+    def fake_batch(tokens, positions):
+        batch_calls.append(tuple(int(t.shape[1]) for t in tokens))
+        return tuple(torch.zeros(len(rows), 2) for rows in positions)
+
+    def fake_single(tokens, positions):
+        return StructuredReadRows(
+            logits=torch.zeros(len(positions), 2), elapsed_seconds=0.0,
+            route=READ_ROUTE_MASKED_TRACE, masked_traces_released=False,
+            kv_written_blocks=reader._single_read_written_blocks(int(tokens.shape[1]), True),
+        )
+
+    reader.model.prefill_masked_read_batch = fake_batch
+    reader.read_rows = fake_single
+    short = tuple((torch.zeros(1, 84, dtype=torch.int32), (83,)) for _ in range(2))
+    generation = frozenset(range(layout.reserved_prefix_blocks, layout.generation_end_block))
+    batched = reader.read_rows_batch(short, protected_blocks=generation)
+    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_BATCHED_TRACE for row in batched)
+            and batched[0].kv_written_blocks.isdisjoint(generation),
+            "cached generation KV disabled batched reads, or a batch wrote generation KV")
+    singles = reader.read_rows_batch(short, protected_blocks=batched[0].kv_written_blocks)
+    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_MASKED_TRACE for row in singles)
+            and all(row.kv_written_blocks.isdisjoint(batched[0].kv_written_blocks) for row in singles),
+            "a batch overwrote protected KV instead of reading singly")
+    medium = tuple((torch.zeros(1, 200, dtype=torch.int32), (199,)) for _ in range(3))
+    unused_lane = reader.read_rows_batch(medium, protected_blocks=frozenset({layout.batch_read_rows()[-1][0]}))
+    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_MASKED_TRACE for row in unused_lane),
+            "a partial-width batch overwrote KV through an unused captured lane")
+
     # A saved read prefix matches only its own row and tokens, and any prefill that writes one
     # of its KV blocks, or passes a page table the host cannot inspect, drops it.
     def saved(blocks=range(480, 496)):
@@ -11810,6 +12301,7 @@ def main():
     probe("traced decode pure core", probe_traced_decode_contract)
     probe("batch decode scheduler", probe_batch_decode_scheduler)
     probe("pooled KV rows", probe_kv_pool)
+    probe("batched-read KV lanes", probe_read_batch_kv_lanes)
     probe("continuous slot policy", probe_continuous_slot_policy)
     probe("continuous slot worker", probe_continuous_slot_worker)
     probe("continuous slot adapter", probe_continuous_slot_adapter)

@@ -16,6 +16,7 @@ from typing import Any
 import torch
 import ttnn
 from models.demos.blackhole.qwen36.tt.generator_interface import unpack_rope
+from models.demos.blackhole.qwen36.tt.model import masked_prefill_plan
 from models.tt_transformers.tt.common import copy_host_to_device
 
 from .batch_decode_core import (
@@ -34,7 +35,12 @@ from .grouped_prefill_core import (
     RuntimeCapability,
     plan_grouped_prefill,
 )
-from .kv_pool_core import KvPoolError, KvPoolLayout
+from .kv_pool_core import (
+    READ_BATCH_MAX_BUCKET_TOKENS,
+    READ_BATCH_MIN_BUCKET_TOKENS,
+    KvPoolError,
+    KvPoolLayout,
+)
 from .sampled_decode_core import ShardCandidates
 from .sampled_mode_router_core import ROUTE_SAMPLED, ROUTES
 from .structured_read_core import plan_read_batches
@@ -126,6 +132,8 @@ class StructuredReadRows:
     elapsed_seconds: float
     route: str
     masked_traces_released: bool
+    # Physical KV blocks this replay may have written, including padded bucket rows.
+    kv_written_blocks: frozenset[int]
 
 
 # The decode slot a structured read's prefill installs into. Reads never decode, and the
@@ -266,14 +274,22 @@ class BatchedTracedDecodeAdapter:
                 row_blocks=self.blocks_per_user,
                 kv_block_size=profile.kv_block_size,
             )
+            if (
+                int(model.READ_BATCH_WIDTH) != self.kv_pool.batch_read_width
+                or tuple(model.READ_BATCH_BUCKETS)
+                != (READ_BATCH_MIN_BUCKET_TOKENS, READ_BATCH_MAX_BUCKET_TOKENS)
+            ):
+                raise KvPoolError("model batched read traces do not match reserved KV lanes")
             startup_rows = self.kv_pool.startup_rows(width=maximum_width)
         except KvPoolError as error:
             raise BatchDecodeAdapterError(str(error)) from error
-        # Warm-up and trace capture use this layout; each generation group then gets its
-        # own rows (prefill_users). Structured reads keep the last startup row: its first
-        # blocks are the reserved read prefix, which no group is assigned.
+        # Warm-up and single-read capture retain their original rows. Batched reads
+        # capture against four dedicated rows outside the generation block range.
         self._startup_page_table = torch.tensor(startup_rows, dtype=torch.int32)
         self._read_page_table = self._startup_page_table[-1:].clone()
+        self._batch_read_page_table = torch.tensor(
+            self.kv_pool.batch_read_rows(), dtype=torch.int32
+        )
         self.page_table = self._startup_page_table.clone()
         self._mesh_reader = ttnn.ConcatMeshToTensor(self.mesh, dim=0)
         self._traces: dict[int, _BatchTrace] = {}
@@ -914,10 +930,10 @@ class BatchedTracedDecodeAdapter:
         block_end = block_start + block_count
         if (
             block_start < self.kv_pool.reserved_prefix_blocks
-            or block_end > self.kv_pool.scratch_block
+            or block_end > self.kv_pool.generation_end_block
             or block_count + len(prefix_blocks) > self.blocks_per_user
             or any(
-                not self.kv_pool.reserved_prefix_blocks <= block < self.kv_pool.scratch_block
+                not self.kv_pool.reserved_prefix_blocks <= block < self.kv_pool.generation_end_block
                 for block in prefix_blocks
             )
         ):
@@ -1057,6 +1073,24 @@ class BatchedTracedDecodeAdapter:
         self._slot_trace(token_ids, positions)
         return self.decode_traced_sampled(token_ids=token_ids, positions=positions)
 
+    def _single_read_written_blocks(self, length: int, traced: bool) -> frozenset[int]:
+        buckets = (
+            self.model.masked_prefill_trace_buckets()
+            if traced
+            else self.model.MASKED_PREFILL_TRACE_BUCKETS
+        )
+        plan = masked_prefill_plan(length, buckets)
+        if plan is None:
+            raise BatchDecodeAdapterError("no masked prefill plan holds this read")
+        bucket, start, _length = plan[-1]
+        blocks = (start + bucket) // self.kv_pool.kv_block_size
+        return frozenset(self._read_page_table[0, :blocks].tolist())
+
+    def _batch_read_written_blocks(self, bucket: int) -> frozenset[int]:
+        # A batched replay fills every captured row, including unused user rows.
+        blocks = bucket // self.kv_pool.kv_block_size
+        return frozenset(self._batch_read_page_table[:, :blocks].flatten().tolist())
+
     def read_rows(
         self,
         token_ids: torch.Tensor,
@@ -1095,16 +1129,21 @@ class BatchedTracedDecodeAdapter:
             elapsed_seconds=elapsed_seconds,
             route=route,
             masked_traces_released=masked_traces_released,
+            kv_written_blocks=self._single_read_written_blocks(length, traced),
         )
 
     def read_rows_batch(
         self,
         requests: tuple[tuple[torch.Tensor, tuple[int, ...]], ...],
+        *,
+        protected_blocks: frozenset[int] = frozenset(),
     ) -> tuple[StructuredReadRows, ...]:
         """read_rows for several sequences, sharing batched replays where they fit.
 
         Sequences within the largest batched-read bucket share one replay, up to its width
-        and logit rows; the rest read alone. Each result reports its share of its replay."""
+        and logit rows; the rest read alone. When a captured batch row would overwrite
+        protected generation KV, use the disjoint single-read row instead. Each result
+        reports its share of its replay."""
         validated = [self._validated_read(token_ids, positions) for token_ids, positions in requests]
         masked_traces_released = self._prepare_read()
         captured = self.model.masked_read_batch_buckets()
@@ -1116,6 +1155,10 @@ class BatchedTracedDecodeAdapter:
                 bucket: minimum
                 for bucket, minimum in READ_BATCH_MINIMUM_BY_BUCKET.items()
                 if bucket in captured
+                and (
+                    not protected_blocks
+                    or self._batch_read_written_blocks(bucket).isdisjoint(protected_blocks)
+                )
             },
             maximum_rows=int(self.model.MASKED_LOGIT_ROWS),
         )
@@ -1129,8 +1172,11 @@ class BatchedTracedDecodeAdapter:
                     elapsed_seconds=single.elapsed_seconds,
                     route=single.route,
                     masked_traces_released=masked_traces_released or single.masked_traces_released,
+                    kv_written_blocks=single.kv_written_blocks,
                 )
                 continue
+            bucket = next(bucket for bucket in captured if bucket >= max(validated[index][0] for index in group))
+            written = self._batch_read_written_blocks(bucket)
             started = time.monotonic()
             rows = self.model.prefill_masked_read_batch(
                 [requests[index][0].to(torch.int32) for index in group],
@@ -1145,6 +1191,7 @@ class BatchedTracedDecodeAdapter:
                     elapsed_seconds=share,
                     route=READ_ROUTE_BATCHED_TRACE,
                     masked_traces_released=masked_traces_released,
+                    kv_written_blocks=written,
                 )
         if any(result is None for result in results):
             raise BatchDecodeAdapterError("a structured read was not planned")
@@ -1770,7 +1817,7 @@ class BatchedTracedDecodeAdapter:
         self.reset_all()
         self.model.capture_masked_prefill_traces(
             self.page_table[:1].contiguous(),
-            read_page_table=self.page_table[: int(self.model.READ_BATCH_WIDTH)].contiguous(),
+            read_page_table=self._batch_read_page_table,
             **({"prefix_states": self.prefix_states} if self.prefix_states else {}),
         )
         return self.model.masked_prefill_trace_buckets()

@@ -639,15 +639,16 @@ server's limit.
 The HTTP endpoint also caps JSON request bodies at 1,048,576 bytes,
 independently of token count; byte-heavy prompts can reach that limit first.
 
-KV comes from one pool of 4,096 blocks of 64 tokens (8 GiB of bf16 per chip,
-`kv_pool_blocks` in `decode-profile.ncl`). Each batch group gives every row a
-contiguous run sized to its request: whole 1,024-token prefill buckets plus
-every decoded position. A full 131,072-token row takes 2,048 blocks; the
-reserved 16-block structured-read prefix and one scratch block leave at most
-2,031 blocks for shorter requests before any prefix-cache residency. Two
-full-length rows do not fit. The worker adds requests only while the pool
-holds them all. Startup logs the allocator's DRAM totals as the
-`device-dram` stage.
+The running older package allocates one pool of 4,096 blocks of 64 tokens
+(8 GiB of bf16 per chip). Each batch group gives every row a contiguous run
+sized to its request: whole 1,024-token prefill buckets plus every decoded
+position. A full 131,072-token row takes 2,048 blocks; the reserved 16-block
+structured-read prefix and one scratch block leave at most 2,031 blocks for
+shorter requests before prefix-cache residency. Two full-length rows do not
+fit. The worker adds requests only while the pool holds them all. Startup
+logs the allocator's DRAM totals as the `device-dram` stage. The undeployed
+read-lane candidate instead allocates 4,113 blocks, with generation restricted
+to blocks 16–4,095 and batched-read rows at 4,096–4,111 (scratch 4,112).
 
 On britton-desktop the pooled build became ready in 700 s with 9.2 GiB of DRAM
 free per chip. A needle placed at the start of the prompt was recalled at 6K,
@@ -707,12 +708,12 @@ ordinary OMP sessions remain in the 65,536-token mode. This proves a request
 above the old limit reached the live model through OMP; it does not establish
 general 128K quality or compaction behavior.
 
-At 128K the generation prefix cache can hold at most 1,024 KV blocks of 64
-tokens, or 65,536 tokens. The old scheduler tried to donate the last 1,024-token
-boundary of a long prompt; a boundary beyond that budget discarded the entire
-donation. It now saves the longest chunk-aligned conversation prefix within the
-budget. The opt-in shared system/tool root is still saved only at its exact
-verified boundary, never truncated into a different digest or state.
+The first 128K activation capped cached prefixes at 1,024 KV blocks of 64
+tokens, or 65,536 tokens. Before budget-aware donation, the scheduler tried to
+save the last 1,024-token boundary even when it could not fit. The fix saves
+the longest chunk-aligned conversation prefix within the configured budget.
+The opt-in shared system/tool root is still saved only at its exact verified
+boundary, never truncated into a different digest or state.
 
 A matched physical two-turn baseline on the previous service used 130,549 and
 130,559 prompt tokens with 130,540 identical leading token IDs. Both turns
@@ -726,11 +727,11 @@ state and cached KV remained coupled; masked-prefill traces stayed available.
 See the [physical trial](../pkgs/qwen36/evidence/2026-09-30/qwen38-long-prefix-trial.json).
 Immediately after that restart, the gateway temporarily answered 503 despite
 direct `/healthz` reporting ready; a later short gateway request succeeded.
-The final package
+The quarter-pool package
 `/nix/store/fgz9698w8g8c1qnz9hi3x3c59qanlkhw-qwen38-0.1.0` was rebuilt
 after correcting the policy-source comment. Its scheduler module and exported
 cache-policy JSON are byte-identical to the physical trial's, and its packaged
-device-free checks pass. The final live service repeated the exact two request
+device-free checks pass. That live service repeated the exact two request
 hashes on physical device IDs 0 and 1: the cold turn saved 65,536 tokens at
 103.61 s TTFT; the follow-up hit them at 60.28 s TTFT, **41.7% less** than the
 previous service's matched 103.43 s follow-up. Both produced `amber thrush`
@@ -747,30 +748,437 @@ control flag (see [the port blocker](tt-metal-0.77-port.md)); it cannot prove
 the carried-state restore needed here. These receipts are physical, not
 simulator recurrence evidence.
 
-The final package is GC-rooted at
-`/nix/var/nix/gcroots/qwen38-prefix-65k-final`. After
-`ttwkv7-owner-control isolate` and `restore`, systemd reports the owner
-active with `--max-sequence-length 131072`: the runtime-only
-`/run/systemd/system/qwen38-p150x2.service.d/95-prefix-65k.conf` replaces
-`ExecStart` from the earlier `90-context-128k.conf` drop-in. Both policies
-point into the final package. The superseded trial's GC root and override
-were removed; the previous 128K package and its GC root remain for rollback.
+On 2026-09-30 the v1 cache budget was raised to 2,048 of the existing
+4,096 KV blocks: the pool allocation and four carried-state buffers did not
+grow. A 130,549-token cold prompt now saves 130,048 tokens (2,032 blocks) at
+its last complete chunk; a 130,559-token continuation needs only 16 own
+blocks. The opt-in shared-root v2 policy still holds a separate 1,024-block
+quota and is not enabled on the serving unit.
+
+On the same physical P150x2 and exact cold/follow-up request hashes, the
+larger budget returned the same `amber thrush` token IDs
+`[14778, 8541, 1080]`. Cold TTFT stayed at 103.58 s against 103.61 s
+previously; after an unrelated short `READY` request, the 130,048-token
+prefix hit reached its first token in **0.848 s versus 60.28 s** under the
+quarter-pool quota (98.6% less for this turn). The short request itself took
+0.224 s to first token. A different 130,549-token prompt returned
+`copper wren` cold with zero prefix hits and a 103.40 s TTFT. The gateway
+also served `READY`, rejected a 131,149-token prompt plus 16 generated
+tokens with HTTP 400, and `/healthz` stayed ready; see the
+[half-pool physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-long-prefix-half-pool.json).
+The unchanged 4,096-block pool leaves only 2,047 blocks free while this
+2,032-block prefix is cached (16 read-prefix blocks and one scratch block
+are reserved). An unrelated 2,048-block row therefore evicts an unused
+prefix; a pinned reader instead delays that full row until retirement.
+The device-free checks exercise both transitions and the smaller quota.
+Separate long conversations can evict each other's prefixes. The earlier
+ABBA cache admission binds another package and cache budget; it is not reused
+to admit this larger quota. These runs do not admit concurrent long requests,
+broad model quality, or general latency/throughput across workloads.
+
+The active package
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` is pinned at
+`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`. At half-pool
+activation, after `ttwkv7-owner-control isolate` and `restore`, systemd
+reported PID 2446749 with `--max-sequence-length 131072`. The runtime-only
+`/run/systemd/system/qwen38-p150x2.service.d/96-prefix-128k-budget.conf`
+supersedes `95-prefix-65k.conf` and `90-context-128k.conf`; both policy
+paths resolve inside the active package. The former 65K-prefix package
+remains pinned at `/nix/var/nix/gcroots/qwen38-prefix-65k-final` for rollback,
+and the original 128K package remains pinned separately.
 
 This activation did **not** switch NixOS. `/etc/systemd/system` resolves into
 the read-only Nix store and `/run` is tmpfs. The unrelated, heavily edited
-`onix-core` checkout currently masks Qwen and explicitly sets a 2,048-token
-sequence limit, so switching that checkout would not preserve this service.
-After reboot both runtime drop-ins disappear and the booted generation reverts
-to its 65,536-token command; before opting into OMP extended context, reapply
-validated overrides or deploy a reviewed host generation that pins the final
-package, unmasks Qwen, and sets the 131,072-token limit. Keep the final GC
-root until that declarative deployment. To roll back only prefix donation,
-isolate the owner, remove `95-prefix-65k.conf`, reload systemd, restore the
-owner onto the retained 128K drop-in, and then remove the final GC root. To
-roll back the entire 128K activation, first remove OMP's `maxContextWindow`
-override, then isolate, remove both runtime drop-ins, reload, restore, and
-remove both package GC roots. The ordinary 65,536-token OMP budget remains
+`onix-core` checkout currently masks Qwen and sets a 2,048-token sequence
+limit; switching it would not preserve this service. After reboot all three
+runtime drop-ins disappear and the booted generation reverts to 65,536
+tokens. Before using OMP extended context after a reboot, reapply validated
+overrides or deploy a reviewed host generation pinning this package,
+unmasking Qwen, and setting 131,072 tokens. Keep its GC root until then.
+To roll back only the larger prefix budget, isolate the owner, remove
+`96-prefix-128k-budget.conf`, reload systemd, restore onto the retained
+65K-prefix package, then remove the half-pool GC root. To undo the entire
+128K activation, first remove OMP's `maxContextWindow` override, then
+isolate, remove all three runtime drop-ins, reload, restore, and remove
+the three package GC roots. The ordinary 65,536-token OMP budget remains
 safe while extended mode is off.
+
+On 2026-09-30 a separate **two-long-context candidate** increased the pool
+from 4,096 to 4,097 blocks and the cache budget from 2,048 to 4,064 blocks.
+The 16 structured-read blocks and one scratch block leave exactly 4,080
+generation blocks. One 2,032-block cached 130,048-token prefix can coexist
+with an unrelated cold 2,048-block row; after that row donates its own
+2,032-block prefix, both distinct histories fit with 16 blocks free for one
+continuation or short request. Device DRAM allocation increased by exactly
+2,097,152 bytes (2 MiB per chip) versus the previous startup receipt.
+The 131,072-token row limit, GDN state count and model computations did not
+change. A third unrelated cold full row still reclaims unused entries; the
+contiguous-run allocator may evict both prior prefixes, so this is not
+admission for three independent long conversations or concurrent long rows.
+
+The physical P150x2 AB-A baseline on the **active** half-pool package saved
+each of two distinct 130,048-token prefixes, but the A revisit missed after
+B's cold turn and took 103.446 s to first token. On the candidate, A and B
+cold turns took 103.546 and 103.469 s, then the A and B revisits hit their
+respective 130,048-token KV and carried GDN states at **0.864 and 0.857 s**
+to first token. A's revisit was 99.16% faster than the measured baseline,
+with the same answer and generated token IDs. Both hits survived an unrelated
+`READY` request through the gateway; a third unrelated 130K-token prompt ran
+cold in 103.558 s and saved its own prefix. The 131,072-token overflow
+still returned HTTP 400. See the
+[bounded physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-two-long-prefix-candidate.json).
+The package, device-free checks (including ABAB state/KV ownership, pinned
+readers, third-row reclaim and the old one-block-short geometry), and NixOS
+service check passed. TTsim still cannot check the fused GDN recurrence;
+this result is a bounded physical parity/latency check, not a broad
+throughput, concurrency or quality admission.
+
+**This candidate is not deployed.** The root-owned production unit cannot
+accept an additional `/run/systemd/system` override through the available
+passwordless owner helper. `sudo -n` could not create a root GC symlink
+(`a password is required`); the listed passwordless operations cover only
+stopping and starting the owner and inspecting device ownership. The direct
+candidate on port 8000 was run only while the owner was isolated, with the
+pinned TT-Metal source added to `PYTHONPATH` for its unshipped `infra` import.
+It was stopped after the physical check; the original half-pool systemd unit
+was restored. The candidate package is retained by
+`.pi/qwen38-prefix-two-long-candidate`, a registered user-writable Nix GC
+root. A privileged, reviewed service update would be needed to activate its
+4,097-block pool; the existing reboot and extended-context cautions above
+still apply to the unchanged production unit.
+
+On 2026-09-30 a further **contiguous-victim candidate** changed only the
+cache's host-side KV placement; its 4,097-block pool, 4,064-block budget,
+model arithmetic and 131,072-token row limit are unchanged. With A's
+2,032-block prefix at blocks 16–2,047 and B's at 2,048–4,079, a third
+unrelated full row needs blocks 2,048–4,095. Evicting B alone makes that
+run; the prior LRU evicted the older A first and then B. Placement now tries
+each unpinned victim of the same priority for a sufficient contiguous run
+before falling back to LRU. A reader's pin and the shared-root-last priority
+still constrain eviction. This retains A and the new C prefix; B must miss
+on its next turn. It does not hold three near-full prefixes simultaneously
+or admit multiple concurrent full rows.
+
+An exact-fixture, paired physical P150x2 ABCA comparison reproduced the
+prior candidate's A miss after C: **103.601 s** to first token and zero
+prefix-hit tokens. On the improved candidate, A hit 130,048 tokens and
+reached its first token in **0.898 s** (99.13% less; 115.42× faster for that
+turn). C subsequently hit its own prefix in 0.895 s; B's subsequent revisit
+missed and took 103.597 s, while A still hit in 0.888 s. A, B and C cold
+turns took 103.791, 103.581 and 103.586 s versus 103.756, 103.589 and
+103.534 s on the prior candidate; all three passphrase answers and generated
+token IDs matched. Both candidates reported physical device IDs 0 and 1 and
+23,569,736,704 allocated DRAM bytes per device view. See the
+[paired physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-contiguous-victim-physical.json).
+The new device-free regression failed against the old eviction loop and
+passed after the fix; package, device-free and NixOS service builds passed.
+The GDN simulator limitation and bounded-concurrency/quality caveats above
+still apply.
+
+**This improvement is not deployed.** Its physical trial used a direct
+unprivileged process after isolating the root-owned service; that process
+was stopped. The package
+`/nix/store/1yd8km80j1sajh4ig71da7jbkns9ynni-qwen38-0.1.0` is pinned
+through the user-writable `.pi/qwen38-contiguous-victim-candidate` GC root.
+The original root-owned half-pool unit still targets the older package;
+activation of the 4,097-block candidate needs a privileged service
+override, as described above.
+
+`ttwkv7-owner-control restore` restarted that unchanged unit after the paired
+trial. Systemd reported `ActiveState=active`, PID 4142000, and the old
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` executable;
+`/healthz` returned `ready: true` after startup warmup.
+
+On 2026-09-30 a further **masked-prefill host-transfer candidate** stopped
+restaging the GDN valid mask when a captured trace's bucket and valid length
+are unchanged. A changed length still rewrites the mask, including a partial
+tail, the next full bucket, and a structured read. Mask buffers and trace
+arithmetic are otherwise unchanged. This cuts 126 redundant mask copies
+from a cold 130,549-token, 128-replay prefill (128 to 2).
+
+On physical P150x2 IDs 0 and 1, the identical cold fixture returned
+`[14778, 8541, 1080]` / `amber thrush` before and after. Timed host staging
+fell from 62.920 s to 11.090 s and prefill enqueue from 65.661 s to
+15.479 s, but **client TTFT did not measurably improve**: 103.642 s versus
+103.629 s, with completion wall times of 104.626 s and 104.803 s.
+The prior mask-copy call absorbed asynchronous replay backpressure;
+those call timings are not a 62-second device-transfer cost. No end-to-end
+speedup or concurrency benefit is claimed.
+
+The candidate also returned the same tokens with a 130,048-token prefix
+hit, and across independent 832, 892, 832, 1,024 and 1,024-token prompts
+in the same trace bucket. The mask was refreshed at the length changes
+and omitted for the second 1,024-token prompt. One 800-token
+`/v1/systemone` read succeeded, followed by an unchanged 1,024-token
+generation answer. Package, device-free Qwen and NixOS service builds passed.
+See the [physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-mask-reuse-physical.json).
+
+**This candidate is not deployed.** The direct trial process was stopped.
+`ttwkv7-owner-control restore` restarted the unchanged root-owned service;
+systemd reported `ActiveState=active`, PID 1526612 and the old
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` executable.
+`/healthz` returned `ready: true` after the required startup warmup.
+The candidate package
+`/nix/store/90x2sz3nqbpmc1n5pdj5d98ws05gwi40-qwen38-0.1.0`
+is pinned by `.pi/qwen38-mask-reuse-candidate`. A privileged service
+override remains required to activate this candidate and the preceding
+4,097-block cache candidates; this mask change alone has no measured
+end-to-end latency benefit.
+
+On 2026-09-30 a **selective structured-read invalidation candidate** stopped
+discarding cached generation prefixes when a read writes disjoint KV blocks.
+The adapter reports the physical blocks covered by the single-read padded
+bucket or every row of a batched trace; the slot coordinator removes only
+prefix entries intersecting those blocks. Eager reads, lost masked traces,
+and read failures still invalidate the cache conservatively.
+
+On physical P150x2 IDs 0 and 1, an unrelated 800-token structured read
+previously made a 130,564-token continuation miss its 130,048-token prefix:
+TTFT 103.696 s. The candidate returned the same structured answer and
+generation tokens `[14778, 8541, 1080]`, retained all 130,048 prefix tokens,
+and reached its first token in 1.084 s (95.6 times faster for this turn).
+A 1,400-token read overlapping the cached KV correctly evicted the prefix;
+the next identical continuation missed, took 103.953 s, and returned the
+same tokens. The cold 130,549-token request remained 103.697 s before and
+103.649 s after. Package, device-free Qwen, and NixOS service builds passed.
+See the [paired physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-structured-read-prefix-retention.json).
+
+**This candidate is not deployed.** The direct physical trial was stopped;
+the package `/nix/store/5j41s231rcc6p35dpr9gxjlr70r0c3d4-qwen38-0.1.0`
+is pinned by `.pi/qwen38-selective-read-candidate`. The original root-owned
+service remains on its older package; activation requires a privileged
+override. This receipt measures one cache-hit continuation, not concurrency
+or average request latency.
+
+The restore helper's caller timed out after 120 s while the unit was
+activating. Subsequent systemd inspection reported `ActiveState=active`,
+PID 1797706, and the unchanged
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` executable;
+`/healthz` returned `ready: true`.
+
+On 2026-09-30 a further **cache-aware read-batching candidate** protected
+generation prefixes from the captured 128- and 256-token batch traces. Each
+batch bucket's KV write footprint includes all four captured rows, even unused
+lanes. If any retained generation prefix occupies those blocks, queued reads
+use the single-read trace in the reserved KV range instead; disjoint batches
+still run together. This changes routing, not model arithmetic or KV layout.
+
+On physical P150x2 IDs 0 and 1, A held a 130,048-token prefix at blocks
+16–2,047 and B held 16,384 tokens at blocks 2,048–2,303. Four concurrent
+84-token decisions previously took three batched and one single route,
+overwrote B's KV, and made B's next turn miss (TTFT 9.598 s). The candidate
+ran four singles; B still hit all 16,384 tokens (TTFT 0.414 s, 23.2× faster
+for that turn), and A still hit 130,048. Both answers, probabilities, and
+generated token IDs matched the baseline. When only A was cached, the
+candidate continued batching. Cold A/B prefill latency was unchanged at
+measurement precision. Three read replies in the protected burst took
+about 0.90 s rather than 0.64 s; this is a latency tradeoff, not a general
+throughput gain. Package, device-free Qwen, and NixOS service builds passed.
+See the [paired physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-cache-aware-batched-read-physical.json).
+
+**This candidate is not deployed.** The direct trial was stopped; its
+`/nix/store/yx1zm7rgqknqya1bgpccx5q8i9291dar-qwen38-0.1.0` package is
+pinned by `.pi/qwen38-cache-aware-read-batch-candidate`. Activating it on
+the root-owned unit requires a privileged service override.
+
+`ttwkv7-owner-control restore` returned; systemd reported the unchanged
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` service
+`ActiveState=active`, PID 2149125, and `/healthz` returned `ready: true`.
+
+On 2026-09-30 the **dedicated batched-read KV-lane candidate** reserved a
+4,113-block pool: prefix blocks 0–15, generation blocks 16–4,095, four
+four-block read rows at 4,096–4,111, and scratch block 4,112. Both captured
+128- and 256-token batch traces use the read rows rather than generation KV.
+The package is
+`/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0`, pinned by
+`.pi/qwen38-read-batch-lanes-candidate`; its package, device-free Qwen checks,
+and NixOS service check passed the offline build.
+
+Two initial direct launchers omitted production traced/grouped-prefill flags:
+the [first attempt](../pkgs/qwen36/evidence/2026-09-30/qwen38-read-batch-lanes-first-attempt.json)
+timed out before a read and required an ethernet-core board reset during
+original-owner restoration; the second found no B cache hit before reads.
+With the production flags verified in the candidate process, a preflight
+exposed a test-fixture error (82 actual read tokens, not the asserted 84).
+The next trial protected A and B through three 198-token *single* reads, but
+did not exercise the 256-token batched route. Its final fixture submitted
+four concurrent medium reads so three could batch after an early single.
+
+The final direct P150x2 run on physical IDs 0 and 1 saved A's 130,048-token
+and B's 16,384-token generation prefixes. B hit all 16,384 before the reads.
+Four concurrent 82-token reads in the 128 bucket then took one masked and
+three batched traces; four 198-token reads in the 256 bucket also took one
+masked and three batched traces. B still hit 16,384 and A still hit 130,048
+after **each** burst, with unchanged generated token IDs and equal answers
+within each read burst. The B cold request hash differs from the historical
+comparison, so these are bounded physical routing and cache-retention
+measurements, **not a paired performance claim**. See the
+[physical lane receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-dedicated-read-batch-lanes-physical.json).
+
+**The candidate is not deployed.** Its direct process stopped and
+`ttwkv7-owner-control restore` returned. The unchanged root-owned
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` service was
+active/running at PID 3738578 with zero restarts, and `/healthz` returned
+HTTP 200 with `ready: true`.
+
+This is **not** just a read-lane change. The candidate's packaged prefix
+policy permits up to 4,064 cached generation blocks, versus the running
+package's 2,048, and the KV pool grows from 4,096 to 4,113 blocks. The
+separate two-long-prefix budget receipt does not substitute for a paired
+read-lane admission. The direct candidate launcher also omitted
+`--require-systemd-notify`, so it did not exercise systemd readiness,
+root-owned unit startup, or reboot persistence.
+
+The later [paired root-systemd physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-read-batch-lanes-systemd-paired.json)
+exercised the built
+`/nix/store/hd0r2drbsacdz14vdbw3ssv8sy8j6nxf-unit-qwen38-p150x2.service`
+with the same six exact request SHA-256 values on the old and candidate
+packages. Root-owned `Type=notify` started candidate PID 516860, became ready
+after 762 s and returned `/healthz` 200. Four concurrent 82-token reads
+(128 bucket) and four 198-token reads (256 bucket) each took three batched
+routes and one masked trace, with numerically identical answers between
+old and new services. A and B returned identical generated token IDs across
+both packages. The candidate retained B's 16,384-token and A's 130,048-token
+prefix hits before and after **each** burst. The old 2,048-cached-block
+package cannot retain both prefixes at once and hit zero tokens after
+the bursts; its warm B continuation fell from 16,384 hits before reads
+to zero after the short burst. The candidate raises that budget to 4,064,
+so the observed continuation TTFT difference is **not** attributable to
+the dedicated read lanes alone. This is bounded paired correctness and
+cache-retention evidence, not broad throughput, long-read or model-quality
+admission.
+
+The temporary `/run` `97-read-batch-lanes.conf` was removed. The old
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` service
+restored at PID 658860 with zero restarts, `/healthz` 200 and `ready: true`
+after a 111.55 s warm-up; the existing 90/95/96 drop-ins were preserved.
+The candidate remains undeployed. A root GC link at
+`/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial` retains its
+package for review; it does not persist the service configuration.
+
+Both packages currently link the TT-Metal 0.77 candidate; a bounded HiFi4
+GDN recurrence pass does not resolve its outstanding production numerical
+gate or make 0.77 a production release.
+
+### Reviewed read-lane NixOS deployment (paired gate passed; not deployed)
+
+`nixosModules.qwen38-p150x2-read-lanes` is a host-specific example to import
+**alongside** `nixosModules.default` in a reviewed host generation. It selects
+`pkgs.qwen38`, the existing model snapshot, 131,072 combined tokens, grouped
+and traced prefill, sampled fusion, continuous slots, and prefix cache. The
+module's service already requires device nodes 0 and 1, starts the serialized
+P150x2 executable, and reads both scheduler policies from that same package.
+This example does not import or switch the dirty `onix-core` checkout, and
+does not replace the running service. The host's `onix-core` tree has 230
+dirty entries, explicitly masks Qwen and sets 2,048/64 tokens; its lock pins
+`tenstorrent-nix` at `cbfcab9`, not this checkout's `b7e362c` HEAD. This
+candidate also includes local, not-yet-pinned changes. A durable deployment
+requires a reviewed, reproducible host-generation source selecting this
+exact package and preserving other host settings. Review owner conflicts,
+model path, driver, firmware and OMP separately. The previous 65,536-token
+boot generation and `/run/systemd` overrides do **not** provide durable
+131,072-token rollback after reboot.
+
+For `onix-core/machines/britton-desktop/configuration.nix`, the smallest
+reviewable integration is:
+
+1. Pin a reviewed `tenstorrent-nix` flake input containing this profile **and**
+   the qualified candidate package; update the host lock from `cbfcab9`
+   only after comparing the entire host closure. The 30 local candidate
+   source entries alone are not a reproducible pin.
+2. Import `inputs.tenstorrent-nix.nixosModules.qwen38-p150x2-read-lanes`
+   beside the existing default module. Replace the host's explicit
+   `hardware.tenstorrent.qwen38` attrset (including its
+   `package = tenstorrentPackages.qwen36`, 2,048/64 limits) with that
+   profile; retain the host's unrelated Tenstorrent driver, descriptor,
+   mesh and access settings. The example already carries this host's
+   model snapshot, owner conflicts, and current sampled/grouped/traced
+   scheduling flags. Set the host's `qwenMaximumSequenceLength` and
+   `qwenMaximumGenerationTokens` constants used in its
+   `/etc/tenstorrent/README.md` text to 131072 and 8192.
+3. Remove `systemd.services.${qwenServiceName}.enable = false` and the
+   stale host README text saying Qwen is masked or greedy-only. The
+   profile now asserts against a masked unit or effective 2,048/64
+   limits, including stronger host overrides; it does not unmask by
+   silently overriding an operator's setting.
+4. Preserve OMP's ordinary `contextWindow: 65536`, optional
+   `maxContextWindow: 131072`, `maxTokens: 8192` and
+   `extendedContext: false`. Raising the OMP budget is neither necessary
+   nor evidence that the server can serve 131,072 tokens after reboot.
+
+These are instructions for a **future reviewed host edit**, not edits made
+to `onix-core`. A profile imported into its current host config is not
+deployable: same-priority limits/package definitions conflict, while a
+forced 2,048/64 override or the current mask fails the profile assertions.
+The profile selects the matched flake's `pkgs.qwen38` derivation but
+also fails closed unless its output is the physically paired
+`/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0`.
+This is an admission invariant, not a store-path package fallback.
+Compare the *rendered host unit* against the same output and retain the
+verified old-package rollback generation.
+
+The example file is not yet in the git-filtered flake source. A direct
+`nix eval --offline .#nixosModules.qwen38-p150x2-read-lanes` does not
+exercise its contents; importing that export in a throwaway NixOS eval
+failed because the source-store example path was absent. A local
+`path:.#` flake evaluation includes untracked files and can exercise
+the example, but in this checkout it resolved `pkgs.qwen38` to
+`/nix/store/q291n7j5q72bdh8fllkkd2l6pisp31c0-qwen38-0.1.0`;
+the profile now rejects that unqualified output with its package
+identity assertion. An explicit local example path alongside the
+git-filtered default module selected y58 and rebuilt the exact
+`hd0r2drbsacdz14vdbw3ssv8sy8j6nxf` unit from the physical trial.
+None of these pre-commit checks replaces committing and pinning the
+reviewed example and package source before building a durable host
+generation. If the reviewed commit changes the Qwen output hash,
+requalify the new package on physical P150x2 and update this guard;
+never weaken it to admit an unmeasured derivation.
+
+Before a privileged activation, evaluate/build the **reviewed host generation**
+and inspect its rendered `qwen38-p150x2.service`, not just this example. In
+this checkout `nix eval --offline --raw
+.#packages.x86_64-linux.qwen38.outPath` resolved to
+`/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0`; reject a
+different output unless separately requalified. Verify the generated
+`ExecStart`, `Environment`, device-node conditions and owner conflicts:
+`--max-sequence-length 131072`, `--require-systemd-notify`, both policy
+arguments from this package, `MESH_DEVICE=P150x2`,
+`QWEN35_GROUPED_PREFILL=1`, `QWEN36_TRACED_PREFILL=1`,
+`QWEN36_SAMPLED_FUSION=1`; ensure the effective host generation does not
+mask the unit. The existing device-free package and service checks are build
+gates, not physical admission. Physical IDs 0 and 1 must still be checked
+against the actual serving process after activation.
+
+The paired systemd gate above passed for the exact six-input fixture and
+128/256 cached reads; its baseline and candidate hashes matched. Unlike
+the earlier direct receipt, it exercised the root-owned notify unit and
+measured the old package on the same A/B/read inputs. The changed prefix
+budget is part of this comparison, so do not credit the observed TTFT
+difference to the read lanes alone. It does not qualify longer reads,
+general throughput, 128K structured-read quality, an unreconciled host
+generation or TT-Metal 0.77 as a production release.
+
+Preserve the old package at
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` under its
+existing `/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate` root.
+Before activating, have a separately reviewed **rollback host generation**
+from the prior package source selecting that exact old output while keeping
+the same 131,072-token service settings; verify its rendered unit and path.
+The booted 65,536-token generation is not a suitable 128K rollback.
+If admission or health fails, a privileged operator can restore that prebuilt
+generation, check `/healthz`, the process package path and the 131,072 limit,
+then restore/confirm the original device owner as required. Do not remove
+either GC root until the chosen durable generation and its rollback are retained.
+
+`ttwkv7-owner-control` isolates/restores service owners but does not install
+a host generation. Root SSH access to `root@britton-desktop` is available
+via batch authentication for an approved reviewed switch; `sudo -n` does
+not grant root writes. Privilege is **not** the present blocker: the
+paired fixture passed, but the host-generation source and durable rollback
+remain unreconciled.
+Do not use an unmanaged persistent systemd override as a substitute.
+OMP's 131,072 `maxContextWindow` remains unsafe if the actual serving
+generation falls back to 65,536 after reboot.
 
 A continuous-slot scheduler is available behind a flag. With
 `--continuous-slot-policy $out/share/qwen36/continuous-slot-policy.json`, in

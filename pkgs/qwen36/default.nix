@@ -72,6 +72,7 @@ let
     ./masked-prefill-traces.patch
     ./structured-read-rows.patch
     ./prefix-cache.patch
+    ./masked-prefill-mask-reuse.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:

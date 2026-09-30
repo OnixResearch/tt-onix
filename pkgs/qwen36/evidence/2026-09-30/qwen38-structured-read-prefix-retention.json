@@ -1,0 +1,84 @@
+{
+  "schema": "onix.qwen38.structured-read-prefix-retention-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "physical_pcie_device_ids": [0, 1],
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "fixture": {
+    "cold_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+    "cold_prompt_tokens": 130549,
+    "continuation_sha256": "4ce29d994ff53530d80f8c5bf87e41e998a135111b83e72bfc3c3b79f761acaa",
+    "continuation_prompt_tokens": 130564
+  },
+  "baseline": {
+    "package": "/nix/store/90x2sz3nqbpmc1n5pdj5d98ws05gwi40-qwen38-0.1.0",
+    "package_identity": "/nix/store/x42vvcvkwmsa63h6li9cd3rbsn2h4kja-qwen36-execution-identity-0.1.0",
+    "cold": {
+      "ttft_seconds": 103.69667775509879,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    },
+    "unrelated_structured_read": {
+      "http_status": 200,
+      "prompt_tokens": 800,
+      "device_reads": 1,
+      "answer": {"urgent": {"noul": 0.9399133324623108, "type": "noul"}}
+    },
+    "continuation_after_read": {
+      "ttft_seconds": 103.69619246991351,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    }
+  },
+  "candidate": {
+    "package": "/nix/store/5j41s231rcc6p35dpr9gxjlr70r0c3d4-qwen38-0.1.0",
+    "package_identity": "/nix/store/c1lj2ji7d1v685d1ywcsssd7jpb3p00a-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 451.3143509752117,
+    "cold": {
+      "ttft_seconds": 103.6485515711829,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    },
+    "unrelated_structured_read": {
+      "http_status": 200,
+      "prompt_tokens": 800,
+      "device_reads": 1,
+      "answer": {"urgent": {"noul": 0.9399133324623108, "type": "noul"}},
+      "kv_blocks_derived_from_page_table_plan": "0-15 (1024-token padded trace)"
+    },
+    "continuation_after_disjoint_read": {
+      "ttft_seconds": 1.084354150108993,
+      "prefix_hit_tokens": 130048,
+      "prefix_saved_tokens": 0,
+      "generated_token_ids": [14778, 8541, 1080]
+    },
+    "overlapping_structured_read": {
+      "http_status": 200,
+      "prompt_tokens": 1400,
+      "device_reads": 1,
+      "answer": {"urgent": {"noul": 0.9046505093574524, "type": "noul"}},
+      "kv_blocks_derived_from_page_table_plan": "0-23 (1536-token padded trace)"
+    },
+    "continuation_after_overlapping_read": {
+      "ttft_seconds": 103.95264774700627,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    }
+  },
+  "interpretation": "One paired P150x2 fixture shows a 130048-token cache hit across an unrelated short read, reducing that continuation TTFT from 103.696 to 1.084 seconds; an overlapping read still evicts it. Greedy token IDs and the short structured answer match. Cold prefill is unchanged. This is not an average latency or concurrency result.",
+  "verification_command": "nix build --offline .#qwen38 .#checks.x86_64-linux.qwen36 .#checks.x86_64-linux.qwen38-nixos-service --no-link --print-out-paths",
+  "activation": {
+    "candidate_deployed": false,
+    "candidate_process_stopped": true,
+    "candidate_gc_root": ".pi/qwen38-selective-read-candidate",
+    "production_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "restore_helper_caller_timeout_seconds": 120,
+    "production_unit_active_state": "active",
+    "production_unit_pid": 1797706,
+    "production_healthz_ready": true
+  }
+}

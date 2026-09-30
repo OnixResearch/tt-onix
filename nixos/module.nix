@@ -251,7 +251,7 @@ in
       maximumSequenceLength = mkOption {
         type = types.ints.positive;
         default = defaultQwenMaximumSequenceLength;
-        description = "Maximum combined prompt and generation tokens for one request. The default 131,072-token row uses half of the shared 4,096-block KV pool, so two full-length requests cannot run in the same batch; shorter requests can use the remaining blocks.";
+        description = "Maximum combined prompt and generation tokens for one request. The default 131,072-token row uses 2,048 blocks of the package's generation KV range; two full-length requests cannot run alongside the reserved read lanes.";
       };
 
       maximumGenerationTokens = mkOption {

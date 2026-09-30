@@ -455,20 +455,33 @@ def _place(
     request: SlotRequest,
     caching: bool,
 ) -> _Placement | None:
-    """Where a request's own KV run fits, evicting unused cache entries if that makes room."""
+    """Place a request, preferring one sufficient victim at the same eviction priority."""
     hit = lookup(entries, request.prefix_digests) if caching else None
     prefix_blocks = hit.prefix_tokens // kv_range.block_tokens if hit is not None else 0
     own_blocks = request.blocks - prefix_blocks
     keep = frozenset({hit.entry_id}) if hit is not None else frozenset()
     current = list(entries)
+    occupied_slots = tuple(slots)
     while True:
-        block_start = _free_run(tuple(slots), kv_range, own_blocks, current)
+        block_start = _free_run(occupied_slots, kv_range, own_blocks, current)
         if block_start is not None:
             return _Placement(block_start, own_blocks, hit, tuple(current))
         victims = eviction_order(current, keep)
         if not victims:
             return None
-        current.remove(victims[0])
+        chosen = victims[0]
+        # Preserve the root-after-conversation eviction priority. Among
+        # equally prioritized entries, prefer one that frees the whole run
+        # before falling back to sequential LRU eviction.
+        if len(victims) > 1 and victims[1].root == chosen.root:
+            for victim in victims:
+                if victim.root != chosen.root:
+                    break
+                without = [entry for entry in current if entry.entry_id != victim.entry_id]
+                if _free_run(occupied_slots, kv_range, own_blocks, without) is not None:
+                    chosen = victim
+                    break
+        current.remove(chosen)
 
 
 def _plan_donation(
@@ -850,9 +863,24 @@ def release_quarantine(schedule: SlotSchedule) -> SlotSchedule:
 
 
 def invalidate_prefix_cache(schedule: SlotSchedule) -> SlotSchedule:
-    """Drop every entry no live request reads: a structured read rewrote KV blocks, or the
+    """Drop every entry no live request reads when KV writes cannot be tracked, or the
     device can no longer restore prefix state."""
     return replace(schedule, prefix_entries=tuple(entry for entry in schedule.prefix_entries if entry.pins))
+
+
+def invalidate_written_prefixes(schedule: SlotSchedule, written_blocks: frozenset[int]) -> SlotSchedule:
+    """Drop entries whose KV ranges intersect the blocks written by a structured read."""
+    if not written_blocks:
+        return schedule
+    retained = tuple(
+        entry for entry in schedule.prefix_entries
+        if not any(
+            start <= block < start + count
+            for start, count in entry.block_ranges
+            for block in written_blocks
+        )
+    )
+    return schedule if len(retained) == len(schedule.prefix_entries) else replace(schedule, prefix_entries=retained)
 
 
 def drain_queue(schedule: SlotSchedule, reason: str) -> tuple[SlotSchedule, tuple[RejectRequest, ...]]:

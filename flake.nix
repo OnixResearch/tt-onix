@@ -22,6 +22,7 @@
         nixosModules = {
           default = ./nixos/module.nix;
           "dual-p150a-training" = ./nixos/examples/dual-p150a-training.nix;
+          "qwen38-p150x2-read-lanes" = ./nixos/examples/qwen38-p150x2-read-lanes.nix;
         };
       };
 

@@ -36,6 +36,7 @@ from .batch_decode_adapter import (
     BatchDecodeAdapterError,
     SlotRefillResult,
     StructuredReadRows,
+    READ_ROUTE_EAGER,
     TraceBindingDriftError,
 )
 from .batch_service import (
@@ -186,7 +187,7 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         self._blake3_digest = blake3_digest
         self._kv_range = slots.KvBlockRange(
             first_block=pool.reserved_prefix_blocks,
-            end_block=pool.scratch_block,
+            end_block=pool.generation_end_block,
             row_blocks=pool.row_blocks,
             block_tokens=pool.kv_block_size,
         )
@@ -412,8 +413,6 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                         self._queue.popleft()
                         for _ in range(min(len(self._queue), MAXIMUM_MERGED_READ_JOBS))
                     )
-                    # A read writes KV through the read row, over blocks cached prefixes hold.
-                    self._schedule = slots.invalidate_prefix_cache(self._schedule)
             try:
                 self._apply_boundary(effects)
                 if reads:
@@ -446,12 +445,29 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
     def _serve_reads(self, reads: tuple[_PendingRead, ...]) -> None:
         try:
             with self._device_effect():
-                self._run_reads(reads)
+                with self._condition:
+                    protected_blocks = cached_blocks(self._schedule.prefix_entries)
+                self._run_reads(reads, protected_blocks=protected_blocks)
+            if any(job.results is None and job.error is None for job in reads):
+                raise BatchDecodeAdapterError("structured read finished without results")
+            results = tuple(result for job in reads for result in job.results or ())
+            with self._condition:
+                if any(result.masked_traces_released or result.route == READ_ROUTE_EAGER for result in results):
+                    # Lost prefill traces also lose the saved recurrent states.
+                    self._schedule = slots.invalidate_prefix_cache(self._schedule)
+                else:
+                    written: set[int] = set()
+                    for result in results:
+                        written.update(result.kv_written_blocks)
+                    self._schedule = slots.invalidate_written_prefixes(self._schedule, frozenset(written))
         except EngineQuarantinedError:
             raise
         except TraceBindingDriftError:
             raise
         except DEVICE_ERRORS as error:
+            # A failed read may already have written some KV: its footprint is unknown.
+            with self._condition:
+                self._schedule = slots.invalidate_prefix_cache(self._schedule)
             for job in reads:
                 self._finish(job, error=error)
             self.emitter("structured-read-failed", error_type=type(error).__name__)

@@ -1,0 +1,74 @@
+{
+  "schema": "onix.qwen38.masked-prefill-mask-reuse-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "physical_pcie_device_ids": [0, 1],
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "fixture_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+  "fixture_prompt_tokens": 130549,
+  "before": {
+    "package": "/nix/store/1yd8km80j1sajh4ig71da7jbkns9ynni-qwen38-0.1.0",
+    "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+    "cold_ttft_seconds": 103.64158578589559,
+    "cold_wall_seconds": 104.62556660315022,
+    "prefill_stage_calls": 128,
+    "stage_wall_seconds": 62.919623369,
+    "dispatch_wall_seconds": 65.660923417,
+    "mask_copy_call_wall_seconds": 62.205228943,
+    "generated_token_ids": [14778, 8541, 1080],
+    "answer": "amber thrush",
+    "prefix_hit_tokens": 0,
+    "prefix_saved_tokens": 130048
+  },
+  "after": {
+    "package": "/nix/store/90x2sz3nqbpmc1n5pdj5d98ws05gwi40-qwen38-0.1.0",
+    "package_identity": "/nix/store/x42vvcvkwmsa63h6li9cd3rbsn2h4kja-qwen36-execution-identity-0.1.0",
+    "cold_ttft_seconds": 103.62930599879473,
+    "cold_wall_seconds": 104.80295524885878,
+    "cold_prefill_seconds": 103.63669511396438,
+    "prefill_stage_calls": 128,
+    "mask_copy_calls": 2,
+    "stage_wall_seconds": 11.090233418,
+    "dispatch_wall_seconds": 15.478659911,
+    "mask_copy_call_wall_seconds": 0.640344915,
+    "generated_token_ids": [14778, 8541, 1080],
+    "answer": "amber thrush",
+    "prefix_hit_tokens": 0,
+    "prefix_saved_tokens": 130048
+  },
+  "same_process_candidate_checks": {
+    "warm_continuation": {
+      "prompt_tokens": 130564,
+      "prefix_hit_tokens": 130048,
+      "prefix_saved_tokens": 0,
+      "ttft_seconds": 1.0913618057966232,
+      "generated_token_ids": [14778, 8541, 1080]
+    },
+    "independent_bucket_1024_requests": [
+      {"prompt_tokens": 832, "mask_copy_calls": 1, "generated_token_ids": [14778, 8541, 1080]},
+      {"prompt_tokens": 892, "mask_copy_calls": 1, "generated_token_ids": [14778, 8541, 1080]},
+      {"prompt_tokens": 832, "mask_copy_calls": 1, "generated_token_ids": [14778, 8541, 1080]},
+      {"prompt_tokens": 1024, "mask_copy_calls": 1, "generated_token_ids": [14778, 8541, 1080]},
+      {"prompt_tokens": 1024, "mask_copy_calls": 0, "generated_token_ids": [14778, 8541, 1080]}
+    ],
+    "structured_read": {
+      "http_status": 200,
+      "prompt_tokens": 800,
+      "device_reads": 1,
+      "post_read_prompt_tokens": 1024,
+      "post_read_generated_token_ids": [14778, 8541, 1080]
+    }
+  },
+  "verification_command": "nix build --offline .#qwen38 .#checks.x86_64-linux.qwen36 .#checks.x86_64-linux.qwen38-nixos-service --no-link --print-out-paths",
+  "interpretation": "The mask copy had absorbed asynchronous trace backpressure; omitting 126 redundant copies moves the wait elsewhere. Stage and dispatch wall times fall, but cold TTFT is unchanged at measurement precision. This is a transfer/allocation optimization, not an observed client latency improvement.",
+  "activation": {
+    "candidate_deployed": false,
+    "candidate_process_stopped": true,
+    "candidate_gc_root": ".pi/qwen38-mask-reuse-candidate",
+    "production_owner_restored": true,
+    "production_unit_active_state": "active",
+    "production_unit_pid": 1526612,
+    "production_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "production_healthz_ready": true
+  }
+}

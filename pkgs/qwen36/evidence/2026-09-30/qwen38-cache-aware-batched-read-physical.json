@@ -1,0 +1,85 @@
+{
+  "schema": "onix.qwen38.cache-aware-batched-read-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "physical_pcie_device_ids": [0, 1],
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "fixtures": {
+    "A_cold_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+    "A_cold_prompt_tokens": 130549,
+    "A_continuation_sha256": "4ce29d994ff53530d80f8c5bf87e41e998a135111b83e72bfc3c3b79f761acaa",
+    "A_continuation_prompt_tokens": 130564,
+    "B_cold_sha256": "d80f8c1623030ab01d74723794b478b75a324466d99b4c2f307b97aa236b96d1",
+    "B_cold_prompt_tokens": 16684,
+    "B_continuation_sha256": "e7913ba2b19fc17815502432a21ca0f2d678883d6e4a7be44343cdefc865a2c6",
+    "B_continuation_prompt_tokens": 16699,
+    "read_prompt_tokens_each": 84,
+    "read_jobs_in_burst": 4
+  },
+  "kv_mapping_derived_from_layout": {
+    "A_prefix_blocks": "16-2047 (130048 tokens)",
+    "B_prefix_blocks": "2048-2303 (16384 tokens)",
+    "single_read_bucket_128_blocks": "0-1",
+    "batched_bucket_128_first_row_blocks": "2048-2049",
+    "batched_bucket_128_other_rows_blocks": ["2184-2185", "2320-2321", "2456-2457"]
+  },
+  "baseline": {
+    "package": "/nix/store/5j41s231rcc6p35dpr9gxjlr70r0c3d4-qwen38-0.1.0",
+    "package_identity": "/nix/store/c1lj2ji7d1v685d1ywcsssd7jpb3p00a-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 93.19810829870403,
+    "A_cold_ttft_seconds": 103.66410410776734,
+    "B_cold_ttft_seconds": 9.598589508794248,
+    "B_before_reads": {"ttft_seconds": 0.4228269881568849, "prefix_hit_tokens": 16384},
+    "read_http_statuses": [200, 200, 200, 200],
+    "read_routes": ["batched-read-trace", "masked-trace", "batched-read-trace", "batched-read-trace"],
+    "read_total_ms": [644.2446759901941, 226.27098113298416, 645.5474919639528, 643.7974069267511],
+    "read_answers_each": {"urgent": {"noul": 0.04742587357759476, "type": "noul"}},
+    "B_after_reads": {
+      "ttft_seconds": 9.59834648296237,
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 16384,
+      "generated_token_ids": [66, 17936, 288, 1388]
+    },
+    "A_after_reads": {
+      "ttft_seconds": 1.091669901739806,
+      "prefix_hit_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    }
+  },
+  "candidate": {
+    "package": "/nix/store/yx1zm7rgqknqya1bgpccx5q8i9291dar-qwen38-0.1.0",
+    "package_identity": "/nix/store/y1yqc8fcsh0477j690bmc18v092m8c7x-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 493.12500160513446,
+    "A_cold_ttft_seconds": 103.69180615991354,
+    "B_cold_ttft_seconds": 9.596551926806569,
+    "B_before_reads": {"ttft_seconds": 0.418175061699003, "prefix_hit_tokens": 16384},
+    "empty_cache_read_routes": ["masked-trace", "batched-read-trace", "batched-read-trace", "batched-read-trace"],
+    "A_only_read_routes": ["batched-read-trace", "batched-read-trace", "batched-read-trace", "masked-trace"],
+    "read_http_statuses": [200, 200, 200, 200],
+    "A_and_B_read_routes": ["masked-trace", "masked-trace", "masked-trace", "masked-trace"],
+    "A_and_B_read_total_ms": [899.3263090960681, 897.8023277595639, 228.76344993710518, 896.813060157001],
+    "read_answers_each": {"urgent": {"noul": 0.04742587357759476, "type": "noul"}},
+    "B_after_reads": {
+      "ttft_seconds": 0.41448481334373355,
+      "prefix_hit_tokens": 16384,
+      "prefix_saved_tokens": 0,
+      "generated_token_ids": [66, 17936, 288, 1388]
+    },
+    "A_after_reads": {
+      "ttft_seconds": 1.2478332379832864,
+      "prefix_hit_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    }
+  },
+  "interpretation": "A batched 84-token read uses captured KV rows that intersect B, evicting its 16384-token generation prefix despite the read being shorter than 128 tokens. When a captured batch bucket intersects any cached generation prefix, reading singly through reserved blocks retains both A and B. The B continuation TTFT changed from 9.598 to 0.414 seconds with the same token IDs. Three read replies took approximately 0.90 seconds instead of 0.64 seconds in this burst; this is a per-request tradeoff, not general throughput or quality evidence. Cold A and B prefills were unchanged.",
+  "verification_command": "nix build --offline .#qwen38 .#checks.x86_64-linux.qwen36 .#checks.x86_64-linux.qwen38-nixos-service --no-link --print-out-paths",
+  "activation": {
+    "candidate_deployed": false,
+    "candidate_process_stopped": true,
+    "candidate_gc_root": ".pi/qwen38-cache-aware-read-batch-candidate",
+    "production_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "production_unit_active_state": "active",
+    "production_unit_pid": 2149125,
+    "production_healthz_ready": true
+  }
+}

@@ -1,0 +1,22 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -1909,6 +1909,7 @@ class Qwen36Model:
+             "sel": dev(
+                 conv_valid_selector(1, dn.K, dn.K - 1 + bucket, bucket), ttnn.bfloat16, ttnn.TILE_LAYOUT
+             ),
+             "mask": dev(seq_valid_mask(dn.Nv, bucket, bucket), ttnn.float32, ttnn.TILE_LAYOUT),
++            "mask_actual_len": None,
+             "logit_sel": dev(self._logit_selector(bucket, bucket), ttnn.bfloat16, ttnn.TILE_LAYOUT),
+         }
+@@ -1978,5 +1979,9 @@ class Qwen36Model:
+         put(torch.full((1, 1, 1), keep), ttnn.bfloat16, ttnn.TILE_LAYOUT, self._masked_keep_bf16)
+         put(conv_valid_selector(1, K, K - 1 + bucket, actual_len), ttnn.bfloat16, ttnn.TILE_LAYOUT, bufs["sel"])
+-        put(seq_valid_mask(bufs["value_heads"], bucket, actual_len), ttnn.float32, ttnn.TILE_LAYOUT, bufs["mask"])
++        # Full chunks reuse the same GDN valid mask. Keep it resident until a tail or
++        # another request changes this bucket's valid length; the trace reads this buffer.
++        if bufs["mask_actual_len"] != actual_len:
++            put(seq_valid_mask(bufs["value_heads"], bucket, actual_len), ttnn.float32, ttnn.TILE_LAYOUT, bufs["mask"])
++            bufs["mask_actual_len"] = actual_len
+         put(self._logit_selector(bucket, actual_len, read_rows), ttnn.bfloat16, ttnn.TILE_LAYOUT, bufs["logit_sel"])
+         assert 0 <= slot < 32, f"decode slot {slot} outside the 32-row install tile"

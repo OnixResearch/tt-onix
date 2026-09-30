@@ -408,7 +408,9 @@ class BatchGenerationCoordinator:
                     self._queue.appendleft(selected.pop())
             return tuple(selected)
 
-    def _run_reads(self, jobs: tuple[_PendingRead, ...]) -> None:
+    def _run_reads(
+        self, jobs: tuple[_PendingRead, ...], *, protected_blocks: frozenset[int] = frozenset()
+    ) -> None:
         # An expired job fails alone; the decisions merged with it still read.
         now = time.monotonic()
         live = []
@@ -422,7 +424,10 @@ class BatchGenerationCoordinator:
         if not live:
             return
         flat = tuple(request for job in live for request in job.requests)
-        results = self.adapter.read_rows_batch(flat)
+        if protected_blocks:
+            results = self.adapter.read_rows_batch(flat, protected_blocks=protected_blocks)
+        else:
+            results = self.adapter.read_rows_batch(flat)
         if len(results) != len(flat):
             raise BatchDecodeAdapterError("structured reads returned the wrong count")
         if any(result.masked_traces_released for result in results):

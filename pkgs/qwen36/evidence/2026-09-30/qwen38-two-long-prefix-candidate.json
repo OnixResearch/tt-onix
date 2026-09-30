@@ -1,0 +1,469 @@
+{
+  "A_return_ttft_reduction_percent": 99.1643005210414,
+  "baseline": {
+    "package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "package_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 463.9774530697614,
+    "systemd_main_pid": 2446749,
+    "turns": [
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.66090483404696,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.65177555335686
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130549,
+          "total_tokens": 130552
+        },
+        "wall_seconds": 104.33398154005408
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.43331468198448,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.42692429292947
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "c25d29d1128574509201f907c98f689bdb44aeb55bf9c6c69b7b319d52e855ca",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 103.9849557238631
+      },
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.45458537200466,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.44584910804406
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 103.90315362811089
+      }
+    ]
+  },
+  "candidate": {
+    "additional_python_import_path": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source (infra module only; installed model package precedes it)",
+    "gateway_short": {
+      "answer": "READY",
+      "http_status": 200,
+      "physical_pcie_device_ids": [
+        0,
+        1
+      ],
+      "prefix_hit_tokens": 0,
+      "prefix_saved_tokens": 0
+    },
+    "overflow": {
+      "body_bytes": 437291,
+      "http_status": 400,
+      "payload": {
+        "error": {
+          "message": "This model's maximum context length is 131072 tokens. The prompt (131149 tokens) and generation (16 tokens) require 131165. Please reduce the length of the messages or max_tokens.",
+          "type": "invalid_request_error"
+        }
+      }
+    },
+    "package": "/nix/store/pi278ypnvh1hwdz9x1x7a4m9nnidklw7-qwen38-0.1.0",
+    "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+    "returns_after_gateway_short": [
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.8582150270231068,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.853402832057327
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 1.326058954000473
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.8631944172084332,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8617459172382951
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "258e97b97681cd2b9cdd6f286b4044b95a344f4215c3a2cfa883559b4c5c4f48",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130559,
+          "total_tokens": 130563
+        },
+        "wall_seconds": 1.3898055390454829
+      }
+    ],
+    "startup_warmup_seconds": 577.0226097861305,
+    "third_distinct_cold_full_row": {
+      "answer": "violet ibis",
+      "error": null,
+      "evidence": {
+        "generated_token_ids": [
+          85,
+          29899,
+          18106,
+          284
+        ],
+        "kv_blocks_in_use": 2048,
+        "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+        "physical_pcie_device_ids": [
+          0,
+          1
+        ],
+        "prefill_decode_trace_released": false,
+        "prefill_masked_traces": true,
+        "prefill_seconds": 103.5679402127862,
+        "prefix_hit_tokens": 0,
+        "prefix_saved_tokens": 130048,
+        "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+        "simulated": false,
+        "ttft_seconds": 103.55789728602394
+      },
+      "followup": false,
+      "http_status": 200,
+      "phrase": "violet ibis",
+      "sha256": "f21abb694027ed4ea0ec9151ce06abd4e210815ed8b6c53f68ff56dd79564418",
+      "usage": {
+        "completion_tokens": 4,
+        "prompt_tokens": 130549,
+        "total_tokens": 130553
+      },
+      "wall_seconds": 104.08794369688258
+    },
+    "turns": [
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.55495892418548,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.54571005702019
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130549,
+          "total_tokens": 130552
+        },
+        "wall_seconds": 105.40044352831319
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.47795639000833,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.46935082087293
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "c25d29d1128574509201f907c98f689bdb44aeb55bf9c6c69b7b319d52e855ca",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 104.07204388827085
+      },
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.867426392622292,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8644964220002294
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 1.476037290878594
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.8612488037906587,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8567417310550809
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "258e97b97681cd2b9cdd6f286b4044b95a344f4215c3a2cfa883559b4c5c4f48",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130559,
+          "total_tokens": 130563
+        },
+        "wall_seconds": 1.4597281878814101
+      }
+    ],
+    "unprivileged_direct_pid": 3134422
+  },
+  "candidate_A_return_ttft_seconds": 0.8644964220002294,
+  "candidate_B_return_ttft_seconds": 0.8567417310550809,
+  "fixture_reference": "pkgs/qwen36/evidence/2026-09-29/qwen38-long-prefix-baseline.json",
+  "geometry": {
+    "baseline_cache_budget_blocks": 2048,
+    "baseline_device_allocated_bytes": 23567672320,
+    "baseline_pool_blocks": 4096,
+    "candidate_cache_budget_blocks": 4064,
+    "candidate_device_allocated_bytes": 23569769472,
+    "candidate_pool_blocks": 4097,
+    "per_chip_additional_bytes": 2097152,
+    "read_reserved_blocks": 16,
+    "row_blocks": 2048,
+    "saved_blocks_per_long_prefix": 2032,
+    "scratch_blocks": 1
+  },
+  "completed_utc": "2026-09-30T04:36:07Z",
+  "matched_baseline_A_return_ttft_seconds": 103.44584910804406,
+  "mode": "bounded physical P150x2 AB-A baseline versus ABAB two-long-prefix candidate",
+  "operation": {
+    "baseline_owner_restored": true,
+    "candidate_gc_root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen38-prefix-two-long-candidate",
+    "candidate_stopped_after_trial": true,
+    "privileged_dropin_attempt": "sudo -n ln -s to /nix/var/nix/gcroots failed: a password is required; sudo -l allows only owner stop/start and lsof",
+    "restored_health": {
+      "model": "Qwen3.8-27B",
+      "ready": true,
+      "status": "ok"
+    },
+    "restored_main_pid": 3271066,
+    "restored_service_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0"
+  },
+  "package_check": "nix build --offline .#qwen38 .#checks.x86_64-linux.qwen36 .#checks.x86_64-linux.qwen38-nixos-service --no-link --print-out-paths: passed",
+  "predeclared_gates": {
+    "amber_token_ids": [
+      14778,
+      8541,
+      1080
+    ],
+    "cold_ttft_max_by_phrase": {
+      "amber thrush": 119.11590543647762,
+      "copper wren": 118.9132593196351
+    },
+    "copper_token_ids": [
+      66,
+      17936,
+      288,
+      1388
+    ],
+    "devices": [
+      0,
+      1
+    ],
+    "minimum_baseline_interleaved_ttft_seconds": 80.0,
+    "resumed_ttft_max_seconds": 2.5,
+    "saved_prefix_tokens": 130048
+  },
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "schema": "qwen38.two-long-prefix-physical.v1",
+  "simulated": false,
+  "source_rev": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "third_distinct_passphrase": "violet ibis"
+}

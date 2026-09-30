@@ -80,19 +80,61 @@ Device side, in `pkgs/qwen36/structured-read-rows.patch`:
   once. Full-attention layers run per user through fixed page tables. The GDN path
   skips the state write-back, so the trace needs no masks.
 - **Worker merging.** The batch worker merges queued decision jobs. Shortest reads
-  go first into batched replays, and a batched replay is used only where it beats
-  single replays.
-- **Prefix reuse.** A single read writes its KV through the last page-table row.
-  Batched reads use the first rows, and generation below full width leaves the
-  last row alone. A read whose plan starts with a full 1,024-token chunk saves the
-  carried GDN state after that chunk into persistent buffers. Those buffers are
-  allocated, and their copy programs compiled, before any trace capture. A later
+  go first into batched replays; a batched replay runs only where it beats
+  singles and its captured KV write footprint does not overlap a retained
+  generation prefix.
+- **Prefix reuse.** A single read writes through its unchanged full-length
+  page-table row; its first 16 KV blocks are reserved from generation. Batched
+  reads capture four separate rows in blocks 4,096–4,111. A read whose plan
+  starts with a full 1,024-token chunk saves the carried GDN state into
+  persistent buffers. Those buffers are allocated, and their copy programs
+  compiled, before any trace capture. A later
   read with the same first 1,024 tokens, and no read position inside them,
   restores that state and replays only its tail. Any prefill that writes one of
   the prefix's KV blocks drops the saved prefix first. Refinement steps and later
   draws of a long state therefore skip the shared chunk.
 - **Eager fallback.** Without traces, reads run the same body eagerly, with no
   prefix reuse.
+- **Generation cache isolation.** Traced single reads report the KV blocks
+  through their padded final bucket. Batched traces report every captured row,
+  including unused lanes. The continuous-slot worker retains generation
+  prefixes whose physical KV ranges are disjoint from those blocks and evicts
+  overlapping entries; eager reads, lost masked traces, and failures retain the
+  conservative full invalidation. A physical 800-token read preserved a
+  130,048-token generation prefix (1.084 s continuation TTFT versus 103.696 s
+  before); a 1,400-token read overlapped it and forced a cold 103.953 s
+  continuation. See the [paired receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-structured-read-prefix-retention.json).
+- **Dedicated batched-read KV.** The 4,113-block candidate reserves four
+  disjoint four-block rows immediately after generation's blocks 16–4,095,
+  followed by scratch block 4,112. Both 128- and 256-token replays use these
+  fixed rows, including unused lanes; entries past the four-block runs point
+  to scratch. Short batched reads therefore cannot overlap generation KV.
+  Longer single reads retain the full-length row from block 0 and can still
+  overwrite generation KV beyond their reserved first 1,024 tokens.
+  A [bounded physical receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-dedicated-read-batch-lanes-physical.json)
+  observed three batched routes among four concurrent 82-token reads in the
+  128 bucket and three among four 198-token reads in the 256 bucket. Both
+  bursts retained A's 130,048-token and B's 16,384-token generation prefixes
+  and preserved generated token IDs. This does not measure longer reads or
+  establish general throughput.
+  A later [paired root-systemd receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-read-batch-lanes-systemd-paired.json)
+  ran the built 4,113-block unit with identical six-request SHA-256 inputs
+  against the old package. Both 82-token and 198-token bursts took three
+  batched traces plus one masked trace and returned the same numeric answers
+  as baseline; A and B generated the same token IDs. The candidate kept
+  130,048- and 16,384-token prefix hits through both bursts. The old
+  2,048-cached-block package lost B's 16,384-token hit after the short burst;
+  the candidate also raises that budget to 4,064, so continuation TTFT
+  differences cannot be ascribed to the read lanes alone. The root unit
+  passed notify readiness, but its temporary override was removed and
+  the old package restored. This remains bounded evidence, not broad
+  throughput or production admission.
+  The preceding [4,097-block candidate](../pkgs/qwen36/evidence/2026-09-30/qwen38-cache-aware-batched-read-physical.json)
+  instead used startup generation rows for batches and routed overlapping
+  batches to single-read traces. Its four 84-token decisions preserved a
+  16,384-token prefix (0.414 s warm TTFT versus 9.598 s cold), but three
+  replies took about 0.90 s instead of 0.64 s. Those are historical
+  measurements, not measurements of the dedicated-lane layout.
 
 Policy side, in `structured_read_core.py`. The PR's policy is noise in every
 slot, one denoise step, and draws differing only in noise. That fits a diffusion
@@ -214,14 +256,21 @@ were unchanged: 128/132 at 2.14 decisions/s.
 - **Service time.** Reads run on the batch worker between generation batches. A
   decision waits for any running generation batch, and generation waits for
   queued reads.
-- **Sequence length.** A read may use up to the configured
+- **Sequence length.** A single read may use up to the configured
   `--max-sequence-length` (131,072 tokens in the updated module and the running
   runtime-overridden service; the unchanged NixOS generation reverts to 65,536
-  after reboot). It writes KV through a fixed
-  full-length row whose first 1,024 tokens sit in pool blocks no generation
-  group is given, so the saved prefix survives generation. One read holds at
-  most 31 slots. Larger schemas are chunked, as in the PR. The measured read
-  corpus uses short prompts; 128K-token structured-read quality is untested.
+  after reboot). Its first 1,024 tokens use blocks 0–15, which no generation
+  group receives; a longer single read can write generation blocks and
+  invalidate overlapping cached prefixes. In the undeployed 4,113-block
+  read-lane candidate, four short batched reads instead use separate blocks
+  4,096–4,111 outside the 4,080-block generation range, with block 4,112 as
+  scratch. The direct and later paired root-systemd receipts cover 82- and
+  198-token reads, not a longer single read; this candidate remains
+  undeployed. The first direct attempt omitted production grouped and traced
+  prefill flags and did not measure a batched read route.
+  One read holds at most 31 slots. Larger schemas are chunked, as in the PR.
+  The measured read corpus uses short prompts; 128K-token structured-read
+  quality is untested.
 - **Disk.** Every rebuilt package compiles a new tt-metal kernel cache, about
   2.2 GB per package, under `<model>/.cache/tt-metal-cache`. Remove stale entries
   when the disk fills. A full disk fails the trace capture with
@@ -229,7 +278,8 @@ were unchanged: 128/132 at 2.14 decisions/s.
 
 ## Non-claims
 
-- These are diagnostic sessions on a shared host, not an admission receipt.
+- The corpus sessions are diagnostic; the later paired root-systemd receipt
+  is bounded to its exact A/B and cached-read fixture, not general admission.
 - The corpus is small and hand-labelled.
 - Qwen3.8's accuracy is not comparable to the DiffusionGemma numbers in the PR.
 - The shared host's accuracy and latency may differ from a deployed host.

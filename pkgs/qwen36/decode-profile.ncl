@@ -5,13 +5,14 @@ let candidate_slot_count = 1 in
 let configured_trace_command_queue_id = 0 in
 let configured_trace_capture_timeout_seconds = 300 in
 let configured_request_timeout_seconds = 1800 in
-# One request's page-table row: 131,072 tokens (2,048 blocks). Rows are cut
-# from a shared 4,096-block pool (8 GiB of bf16 KV per chip), not preallocated
-# per slot. The reserved read prefix and scratch block leave room for one
-# full-length request, but not two full-length requests in the same group.
+# One request's page-table row: 131,072 tokens (2,048 blocks). The 4,113-block
+# shared pool reserves 16 blocks for single-read prefixes, generation blocks
+# 16–4,095, four disjoint 4-block batched-read lanes at 4,096–4,111, and the
+# scratch block at 4,112. Generation still fits two 2,032-block prefixes and
+# one 16-block continuation, or one such prefix plus a full cold row.
 let configured_maximum_sequence_length = 131072 in
 let configured_kv_block_size = 64 in
-let configured_kv_pool_blocks = 4096 in
+let configured_kv_pool_blocks = 4113 in
 let configured_trace_region_size_bytes = 1073741824 in
 let configured_warmup_runs = 1 in
 let configured_measured_runs = 3 in

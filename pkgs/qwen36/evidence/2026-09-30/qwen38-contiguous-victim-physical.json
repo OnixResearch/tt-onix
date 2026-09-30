@@ -1,0 +1,482 @@
+{
+  "cache_budget_blocks": 4064,
+  "completed_utc": "2026-09-30T05:35:52Z",
+  "failing_before_regression": "nix build --offline .#checks.x86_64-linux.qwen36 --no-link --print-out-paths: failed on third full row eviction plus A/C warm state/KV regression",
+  "fixture_reference": "pkgs/qwen36/evidence/2026-09-29/qwen38-long-prefix-baseline.json",
+  "improved_candidate": {
+    "device_dram_allocated_bytes": 23569736704,
+    "package": "/nix/store/1yd8km80j1sajh4ig71da7jbkns9ynni-qwen38-0.1.0",
+    "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 654.1567369210534,
+    "turns": [
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.8009037701413,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.7914454410784
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130549,
+          "total_tokens": 130552
+        },
+        "wall_seconds": 105.30762983113527
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.5886134179309,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.58102875668555
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "c25d29d1128574509201f907c98f689bdb44aeb55bf9c6c69b7b319d52e855ca",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 104.08498542988673
+      },
+      {
+        "answer": "violet ibis",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            85,
+            29899,
+            18106,
+            284
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.59584897290915,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.58619979582727
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "violet ibis",
+        "sha256": "f21abb694027ed4ea0ec9151ce06abd4e210815ed8b6c53f68ff56dd79564418",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 104.189159440808
+      },
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.9011828261427581,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8976177820004523
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 1.4862366789020598
+      },
+      {
+        "answer": "violet ibis",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            85,
+            29899,
+            18106,
+            284
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.8992212833836675,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8945605522021651
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "violet ibis",
+        "sha256": "727c7db6955ef47c7ce7ca39de98bbafd86d46eeac086a0e3c1045d2c631c45d",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130559,
+          "total_tokens": 130563
+        },
+        "wall_seconds": 1.4806891726329923
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.60778336087242,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.59742268780246
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "258e97b97681cd2b9cdd6f286b4044b95a344f4215c3a2cfa883559b4c5c4f48",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130559,
+          "total_tokens": 130563
+        },
+        "wall_seconds": 104.20042532170191
+      },
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/7kzbfgd13v3ny4c2a3p0i51mw9i96rba-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 0.890853782184422,
+          "prefix_hit_tokens": 130048,
+          "prefix_saved_tokens": 0,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 0.8883071900345385
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 1.403875625692308
+      }
+    ]
+  },
+  "matched_amber_after_third_saved_ttft_seconds": 102.7034030542709,
+  "matched_amber_after_third_ttft_reduction_percent": 99.13358210686067,
+  "matched_amber_after_third_ttft_speedup": 115.4177456304215,
+  "mode": "paired before/after third-130K-prefix eviction, same model and pinned TT-Metal 0.77 on physical P150x2",
+  "operation": {
+    "candidate_gc_root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen38-contiguous-victim-candidate",
+    "improved_candidate_stopped_after_trial": true,
+    "prior_candidate_stopped_after_trial": true,
+    "production_active_state": "active",
+    "production_health": {
+      "model": "Qwen3.8-27B",
+      "ready": true,
+      "startup_warmup_seconds": 269.90717455977574,
+      "status": "ok"
+    },
+    "production_main_pid": 4142000,
+    "production_not_updated": "root-owned service drop-in remains on half-pool 4,096-block package; available passwordless owner helper can isolate/restore but cannot install root-owned override; previous sudo -n failed with password required",
+    "production_owner_restored": true,
+    "production_service_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0"
+  },
+  "package_check": "nix build --offline .#qwen38 .#checks.x86_64-linux.qwen36 .#checks.x86_64-linux.qwen38-nixos-service --no-link --print-out-paths: passed",
+  "per_chip_dram_delta_bytes": 0,
+  "pool_blocks": 4097,
+  "predeclared_gates": {
+    "after_copper_amber_revisit_hit_tokens": 130048,
+    "after_third_copper_revisit_hit_tokens": 0,
+    "baseline_after_third_hit_tokens": 0,
+    "baseline_after_third_minimum_ttft_seconds": 80,
+    "candidate_cold_maximum_ttft_seconds": 125,
+    "generated_ids_by_phrase": {
+      "amber thrush": [
+        14778,
+        8541,
+        1080
+      ],
+      "copper wren": [
+        66,
+        17936,
+        288,
+        1388
+      ],
+      "violet ibis": [
+        85,
+        29899,
+        18106,
+        284
+      ]
+    },
+    "improved_after_third_hit_tokens": 130048,
+    "improved_warm_maximum_ttft_seconds": 2.5,
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ]
+  },
+  "prior_candidate": {
+    "device_dram_allocated_bytes": 23569736704,
+    "package": "/nix/store/pi278ypnvh1hwdz9x1x7a4m9nnidklw7-qwen38-0.1.0",
+    "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+    "startup_warmup_seconds": 603.574598249048,
+    "turns": [
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.76428510202095,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.75597101077437
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130549,
+          "total_tokens": 130552
+        },
+        "wall_seconds": 104.97338359011337
+      },
+      {
+        "answer": "copper wren",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            66,
+            17936,
+            288,
+            1388
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.5964353363961,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.58861638512462
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "copper wren",
+        "sha256": "c25d29d1128574509201f907c98f689bdb44aeb55bf9c6c69b7b319d52e855ca",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 104.08180661126971
+      },
+      {
+        "answer": "violet ibis",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            85,
+            29899,
+            18106,
+            284
+          ],
+          "kv_blocks_in_use": 2048,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.54285757709295,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.5344286900945
+        },
+        "followup": false,
+        "http_status": 200,
+        "phrase": "violet ibis",
+        "sha256": "f21abb694027ed4ea0ec9151ce06abd4e210815ed8b6c53f68ff56dd79564418",
+        "usage": {
+          "completion_tokens": 4,
+          "prompt_tokens": 130549,
+          "total_tokens": 130553
+        },
+        "wall_seconds": 104.034903914202
+      },
+      {
+        "answer": "amber thrush",
+        "error": null,
+        "evidence": {
+          "generated_token_ids": [
+            14778,
+            8541,
+            1080
+          ],
+          "kv_blocks_in_use": 4080,
+          "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "package_identity": "/nix/store/hwryv02az94nzhafbwmkjy6w7s5738as-qwen36-execution-identity-0.1.0",
+          "physical_pcie_device_ids": [
+            0,
+            1
+          ],
+          "prefill_decode_trace_released": false,
+          "prefill_masked_traces": true,
+          "prefill_seconds": 103.60825412720442,
+          "prefix_hit_tokens": 0,
+          "prefix_saved_tokens": 130048,
+          "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+          "simulated": false,
+          "ttft_seconds": 103.60102083627135
+        },
+        "followup": true,
+        "http_status": 200,
+        "phrase": "amber thrush",
+        "sha256": "d409f41e358da0d859b87f4a5682d7d487f906fc9e02a8f9f9de72528dfc6b40",
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 130559,
+          "total_tokens": 130562
+        },
+        "wall_seconds": 104.06408980488777
+      }
+    ]
+  },
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "schema": "qwen38.contiguous-victim-physical.v1",
+  "simulated": false
+}

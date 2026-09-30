@@ -1,0 +1,84 @@
+{
+  "schema": "onix.qwen38.read-lanes-systemd-paired-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "scope": "One exact-request paired P150x2 HTTP trial of the existing root-owned service versus a temporary systemd-notified y58 read-lane service; 82- and 198-token four-way reads and two generation prefixes only. This is not general throughput, longer reads, reboot persistence, or durable deployment acceptance.",
+  "method": "Verified root SSH session with EXIT/INT/TERM rollback; owner isolated with ttwkv7-owner-control; root-owned candidate GC pin created before restart; only /run/systemd/system/qwen38-p150x2.service.d/97-read-batch-lanes.conf added from the rendered candidate ExecStart; daemon-reload and Type=notify systemctl start; paired HTTP probe; stop candidate, remove 97, daemon-reload, ttwkv7-owner-control restore old 96/gfvkac4.",
+  "raw_evidence_outside_repo": {
+    "fixture": "/tmp/qwen-systemd-trial/fixture-manifest.json",
+    "baseline_response": "/tmp/qwen-systemd-trial/baseline-raw.json",
+    "candidate_response": "/tmp/qwen-systemd-trial/candidate-raw.json",
+    "root_trial_log": "/tmp/qwen-systemd-trial/root-trial.log"
+  },
+  "temporary_scripts": "The paired HTTP probe, comparison, root transaction, and SSH launcher scripts were removed after the trial. Exact request-body JSON files, the fixture manifest, both raw response receipts, and the root trial log remain under /tmp/qwen-systemd-trial.",
+  "identities": {
+    "old_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "old_execution_identity": "/nix/store/ngg97mwa71hz0dwzqal4zbrzaihqpppr-qwen36-execution-identity-0.1.0",
+    "candidate_package": "/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0",
+    "candidate_execution_identity": "/nix/store/57ny8swp024xf34kr08mgizrwia75ndr-qwen36-execution-identity-0.1.0",
+    "runtime_identity_both": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "model_snapshot": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "physical_pcie_device_ids_all_generation_responses": [0, 1],
+    "candidate_rendered_unit": "/nix/store/hd0r2drbsacdz14vdbw3ssv8sy8j6nxf-unit-qwen38-p150x2.service/qwen38-p150x2.service"
+  },
+  "fixture_sha256": {
+    "A_cold": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+    "A_continue": "a31d7b2253d29e77cf9dcabbe505d97a5feac2cb39362d593d528ccba14b140b",
+    "B_cold": "dc181174a5322b5160cc620f692d5d58b57e93d66044ac25f3d4c81716d4607c",
+    "B_continue": "3a5562bdea1a922926a069aaeb0d9c389f04592b7b2a82c0ee11dc0b0da146e2",
+    "short_128": "de4243c77de56d4222e0143a30cd69d3ca9d9621fbba94c9ff6406563f8a9763",
+    "medium_256": "99d7f5996cd7cd246957bd0d2a68bed67f01f75de97a5e6cdb3b830e823f0e00"
+  },
+  "service_trial": {
+    "old_initial_pid": 3738578,
+    "candidate_root_pid": 516860,
+    "candidate_notify_ready_startup_seconds": 762,
+    "candidate_start_timeout_seconds": 1250,
+    "candidate_start_n_restarts": 0,
+    "candidate_healthz_http_status": 200,
+    "candidate_healthz_ready": true,
+    "candidate_environment_verified": ["MESH_DEVICE=P150x2", "QWEN35_GROUPED_PREFILL=1", "QWEN36_TRACED_PREFILL=1", "QWEN36_SAMPLED_FUSION=1", "CI absent"],
+    "candidate_execstart_verified": ["--max-sequence-length 131072", "--max-generation-tokens 8192", "--require-systemd-notify", "continuous-slot-policy and prefix-cache-policy from y58"],
+    "candidate_http_probe_timeout_seconds": 1100,
+    "candidate_probe_complete": true
+  },
+  "paired_generation": {
+    "A_cold": {"prompt_tokens": 130549, "old_hit_tokens": 0, "candidate_hit_tokens": 0, "old_ttft_seconds": 103.70131827285513, "candidate_ttft_seconds": 103.64352739183232},
+    "B_cold": {"prompt_tokens": 16684, "old_hit_tokens": 0, "candidate_hit_tokens": 0, "old_ttft_seconds": 9.606650745030493, "candidate_ttft_seconds": 9.59329047985375},
+    "B_before_reads": {"prompt_tokens": 16699, "old_hit_tokens": 16384, "candidate_hit_tokens": 16384, "old_ttft_seconds": 0.45276483707129955, "candidate_ttft_seconds": 0.409835253842175},
+    "A_before_short": {"prompt_tokens": 130564, "old_hit_tokens": 0, "candidate_hit_tokens": 130048, "old_ttft_seconds": 103.7451026327908, "candidate_ttft_seconds": 1.094069675076753},
+    "B_after_short": {"prompt_tokens": 16699, "old_hit_tokens": 0, "candidate_hit_tokens": 16384, "old_ttft_seconds": 9.600192238111049, "candidate_ttft_seconds": 0.4176078080199659},
+    "A_after_short": {"prompt_tokens": 130564, "old_hit_tokens": 0, "candidate_hit_tokens": 130048, "old_ttft_seconds": 103.7582047036849, "candidate_ttft_seconds": 1.0942130028270185},
+    "B_after_medium": {"prompt_tokens": 16699, "old_hit_tokens": 0, "candidate_hit_tokens": 16384, "old_ttft_seconds": 9.596771544776857, "candidate_ttft_seconds": 0.4190216618590057},
+    "A_after_medium": {"prompt_tokens": 130564, "old_hit_tokens": 0, "candidate_hit_tokens": 130048, "old_ttft_seconds": 103.78466039989144, "candidate_ttft_seconds": 1.0908618113026023}
+  },
+  "generation_output_parity": {
+    "A_answer": "amber thrush",
+    "A_generated_token_ids": [14778, 8541, 1080],
+    "B_answer": "copper wren",
+    "B_generated_token_ids": [66, 17936, 288, 1388],
+    "same_ids_and_answers_in_all_paired_generation_phases": true
+  },
+  "paired_reads": {
+    "short_128": {"prompt_tokens_each": 82, "http_statuses": [200, 200, 200, 200], "device_reads_each": 1, "candidate_routes": ["batched-read-trace", "batched-read-trace", "batched-read-trace", "masked-trace"], "answer_each_both_packages": {"urgent": {"noul": 0.000552778597921133, "type": "noul"}}},
+    "medium_256": {"prompt_tokens_each": 198, "http_statuses": [200, 200, 200, 200], "device_reads_each": 1, "candidate_routes": ["batched-read-trace", "batched-read-trace", "masked-trace", "batched-read-trace"], "answer_each_both_packages": {"urgent": {"noul": 0.00247262348420918, "type": "noul"}}}
+  },
+  "cache_budget_interpretation": "The old 2,048-block cache cannot retain both A's 2,032 blocks and B's 256 blocks; its zero A/B post-burst hits must not be attributed solely to reads. The candidate's 4,064-block generation cache retained both prefixes before and after each tested burst. No throughput or longer-read result follows.",
+  "simulator_limit": "TTsim 1.10.6 does not model the fused GDN numerical matmul control flag (ALU_ACC_CTRL_Zero_Flag_disabled_src=1); this is a physical P150x2 result, not a simulated pass.",
+  "rollback": {
+    "trial_dropin_97_removed": true,
+    "dropins_90_95_96_preserved": true,
+    "old_package_restored": true,
+    "old_root_pid_after_restore": 658860,
+    "old_n_restarts_after_restore": 0,
+    "old_max_sequence_length": 131072,
+    "old_require_systemd_notify": true,
+    "old_healthz_http_status": 200,
+    "old_healthz_ready": true,
+    "old_service_active_running": true,
+    "old_package_gc_root_preserved": "/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate",
+    "candidate_package_gc_root_intentionally_retained": "/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial",
+    "candidate_gc_root_is_package_pin_not_service_activation": true
+  },
+  "acceptance": "PASS for this paired, bounded physical read-lane and root-owned systemd-notify path only; candidate rolled back. Durable reviewed host generation, rollback generation, and reboot persistence remain separate."
+}

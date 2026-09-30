@@ -1,0 +1,108 @@
+{
+  "schema": "onix.qwen38.read-batch-kv-lanes-physical.v1",
+  "date_utc": "2026-09-30",
+  "simulation": false,
+  "acceptance_scope": "Bounded P150x2 traced structured reads in both 128- and 256-token batch buckets while two long generation prefixes remain cached; not general model accuracy, throughput, or production deployment acceptance",
+  "candidate": {
+    "package": "/nix/store/y58n6n12g680m4g9bqmd5n68smhs0ha9-qwen38-0.1.0",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "execution_identity": "/nix/store/57ny8swp024xf34kr08mgizrwia75ndr-qwen36-execution-identity-0.1.0",
+    "physical_pcie_device_ids": [0, 1],
+    "profile_kv_pool_blocks": 4113,
+    "kv_block_size_tokens": 64,
+    "reserved_prefix_blocks": "0-15",
+    "generation_blocks": "16-4095",
+    "dedicated_batch_blocks": "4096-4111",
+    "scratch_block": 4112,
+    "direct_candidate_ready": true,
+    "production_flags_verified_in_candidate_proc_before_A": {
+      "MESH_DEVICE": "P150x2",
+      "QWEN35_GROUPED_PREFILL": "1",
+      "QWEN36_TRACED_PREFILL": "1",
+      "QWEN35_GDN_DECODE_FUSION": "step",
+      "QWEN36_SAMPLED_FUSION": "1",
+      "QWEN36_GDN_BF4": "0",
+      "QWEN36_GDN_FUSED_PREFILL": "0",
+      "QWEN36_MTP_SERVING": "0"
+    }
+  },
+  "trial": {
+    "method": "ttwkv7-owner-control isolate, direct unprivileged packaged candidate on localhost:8000, bounded probe, EXIT trap candidate stop and original-owner restore",
+    "server_timeout_seconds": 2300,
+    "readiness_timeout_seconds": 1250,
+    "probe_timeout_seconds": 1900,
+    "restore_timeout_seconds": 1500,
+    "A_cold": {
+      "request_sha256": "8feff68753ce70e43ffaf528b0420b3f5a23456058583865041447b64f8ae860",
+      "prompt_tokens": 130549,
+      "ttft_seconds": 103.61731761088595,
+      "prefix_saved_tokens": 130048,
+      "generated_token_ids": [14778, 8541, 1080]
+    },
+    "B_cold": {
+      "request_sha256": "dc181174a5322b5160cc620f692d5d58b57e93d66044ac25f3d4c81716d4607c",
+      "prompt_tokens": 16684,
+      "ttft_seconds": 9.594422496389598,
+      "prefix_saved_tokens": 16384,
+      "generated_token_ids": [66, 17936, 288, 1388]
+    },
+    "empty_cache_128_bucket": {
+      "concurrent_reads": 4,
+      "prompt_tokens_each": 82,
+      "routes": ["batched-read-trace", "masked-trace", "batched-read-trace", "batched-read-trace"],
+      "device_reads_each": 1,
+      "answers_equal": true
+    },
+    "B_before_protected_reads": {"prompt_tokens": 16699, "prefix_hit_tokens": 16384, "ttft_seconds": 0.4208446089178324},
+    "A_before_protected_reads": {"prompt_tokens": 130564, "prefix_hit_tokens": 130048, "ttft_seconds": 1.1010786318220198},
+    "protected_128_bucket": {
+      "concurrent_reads": 4,
+      "prompt_tokens_each": 82,
+      "routes": ["batched-read-trace", "masked-trace", "batched-read-trace", "batched-read-trace"],
+      "device_reads_each": 1,
+      "answer_each": {"urgent": {"noul": 0.000552778597921133, "type": "noul"}},
+      "answers_equal": true,
+      "B_after": {"prefix_hit_tokens": 16384, "ttft_seconds": 0.4123023306019604},
+      "A_after": {"prefix_hit_tokens": 130048, "ttft_seconds": 1.0893645281903446}
+    },
+    "protected_256_bucket": {
+      "concurrent_reads": 4,
+      "prompt_tokens_each": 198,
+      "routes": ["masked-trace", "batched-read-trace", "batched-read-trace", "batched-read-trace"],
+      "device_reads_each": 1,
+      "answer_each": {"urgent": {"noul": 0.00247262348420918, "type": "noul"}},
+      "answers_equal": true,
+      "B_after": {"prefix_hit_tokens": 16384, "ttft_seconds": 0.41181104676797986},
+      "A_after": {"prefix_hit_tokens": 130048, "ttft_seconds": 1.088425855152309}
+    },
+    "B_generated_token_ids_unchanged_before_and_after_both_bursts": true,
+    "A_generated_token_ids_unchanged_before_and_after_both_bursts": true,
+    "batch_128_routes_observed_with_A_and_B_cached": 3,
+    "batch_256_routes_observed_with_A_and_B_cached": 3,
+    "candidate_accepted_for_bounded_lane_scope": true,
+    "historical_comparison_paired": false,
+    "historical_B_cold_request_sha256": "d80f8c1623030ab01d74723794b478b75a324466d99b4c2f307b97aa236b96d1"
+  },
+  "trial_history": {
+    "first_invalid_attempt": "qwen38-read-batch-lanes-first-attempt.json: omitted traced/grouped prefill flags, timed out on A, then original-owner ethernet-core failure required board reset",
+    "second_invalid_attempt": "Missing production prefill flags; B continuation had no prefix hit before any batched read. Preserved as /tmp/qwen-lanes/read-lanes-physical-invalid-eager.json and matching log.",
+    "first_correctly_flagged_attempt": "Four concurrent short reads exercised three physical 128-bucket batch routes, but the fixture returned 82 rather than the hard-coded 84 tokens and its assertion stopped before A. Preserved as /tmp/qwen-lanes/read-lanes-physical-valid-preflight-82.json and matching log.",
+    "second_correctly_flagged_attempt": "A/B prefixes survived three 198-token medium single-read traces; there was no 256-bucket batch route and no 256 acceptance claim. Preserved as /tmp/qwen-lanes/read-lanes-physical-128-protected-256-unbatched.json and matching log.",
+    "accepted_trial_fixture_change": "Four concurrent 198-token reads leave three eligible after an early single dispatch; three 256-bucket batch routes were observed. Raw accepted probe: /tmp/qwen-lanes/read-lanes-physical-accepted-128-256.json; server log: /tmp/qwen-lanes/physical-server-accepted-128-256.log."
+  },
+  "verification_reported_before_hardware": "Offline nix build of .#qwen38, .#checks.x86_64-linux.qwen36 and .#checks.x86_64-linux.qwen38-nixos-service passed; candidate package pinned by .pi/qwen38-read-batch-lanes-candidate",
+  "restoration": {
+    "candidate_process_stopped": true,
+    "candidate_deployed": false,
+    "original_owner_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+    "owner_restore_helper_result": "ttwkv7-owner-control: owner restored",
+    "owner_active_state": "active",
+    "owner_sub_state": "running",
+    "owner_main_pid": 3738578,
+    "owner_n_restarts": 0,
+    "owner_healthz_http_status": 200,
+    "owner_healthz_ready": true,
+    "owner_startup_warmup_seconds": 92.99466757802293
+  },
+  "interpretation": "A correctly configured direct candidate physically replayed both captured batched-read buckets while A and B generation prefixes occupied 130048 and 16384 tokens. Four short and four medium concurrent reads each yielded three batched and one single route. B and A hit their entire prefixes afterward and generated identical token IDs. The historical B cold request hash differs, so this receipt makes no paired performance or broad model-quality claim. The undeployed candidate does not alter the root-owned production service."
+}
