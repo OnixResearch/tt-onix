@@ -15,7 +15,7 @@ let contracts = import "prefix-cache-contracts.ncl" in
   # Shorter prefixes are prefilled cold.
   minimum_prefix_tokens = 2048,
   # Retain two independent near-full 130K prefixes (2 x 2,032 blocks) within
-  # the 4,097-block pool. A full cold row fits beside one cached prefix;
+  # the 4,113-block pool. A full cold row fits beside one cached prefix;
   # an unused entry still yields to a third full-row request.
   maximum_cached_blocks = 4064,
   # The service has no client authentication: every request is this one tenant.
