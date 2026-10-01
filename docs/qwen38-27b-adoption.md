@@ -1297,6 +1297,72 @@ This host runs the final package as the lingering per-user
 services remain stopped while Qwen owns the devices. A live 64-token request
 also passed on the final deployed package.
 
+## Physical cold-prefill SDPA diagnosis and rejected tile trial (2026-10-01)
+
+An isolated, profiler-enabled run on physical P150x2 nodes 0/1 measured
+130,549-token A refill at 103.615 s and 16,684-token B at 9.626 s. A captured
+3,188,925 device-program records with zero drops. **Per chip**, chunked SDPA
+was the largest individual program signature: 2,048 calls totaling 27.839 s
+(other chip 27.764 s), versus 102.625 s total program durations on that chip.
+Binary SFPU, matmul and concat-heads contributed 10.099, 9.314 and 6.638 s
+on chip 1. These two-chip durations must not be added; host enqueue/staging
+overlap device work. B's SDPA took 0.516 s per chip across 272 calls. The
+profiler isolates a hotspot, **not** an admissible optimization.
+
+A package-matched TT-Metal 0.77 experiment kept 128 query rows but widened
+only captured flexible paged-prefill SDPA's key chunk from 128 to 256. Its
+first bounded startup timed out during cold JIT and masked-trace capture,
+then automatically restored the original owner. The second direct-server
+run completed the preserved exact-six-body physical HTTP replay, but passed
+only **94/98** checks: each of four 198-token structured reads returned
+`urgent.noul=0.0013250223128125072`, not the admitted exact
+`0.00247262348420918`. Short-read scores, generated token IDs, physical
+IDs, prefix hits and the other gates matched. Candidate cold A/B TTFT was
+103.193/9.591 s versus 103.709/9.626 s in a **separate** prior han2 run
+(saved cold profile 103.899/9.678 s); the 0.516 s A difference is ~0.5%
+from one sample, not evidence of a material improvement. Changing the key
+tile is numerically inadmissible. The candidate patch and Nix reference
+were removed; it was never installed into the managed profile.
+
+Both isolation attempts used invocation-bound bounded post-stop rollback.
+After the failed replay, the original han2 wrapper returned at root
+`Type=notify` active/running PID 223473, `/healthz` HTTP 200 and no restarts;
+that PID alone owned nodes 0 and 1. Native, managed and all three `/run`
+drop-in hashes stayed unchanged. The
+[dated physical diagnosis and rejection receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-cold-prefill-sdpa-rejection.json)
+links the profiler's raw records, diagnostic/98-gate script hashes, full
+failed HTTP responses and both rollback receipts. The 27.8 s SDPA
+signature remains an algorithmic target, but the package-matched
+`tp.py` already uses its full BH grid and 128×128 query/key chunks:
+the tested wider key tile changed exact read numerics without material
+end-to-end benefit. A second source/record pass found 2,336 occurrences
+of the binary-SFPU signature **per replay chunk** in both A
+(299,008/128) and B (39,712/17), or 146 per four-layer group
+(three GDN, one full attention). RT records identify kernel sources
+and timestamps, not TTNN operation names; assigning the 10.099 s to
+one Python callsite would be fabrication. The actual grouped trace
+uses trained q/k norms, attention sigmoid gates, GDN decay/beta/causal
+masks, MLP SwiGLU and residual additions. Its GDN valid-mask
+multiplies happen to see all ones on full chunks, but the **same**
+captured program reads the staged partial-tail mask; its two GDN
+state-reset selects likewise must reset the first chunk and retain
+continuations. Removing either from only the full chunks needs a
+different trace/state protocol, not an exact free operation.
+
+The 6.638 s concat-heads **signature** contains 64 launches per
+chunk: source branches convert 48 GDN head-major outputs and 16
+attention outputs to token-major inputs for their gates/projections.
+The trained model has 48 GDN value heads (24 per device), so these
+are real permutations, not shape-only views. Of 64 launches, 61
+remain 0.025–0.047 ms each across full A chunks (0.326 s total);
+only the final three grow with prefix length, totaling 6.309 s.
+The cause of this context-dependent program duration is not isolated,
+so removing a layout copy cannot be credited with a 6.638 s saving.
+No source- and device-supported low-risk exact-output-preserving
+material elimination was found; a new kernel/layout algorithm needs
+its own physical numerical and 98-gate proof. No new optimization or
+broad quality/throughput admission is claimed.
+
 ## Upstream state watch
 
 The PR is closed-unmerged. If upstream merges it or the qwen36 path moves,
