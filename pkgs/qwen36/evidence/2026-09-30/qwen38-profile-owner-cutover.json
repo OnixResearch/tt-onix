@@ -1,0 +1,89 @@
+{
+  "schema": "onix.qwen38.profile-owner-cutover.v1",
+  "date": "2026-09-30",
+  "host": "britton-desktop",
+  "unit": "qwen38-p150x2.service",
+  "native_fragment": "/etc/systemd/system/qwen38-p150x2.service",
+  "managed_dropin": "/usr/local/lib/systemd/system/qwen38-p150x2.service.d/99-profile.conf",
+  "managed_dropin_source": "scripts/qwen38-profile-99.conf",
+  "manager": "scripts/qwen38-profile-service",
+  "named_root_profile": "/nix/var/nix/profiles/qwen38-p150x2",
+  "profile_only_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
+  "profile_wrapper_and_policy_symlinks_resolve_within_only_package": true,
+  "han2_deployed": false,
+  "native_owner_inherited": {
+    "enabled": true,
+    "type": "notify",
+    "notify_access": "main",
+    "user": "root",
+    "group": "tenstorrent",
+    "mesh_device": "P150x2",
+    "model_path": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "production_flags_unchanged": true
+  },
+  "effective_service": {
+    "max_sequence_length": 131072,
+    "max_generation_tokens": 8192,
+    "continuous_slot_and_prefix_cache_policy_from_profile": true,
+    "physical_pcie_device_ids": [0, 1],
+    "sole_device_owner_pid_final": 1547052,
+    "restart_count_final": 0
+  },
+  "live_cycle": [
+    {
+      "step": "first_profile_install",
+      "ready_pid": 1485839,
+      "healthz_status": 200,
+      "startup_warmup_seconds": 117.935
+    },
+    {
+      "step": "restore_original_run96_owner",
+      "ready_pid": 1519419,
+      "healthz_status": 200,
+      "startup_warmup_seconds": 119.10839034290984
+    },
+    {
+      "step": "reapply_profile_install",
+      "ready_pid": 1547052,
+      "healthz_status": 200,
+      "startup_warmup_seconds": 138.98006191384047
+    }
+  ],
+  "final_physical_smoke": {
+    "chat_http_status": 200,
+    "chat_text": "READY",
+    "generated_token_ids": [44061],
+    "physical_pcie_device_ids": [0, 1],
+    "structured_fixture_sha256": "de4243c77de56d4222e0143a30cd69d3ca9d9621fbba94c9ff6406563f8a9763",
+    "structured_http_status": 200,
+    "structured_urgent_noul": 0.000552778597921133,
+    "structured_device_reads": 1
+  },
+  "rollback_run_override_sha256_unchanged": {
+    "90-context-128k.conf": "370d66949e8e9c8ab4d6bf149d57c79c1c0f5581d79174a67a4d6cd77058f30d",
+    "95-prefix-65k.conf": "9460cf7e18ac03b143e33f7b2801d458e8e177c334228cc3f481dd7bfe1469bb",
+    "96-prefix-128k-budget.conf": "354eb29888fe3b8e5ea7e05ecbbaf9bcc212d9b372f2b0e57d1fe3e24ea99e83"
+  },
+  "systemd_verify": {
+    "host_verify_exit_code": 0,
+    "daemon_reload_preserved_final_pid_and_ready_health": true,
+    "synthetic_root_native_fragment_byte_identical": true,
+    "synthetic_root_dropin_byte_identical": true,
+    "synthetic_root_run_dropins_present": false,
+    "synthetic_root_minimal_sysinit_target_and_profile_executable": true,
+    "synthetic_root_verify_exit_code": 0,
+    "profile_executable_removed_control_exit_code": 1,
+    "profile_executable_removed_control_identified_profile_execstart": true,
+    "systemd_version": "261.2",
+    "vendor_local_unit_path_supported": true
+  },
+  "persistence": {
+    "usr_local_mount": "ext4",
+    "nix_profile_mount": "zfs",
+    "dropin_owner": "root:root",
+    "dropin_mode": "0644"
+  },
+  "actual_reboot_exercised": false,
+  "host_switch_to_dirty_onix_core_safe": false,
+  "notes": "The checked-in onix-core host checkout masks Qwen and sets 2048/64 limits. The synthetic no-/run unit-load check and live daemon-reload are not a physical reboot. Native /run96 restore is available only while original 90/95/96 overrides remain. Host systemd-analyze verify returned zero with unrelated static-server, cups, and old llama unit warnings."
+}

@@ -104,7 +104,7 @@ Device side, in `pkgs/qwen36/structured-read-rows.patch`:
   130,048-token generation prefix (1.084 s continuation TTFT versus 103.696 s
   before); a 1,400-token read overlapped it and forced a cold 103.953 s
   continuation. See the [paired receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-structured-read-prefix-retention.json).
-- **Dedicated batched-read KV.** The 4,113-block candidate reserves four
+- **Dedicated batched-read KV.** The live 4,113-block han2 profile reserves four
   disjoint four-block rows immediately after generation's blocks 16–4,095,
   followed by scratch block 4,112. Both 128- and 256-token replays use these
   fixed rows, including unused lanes; entries past the four-block runs point
@@ -139,6 +139,15 @@ Device side, in `pkgs/qwen36/structured-read-rows.patch`:
   each burst. The temporary candidate stopped and the original `gfvkac4`
   root service returned ready with unchanged 90/95/96 drop-ins. This is
   bounded requalification of han2, not a durable host-generation switch.
+  The [2026-10-01 managed-profile admission](../pkgs/qwen36/evidence/2026-10-01/qwen38-han2-profile-admission.json)
+  installed the same qualified han2 output in generation 3 of the existing
+  root profile, without switching the NixOS host generation. One live exact
+  six-body replay passed 98/98 gates: both 82- and 198-token four-way bursts
+  took three batched and one masked route with identical numeric answers.
+  A/B retained 130,048/16,384-token prefixes, with TTFT 1.102/0.426 s after
+  the short burst versus the preserved earlier gfvk 103.758/9.600 s.
+  The old baseline is not a simultaneous pair, and the larger cache budget
+  and read lanes changed together; this is not general throughput evidence.
   The preceding [4,097-block candidate](../pkgs/qwen36/evidence/2026-09-30/qwen38-cache-aware-batched-read-physical.json)
   instead used startup generation rows for batches and routed overlapping
   batches to single-read traces. Its four 84-token decisions preserved a
@@ -266,18 +275,24 @@ were unchanged: 128/132 at 2.14 decisions/s.
 - **Service time.** Reads run on the batch worker between generation batches. A
   decision waits for any running generation batch, and generation waits for
   queued reads.
-- **Sequence length.** A single read may use up to the configured
-  `--max-sequence-length` (131,072 tokens in the updated module and the running
-  runtime-overridden service; the unchanged NixOS generation reverts to 65,536
-  after reboot). Its first 1,024 tokens use blocks 0–15, which no generation
+- **Sequence length.** A single read may use up to the effective
+  `--max-sequence-length`: 131,072 tokens on the current root-owned
+  profile-backed han2 service. The enabled native NixOS unit still contains
+  a 65,536-token command, but its persistent managed `/usr/local`99 drop-in
+  selects the pinned han2 package at 131,072 tokens without depending on the
+  historical `/run` drop-ins. The exact old gfvk package remains pinned by
+  its GC root; generation 1 was verified at admission but may be pruned by
+  weekly GC and must be checked before rollback. An actual reboot has not
+  been exercised; a future host switch can mask or change
+  that native unit, so verify its effective command and `/healthz` before
+  extended reads. Its first 1,024 tokens use blocks 0–15, which no generation
   group receives; a longer single read can write generation blocks and
-  invalidate overlapping cached prefixes. In the undeployed 4,113-block
-  read-lane candidate, four short batched reads instead use separate blocks
-  4,096–4,111 outside the 4,080-block generation range, with block 4,112 as
-  scratch. The direct, historical y58 and committed han2 physical receipts
-  cover 82- and 198-token reads, not a longer single read; han2 remains
-  undeployed. The first direct attempt omitted production grouped and traced
-  prefill flags and did not measure a batched read route.
+  invalidate overlapping cached prefixes. Han2's four short batched-read
+  lanes instead use separate blocks 4,096–4,111 outside the 4,080-block
+  generation range, with block 4,112 as scratch. The historical y58 and
+  han2 physical receipts and the live admission cover 82- and 198-token
+  reads, not a longer single read. The first direct attempt omitted production
+  grouped and traced prefill flags and did not measure a batched read route.
   One read holds at most 31 slots. Larger schemas are chunked, as in the PR.
   The measured read corpus uses short prompts; 128K-token structured-read
   quality is untested.
@@ -288,9 +303,11 @@ were unchanged: 128/132 at 2.14 decisions/s.
 
 ## Non-claims
 
-- The corpus sessions are diagnostic; the historical y58 and committed han2
-  root-systemd receipts cover only their exact A/B and cached-read fixture,
-  not general throughput, broad quality or TT-Metal 0.77 production admission.
+- The corpus sessions are diagnostic; the historical y58 and han2 root-systemd
+  trials and the live managed-profile replay cover only their exact A/B and
+  cached-read fixture, not general throughput, broad quality, reboot
+  persistence or TT-Metal 0.77 production numerical admission.
 - The corpus is small and hand-labelled.
 - Qwen3.8's accuracy is not comparable to the DiffusionGemma numbers in the PR.
-- The shared host's accuracy and latency may differ from a deployed host.
+- The historical corpus's shared-host accuracy and latency may differ from
+  this live owner's behavior.

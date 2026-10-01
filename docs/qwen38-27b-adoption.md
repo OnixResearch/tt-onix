@@ -623,11 +623,13 @@ only B=4. Requests with a temperature above zero need `sampledFusion`; without i
 the service is greedy-only.
 
 The updated package and module allow 131,072 combined prompt and generation
-tokens per request, with at most 8,192 generated tokens. On britton-desktop the
-live unit runs this package with `--max-sequence-length 131072` through a
-Qwen-only runtime drop-in. The booted NixOS generation still defines the older
-65,536-token unit; the drop-in disappears on reboot and a host rebuild can
-replace the service definition.
+tokens per request, with at most 8,192 generated tokens. On britton-desktop
+the enabled native NixOS unit still contains the older 65,536-token command.
+The managed root profile deployment below replaces only its effective
+`ExecStart` via a persistent `/usr/local/lib/systemd/system` drop-in, selecting
+the admitted han2 package with a 131,072-token limit. The historical `/run`
+overrides remain in place but no longer determine the effective command.
+A future NixOS switch can still replace or mask the native unit.
 
 OMP keeps `contextWindow: 65536` for ordinary `mesh/Qwen3.8-27B` sessions and
 uses `maxContextWindow: 131072` in `~/.omp/agent/models.yml` for optional
@@ -639,16 +641,18 @@ server's limit.
 The HTTP endpoint also caps JSON request bodies at 1,048,576 bytes,
 independently of token count; byte-heavy prompts can reach that limit first.
 
-The running older package allocates one pool of 4,096 blocks of 64 tokens
-(8 GiB of bf16 per chip). Each batch group gives every row a contiguous run
-sized to its request: whole 1,024-token prefill buckets plus every decoded
-position. A full 131,072-token row takes 2,048 blocks; the reserved 16-block
-structured-read prefix and one scratch block leave at most 2,031 blocks for
-shorter requests before prefix-cache residency. Two full-length rows do not
-fit. The worker adds requests only while the pool holds them all. Startup
-logs the allocator's DRAM totals as the `device-dram` stage. The undeployed
-read-lane candidate instead allocates 4,113 blocks, with generation restricted
-to blocks 16–4,095 and batched-read rows at 4,096–4,111 (scratch 4,112).
+The running han2 package allocates one pool of 4,113 blocks of 64 tokens.
+Blocks 0–15 reserve the structured-read prefix, blocks 16–4,095 hold
+generation rows, blocks 4,096–4,111 provide four disjoint batched-read
+rows, and block 4,112 is scratch. Each batch group gives every generation
+row a contiguous run sized to its request: whole 1,024-token prefill
+buckets plus every decoded position. A full 131,072-token row takes
+2,048 blocks of the 4,080-block generation range, leaving 2,032 blocks
+for another request before prefix-cache residency; two full-length rows
+do not fit. The generation prefix-cache budget is 4,064 blocks. The worker
+adds requests only while the pool holds them all. Startup logs the
+allocator's DRAM totals as the `device-dram` stage. The earlier gfvk package
+instead allocated 4,096 blocks with a 2,048-block prefix-cache budget.
 
 On britton-desktop the pooled build became ready in 700 s with 9.2 GiB of DRAM
 free per chip. A needle placed at the start of the prompt was recalled at 6K,
@@ -776,32 +780,37 @@ ABBA cache admission binds another package and cache budget; it is not reused
 to admit this larger quota. These runs do not admit concurrent long requests,
 broad model quality, or general latency/throughput across workloads.
 
-The active package
-`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` is pinned at
-`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`. At half-pool
-activation, after `ttwkv7-owner-control isolate` and `restore`, systemd
-reported PID 2446749 with `--max-sequence-length 131072`. The runtime-only
+At the earlier half-pool activation, package
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` was pinned at
+`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`. After
+`ttwkv7-owner-control isolate` and `restore`, systemd reported PID 2446749
+with `--max-sequence-length 131072`. The runtime-only
 `/run/systemd/system/qwen38-p150x2.service.d/96-prefix-128k-budget.conf`
-supersedes `95-prefix-65k.conf` and `90-context-128k.conf`; both policy
-paths resolve inside the active package. The former 65K-prefix package
+then superseded `95-prefix-65k.conf` and `90-context-128k.conf`; both
+policy paths resolved inside the then-active package. The former 65K-prefix package
 remains pinned at `/nix/var/nix/gcroots/qwen38-prefix-65k-final` for rollback,
 and the original 128K package remains pinned separately.
 
-This activation did **not** switch NixOS. `/etc/systemd/system` resolves into
-the read-only Nix store and `/run` is tmpfs. The unrelated, heavily edited
-`onix-core` checkout currently masks Qwen and sets a 2,048-token sequence
-limit; switching it would not preserve this service. After reboot all three
-runtime drop-ins disappear and the booted generation reverts to 65,536
-tokens. Before using OMP extended context after a reboot, reapply validated
-overrides or deploy a reviewed host generation pinning this package,
-unmasking Qwen, and setting 131,072 tokens. Keep its GC root until then.
-To roll back only the larger prefix budget, isolate the owner, remove
-`96-prefix-128k-budget.conf`, reload systemd, restore onto the retained
-65K-prefix package, then remove the half-pool GC root. To undo the entire
-128K activation, first remove OMP's `maxContextWindow` override, then
-isolate, remove all three runtime drop-ins, reload, restore, and remove
-the three package GC roots. The ordinary 65,536-token OMP budget remains
-safe while extended mode is off.
+At this earlier `/run`-only activation, NixOS was **not** switched.
+`/etc/systemd/system` resolved into the read-only Nix store and `/run` was
+tmpfs; a reboot at that point would have lost all three runtime drop-ins and
+fallen back to the 65,536-token boot command. The later managed profile
+deployment below addresses that specific loss **only while the current
+enabled, unmasked native unit remains selected**; an actual reboot has not
+been exercised. The unrelated, heavily edited `onix-core` checkout masks
+Qwen and sets a 2,048-token limit, so switching it still would not preserve
+this owner. Keep the old package GC root.
+
+The historical `/run`-only rollback removed `96-prefix-128k-budget.conf`
+to return to the earlier 65K-prefix package, or removed all three `/run`
+drop-ins and lowered OMP's extended limit to return to the 65,536-token boot
+unit. **Do not apply that old procedure to the managed profile owner:**
+the persistent `99-profile.conf` takes precedence. The managed `restore`
+command described below can return to the native `/run`96 old-package
+command only while all three original `/run` drop-ins still exist; after a
+reboot, first verify profile generation 1 still exists and contains only the
+pinned old package; otherwise use the retained old-package GC root for reviewed
+single-package profile recovery, not a vanished `/run` command.
 
 On 2026-09-30 a separate **two-long-context candidate** increased the pool
 from 4,096 to 4,097 blocks and the cache budget from 2,048 to 4,064 blocks.
@@ -1088,7 +1097,7 @@ exact six-request physical and root-systemd path for han2, not longer reads,
 broad throughput, model quality, reboot persistence or TT-Metal 0.77
 production numerical admission.
 
-### Reviewed read-lane NixOS deployment (same-fixture han2 requalification passed; not deployed)
+### Reviewed read-lane NixOS deployment (host generation not switched)
 
 `nixosModules.qwen38-p150x2-read-lanes` is a host-specific example to import
 **alongside** `nixosModules.default` in a reviewed host generation. It selects
@@ -1102,11 +1111,13 @@ sets 2,048/64 tokens; its lock pins `tenstorrent-nix` at `cbfcab9`, not a
 revision containing both the reviewed read-lane source and the qualified
 han2 profile guard (`e3cfded` alone retains the stale y58 guard). The source
 and guard are committed here, but no reviewed host input or generation has
-selected them. A durable deployment requires a pinned host-generation source
-selecting the exact requalified package while preserving other host settings.
-Review owner conflicts, model path, driver, firmware and OMP separately.
-The previous 65,536-token boot generation and `/run/systemd` overrides do
-**not** provide durable 131,072-token rollback after reboot.
+selected **han2**. Deploying that candidate through NixOS still requires a
+pinned host-generation source selecting its exact requalified package while
+preserving other host settings. Review owner conflicts, model path, driver,
+firmware and OMP separately. The earlier 65,536-token boot command and
+`/run/systemd` overrides alone do **not** provide durable 131,072-token
+service after reboot; the separately managed han2 package profile below now
+provides a persistent effective command under the *current* native unit.
 
 For `onix-core/machines/britton-desktop/configuration.nix`, the smallest
 reviewable integration is:
@@ -1189,31 +1200,35 @@ TTFT differences to read lanes alone. Neither qualifies longer reads, general
 throughput, 128K structured-read quality, a reviewed host generation or
 TT-Metal 0.77 production admission.
 
-Preserve the old package at
-`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` under its
-existing `/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate` root.
-Before activating, have a separately reviewed **rollback host generation**
-from the prior package source selecting that exact old output while keeping
-the same 131,072-token service settings; verify its rendered unit and path.
-The booted 65,536-token generation is not a suitable 128K rollback.
-If admission or health fails, a privileged operator can restore that prebuilt
-generation, check `/healthz`, the process package path and the 131,072 limit,
-then restore/confirm the original device owner as required. Retain all three
-package GC pins — old
-`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`, historical y58
-`/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial`, and requalified
-han2 `/nix/var/nix/gcroots/qwen38-han2-physical-requal` — until the chosen
-durable generation and its reviewed rollback are retained.
+For a future **han2 host-generation deployment** (not performed), preserve
+the old package
+`/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0` under
+the existing `/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`
+root. Profile generation 1 was verified at the cutover but is not a durable
+GC pin: weekly `fast-nix-gc --delete-older-than 14d` can remove its link.
+A separately reviewed host generation still needs to select the exact
+qualified han2 output, keep this owner's 131,072/8,192 settings, remain
+enabled and unmasked, and preserve device/model settings. The old
+65,536-token native command is not a suitable 128K rollback if the managed
+profile is absent.
+Retain all three package GC pins: the old gfvk root, historical y58
+`/nix/var/nix/gcroots/qwen38-read-batch-lanes-systemd-trial`, and han2
+`/nix/var/nix/gcroots/qwen38-han2-physical-requal`.
 
-`ttwkv7-owner-control` isolates/restores service owners but does not install
-a host generation. Root SSH access to `root@britton-desktop` is available
-via batch authentication for an approved reviewed switch; `sudo -n` does
-not grant root writes. Privilege is **not** the present blocker: han2's
-same-fixture physical requalification passed, but the host-generation
-source and durable rollback remain unreconciled.
-Do not use an unmanaged persistent systemd override as a substitute.
-OMP's 131,072 `maxContextWindow` remains unsafe if the actual serving
-generation falls back to 65,536 after reboot.
+`ttwkv7-owner-control` isolates/restores device owners; the managed script
+below installs or rolls back a **package profile and its Qwen-only unit
+drop-in**, not a NixOS generation. While the original `/run`90/95/96
+drop-ins exist, `restore` can temporarily recover their old gfvk command.
+After reboot, `install` can select the old pinned output only from an
+already healthy managed owner; a failed-start profile needs the manual
+verified-generation rollback described below. A failed candidate admission
+during `install` automatically restores its previous generation and owner.
+If a future NixOS switch masks Qwen or changes the native owner contract,
+fix or roll back that reviewed host generation first; the profile drop-in
+cannot override a mask. Do not substitute an unmanaged persistent override.
+OMP's 131,072 `maxContextWindow` remains unsafe whenever the effective
+service has fallen back to 65,536 or is not ready. The actual reboot has
+not been exercised.
 
 A continuous-slot scheduler is available behind a flag. With
 `--continuous-slot-policy $out/share/qwen36/continuous-slot-policy.json`, in
@@ -1234,8 +1249,10 @@ admits the profile against its predeclared gates:
   for its prefill. The longest pause was 5.5 s, for a 9.6K-token prompt.
 - Every request decoded the same tokens as when it ran alone.
 
-The service is not switched: serving the profile by default trades those pauses
-for the queue-time gain, and remains a deployment decision. The change
+At that earlier trial, the service was not switched: serving the profile by
+default traded pauses for the queue-time gain. The current root profile
+does select the continuous-slot policy, but that trial is not a new live
+throughput measurement. The change
 `.cairn/changes/qwen38-continuous-slot-scheduler` records the evidence.
 
 A request without `temperature` decodes greedily, including thinking. On
@@ -1292,10 +1309,212 @@ binds the stable execution identity and BLAKE3
 `2bf7d74e784d2c5aecfc60a4252f7141955faf1c735d25b94dbc3d832b84b136`.
 The separate single-stream eager-versus-traced profile remains unadmitted.
 
-This host runs the final package as the lingering per-user
-`qwen38-p150x2.service` unit on `127.0.0.1:8000`. Both previous inference
-services remain stopped while Qwen owns the devices. A live 64-token request
-also passed on the final deployed package.
+At the time of that older deployment, this host used a lingering per-user
+`qwen38-p150x2.service` on `127.0.0.1:8000`; its previous inference services
+were stopped while Qwen owned the devices, and a live 64-token request passed.
+The current owner is the root native NixOS service with a managed package
+profile, documented next.
+
+## Managed root package profile on britton-desktop (2026-09-30)
+
+The live `qwen38-p150x2.service` remains the **enabled, unmasked native
+NixOS service** at `/etc/systemd/system/qwen38-p150x2.service`, inheriting
+`Type=notify`, root/tenstorrent, P150x2 device conditions, model snapshot,
+conflicting owners and the production grouped/traced/sampled GDN flags. Its
+native `ExecStart` still names a 65,536-token package. A root-owned managed
+drop-in at
+`/usr/local/lib/systemd/system/qwen38-p150x2.service.d/99-profile.conf`
+changes **only** `ExecStart` to
+`/nix/var/nix/profiles/qwen38-p150x2/bin/qwen38-p150x2-serve` with
+`--max-sequence-length 131072`, `--max-generation-tokens 8192`, the
+unchanged model, notify, continuous-slot and prefix-cache policy flags.
+The named root Nix profile now contains only the physically requalified
+`/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0` at
+generation 3. Its binary and both policy symlinks resolve to that output.
+At admission, profile generation 1 contained only the old `gfvkac4`
+package, which remains pinned by its separate GC root. Check that the
+generation link still exists before relying on it for rollback; weekly
+`fast-nix-gc --delete-older-than 14d` can remove old generations. The
+[2026-10-01 admission receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-han2-profile-admission.json)
+records the switch without a host-generation change.
+
+The checked-in `scripts/qwen38-profile-99.conf` is installed by the
+privileged `scripts/qwen38-profile-service` command. The following exact
+old-package commands are a **rollback only while han2 is healthy**, not a
+failed-start recovery:
+
+```sh
+ssh -o BatchMode=yes root@britton-desktop \
+  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check /nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0'
+ssh -o BatchMode=yes root@britton-desktop \
+  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install /nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0'
+ssh -o BatchMode=yes root@britton-desktop \
+  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status'
+```
+
+The script checks the current owner, pinned package, model and devices,
+stages the candidate profile before isolating the owner, serializes the
+switch, waits for systemd notify and HTTP `/healthz`, and rolls back to the
+previous profile generation and owner if admission fails. The separate
+`restore` command removes **only** its managed 99 drop-in, keeps the root
+profile for reinstallation, and returns to the exact old `/run`96 command
+**only while all three `/run`90/95/96 drop-ins are still present**. It is
+not a post-reboot recovery command. `install` can select the pinned old or
+qualified han2 output only while the current owner is **already active and
+healthy**: either the managed 99 owner or the exact restored native `/run`96
+gfvk owner with a verified single-package profile. It cannot recover a
+failed-start or quarantined service; its readiness preflight rejects the
+current owner before touching the profile. A host switch that masks or
+changes the native unit instead needs a reviewed host-generation correction.
+
+For a future qualified update, build from a reviewed immutable source,
+not the dirty host checkout:
+
+```sh
+# Replace <reviewed-commit> with an immutable reviewed Git revision first.
+OUT=$(nix build --offline --no-link --print-out-paths \
+  'git+file:///home/brittonr/git/tenstorrent.nix?rev=<reviewed-commit>#qwen38')
+ssh -o BatchMode=yes root@britton-desktop \
+  "/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check $OUT"
+ssh -o BatchMode=yes root@britton-desktop \
+  "/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install $OUT"
+```
+
+Do not rebuild `onix-core`. The exact han2 output was admitted through the
+named package profile, **not** through a new NixOS host generation. Future
+package outputs still need their own physical qualification before `install`.
+For any approved package, check systemd notify readiness and HTTP 200
+`/healthz`, the effective profile path and both policy symlinks, and sole
+ownership of `/dev/tenstorrent/{0,1}`. The old package's `READY` token
+`[44061]` and one-read [cutover receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-profile-owner-cutover.json)
+describe historical gfvk behavior, not a new package's acceptance.
+
+If the service **fails to start or becomes unhealthy** while the native owner
+remains enabled/unmasked and managed 99 remains intact, do not use `install`
+or `restore`: both require a currently ready owner. Inspect `nix profile
+history --profile /nix/var/nix/profiles/qwen38-p150x2` and `nix profile list
+--json --profile /nix/var/nix/profiles/qwen38-p150x2`. The transaction
+passed through **empty generation 2**; an unqualified `nix profile rollback`
+would select that empty profile, not gfvk. Before `--to 1`, verify
+`/nix/var/nix/profiles/qwen38-p150x2-1-link` still exists and `nix profile
+list --json --profile /nix/var/nix/profiles/qwen38-p150x2-1-link` contains
+exactly the pinned gfvk output. Generation 1 is historical evidence, **not**
+a durable recovery path: weekly `fast-nix-gc --delete-older-than 14d` can
+remove its link. Only if that generation is present and verified, stop the
+Qwen unit, run `nix profile rollback --profile
+/nix/var/nix/profiles/qwen38-p150x2 --to 1`, restart the same unit with
+managed 99 intact, and check HTTP 200 `/healthz`, the effective
+131,072/8,192 command and sole physical device ownership. If the link is
+absent or wrong, **do not run `--to 1` or restart into an unverified profile**.
+Fail closed; the old package is retained by
+`/nix/var/nix/gcroots/qwen38-prefix-128k-budget-candidate`. Review a
+recovery that puts that exact package into a sole-package named profile,
+verifies its wrapper and both policy symlinks, and only then restarts the
+same enabled native unit with managed 99 intact and checks health, effective
+command and device ownership. Do not assume a missing generation can be
+rolled back into existence. If the native unit is masked, revert/fix the
+reviewed host generation first.
+
+While the original `/run` rollback drop-ins still exist, the bounded native
+`restore` can temporarily select the `/run`96 gfvk owner **only from a healthy
+service**:
+
+```sh
+ssh -o BatchMode=yes root@britton-desktop \
+  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore'
+```
+
+The manager's restored-owner admission check permits `install` of the same
+han2 package (or the verified old gfvk package) from a healthy native `/run`96
+owner with a valid single-package profile. With no existing named profile,
+initial migration still requires gfvk. This `restore` is **not** a post-reboot
+recovery path; retain the old GC root and verify generation 1 exists before
+depending on it.
+
+At the historical 2026-09-30 gfvk cutover, the first profile install reached
+systemd-ready PID 1485839 and HTTP 200
+`/healthz`; the bounded `restore` then returned to native `/run`96 at
+ready PID 1519419. Reapplying the profile reached PID 1547052, Type=notify,
+zero restarts, and HTTP 200 ready after startup warmup. Both devices 0 and 1
+had that one owner. Final short chat returned HTTP 200 `READY`, token
+`[44061]`, physical IDs `[0,1]`; the unchanged 114-byte short
+`/v1/systemone` fixture returned HTTP 200 and one device read. The old
+`/run`90/95/96 file hashes did not change. A live `systemctl daemon-reload`
+kept PID 1547052, the profile-backed 131,072-token command, and ready
+`/healthz`; `systemd-analyze verify --generators=no` returned zero with
+unrelated host-unit warnings.
+
+On systemd 261, `systemd-analyze unit-paths` includes
+`/usr/local/lib/systemd/system`. The root-owned 0644 99 drop-in resides
+on persistent ext4 `/usr/local`; the named root profile resides on ZFS
+`/nix`, not tmpfs `/run`. An isolated synthetic systemd root with the
+byte-identical current native fragment and checked-in `/usr/local`99
+but **no `/run` drop-ins** passed `systemd-analyze verify`; removing only
+its fixture profile executable made verification identify that profile
+`ExecStart` specifically. These are an offline no-`/run` extrapolation
+and live daemon-reload observation, **not an actual reboot test**. After
+any reboot or NixOS switch, recheck `systemctl is-enabled`, effective
+`ExecStart`, package symlinks, notify readiness and `/healthz` before
+using OMP extended context. In particular, the unrelated dirty
+`onix-core` host configuration masks Qwen and changes its limits; do
+not switch it expecting this drop-in to unmask the service. See the
+[dated profile-owner receipt](../pkgs/qwen36/evidence/2026-09-30/qwen38-profile-owner-cutover.json).
+
+This dated cutover receipt is a compact historical summary, not a retained
+raw trace or a fresh test of the checked-in manager's first migration.
+The current manager's restored-owner `check`, `restore`, and han2 reinstall
+were later exercised live; its first migration and cross-package switch
+paths were checked offline only. Neither proof substitutes for a reboot.
+
+On 2026-10-01, the exact immutable source revision
+`2515a93006b4968264c3863cbce07ba29591ec16` resolved to the already
+qualified han2 output. The managed profile transaction replaced generation
+1 (gfvk) with generation 3 (han2); the unchanged enabled native root unit,
+managed 99 drop-in, `/run`90/95/96 hashes, model, 131,072/8,192 command
+and production flags stayed in place. Root `Type=notify` became ready at
+PID 2173017 with zero restarts; this process alone held physical device
+nodes 0 and 1. The profile's wrapper, both policy symlinks and execution
+identity resolve to han2. At admission, old generation 1 was present; the
+old package also remains pinned by its GC root. Generation 1 can later be
+pruned by weekly GC.
+
+The **one** live six-body fixture replay used the preserved request SHA-256
+manifest and a disposable driver (SHA-256
+`0ad45f6905773bc65a3ed248cfe8a534952d3688f785a2933dea7ae17c411802`).
+The [compact admission receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-han2-profile-admission.json)
+points to the retained raw `/tmp/qwen38-han2-replay.OOEYeK72/receipt-20261001T010306Z-udicdsuw.json`
+(SHA-256 `c7ecf8e1f5e0affc5dd88428a2f28a65a79429c955e5eb5066b7df2fd01c308f`).
+The replay completed in 127.167 s with 98/98 gates passing, all HTTP 200
+and ready health before and after. Cold A/B TTFT was 103.709/9.626 s,
+essentially unchanged from the **preserved earlier** gfvk 103.701/9.607 s.
+After the 82-token read burst, A hit 130,048 tokens at 1.102 s versus the
+old zero-hit 103.758 s; B hit 16,384 at 0.426 s versus old 9.600 s.
+After the 198-token burst, A/B still hit their prefixes at 1.096/0.440 s.
+Both four-way bursts took three batched and one masked route, matched the
+old numeric read answers, and A/B generation kept the exact token IDs.
+The independent live driver staggered four short reads 0.08 s behind
+the in-flight A continuation; the deleted historical root-systemd driver's
+exact scheduling was not preserved. These are comparisons to responses
+saved from previous service runs, **not** a simultaneous production A/B.
+The larger 4,064-block cache budget and dedicated read lanes changed
+together, so the continuation benefit cannot be attributed to lanes alone.
+There is no claim for general throughput, longer reads, broad quality,
+an actual reboot or TT-Metal 0.77 production numerical admission: TTsim's
+fused GDN numerical gate still cannot model its matmul control flag.
+
+The corrected profile manager then passed an offline restored-owner transition
+check and a bounded **live** `restore`/reinstall cycle. Native `/run`96 gfvk
+returned ready at PID 2471602 while the named profile retained han2 generation
+3. `check han2` identified gfvk as the effective owner and han2 as the
+retained profile package; reinstall of the **same** han2 output returned
+root `Type=notify` ready at PID 2601665, generation 3, with no restarts.
+Both transitions left the original `/run`90/95/96 hashes unchanged, and
+each owner alone held devices 0 and 1. After reinstallation, one short chat
+answered `READY` with token `[44061]` and physical IDs `[0,1]`; one
+82-token structured read returned HTTP 200, the same `urgent.noul`
+`0.000552778597921133` and one device read. The six-body cold fixture was
+**not rerun**, so this recovery proof adds no new cold or throughput claim.
+See the restore/reapply section of the same compact admission receipt.
 
 ## Physical cold-prefill SDPA diagnosis and rejected tile trial (2026-10-01)
 

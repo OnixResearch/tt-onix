@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""Move the existing Qwen systemd owner between exact Nix profile packages."""
+
+import fcntl
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+UNIT = "qwen38-p150x2.service"
+PROFILE = Path("/nix/var/nix/profiles/qwen38-p150x2")
+DROPIN = Path("/usr/local/lib/systemd/system/qwen38-p150x2.service.d/99-profile.conf")
+TEMPLATE = Path(__file__).with_name("qwen38-profile-99.conf")
+OLD = "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0"
+MODEL = "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+OVERRIDE_DIR = Path("/run/systemd/system/qwen38-p150x2.service.d")
+OLD_OVERRIDES = tuple(OVERRIDE_DIR / f"{n}-{name}.conf" for n, name in (
+    ("90", "context-128k"), ("95", "prefix-65k"), ("96", "prefix-128k-budget")
+))
+NIX = "/run/current-system/sw/bin/nix"
+SYSTEMCTL = "/run/current-system/sw/bin/systemctl"
+OWNER_CONTROL = "/run/current-system/sw/bin/ttwkv7-owner-control"
+START_TIMEOUT = 1250
+
+
+def require(ok, message):
+    if not ok:
+        raise RuntimeError(message)
+
+def interrupted(signum, _frame):
+    raise RuntimeError(f"interrupted by signal {signum}")
+
+
+def protect_rollback():
+    # An interrupted install must finish restoring its prior owner.
+    for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, signal.SIG_IGN)
+
+
+def run(*args, timeout=180):
+    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+    require(result.returncode == 0, f"{' '.join(map(str, args))}: {result.stderr.strip() or result.stdout.strip()}")
+    return result.stdout.strip()
+
+
+def unit():
+    fields = "LoadState UnitFileState FragmentPath DropInPaths NeedDaemonReload ActiveState SubState MainPID NRestarts Type NotifyAccess User Group Environment UnsetEnvironment ExecStart ConditionResult Conflicts".split()
+    text = run(SYSTEMCTL, "show", UNIT, *(f"-p{field}" for field in fields))
+    return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+
+
+def command(info):
+    match = re.search(r"argv\[\]=(.*?) ; ignore_errors=", info["ExecStart"])
+    require(match is not None, "cannot read the effective service command")
+    return shlex.split(match.group(1))
+
+
+def profile_command():
+    commands = [line.split("=", 1)[1] for line in TEMPLATE.read_text().splitlines()
+                if line.startswith("ExecStart=") and line != "ExecStart="]
+    require(len(commands) == 1, "expected one profile ExecStart in the checked-in drop-in")
+    return shlex.split(commands[0])
+
+def original_command():
+    prefix = str(PROFILE) + "/"
+    return [OLD + arg[len(str(PROFILE)):] if arg.startswith(prefix) else arg
+            for arg in profile_command()]
+
+
+def package(path):
+    require(re.fullmatch(r"/nix/store/[a-z0-9]{32}-qwen38-0\.1\.0", path) is not None,
+            "install requires an exact qwen38-0.1.0 store output, not a directory or flake reference")
+    require(not Path(path).is_symlink(), "store output must not be a symlink")
+    meta = json.loads(run(NIX, "path-info", "--offline", "--json-format", "1", "--json", path))
+    require(path in meta and meta[path]["deriver"].endswith("-qwen38-0.1.0.drv"),
+            "package is not a registered qwen38 derivation output")
+    for suffix in ("bin/qwen38-p150x2-serve", "share/qwen36/continuous-slot-policy.json",
+                   "share/qwen36/prefix-cache-policy.json"):
+        item = Path(path) / suffix
+        require(item.is_file() and item.resolve() == item, f"missing or redirected package file: {item}")
+    require(os.access(Path(path) / "bin/qwen38-p150x2-serve", os.X_OK), "package wrapper is not executable")
+
+
+def profile_package(profile=PROFILE):
+    if not profile.is_symlink():
+        require(not profile.exists(), f"unexpected non-profile path: {profile}")
+        return None
+    entries = json.loads(run(NIX, "profile", "list", "--json", "--profile", profile))["elements"]
+    active = [entry for entry in entries.values() if entry["active"]]
+    require(len(active) == 1 and len(active[0]["storePaths"]) == 1 and len(entries) == 1,
+            "the named profile must contain exactly one Qwen package")
+    path = active[0]["storePaths"][0]
+    package(path)
+    for suffix in ("bin/qwen38-p150x2-serve", "share/qwen36/continuous-slot-policy.json",
+                   "share/qwen36/prefix-cache-policy.json"):
+        item = profile / suffix
+        require(item.exists() and item.resolve() == Path(path) / suffix,
+                f"profile file does not resolve to its sole package: {item}")
+    return path
+
+
+def admit_target(target, previous, *, installed):
+    # With no profile, only the exact running old package may establish one.
+    # After restore, profile_package() has already verified the retained
+    # single-package profile, so its package (or another verified target) may
+    # restore the managed drop-in over the healthy native old owner.
+    if previous is None:
+        require(not installed, "installed profile has no previous package")
+        require(target == OLD, "first migration must pin the exact running gfvkac4 package")
+
+
+def generation():
+    match = re.fullmatch(re.escape(PROFILE.name) + r"-(\d+)-link", os.readlink(PROFILE))
+    require(match is not None, "unexpected named profile generation link")
+    return match.group(1)
+
+
+def ready():
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=3)
+        try:
+            connection.request("GET", "/healthz")
+            response = connection.getresponse()
+            return response.status == 200 and json.loads(response.read()).get("ready") is True
+        finally:
+            connection.close()
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+
+
+def preflight(info, *, installed):
+    require(info["LoadState"] == "loaded" and info["UnitFileState"] == "enabled",
+            "NixOS owner is missing, disabled or masked")
+    require(info["FragmentPath"] == "/etc/systemd/system/" + UNIT
+            and Path(info["FragmentPath"]).resolve().is_file(), "unexpected NixOS owner fragment")
+    require(info["NeedDaemonReload"] == "no", "unit files changed without daemon-reload")
+    require(info["Type"] == "notify" and info["NotifyAccess"] == "main"
+            and info["User"] == "root" and info["Group"] == "tenstorrent",
+            "unexpected owner/notify service settings")
+    require(info["ConditionResult"] == "yes" and Path(MODEL).is_dir()
+            and all(Path(f"/dev/tenstorrent/{index}").exists() for index in (0, 1)),
+            "model or exact P150x2 device nodes unavailable")
+    require("TT_METAL_SIMULATOR" in info["UnsetEnvironment"].split()
+            and "TT_MESH_GRAPH_DESC_PATH" in info["UnsetEnvironment"].split(),
+            "simulator/mesh descriptor exclusion changed")
+    env = dict(part.split("=", 1) for part in shlex.split(info["Environment"]))
+    expected = {"MESH_DEVICE": "P150x2", "HF_HUB_OFFLINE": "1", "HF_MODEL": MODEL,
+                "TT_CACHE_PATH": MODEL, "QWEN35_TEMP": "0", "QWEN35_GDN_DECODE_FUSION": "step",
+                "QWEN35_GROUPED_PREFILL": "1", "QWEN36_TRACED_PREFILL": "1",
+                "QWEN36_SAMPLED_FUSION": "1", "QWEN36_GDN_FUSED_PREFILL": "0",
+                "QWEN36_GDN_BF4": "0", "QWEN36_MTP_SERVING": "0"}
+    require(all(env.get(key) == value for key, value in expected.items()),
+            "model identity or production Qwen environment changed")
+    require(not set(env).difference(expected).intersection(
+        {key for key in env if key.startswith(("QWEN", "TT_", "MESH_", "HF_"))}),
+        "unexpected model/mesh environment override")
+    require(all(name in info["Conflicts"].split() for name in (
+        "llamacpp-server-vibethinker-britton-desktop.service",
+        "docker-tt-inference-server-llama-3-1-8b-instruct-p150.service")),
+        "device owner conflicts changed")
+    allowed = set(OLD_OVERRIDES) | ({DROPIN} if installed else set())
+    require(set(map(Path, info["DropInPaths"].split())).issubset(allowed),
+            "unreviewed drop-in would change the effective Qwen service")
+    if installed:
+        require(DROPIN.is_file() and not DROPIN.is_symlink() and DROPIN.read_bytes() == TEMPLATE.read_bytes()
+                and DROPIN.as_posix() in info["DropInPaths"].split(), "profile drop-in missing or modified")
+        require(command(info) == profile_command(), "profile drop-in lost ExecStart precedence")
+        require(profile_package() is not None, "profile drop-in has no package")
+    else:
+        require(not os.path.lexists(DROPIN) and all(item in OLD_OVERRIDES for item in map(Path, info["DropInPaths"].split())),
+                "unexpected preexisting drop-in")
+        require(all(item.is_file() for item in OLD_OVERRIDES),
+                "original /run 90/95/96 rollback commands are absent")
+        old_command = shlex.split(OLD_OVERRIDES[-1].read_text().splitlines()[-1].removeprefix("ExecStart="))
+        require(old_command == original_command() and command(info) == old_command,
+                "live old service does not run the exact pinned gfvkac4 configuration")
+    require(info["ActiveState"] == "active" and info["SubState"] == "running"
+            and int(info["MainPID"]) > 0 and ready(), "owner is not active and ready")
+
+
+def install_dropin():
+    parent = DROPIN.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    for path in (Path("/usr/local"), Path("/usr/local/lib"), Path("/usr/local/lib/systemd"),
+                 Path("/usr/local/lib/systemd/system"), parent):
+        stat = path.stat()
+        require(not path.is_symlink() and stat.st_uid == 0 and stat.st_mode & 0o022 == 0,
+                f"unsafe drop-in directory: {path}")
+    fd, temporary = tempfile.mkstemp(prefix=".99-profile-", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(TEMPLATE.read_bytes())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, DROPIN)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def start_and_wait(expected, previous_pid, *, rollback=False):
+    # restart, not start: mesh's soft Wants may have started this same unit while
+    # the profile was being switched after isolation.
+    run(SYSTEMCTL, "restart", "--no-block", UNIT)
+    deadline = time.monotonic() + START_TIMEOUT
+    while time.monotonic() < deadline:
+        info = unit()
+        require(info["ActiveState"] != "failed", "Qwen service failed before notify readiness")
+        if (info["ActiveState"] == "active" and info["SubState"] == "running"
+                and info["MainPID"] != previous_pid and ready()):
+            require(rollback or info["NRestarts"] == "0", "Qwen restarted while reaching readiness")
+            require(command(info) == expected, "Qwen started with a different command")
+            return info["MainPID"]
+        time.sleep(5)
+    raise RuntimeError(f"Qwen did not become ready within {START_TIMEOUT}s")
+
+
+def install(target):
+    require(os.geteuid() == 0, "install requires root")
+    package(target)
+    with tempfile.TemporaryDirectory(prefix="qwen38-profile-stage-") as directory:
+        staged = Path(directory) / "qwen38"
+        run(NIX, "profile", "add", "--offline", "--profile", staged, target, timeout=3600)
+        require(profile_package(staged) == target, "staged profile selected an unexpected package")
+        info = unit()
+        installed = os.path.lexists(DROPIN)
+        preflight(info, installed=installed)
+        previous = profile_package()
+        admit_target(target, previous, installed=installed)
+        if installed and previous == target:
+            print(f"{UNIT}: already ready on {target}")
+            return
+        if previous is None:
+            run(NIX, "profile", "add", "--offline", "--profile", PROFILE, OLD)
+            require(profile_package() == OLD, "initial named profile did not select the running package")
+        previous_generation = generation()
+        previous_pid = info["MainPID"]
+        changed = False
+        added_dropin = False
+        try:
+            run(OWNER_CONTROL, "isolate", timeout=180)
+            if target != previous and target != profile_package():
+                run(NIX, "profile", "remove", "--profile", PROFILE, OLD if previous is None else previous)
+                changed = True
+                run(NIX, "profile", "add", "--offline", "--profile", PROFILE, target, timeout=3600)
+            require(profile_package() == target, "named profile does not contain the requested package")
+            if not installed:
+                install_dropin()
+                added_dropin = True
+            run(SYSTEMCTL, "daemon-reload")
+            after = unit()
+            require(after["LoadState"] == "loaded" and after["UnitFileState"] == "enabled"
+                    and command(after) == profile_command() and DROPIN.as_posix() in after["DropInPaths"].split(),
+                    "profile drop-in did not become the effective owner command")
+            pid = start_and_wait(profile_command(), previous_pid)
+            print(f"{UNIT}: ready PID {pid}; profile generation {generation()}; package {target}")
+        except BaseException as error:
+            protect_rollback()
+            problems = []
+            try:
+                run(SYSTEMCTL, "stop", UNIT, timeout=180)
+            except Exception as failure:
+                problems.append(f"stop: {failure}")
+            if changed:
+                try:
+                    run(NIX, "profile", "rollback", "--profile", PROFILE,
+                        "--to", previous_generation, timeout=180)
+                    require(profile_package() == (OLD if previous is None else previous),
+                            "previous profile generation was not restored")
+                except Exception as failure:
+                    problems.append(f"profile: {failure}")
+            if added_dropin:
+                try:
+                    DROPIN.unlink()
+                except Exception as failure:
+                    problems.append(f"drop-in: {failure}")
+            try:
+                run(SYSTEMCTL, "daemon-reload")
+                expected = profile_command() if installed else original_command()
+                require(command(unit()) == expected, "original owner command was not restored")
+                start_and_wait(expected, previous_pid, rollback=True)
+            except Exception as failure:
+                problems.append(f"owner restore: {failure}")
+            require(not problems, f"install failed ({error}); rollback also failed: {'; '.join(problems)}")
+            raise RuntimeError(f"install failed; original owner and profile restored: {error}") from error
+
+
+def restore():
+    require(os.geteuid() == 0, "restore requires root")
+    require(os.path.lexists(DROPIN), "no managed drop-in installed")
+    preflight(unit(), installed=True)
+    require(all(item.is_file() for item in OLD_OVERRIDES),
+            "cannot restore native unit without the original /run 90/95/96 rollback commands")
+    original = original_command()
+    require(shlex.split(OLD_OVERRIDES[-1].read_text().splitlines()[-1].removeprefix("ExecStart="))
+            == original, "original rollback command changed")
+    previous_pid = unit()["MainPID"]
+    try:
+        run(OWNER_CONTROL, "isolate", timeout=180)
+        DROPIN.unlink()
+        run(SYSTEMCTL, "daemon-reload")
+        require(command(unit()) == original, "original unit did not regain ExecStart precedence")
+        start_and_wait(original, previous_pid, rollback=True)
+    except BaseException:
+        protect_rollback()
+        install_dropin()
+        run(SYSTEMCTL, "daemon-reload")
+        start_and_wait(profile_command(), previous_pid, rollback=True)
+        raise
+    print(f"{UNIT}: original gfvkac4 /run owner restored; named profile retained")
+
+
+def main():
+    for signum in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(signum, interrupted)
+    if len(sys.argv) == 3 and sys.argv[1] in ("install", "check"):
+        target = sys.argv[2]
+        if sys.argv[1] == "check":
+            package(target)
+            installed = os.path.lexists(DROPIN)
+            preflight(unit(), installed=installed)
+            previous = profile_package()
+            admit_target(target, previous, installed=installed)
+            print(f"{UNIT}: preflight PASS; effective owner package {previous if installed else OLD}; "
+                  f"retained profile package {previous}; candidate {target}")
+        else:
+            with open("/run/lock/qwen38-profile-service.lock", "a+", encoding="utf-8") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                install(target)
+    elif len(sys.argv) == 2 and sys.argv[1] == "status":
+        info = unit()
+        print(json.dumps({key: info[key] for key in ("LoadState", "UnitFileState", "ActiveState",
+              "MainPID", "FragmentPath", "DropInPaths", "ExecStart")}, indent=2))
+        print(f"profile package: {profile_package()}")
+    elif len(sys.argv) == 2 and sys.argv[1] == "restore":
+        with open("/run/lock/qwen38-profile-service.lock", "a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            restore()
+    else:
+        raise RuntimeError("usage: qwen38-profile-service check|install <exact-qwen38-store-path> | status | restore")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+        print(f"qwen38-profile-service: {error}", file=sys.stderr)
+        sys.exit(1)
