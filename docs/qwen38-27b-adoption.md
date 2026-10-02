@@ -1520,13 +1520,16 @@ See the restore/reapply section of the same compact admission receipt.
 
 An isolated, profiler-enabled run on physical P150x2 nodes 0/1 measured
 130,549-token A refill at 103.615 s and 16,684-token B at 9.626 s. A captured
-3,188,925 device-program records with zero drops. **Per chip**, chunked SDPA
-was the largest individual program signature: 2,048 calls totaling 27.839 s
-(other chip 27.764 s), versus 102.625 s total program durations on that chip.
-Binary SFPU, matmul and concat-heads contributed 10.099, 9.314 and 6.638 s
-on chip 1. These two-chip durations must not be added; host enqueue/staging
-overlap device work. B's SDPA took 0.516 s per chip across 272 calls. The
-profiler isolates a hotspot, **not** an admissible optimization.
+3,188,925 RT records with zero callback drops. The historical **raw,
+signature-labelled dispatch intervals** on chip 1 assign 27.839 s across
+2,048 SDPA-labelled records (chip 0: 27.764 s) and 6.638 s across 8,192
+concat-labelled records; binary SFPU and matmul labels total 10.099 and
+9.314 s. These labels do **not** reliably attribute time after a 16-bit
+runtime-ID wrap (see below), and dispatch intervals include worker waits,
+not just per-core kernel execution. Chip 1's raw program durations total
+102.625 s. Two-chip durations must not be added; host enqueue/staging
+overlap device work. B's historical raw SDPA label totaled 0.516 s per
+chip across 272 calls. These observations do not admit an optimization.
 
 A package-matched TT-Metal 0.77 experiment kept 128 query rows but widened
 only captured flexible paged-prefill SDPA's key chunk from 128 to 256. Its
@@ -1549,11 +1552,11 @@ After the failed replay, the original han2 wrapper returned at root
 that PID alone owned nodes 0 and 1. Native, managed and all three `/run`
 drop-in hashes stayed unchanged. The
 [dated physical diagnosis and rejection receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-cold-prefill-sdpa-rejection.json)
-links the profiler's raw records, diagnostic/98-gate script hashes, full
-failed HTTP responses and both rollback receipts. The 27.8 s SDPA
-signature remains an algorithmic target, but the package-matched
-`tp.py` already uses its full BH grid and 128×128 query/key chunks:
-the tested wider key tile changed exact read numerics without material
+links the profiler's raw records, diagnostic/remap/98-gate script hashes, full
+failed HTTP responses and both rollback receipts. The SDPA-associated
+dispatch interval remains an algorithmic target, but package-matched
+`tp.py` already uses its full BH grid and 128×128 query/key chunks. The
+tested wider key tile changed exact read numerics without material
 end-to-end benefit. A second source/record pass found 2,336 occurrences
 of the binary-SFPU signature **per replay chunk** in both A
 (299,008/128) and B (39,712/17), or 146 per four-layer group
@@ -1568,19 +1571,115 @@ state-reset selects likewise must reset the first chunk and retain
 continuations. Removing either from only the full chunks needs a
 different trace/state protocol, not an exact free operation.
 
-The 6.638 s concat-heads **signature** contains 64 launches per
-chunk: source branches convert 48 GDN head-major outputs and 16
-attention outputs to token-major inputs for their gates/projections.
-The trained model has 48 GDN value heads (24 per device), so these
-are real permutations, not shape-only views. Of 64 launches, 61
-remain 0.025–0.047 ms each across full A chunks (0.326 s total);
-only the final three grow with prefix length, totaling 6.309 s.
-The cause of this context-dependent program duration is not isolated,
-so removing a layout copy cannot be credited with a 6.638 s saving.
+The actual concat-heads kernel still performs a head/sequence permutation:
+each captured chunk has 64 concat launches, converting 48 GDN and 16
+attention head-major outputs to token-major gate/projection inputs. The
+trained model has 48 GDN value heads (24 per device), so this is not a
+shape-only view. But the apparent **6.309 s** across the last three
+concat-labelled positions is **not** evidence of slow concat. In pinned
+TT-Metal 0.77, the trace preamble truncates the runtime ID to 16 bits
+(`tt_metal/impl/program/dispatch.cpp:3011-3017`); dispatch_d omits ID
+zero from its FIFO (`tt_metal/impl/dispatch/kernels/cq_dispatch.cpp:1422-1436`)
+while dispatch_s pops an ID before each command, including GO
+(`cq_dispatch_subordinate.cpp:608-629`). The RT receiver drops zero IDs
+(`cq_realtime_profiler.cpp:37-60`); a GO waits for preceding workers
+(`cq_dispatch_subordinate.cpp:255-280,407-414`). The saved offline A/B
+remap (`/var/tmp/qwen38-prefill-program-20261001/attribution/rt-adjacency-attribution.json`;
+compact `/var/tmp/qwen38-prefill-program-20261001/attribution/conclusion.json`)
+finds 65535→1 at position 10667 in both chip templates, so ID 0 is never
+recorded. Every traced chunk shows a one-record timing/label shift at the
+final three attention groups, and pinned source implies it covers all 1,789
+of 12,456 records from that position on. Their long concat-*labelled*
+windows start ~0.12 µs after the short SDPA-labelled windows and match
+earlier SDPA windows in duration and context scaling; the no-wrap eager
+tail keeps normal SDPA-long/concat-short order. **[INFERENCE]** The
+concat-labelled windows themselves carry the preceding SDPA program's
+dispatch/worker-completion interval, not a wait after it. Conditional on
+that inferred +1 relabel, which keeps the unreported ID-zero window
+separate, the per-chip labelled dispatch-interval sums in seconds, raw →
+corrected, are:
+
+| Run/chip | SDPA (53) | Concat (46) | Binary SFPU (31) | Matmul (32) |
+| --- | ---: | ---: | ---: | ---: |
+| A/0 | 27.764225 → 34.054059 | 6.620669 → 0.361539 | 10.052724 → 9.740292 | 9.308440 → 9.909817 |
+| A/1 | 27.839023 → 34.146082 | 6.637673 → 0.361301 | 10.099433 → 9.790045 | 9.313915 → 9.914078 |
+| B/0 | 0.515945 → 0.619886 | 0.147856 → 0.047774 | 1.307159 → 1.268087 | 1.221005 → 1.296819 |
+| B/1 | 0.515688 → 0.619589 | 0.147776 → 0.047739 | 1.307446 → 1.268546 | 1.220828 → 1.296743 |
+
+**[INFERENCE]** The corrected column follows pinned source and the trace
+fingerprint; there is no FIFO-phase record or new physical probe. Each
+chip's integer-tick sum is unchanged; only labels move. The corrected sums
+are not complete per-kernel totals: the ID-zero windows (127 per A chip, 16
+per B chip) stay a separate bucket; each replay chunk's last program window
+and five unrelated A slice records were never recorded; eager-tail labels
+stay as observed, although its first interval may span the replay boundary
+and labels before its first empty-FIFO pop may be +1. The corrected
+SDPA-associated windows include launch and worker waits, not just per-core
+SDPA compute; they do not isolate compute from NoC/DRAM stalls. The
+concat-versus-SDPA label question needs no further physical probe, while
+compute-versus-stall would be a separate investigation.
+
 No source- and device-supported low-risk exact-output-preserving
 material elimination was found; a new kernel/layout algorithm needs
 its own physical numerical and 98-gate proof. No new optimization or
 broad quality/throughput admission is claimed.
+
+### Isolated SDPA per-core counter diagnosis (2026-10-01)
+
+To probe compute versus data movement, a profiler-enabled run kept installed
+han2/TT-Metal 0.77 (no model, package or service change), opened the
+production 1×2 mesh (observed order `[1,0]`; PCIe nodes 0/1 at
+`01:00.0`/`03:00.0`; 11×10 grids) and then ran one flexible paged-prefill
+SDPA layer call per chip: BF16, 12 Q/2 KV heads, D=256, 1,024 query rows,
+64-token KV pages, 128×128 Q/K chunks, HiFi2 with FP32 dest, starts 0 and
+129,024 (replay chunk 126), twice each, counter mask 47. Both chips
+matched a precomputed independent CPU FP32 reference at PCC 0.999754
+(start 0) and 0.998883 (late), with identical output hashes across
+repeats and chips. Second-call host time was 0.49/0.55 ms early (chip 0's
+2.404 s first call includes cold JIT and is not comparable); late medians
+were 33.332/33.436 ms (chips 0/1). These isolated single-layer programs
+are not comparable to the separate prior full-model run, whose 16 late
+SDPA programs summed to ~523–526 ms of corrected dispatch per chip.
+
+On the 48 Q-work of 110 launched cores per chip (repeats pooled; chip 0
+shown, chip 1 within 0.07 points), median FPU busy rose 33.89→42.12%
+early→late; late MATH was 52.14%, SFPU 10.02%, unpacker-0 thread-0 busy
+73.25%, packer 20.97% and thread-0 instruction stall 21.84%, while
+source-valid waits stayed zero. L1_0 ring-0 outgoing request and grant
+were 10.11% and 9.40% of reference cycles (~7.20% request-over-grant
+backpressure). The TRISC1 counter window grew from ~0.24 M to 44.15 M
+cycles; 192 paired core comparisons give +43.91 M cycles over 2,016 extra
+K/V iterations per core, a median ~21,780 cycles per extra iteration
+(MATH 11,369, FPU 9,184). Pinned `reader_interleaved.cpp:402-439,601-632`
+reads every paged chunked K and V chunk through the page table with
+forwarding disabled; the **modeled** issued K/V reads are therefore
+~12.74 GB per chip per layer late versus 56.6 MB early (97,200 versus 432
+chunk visits). That is an analytical count, not a byte counter or
+bandwidth.
+
+Counter windows cover only TRISC1; ring-0 signals mix L1/NoC traffic and
+are not DRAM bytes, and no silicon DRAM byte counters were available.
+Chip 0's raw CSV was overwritten by chip 1, but all four validated
+per-window JSON receipts per chip are preserved. Idle FPU cycles are not
+robustly attributable to NoC/DRAM stalls. The counters show substantial
+math/unpack cost and some instruction stalls, and **no** evidence of DRAM
+saturation. Decision: no kernel change from the baseline. A future,
+explicitly bounded A/B may test page-table-aware K/V reuse/forwarding
+against a math-only control; it must keep exact BF16 output and order and
+the same output hashes/PCC, and pass the existing full-model 98-gate
+before any proposal. No speedup is predicted. tt-sim v1.10.6 failed
+uninstrumented (`Disable_pack_zero_flags`) and lacks perf registers, so
+there is no simulator acceptance. Attempt r1 failed closed on the
+reversed mesh order and was restored; r2 stopped at the pre-isolation
+disk guard with the owner unchanged; r3 completed and `ExecStopPost`
+restored root `Type=notify` active/running PID 2461790 (`/healthz` HTTP
+200 ready, sole holder of both nodes, `NRestarts=0`, all five unit/drop-in
+hashes unchanged). The
+[dated counter receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-sdpa-counters.json)
+hashes the frozen plan, counter header, analyzer, analysis (reproduced
+byte-for-byte after checking 92,400 counter markers), transaction,
+restore and all eight counter-window JSONs. No full-model exact-98,
+reboot or throughput admission is claimed.
 
 ## Upstream state watch
 

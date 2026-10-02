@@ -1,0 +1,253 @@
+{
+  "schema": "onix.qwen38.sdpa-counters.v1",
+  "date_utc": "2026-10-01",
+  "simulation": false,
+  "scope": "Isolated profiler-enabled single flexible paged-prefill SDPA layer program, one physical P150x2 chip at a time (nodes 0 then 1), installed han2 package; diagnosis only, not a full-model exact-98, reboot, throughput or model-quality admission",
+  "status": "diagnosis complete; no optimization admitted; no kernel, package, model or service change",
+  "baseline_package": "/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "inputs": {
+    "frozen_plan": {
+      "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/frozen-plan.json",
+      "sha256": "b9f3c11d30e985f0b05111835f99a2489e2297796049cc1d9c19f555747455bc"
+    },
+    "transaction": {
+      "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/transaction.json",
+      "sha256": "55e0fb458fd237799d5a2d537cf46c42406639c1868ff860101217051930f16f"
+    },
+    "restore_post": {
+      "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/restore-post.json",
+      "sha256": "f8a9a40a88673f2fcbb93ec8c1c29cc9f882471fa4e98dbce8f8484519b5175e"
+    },
+    "restore_library_reused": {
+      "path": "/var/tmp/qwen38-prefill-program-20261001/attempt2/restore-post.py",
+      "sha256": "7a171d4159c06e7fe387eb3c4279225ac045a413c116c828d7b5680bdc12db31"
+    },
+    "mesh_grid": {
+      "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/results/mesh-grid.json",
+      "sha256": "c3ca1e0b2e70007555302c06db49188e08f07800b76728a37ca86252a851b702"
+    },
+    "chip_probes": {
+      "0": {
+        "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/results/chip0-probe.json",
+        "sha256": "6d941065850ce65d6742f65e846025c20971cf387c4b76aa4c226a63ed906a79"
+      },
+      "1": {
+        "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/results/chip1-probe.json",
+        "sha256": "1d6f8cae2d41c1af4fb459a74173cb47e9a6b762c1de4b89d135735b2c42f1ba"
+      }
+    },
+    "counter_window_json": {
+      "directory": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/results",
+      "sha256": {
+        "chip0-start0-repeat0-counters.json": "d9411d526b416644c8d5279f20c29c8a0ece04976be7f2fdbbe89348f7e9b565",
+        "chip0-start0-repeat1-counters.json": "9b30780ee4bceb4b299f24b7da580f75740385eaf736b9eb4111058df716112f",
+        "chip0-start129024-repeat0-counters.json": "8da297d39c94fd8b07c1fc0fbc0dc948a50dbbd8757801667af2aabc2068401e",
+        "chip0-start129024-repeat1-counters.json": "58718681c35a65b3143bbcb3c2d3346f58b10bad2776cedebab1879d3c52d77c",
+        "chip1-start0-repeat0-counters.json": "3c17425cc93e4d36ee4174c99753873fe10cb3a18d4500c2bbbef4807e5c5645",
+        "chip1-start0-repeat1-counters.json": "67b5b08b6f5bad9414d9b411d62dc0d229d311c879a5e6ffb3738dab5cc58bd2",
+        "chip1-start129024-repeat0-counters.json": "06f764df2aff3c69e326acbbb520be01816c0275ddd53c99901573716a11f58e",
+        "chip1-start129024-repeat1-counters.json": "00646731ed5d9032957bb71f1e5a56dfc41e8d84ead8c8a59bbf3be5609019bf"
+      },
+      "program_host_ids_start0_r0_r1_start129024_r0_r1": {"0": ["1024", "2048", "3072", "4096"], "1": ["1025", "2049", "3073", "4097"]}
+    },
+    "source_counter_header": {
+      "path": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source/tt_metal/hw/inc/internal/tt-1xx/blackhole/hw_counters.h",
+      "sha256": "a0adda3771740446d0c8263a385fe68c5a76b77a4794935f600ab4158028a6bb",
+      "scratch_jit_copy_sha256": "a0adda3771740446d0c8263a385fe68c5a76b77a4794935f600ab4158028a6bb",
+      "jit_include": "CPATH only, exact source bytes; TT_METAL_HOME stayed installed han2"
+    },
+    "analyzer": {
+      "path": "/tmp/qwen38-sdpa-counter-diagnosis-20261001.py",
+      "sha256": "412fbadab28b4f706694422d565236d123992a54715c94d37bae5aaa12fbb130"
+    },
+    "analysis": {
+      "path": "/tmp/qwen38-sdpa-counter-diagnosis-20261001.json",
+      "sha256": "8489dd21c22c51932dd6d0a4ea7ee0e15916534ce7e0891b1eaf2324974b01ce"
+    },
+    "probe_scripts_sha256": {
+      "probe.py": "f0adc3ebe663d9af0119fb7f7c22392edc4081c6b96bc3b02d794dd8345ab25d",
+      "counter-join.py": "1e29b224dcb11f95a27be359578dc7375ecc202975fed1b221755e423d19a290",
+      "supervisor.py": "fc59c7c6b31ced9589d888d1e1f4704740cae4b85b8a4de1c9cd611aec2e99ba",
+      "mesh-preflight.py": "897ef4d741b14ba0ec59c9523a28c2ae018f7a5c6b0558958a71e7dcaa74df7b",
+      "identity.py": "f8c214e76b6ada0b7d85083717d96c8758cfa226acb4bcfe931c49eb9b06d5c6",
+      "restore-post.py": "962dc9b4b80bd938a79c4799c00fadd095a152dfc2ddbd79557d89ae93938f57"
+    },
+    "cpu_reference": {
+      "manifest": {
+        "path": "/tmp/qwen38-sdpa-physical-prep-20261001-r3/reference/manifest.json",
+        "sha256": "3200d405725e93840e079f84b9d37c97be4ffb5cd8f57fb813fd2c5da0b7e050"
+      },
+      "start0_pt_sha256": "766e09873d43787f97d9d22db9a8c1c1d38c41bac8e1f2093809d568ed7a928c",
+      "start129024_pt_sha256": "72e582aea693c741b0b19423fb8ce6fb3a5507a768adbbf4281255a8ce548e14",
+      "kind": "precomputed independent CPU FP32 causal softmax(QK^T*scale)V, seed 20261001, torch 2.12.0"
+    },
+    "sdpa_reader_source": {
+      "path": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source/ttnn/cpp/ttnn/operations/transformer/sdpa/device/kernels/dataflow/reader_interleaved.cpp",
+      "sha256": "f97f5490cf476db92d575de33c85f8707f96d7474896ee086ee864c23a3efa27",
+      "lines": ["395-399", "402-439", "601-632"]
+    },
+    "prior_full_model_worker_conclusion": {
+      "path": "/tmp/qwen38-sdpa-worker-retry-20261001/conclusion.json",
+      "sha256": "771931f5055462bfa67100ff476c374024a9335e3f562b369f7d569af6223194"
+    }
+  },
+  "identity": {
+    "invocation_id": "5af9c21eca5f4023ba9fa23008dae754",
+    "transaction_unit": "qwen38-sdpa-physical-r3.service",
+    "mesh_shape": [1, 2],
+    "mesh_ids_observed": [1, 0],
+    "pcie_ordinals": [0, 1],
+    "fabric": "FABRIC_1D/STRICT_INIT/None/DISABLED/DISABLED/DEFAULT",
+    "chips": {
+      "0": {"pcie_node": 0, "bdf": "0000:01:00.0", "asic_unique_id": 141176418206240, "grid": [11, 10]},
+      "1": {"pcie_node": 1, "bdf": "0000:03:00.0", "asic_unique_id": 141176418206144, "grid": [11, 10]}
+    },
+    "cluster_descriptor_sha256": "e7d1e2e181ebd00b1eb52539e48709cdfefb511ad13c6660a522aaaca5d922b1",
+    "cores_per_window": {"launched": 110, "q_work": 48, "launched_no_q_work": 62}
+  },
+  "runtime": {
+    "profiler": "TT_METAL_DEVICE_PROFILER=1, TT_METAL_PROFILE_PERF_COUNTERS=47 (FPU, PACK, UNPACK, L1_0, INSTRN banks); simulator and slow dispatch unset",
+    "geometry": {
+      "q_shape_dtype_memory": [1, 12, 1024, 256, "bfloat16", "L1 interleaved"],
+      "kv_pool_blocks_heads_block_tokens_dim_dtype_memory": [4113, 2, 64, 256, "bfloat16", "DRAM interleaved"],
+      "page_table": [1, 2048, "int32", "row-major default memory"],
+      "q_chunk": 128,
+      "k_chunk": 128,
+      "causal": true,
+      "scale": 0.0625,
+      "compute": "HiFi2 math_approx fp32_dest_acc packer_l1_acc",
+      "exp_approx_mode": false
+    },
+    "chunk_starts": [0, 129024],
+    "repeats_per_start_per_chip": 2,
+    "program_cache_entries": 1,
+    "timeline_utc": {
+      "started": "2026-10-01T21:09:03.577476+00:00",
+      "isolated": "2026-10-01T21:10:34.936119+00:00",
+      "diagnostic_finished": "2026-10-01T21:13:30.475024+00:00",
+      "restore_finished": "2026-10-01T21:21:27.193492+00:00"
+    },
+    "step_seconds": {"mesh_preflight": 91.836, "chip0": 67.521, "chip1": 11.61}
+  },
+  "numeric": {
+    "gate": "finite, identical output SHA-256 across repeats, PCC >= 0.998 versus CPU FP32 reference (probe.py; upstream chunked-SDPA test threshold); satisfied on both chips at both starts",
+    "start0": {
+      "pcc": 0.9997540729632197,
+      "max_abs_error": 0.125,
+      "mean_abs_error": 0.0020688269287347794,
+      "relative_l2_error": 0.027755500748753548,
+      "output_sha256": "684a4d480d72b3331853aa1254931c448f08b97996d419d2082c3053dc6cc2cc"
+    },
+    "start129024": {
+      "pcc": 0.9988832866747863,
+      "max_abs_error": 0.0073349568992853165,
+      "mean_abs_error": 0.0007629730389453471,
+      "relative_l2_error": 0.20950523018836975,
+      "output_sha256": "16fbc688d52fc1b8a766583240ad6704bc0b1470902596dd441fd79b438492e2"
+    },
+    "outputs_identical_across_repeats_and_chips": true,
+    "host_seconds_per_call": {
+      "method": "time.monotonic around one synchronized SDPA call; includes host enqueue/synchronize",
+      "start0_chip0_chip1": [[2.4037571628578007, 0.00049211410805583], [0.03916326677426696, 0.0005492810159921646]],
+      "start129024_chip0_chip1": [[0.03331842180341482, 0.03334607416763902], [0.03351808711886406, 0.03335308702662587]],
+      "late_median_ms_chip0_chip1": [33.332248, 33.4355871],
+      "note": "chip0 first start0 call (2.404 s) includes cold JIT/program build and chip1 first start0 call (39.2 ms) is also a first call; compare only second early calls (0.49/0.55 ms) and late calls"
+    }
+  },
+  "metrics": {
+    "validation": "Analyzer re-executed JSON-only on 2026-10-01 and reproduced analysis sha256 byte-for-byte: frozen-plan, transaction and source-header hashes, mesh [1,0]/[11,10]/BDF identity, 8 windows x 110 cores x 105 source-ordered counters = 92,400 BRISC timer-9090 markers, value<=ref, per-window CSV byte ranges cross-checked against probe receipts, 4 unique program host IDs per chip, stable NOC0-to-logical map, cross-chip output hashes and 192 paired Q-core comparisons",
+    "q_work_core_median_ratio": {
+      "unit": "median over 96 Q-work core samples per chip (48 cores x 2 repeats) of counter value/ref_cnt",
+      "layout": "chip: [start0, start129024]",
+      "fpu": {"0": [0.3389147, 0.4212285], "1": [0.338423, 0.4211388]},
+      "math": {"0": [0.4161666, 0.5214258], "1": [0.4155628, 0.5213148]},
+      "sfpu": {"0": [0.0772519, 0.1001973], "1": [0.0771398, 0.100176]},
+      "unpack0_thread0": {"0": [0.5825773, 0.7324903], "1": [0.5819235, 0.7323529]},
+      "unpack1_thread0": {"0": [0.5529566, 0.6930072], "1": [0.5523122, 0.6929113]},
+      "pack": {"0": [0.1705653, 0.2096696], "1": [0.1704026, 0.2096957]},
+      "instrn_stall_thread0": {"0": [0.1706705, 0.2183701], "1": [0.1702785, 0.2182909]},
+      "instrn_any_thread_stall": {"0": [0.226444, 0.2867604], "1": [0.2260856, 0.2867111]},
+      "srca_valid_wait": {"0": [0.0, 0.0], "1": [0.0, 0.0]},
+      "srcb_valid_wait": {"0": [0.0, 0.0], "1": [0.0, 0.0]},
+      "l1_0_ring0_outgoing_req_per_ref": {"0": [0.0895847, 0.1011111], "1": [0.0894155, 0.1010923]},
+      "l1_0_ring0_outgoing_grant_per_ref": {"0": [0.0843587, 0.0939811], "1": [0.0842363, 0.0939611]},
+      "l1_0_ring0_outgoing_req_minus_grant_over_req": {"0": [0.0581541, 0.0720057], "1": [0.0574865, 0.0721121]},
+      "l1_0_ring0_incoming_req_per_ref": {"0": [0.0038499, 2.15e-05], "1": [0.0038364, 2.16e-05]}
+    },
+    "trisc1_window_ref_cycles_median": {
+      "unit": "FPU-bank ref_cnt cycles over the TRISC1 kernel-lifetime counter window",
+      "layout": "chip: [start0, start129024]",
+      "0": [244356.5, 44151243.5],
+      "1": [244711.5, 44160645.0]
+    },
+    "paired_late_minus_early": {
+      "n": 192,
+      "pairing": "same chip, repeat and Q-work core; 2 chips x 2 repeats x 48 cores",
+      "layout": "[median, p10, p90]",
+      "early_ref_cycles": [244561.0, 241735.3, 246991.3],
+      "late_ref_cycles": [44157328.0, 43705789.4, 44402211.5],
+      "extra_ref_cycles": [43909248.5, 43463587.8, 44157712.9],
+      "extra_kv_iterations_per_q_core_source_count": 2016,
+      "ref_cycles_per_extra_kv_iteration": [21780.3812004, 21559.3193452, 21903.6274306],
+      "math_cycles_per_extra_kv_iteration": [11369.0, 11369.0, 11369.0],
+      "fpu_cycles_per_extra_kv_iteration": [9184.0, 9184.0, 9184.0]
+    },
+    "negative_paired_ring0_incoming_event_deltas_of_96": {"layout": "chip: [INCOMING_0, INCOMING_1]", "0": [37, 36], "1": [27, 28]}
+  },
+  "modeled_kv_reads": {
+    "kind": "analytical source model of issued K/V tile reads; not a byte counter, DRAM traffic or bandwidth",
+    "source": "causal path never forwards (395-399); paged chunked K (402-439) and V (601-632) chunks are each read through the page table, forwarding not supported for paged mode",
+    "kv_chunk_visits_per_chip_call_start0_start129024": [432, 97200],
+    "bytes_per_visit_k_plus_v": 131072,
+    "issued_kv_read_bytes_per_chip_layer_call_start0_start129024": [56623104, 12740198400],
+    "extra_visits_per_chip": 96768,
+    "extra_visits_per_q_core": 2016
+  },
+  "prior_full_model_context": {
+    "source": "separate earlier han2 physical full-model run (prior_full_model_worker_conclusion); not the same run, not additive with or subtractable from the isolated host times above",
+    "programs_per_chip": 16,
+    "replay_chunk": 126,
+    "replay_chunk_start_token": 129024,
+    "corrected_dispatch_sum_ms_chip0_chip1": [523.107103, 526.209598],
+    "worker_kernel_span_sum_ms_chip0_chip1": [527.554165, 527.796965]
+  },
+  "attempts_and_restore": {
+    "r1": {
+      "invocation_id": "e2b56aff2d414589a1e4af98ded083e4",
+      "result": "failed closed at mesh preflight: opened device order was not the required [0,1] (r3 observed production order [1,0]); ExecStopPost restored-and-verified PID 1554375",
+      "transaction_sha256": "aefa54f5782fe3d047b169dc6f54db3eb8dfe9358d3bc0fd9c078dba69a0f70a",
+      "mesh_grid_sha256": "d36f21f6dbd6ecf15c13ef60514d3486c908734b5971c654c8b2b0c509eb4295",
+      "restore_post_sha256": "3748d743adcab81412f45485d001bf8e52c70fec1b5fbe301b4996792a53b631"
+    },
+    "r2": {
+      "invocation_id": "42783097944a4291aaf8bb2146c11304",
+      "result": "pre-isolation disk-headroom guard failed (/var/tmp 24498311168 < 28991029248 bytes); rollback never armed, owner unchanged",
+      "transaction_sha256": "b3129bcb8e83f0a95af26420d1bbf8ee08f04c0e4c679aa94f41f2c3ca32a4af",
+      "restore_post_sha256": "e3d161d3e677fb3e597377c358f7bea3fe3e672ba45b02e156049471e1491d66"
+    },
+    "r3": {
+      "result": "diagnostic completed; ExecStopPost restored-and-verified",
+      "owner_before_pid": "1554375",
+      "final_unit": {"ActiveState": "active", "SubState": "running", "Type": "notify", "MainPID": "2461790", "NRestarts": "0"},
+      "verified_by_restore_library": "root qwen38-p150x2.service active/running notify with NRestarts=0, /healthz HTTP 200 ready, MainPID sole lsof holder of /dev/tenstorrent/0 and /1, han2 wrapper, five unit/drop-in sha256 equal to the armed marker",
+      "unit_and_dropin_sha256": {
+        "/etc/systemd/system/qwen38-p150x2.service": "ba9b8ea466e33ba78da8e733c991c9ac874c81c143333d7902ef07223555b642",
+        "/run/systemd/system/qwen38-p150x2.service.d/90-context-128k.conf": "370d66949e8e9c8ab4d6bf149d57c79c1c0f5581d79174a67a4d6cd77058f30d",
+        "/run/systemd/system/qwen38-p150x2.service.d/95-prefix-65k.conf": "9460cf7e18ac03b143e33f7b2801d458e8e177c334228cc3f481dd7bfe1469bb",
+        "/run/systemd/system/qwen38-p150x2.service.d/96-prefix-128k-budget.conf": "354eb29888fe3b8e5ea7e05ecbbaf9bcc212d9b372f2b0e57d1fe3e24ea99e83",
+        "/usr/local/lib/systemd/system/qwen38-p150x2.service.d/99-profile.conf": "6c451c88948e034e44a10acfeb96eeb24193fe6b84e04bd62d6c68d3d93b61cf"
+      }
+    }
+  },
+  "interpretation": "The TRISC1 counter window grows ~180x with the source-counted causal K/V loop (97,200 vs 432 visits), ~21,780 reference cycles per extra visit. Counters show substantial math/unpack work and some instruction stalls with zero source-valid waits; they provide no evidence of DRAM saturation and do not robustly attribute idle FPU cycles to NoC/DRAM stalls.",
+  "limits": [
+    "Counters cover only the TRISC1 kernel lifetime; NCRISC reader work outside it is not counted.",
+    "L1_0 ring-0 request/grant signals are cycle counts mixing L1 and NoC traffic, not DRAM reads, bytes or bandwidth; L1_1/2/3 not sampled; no silicon DRAM byte counters were available.",
+    "Chip 0's raw profiler CSV was overwritten by chip 1's run; all four per-window counter JSON receipts per chip, validated against their CSV byte ranges at probe time, are preserved and are the analysis inputs.",
+    "WAITING_FOR_SRCA/B_VALID are shared-unit signals, not proven thread-attributed causal stalls; CB/software polling and synchronization are unresolved.",
+    "tt-sim v1.10.6 failed uninstrumented with Disable_pack_zero_flags and does not support the perf registers; no simulator counter parity or acceptance.",
+    "Single isolated layer program per chip at fixed geometry; no full-model exact-98, reboot, throughput or quality claim."
+  ],
+  "decision": "No kernel change from the han2 baseline. A future, explicitly bounded A/B may test page-table-aware K/V reuse/forwarding plus a math-only control; it must keep exact BF16 output and accumulation order, the same output hashes/PCC, and pass the existing full-model exact 98-gate before any proposal. No speedup is predicted or claimed."
+}

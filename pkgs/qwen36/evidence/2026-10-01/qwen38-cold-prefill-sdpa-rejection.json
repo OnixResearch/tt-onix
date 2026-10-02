@@ -48,7 +48,36 @@
       "sdpa_calls_per_chip": 272,
       "sdpa_seconds_per_chip": {"0": 0.5159454906767718, "1": 0.515688192440387}
     },
-    "interpretation": "Per-chip duration sums are not to be summed across the two chips. Device programs closely track refill wall time; enqueues and staging overlap device work. The A-specific SDPA kernel is the largest measured individual program signature, not proof that a tile change will reduce wall time."
+    "interpretation": "These historical signature-labelled RT dispatch interval totals are preserved raw, not corrected per-kernel timing: after the trace's 16-bit runtime-ID wrap, later labels are inferred to shift by one (offline_wrap_attribution). A_cold.per_chip1_top_seconds, B_cold.sdpa_seconds_per_chip and binary_sfpu_* fields count raw signatures, not individual TTNN/Python callsite times. Per-chip durations are not to be summed across chips; enqueue and staging overlap device work. Inferred corrected SDPA-associated dispatch intervals, not per-core compute time, dominate A; this does not prove a tile change reduces wall time."
+  },
+  "offline_wrap_attribution": {
+    "analysis": "/var/tmp/qwen38-prefill-program-20261001/attribution/rt-adjacency-attribution.json",
+    "analysis_sha256": "52b7a53b3efd0fac98fccbdf615e420302cda7d934f6f77d0bd4744d5b8168f3",
+    "conclusion": "/var/tmp/qwen38-prefill-program-20261001/attribution/conclusion.json",
+    "conclusion_sha256": "50e6bfe9c5795e57485345235a764fdd8f21ce865778546a8fa90f22b93aa7c6",
+    "script": "/var/tmp/qwen38-prefill-program-20261001/attribution/rt_adjacency.py",
+    "script_sha256": "55faff4e88e42b29c763eb53377056c21c0f21cf8ee94f984889f3aeba8dd9ec",
+    "source": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source",
+    "source_locations": [
+      "tt_metal/impl/program/dispatch.cpp:3011-3017: trace runtime ID narrowed to uint16 in the dispatch preamble",
+      "tt_metal/impl/dispatch/kernels/cq_dispatch.cpp:1422-1436: dispatch_d does not enqueue the zero runtime ID",
+      "tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:608-629: dispatch_s pops one ID before acquiring each command and labels GO/flush",
+      "tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:255-280,407-414: GO waits for preceding worker completions",
+      "tt_metal/impl/dispatch/kernels/cq_realtime_profiler.cpp:37-60: zero-ID records are discarded",
+      "tt_metal/distributed/realtime_profiler_manager.cpp:334-356: host filters zero IDs and looks up kernel sources by uint16 ID"
+    ],
+    "observation": "The saved A/B, both-chip trace template jumps 65535->1 at position 10667, so ID 0 is never recorded. Every traced replay (127 per A chip, 16 per B chip) shows a one-position timing/label shift at the last three full-attention groups, whereas the no-wrap eager tail keeps SDPA-long/concat-short order; pinned source implies the shift covers all 1,789 of 12,456 records from that position on. [INFERENCE, source-inferred] The apparent context-growing concat-labelled 6.309 s on A chip 1 is neither concat-kernel duration nor a wait after SDPA: the concat-labelled windows themselves carry the preceding SDPA program's dispatch/worker-completion interval.",
+    "six_decimal_seconds_raw_to_corrected": {
+      "A_cold": {
+        "0": {"sdpa_53": [27.764225, 34.054059], "concat_46": [6.620669, 0.361539], "binary_31": [10.052724, 9.740292], "matmul_32": [9.308440, 9.909817], "zero_id_Z": [0, 0.003519]},
+        "1": {"sdpa_53": [27.839023, 34.146082], "concat_46": [6.637673, 0.361301], "binary_31": [10.099433, 9.790045], "matmul_32": [9.313915, 9.914078], "zero_id_Z": [0, 0.003519]}
+      },
+      "B_cold": {
+        "0": {"sdpa_53": [0.515945, 0.619886], "concat_46": [0.147856, 0.047774], "binary_31": [1.307159, 1.268087], "matmul_32": [1.221005, 1.296819], "zero_id_Z": [0, 0.000443]},
+        "1": {"sdpa_53": [0.515688, 0.619589], "concat_46": [0.147776, 0.047739], "binary_31": [1.307446, 1.268546], "matmul_32": [1.220828, 1.296743], "zero_id_Z": [0, 0.000444]}
+      }
+    },
+    "limits": "[INFERENCE] Corrected values are labelled dispatch-interval sums conditional on the inferred +1 post-ID-zero relabel from the trace fingerprint and pinned dispatch source, not a FIFO-phase record or new physical probe. Per-chip integer-tick sums are unchanged; six-decimal values are rounded. They are not complete per-kernel totals: unreported ID-zero windows stay bucket Z (127 per A chip, 16 per B chip); each replay chunk's last program window is absent at the idle pop (inter-chunk gaps sum to 0.154537/0.155251 s for A and 0.018455/0.018434 s for B, chips 0/1); five unrelated lost-push slice (signature 6) records on A (chip 0: 4, chip 1: 1) are absent without relabel; eager-tail labels stay as observed, although its first interval may span the replay boundary and labels before its first empty-FIFO pop may be +1. Raw signature-labelled fields above remain historical measured numbers. Dispatch windows include launch and worker waits and cannot isolate per-core SDPA execution or compute-versus-stall. No further physical probe is needed for the concat-versus-SDPA classification; per-core compute-versus-stall is a separate question."
   },
   "rejected_candidate": {
     "package": "/nix/store/9nmp3f585rhrg361q9p0l6hrivvncm8j-qwen38-0.1.0",
@@ -144,7 +173,7 @@
       "gdn/tp.py:688-707 refreshes decode conv taps on every segment although only the final window is read by decode. Removing the in-trace state copies requires a separate final-install protocol and preserved prefix/slot invariants; profiler does not attribute a material saving to those calls."
     ],
     "concat_branch": "gdn/tp.py:207-208 enables fused output; :711-720 runs nlp_concat_heads on [1,Nv,T,Dv] after head-major recurrence to feed token-major silu(z) and matmul; attention/tp.py:260-264,803-812 likewise converts [1,NH,T,HD] to the trained flat gate column order. With config.json:90 linear_num_value_heads=48 (24/device), neither hot branch is an identical-layout view.",
-    "concat_timing_caution": "Although signature 46 totals 6.638 s/chip, 61 of 64 calls per 1024-token full chunk stay 0.025-0.047 ms across the first 127 chunks and sum only 0.326 s. The other three calls (last-layer positions 55,59,63) sum 6.309 s, rising from ~0.188 ms on the first chunk to ~32.9 ms by chunk 126 in step with growing SDPA key context even though concat input bucket shape stays fixed. Cause of this program-duration inflation is not isolated; 6.638 s cannot be asserted as pure avoidable permutation cost."
+    "concat_timing_caution": "The raw signature-46 6.638 s/chip-1 total and last-three concat-labelled 6.309 s are historical labels, not true concat time: the 16-bit runtime-ID wrap drops ID0, then dispatch_s FIFO correlation labels each later program window with the next program's ID. Conditional on that inferred +1 relabel, the saved offline A/B chip0/1 remap gives A chip1 SDPA-associated dispatch intervals 34.146082 s and concat-associated intervals 0.361301 s (raw 27.839023 and 6.637673 s); each chip's integer-tick sum is unchanged. These inferred dispatch intervals are not per-core SDPA compute-versus-stall measurements, complete per-kernel totals or individual callsite timings."
   },
   "limit": "The only tested wider-key SDPA tile changes a consumer-visible exact structured-read score and shows just 0.5163 s A TTFT difference (~0.5%) against one separate prior han2 run. No safe material improvement was demonstrated; no candidate deployment or general quality claim."
 }
