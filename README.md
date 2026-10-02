@@ -77,6 +77,23 @@ See [Qwen3.8 structured reads](docs/qwen38-structured-reads.md) for the
 `POST /v1/systemone` decision endpoint ported from vLLM PR 57250, its batched
 read traces, and measured accuracy and latency.
 
+To benchmark OMP `task` subagents on the running P150x2 Qwen3.8-27B service,
+run `python3 scripts/qwen38-subagent-benchmark.py --timeout-seconds 600 --output /tmp/qwen38-subagents.json`.
+The bounded three-worker workload compares three sequential task calls with
+one concurrent task batch. Configure OMP's `mesh/Qwen3.8-27B` provider at
+`http://127.0.0.1:9337/v1` first. The runner checks parent and child model
+identities, probes the gateway's physical PCIe IDs, and saves the OMP event
+streams next to the JSON receipt. The probe does not independently attest each
+child; paired wall times on a shared host are not throughput or model-quality
+admission evidence.
+
+One paired run on 2026-09-29 took 198.07 s for the serial root and 110.39 s
+for the parallel root (1.79× shorter wall time). All six child reviews returned
+the requested findings and fixes. Child durations summed to 71.84 s serial
+versus 122.48 s parallel; this is not a per-worker inference-speed gain. The
+serial and parallel parent prompts differ, and one shared-host pair does not
+establish a stable throughput improvement.
+
 See [Qwen trace-reuse optimization](docs/qwen-0.77-trace-optimization.md) for
 an opt-in B=4 route with measured request-time savings and unchanged service defaults.
 The later [binding-identity optimization](docs/qwen-binding-identity-optimization.md)

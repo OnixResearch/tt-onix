@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "workload_id": "qwen38-three-review-subagents-v1",
+  "shared_context": "Review the supplied, independent Python snippet for one concrete defect. Give a concise, defensible finding and a specific correction; do not speculate about unseen code.",
+  "workers": [
+    {
+      "name": "BoundarySearch",
+      "task": "Anchor: BoundarySearch. Review this function intended to return the first index where a sorted array's value is at least key (or len(a) if none):\n\ndef lower_bound(a, key):\n    lo, hi = 0, len(a)\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if a[mid] < key:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return lo\n\nGive one correctness finding and a specific fix, in fewer than 120 tokens. Use no tools, network, or files.",
+      "required_terms": ["hi = mid"]
+    },
+    {
+      "name": "LoginQuery",
+      "task": "Anchor: LoginQuery. Review this DB-API query with an untrusted email string:\n\ndef lookup_user(cur, email):\n    cur.execute(\"SELECT id FROM users WHERE email = '%s'\" % email)\n    return cur.fetchone()\n\nGive one security finding and a specific fix, in fewer than 120 tokens. Use no tools, network, or files.",
+      "required_terms": ["parameter"]
+    },
+    {
+      "name": "FanoutCapacity",
+      "task": "Anchor: FanoutCapacity. Four requests can call handle simultaneously. Each request has eight independent blocking jobs; each job remains active until an external event. Review the capacity implication of this code:\n\ndef handle(jobs):\n    with ThreadPoolExecutor(max_workers=8) as executor:\n        futures = [executor.submit(process, job) for job in jobs]\n        return [future.result() for future in futures]\n\nGive one concurrency/resource finding, including total possible active worker threads, and a specific fix, in fewer than 120 tokens. Use no tools, network, or files.",
+      "required_terms": ["32"]
+    }
+  ],
+  "synthesis": "Prioritize the three independent findings by likely production impact; briefly state the concrete correction for each. Distinguish security, correctness, and concurrency concerns without inventing measurements."
+}

@@ -1,0 +1,26 @@
+enabledModels:
+  - mesh/Qwen3.8-27B
+modelRoles:
+  default: mesh/Qwen3.8-27B:low
+  task: mesh/Qwen3.8-27B:low
+  smol: mesh/Qwen3.8-27B:low
+  slow: mesh/Qwen3.8-27B:low
+  tiny: mesh/Qwen3.8-27B:low
+  plan: mesh/Qwen3.8-27B:low
+  advisor: mesh/Qwen3.8-27B:low
+retry:
+  fallbackChains:
+    default: []
+    task: []
+task:
+  agentModelOverrides:
+    task: mesh/Qwen3.8-27B:low
+    sonic: mesh/Qwen3.8-27B:low
+    scout: mesh/Qwen3.8-27B:low
+    reviewer: mesh/Qwen3.8-27B:low
+  maxConcurrency: 3
+  maxRuntimeMs: 180000
+async:
+  enabled: false
+temperature: 0
+defaultThinkingLevel: low
