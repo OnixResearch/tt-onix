@@ -1,0 +1,327 @@
+{
+  "host": {
+    "extra_host_floor_bytes": 6000000000,
+    "mem_available_bytes": 110533877760,
+    "pinnable_bytes": null
+  },
+  "non_claims": [
+    "Exact GGUF directory prefixes do not verify complete shard SHA-256 or download full model weights",
+    "Nominal device headroom does not include usable-DRAM loss, TT prompt/workspace peaks or native GGML quantized operators",
+    "Uniform BFLOAT4_B conversion is a hypothetical optimistic size projection, not a working operator or a numerically equivalent translation",
+    "No simulator, one-layer silicon or full-model execution occurred; production Qwen3.8-27B was not touched"
+  ],
+  "observed_at_utc": "2026-09-29T16:02:06.191361+00:00",
+  "scenario": {
+    "architecture": "P150x2 layer pipeline (not existing 27B tensor parallel)",
+    "concurrent_requests": 1,
+    "context_tokens": 65536,
+    "kv_dtype": "bf16",
+    "mtp": false,
+    "nominal_bytes_per_p150": 32000000000,
+    "trace_floor_from_27b_bytes_per_chip": 1073741824,
+    "vision": false
+  },
+  "schema_version": 2,
+  "shards": {
+    "IQ2_XS": {
+      "data_start_bytes": 11024672,
+      "directory_sha256": "5c42d97e6ffd1c1633ff30f68602fb65932bfee427bdf39c9ed649626997b009",
+      "ggml_type_tensor_counts": {
+        "0": 292,
+        "1": 1,
+        "8": 7,
+        "14": 29,
+        "16": 22,
+        "20": 36,
+        "21": 44,
+        "22": 68,
+        "23": 181,
+        "29": 6,
+        "30": 484,
+        "42": 53
+      },
+      "lfs_sha256_unverified": "92cee27ae5bbadcd732416a0f7a7f0acc092399dbbe8f5a5efa707c2ec0a49d7",
+      "path": "IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+      "pinned_bytes": 39225954592,
+      "tensor_count": 1223
+    },
+    "Q2_0": {
+      "data_start_bytes": 11024672,
+      "directory_sha256": "e94c1089ec83ed0c23a589e1436d567649f06551eb2e447f6f6760e89f6883ca",
+      "ggml_type_tensor_counts": {
+        "0": 292,
+        "1": 1,
+        "2": 16,
+        "6": 7,
+        "8": 2,
+        "11": 91,
+        "12": 38,
+        "13": 16,
+        "14": 12,
+        "20": 7,
+        "23": 56,
+        "30": 483,
+        "42": 202
+      },
+      "lfs_sha256_unverified": "69820c02ec7d0b45ef2ebb19d6620299db749fe2aded7f39f93c6b88b199b720",
+      "path": "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
+      "pinned_bytes": 37623740192,
+      "tensor_count": 1223
+    },
+    "ngram": {
+      "data_start_bytes": 192,
+      "directory_sha256": "49f992d94de7d687ab0042f54d72fbabb4fec16e6860181f1b5bd91e46c89a96",
+      "ggml_type_tensor_counts": {
+        "20": 1
+      },
+      "lfs_sha256_unverified": "316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113",
+      "path": "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf",
+      "pinned_bytes": 28800138432,
+      "tensor_count": 1
+    }
+  },
+  "source": {
+    "header_only": true,
+    "hf_repository": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+    "hf_revision": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+    "strata_revision": "3ce2523c2823687de5372be3af58534f56cbf286"
+  },
+  "ssd": {
+    "available_bytes": 1194044121088,
+    "ngram_page_cache_bytes": null,
+    "path": "/home/brittonr/models",
+    "shared_ngram_shard_bytes": 28800138432
+  },
+  "variants": {
+    "IQ2_XS": {
+      "blockers": [
+        "even optimistic fully resident TTNN BFLOAT4_B weights exceed both nominal P150 DRAM capacities",
+        "Flash Next TT-native GGUF quantized operators and placement not implemented",
+        "Flash Next per-chip usable DRAM, prompt scratch, weight conversion and trace peak unmeasured"
+      ],
+      "devices": [
+        {
+          "allocatable_dram_bytes": null,
+          "gdn_state_fp32_bytes": 58834944,
+          "id": 0,
+          "indexer_fp32_bytes": 50340864,
+          "known_floor_bytes": 21269251840,
+          "kv_bf16_bytes": 805306368,
+          "layers": [
+            0,
+            24
+          ],
+          "measured_trace_peak_bytes": null,
+          "nominal_headroom_bytes": 10730748160,
+          "prompt_scratch_peak_bytes": null,
+          "routed_experts_bytes": 17380147200,
+          "trace_floor_bytes": 1073741824,
+          "weight_materialization_overhead_bytes": null,
+          "weights_bytes": 19281027840
+        },
+        {
+          "allocatable_dram_bytes": null,
+          "gdn_state_fp32_bytes": 58834944,
+          "id": 1,
+          "indexer_fp32_bytes": 50340864,
+          "known_floor_bytes": 21922126080,
+          "kv_bf16_bytes": 805306368,
+          "layers": [
+            24,
+            48
+          ],
+          "measured_trace_peak_bytes": null,
+          "nominal_headroom_bytes": 10077873920,
+          "prompt_scratch_peak_bytes": null,
+          "routed_experts_bytes": 18074828800,
+          "trace_floor_bytes": 1073741824,
+          "weight_materialization_overhead_bytes": null,
+          "weights_bytes": 19933902080
+        }
+      ],
+      "host_fallback_floor_bytes": 41454976000,
+      "host_fallback_floor_fits": true,
+      "memory_admitted": false,
+      "nominal_floor_fits": true,
+      "one_layer_device_check_ready": false,
+      "split_after_layer": 23,
+      "ssd_download_bytes": 68026093024,
+      "ssd_download_fits": true,
+      "total_routed_experts_bytes": 35454976000,
+      "ttnn_all_tensor_tile_projection": {
+        "BFLOAT16": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 127836283904,
+              "nominal_headroom_bytes": -95836283904,
+              "weights_bytes": 125848059904
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 127781889024,
+              "nominal_headroom_bytes": -95781889024,
+              "weights_bytes": 125793665024
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 2048,
+          "total_weight_bytes": 251641724928
+        },
+        "BFLOAT4_B": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 37382990848,
+              "nominal_headroom_bytes": -5382990848,
+              "weights_bytes": 35394766848
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 37367692288,
+              "nominal_headroom_bytes": -5367692288,
+              "weights_bytes": 35379468288
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 576,
+          "total_weight_bytes": 70774235136
+        },
+        "BFLOAT8_B": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 68845005824,
+              "nominal_headroom_bytes": -36845005824,
+              "weights_bytes": 66856781824
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 68816108544,
+              "nominal_headroom_bytes": -36816108544,
+              "weights_bytes": 66827884544
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 1088,
+          "total_weight_bytes": 133684666368
+        }
+      }
+    },
+    "Q2_0": {
+      "blockers": [
+        "even optimistic fully resident TTNN BFLOAT4_B weights exceed both nominal P150 DRAM capacities",
+        "Flash Next TT-native GGUF quantized operators and placement not implemented",
+        "Flash Next per-chip usable DRAM, prompt scratch, weight conversion and trace peak unmeasured"
+      ],
+      "devices": [
+        {
+          "allocatable_dram_bytes": null,
+          "gdn_state_fp32_bytes": 58834944,
+          "id": 0,
+          "indexer_fp32_bytes": 50340864,
+          "known_floor_bytes": 20671161600,
+          "kv_bf16_bytes": 805306368,
+          "layers": [
+            0,
+            24
+          ],
+          "measured_trace_peak_bytes": null,
+          "nominal_headroom_bytes": 11328838400,
+          "prompt_scratch_peak_bytes": null,
+          "routed_experts_bytes": 16986931200,
+          "trace_floor_bytes": 1073741824,
+          "weight_materialization_overhead_bytes": null,
+          "weights_bytes": 18682937600
+        },
+        {
+          "allocatable_dram_bytes": null,
+          "gdn_state_fp32_bytes": 58834944,
+          "id": 1,
+          "indexer_fp32_bytes": 50340864,
+          "known_floor_bytes": 20918001920,
+          "kv_bf16_bytes": 805306368,
+          "layers": [
+            24,
+            48
+          ],
+          "measured_trace_peak_bytes": null,
+          "nominal_headroom_bytes": 11081998080,
+          "prompt_scratch_peak_bytes": null,
+          "routed_experts_bytes": 16986931200,
+          "trace_floor_bytes": 1073741824,
+          "weight_materialization_overhead_bytes": null,
+          "weights_bytes": 18929777920
+        }
+      ],
+      "host_fallback_floor_bytes": 39973862400,
+      "host_fallback_floor_fits": true,
+      "memory_admitted": false,
+      "nominal_floor_fits": true,
+      "one_layer_device_check_ready": false,
+      "split_after_layer": 23,
+      "ssd_download_bytes": 66423878624,
+      "ssd_download_fits": true,
+      "total_routed_experts_bytes": 33973862400,
+      "ttnn_all_tensor_tile_projection": {
+        "BFLOAT16": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 127836283904,
+              "nominal_headroom_bytes": -95836283904,
+              "weights_bytes": 125848059904
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 127781889024,
+              "nominal_headroom_bytes": -95781889024,
+              "weights_bytes": 125793665024
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 2048,
+          "total_weight_bytes": 251641724928
+        },
+        "BFLOAT4_B": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 37382990848,
+              "nominal_headroom_bytes": -5382990848,
+              "weights_bytes": 35394766848
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 37367692288,
+              "nominal_headroom_bytes": -5367692288,
+              "weights_bytes": 35379468288
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 576,
+          "total_weight_bytes": 70774235136
+        },
+        "BFLOAT8_B": {
+          "devices": [
+            {
+              "id": 0,
+              "known_floor_bytes": 68845005824,
+              "nominal_headroom_bytes": -36845005824,
+              "weights_bytes": 66856781824
+            },
+            {
+              "id": 1,
+              "known_floor_bytes": 68816108544,
+              "nominal_headroom_bytes": -36816108544,
+              "weights_bytes": 66827884544
+            }
+          ],
+          "exceeds_two_card_nominal_weight_capacity": true,
+          "tile_bytes": 1088,
+          "total_weight_bytes": 133684666368
+        }
+      }
+    }
+  }
+}
