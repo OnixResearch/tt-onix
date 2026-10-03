@@ -212,9 +212,9 @@ seconds, the 64 language-layer constructors 23.581 seconds, and `shard_w`
 11.170 seconds across the same 320 calls; MLP loading occupied 7.104 seconds
 and GDN loading 10.056 seconds inside those layer phases. The vision
 initialization took 6.402 seconds. KV allocation took 0.418 seconds on the
-**first HTTP request**, not during startup. The next measured startup
-hotpath is remaining language-layer weight setup and cached TTNN device
-loads, not request-side KV/kernel work to move ahead of readiness. See the
+**first HTTP request**, not during startup. Those residual language-layer
+loader costs motivated the derived-weight cache-hit change below; no
+request-side KV or kernel work was moved ahead of readiness. See the
 [bounded startup receipt](evidence/clef-startup-cache-hit-2026-10-03.json)
 for package identities, individual paired timings, response checks, profiler
 scope, preserved log paths, and resource limits.
