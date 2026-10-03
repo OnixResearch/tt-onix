@@ -1,0 +1,69 @@
+{
+  "schema": "bounded-clef-warm-startup-cache-hit-v1",
+  "date_utc": "2026-10-03",
+  "provenance": "Manual transcription of observed physical process, HTTP, profiler, and filesystem outputs; not an independently signed log or latency distribution.",
+  "hardware": {
+    "runtime": "TT-Metal/TTNN 0.77, physical Blackhole P150a",
+    "clef_27b_mesh": "P150x2, PCIe IDs 0 and 1",
+    "clef_flash_9b_mesh": "P150, PCIe ID 0",
+    "exclusive_ownership": "One supervised server at a time; each server exited cleanly with mesh closed. Ports 8190 and 8189 had no listeners after the final run."
+  },
+  "packages": {
+    "baseline": "/nix/store/mv0ppabsz1xx8criib7c0xrz6d735d8a-qwen38-0.1.0",
+    "rebuilt_with_cache_hit_patch": "/nix/store/0mlgv36vjxxck6990qhl4jalws62wabs-qwen38-0.1.0",
+    "ttnn": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "clef_checkpoint": "/nix/store/l1s63v023cw6c4f5piv3qhmbd926lqh1-cloudflare-clef-2f3de3dd85f3",
+    "flash_checkpoint": "/nix/store/54i0i8p13pi3jw7lw5g7744y3yvs5k5f-cloudflare-clef-flash-17f0b0ad64ef"
+  },
+  "method": {
+    "clock": "time.perf_counter from process bootstrap before Python package imports through actual emitted stage:ready marker; same bootstrap on both packages",
+    "environment": "Same Python 3.13 and TTNN 0.77, variant-specific physical MESH_DEVICE and existing revision-named checkpoint/tensor caches. Unset inherited TT_MESH_GRAPH_DESC_PATH and TT_METAL_SIMULATOR as production wrappers do; HF_HUB_OFFLINE=1. Python bootstrap mirrors wrapper environment but is not the wrapper executable.",
+    "private_kernel_cache": "/datapool/aspen-builds/tmp/clef-startup-kernels-20261003",
+    "private_cache_setup": "New owner-private directory (mode 0700) on /datapool; 522 GiB free before probe; both arms set identical supported TT_METAL_CACHE override. The dedicated cache grew to 2.4 GiB after exercised requests. First-use kernel compilation occurred after stage:ready; later requests exercised warmed shapes.",
+    "sample_size": "Each unprofiled process-start pair has one baseline and one rebuilt process, not a statistically powered latency series. Requests are serial and repeated within each process."
+  },
+  "process_start_to_ready_seconds": {
+    "clef_27b_default_home_kernel_cache": {"baseline": 132.547646, "rebuilt": 51.359909, "difference": 81.187737, "reduction_percent_rounded": 61},
+    "clef_27b_private_kernel_cache": {"baseline": 165.537917, "rebuilt": 96.98205, "difference": 68.555867, "reduction_percent_rounded": 41},
+    "clef_flash_9b_default_home_kernel_cache": {"baseline": 75.920893, "rebuilt": 70.081763, "note": "Rebuilt long HTTP request later failed from HOME cache ENOSPC; this arm is not full-shape verification."},
+    "clef_flash_9b_private_kernel_cache": {"baseline": 70.042599, "rebuilt": 72.596352, "note": "Flash does not use changed TP shard helper; no Flash speedup established."},
+    "clef_27b_additional_score_baseline": 155.221198,
+    "clef_27b_additional_score_rebuilt": "Instrumented; exclude from unprofiled comparisons."
+  },
+  "strict_http_private_cache": {
+    "comparison": "For each variant, rebuilt response JSON parsed to an object equaled the corresponding baseline object for every request, including model, answers, choice/noul/score, probabilities, confidence, legend, and input/output token counts. Each repeated same-shape response also equaled its first-use response.",
+    "clef_27b": {
+      "requests_per_package": 9,
+      "cases": ["132-token blue choice first/warm", "1339-token (>1024) 42-vs-17 long choice first/warm", "real 32x32 red PNG choice first/warm", "four-frame red PNG video noul first/warm", "changed green state then restored blue choice"],
+      "matched_answers": {"short": {"choice": "blue", "confidence": 0.9973, "blue_probability": 0.9973, "green_probability": 0.0027}, "long": {"choice": "42", "confidence": 0.9992, "42_probability": 0.9992, "17_probability": 0.0008}, "image": {"choice": "red", "confidence": 0.9977, "red_probability": 0.9977}, "video": {"noul": 0.9864}, "changed_state": {"choice": "green", "confidence": 0.9973}},
+      "warm_http_seconds_baseline_to_rebuilt": {"short": [1.732489, 1.616292], "long": [3.400344, 3.303842], "image": [2.115031, 1.661822], "video": [2.454833, 1.619689]},
+      "additional_joint_noul_score": {"requests_per_package": 3, "states": ["blue bright", "green dim", "blue bright restored"], "exact_baseline_rebuilt_match": true, "first_and_restored_match": true, "first_noul": 0.9954, "changed_noul": 0.0039, "first_ordinal_score": 1.9612, "changed_ordinal_score": 0.074, "input_tokens_each": 230, "rebuilt_timing_caveat": "Python sys.setprofile active; compare decisions, not its request latencies."}
+    },
+    "clef_flash_9b": {
+      "requests_per_package": 9,
+      "cases": ["132-token blue choice first/warm", "1339-token 42-vs-17 long choice first/warm", "real 32x32 red PNG choice first/warm", "four-frame red PNG video noul first/warm", "changed green state then restored blue choice"],
+      "matched_answers": {"short": {"choice": "blue", "confidence": 0.9705, "blue_probability": 0.9705, "green_probability": 0.0295}, "long": {"choice": "42", "confidence": 0.999, "42_probability": 0.999, "17_probability": 0.001}, "image": {"choice": "red", "confidence": 0.9943, "red_probability": 0.9943}, "video": {"noul": 0.9363}, "changed_state": {"choice": "green", "confidence": 0.9955}},
+      "warm_http_seconds_baseline_to_rebuilt": {"short": [0.34174, 0.334078], "long": [0.988761, 1.063996], "image": [0.413413, 0.49394], "video": [0.391185, 0.463796]}
+    },
+    "latency_scope": "Warm values are single observations per package per shape; no HTTP latency speedup claim. First-use private-cache requests compiled kernels after stage:ready."
+  },
+  "source_and_profiler": {
+    "original_instrumented_tp": {"shard_w_calls": 320, "shard_w_inclusive_seconds": 103.36, "language_layers": 64, "mlp_loading_inclusive_seconds": 82.706, "gdn_tp_loading_inclusive_seconds": 27.97},
+    "rebuilt_instrumented_tp": {"from_pretrained_inclusive_seconds": 30.462739, "language_layer_constructor_calls": 64, "language_layer_constructor_total_seconds": 23.580845, "shard_w_calls": 320, "shard_w_inclusive_seconds": 11.170455, "gdn_tp_loading_inclusive_seconds": 10.056207, "mlp_loading_inclusive_seconds": 7.104115, "gdn_qkv_preparation_seconds": 2.408516, "attention_qkv_deinterleave_preparation_seconds": 3.067211, "ttnn_as_tensor_calls": 991, "ttnn_as_tensor_inclusive_seconds": 3.071484, "vision_init_seconds": 6.401861, "first_http_tp_kv_allocation_seconds": 0.417659},
+    "interpretation": "Child phases overlap their parents and Python profiling changes timings. After avoiding full CPU weight transpose/copy on hits, remaining measured startup is primarily language-layer assembly and cached TTNN device loads; KV allocation remains on first HTTP, not before readiness.",
+    "cache_compatibility": "TTNN 0.77 as_tensor appends _dtype_<dtype.name>_layout_TILE.tensorbin and loads the existing flatbuffer via load_tensor_flatbuffer(device=mesh); ttnn.load_tensor uses that same low-level load. The new TP-only fast path checks precisely this file; absent file or RuntimeError falls through to unchanged torch BF16 transpose and as_tensor cache creation/repair. Cache directories already distinguish checkpoint revision and TP mesh shape."
+  },
+  "default_home_environment_failure": {
+    "observed": "One rebuilt Flash long request returned HTTP 500: TTNN 0.77 could not write a cached XIP ELF, reporting No space left on device at $HOME/.cache/tt-metal-cache; root filesystem then had zero bytes available.",
+    "mitigation_for_verification_only": "Both baseline and rebuilt variants repeated with identical TT_METAL_CACHE private override on spacious /datapool; long/image/video and warmed repeats passed. No deletion or modification of user HOME cache, system files, or Nix GC was performed."
+  },
+  "preserved_private_run_logs": [
+    "/datapool/aspen-builds/tmp/clef-startup-private-flash-base.log",
+    "/datapool/aspen-builds/tmp/clef-startup-private-flash-patched.log",
+    "/datapool/aspen-builds/tmp/clef-startup-private-tp-base.log",
+    "/datapool/aspen-builds/tmp/clef-startup-private-tp-patched.log",
+    "/datapool/aspen-builds/tmp/clef-startup-private-tp-score-base.log",
+    "/datapool/aspen-builds/tmp/clef-startup-private-tp-score-patched-profile.log"
+  ],
+  "limits": ["No cold tensor-cache rebuild, cache corruption injection, corpus-wide numerical equivalence, throughput, or repeat-sampled startup distribution was measured.", "The temporary process bootstrap includes instrument-only ready timing but performs no model requests before ready; source patch modifies only TP shard-weight cache hits."]
+}

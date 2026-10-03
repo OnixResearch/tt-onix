@@ -1,0 +1,30 @@
+diff --git a/models/demos/blackhole/qwen36/tt/tp_common.py b/models/demos/blackhole/qwen36/tt/tp_common.py
+--- a/models/demos/blackhole/qwen36/tt/tp_common.py
++++ b/models/demos/blackhole/qwen36/tt/tp_common.py
+@@ -8,6 +8,7 @@
+ import math
++import os
+ 
+ import torch
+ 
+ import ttnn
+ from models.common.utility_functions import is_blackhole
+@@ -310,8 +311,18 @@
+ # Mesh tensor helpers
+ def shard_w(torch_tensor, mesh, dim, memory_config, cache_path, dtype=ttnn.bfloat8_b):
+     """Torch weight [out,in] -> sharded mesh tensor. Transpose to [in,out]; dim=-1 column, dim=0 row."""
++    # as_tensor loads a matching cache as-is, without using its torch input or mesh mapper.
++    # Do not transpose/copy a full checkpoint weight merely to discard it on a cache hit.
++    if cache_path is not None:
++        cache_file = f"{cache_path}_dtype_{dtype.name}_layout_{ttnn.TILE_LAYOUT.name}.tensorbin"
++        if os.path.isfile(cache_file):
++            try:
++                return ttnn.load_tensor(cache_file, device=mesh)
++            except RuntimeError:
++                # Preserve as_tensor's checkpoint-backed repair path for damaged caches.
++                pass
+     w = torch_tensor.to(torch.bfloat16).T.contiguous()
+     return ttnn.as_tensor(
+         w,
+         dtype=dtype,
+         device=mesh,

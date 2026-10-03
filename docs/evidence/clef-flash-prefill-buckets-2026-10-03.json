@@ -1,0 +1,60 @@
+{
+  "schema": "bounded-clef-prefill-buckets-v1",
+  "date_utc": "2026-10-03",
+  "simulated": false,
+  "provenance": "Manual transcription of local HTTP timing and response observations; not a model-accuracy or production-throughput benchmark.",
+  "hardware": "two physical Blackhole P150a; Flash opened PCIe ID 0 (1x1), Clef opened IDs 0 and 1 (1x2); both services stopped afterward",
+  "runtime": {
+    "tt_metal": "0.77.0 candidate",
+    "baseline_package": "/nix/store/a26l97ks4bqsj7hfr50f2v9lkxh1xgid-qwen38-0.1.0",
+    "optimized_package": "/nix/store/py135ihx7amv86f2ai0265yf2wii696v-qwen38-0.1.0",
+    "build": "nix build .#qwen38 --no-link --print-out-paths --option substituters '' --option builders '' succeeded, including the package device-free installCheck"
+  },
+  "change": "For Clef-Flash hidden-state prefill only, pad each <=1024-token segment to the next 128-token GDN subchunk, rather than the next 128/256/512/1024 masked bucket. The two-device Clef branch retains its old bucket selection.",
+  "method": "One serial localhost POST /v1/systemone at a time, urllib.request + time.perf_counter through parsed JSON. Baseline versus candidate alternated within one process after warming each shape, with a temporary in-memory bucket selector and otherwise identical model/runtime; candidate is the exact Flash policy subsequently packaged. The 8 measurements per arm exclude first-use compilation. Production-wrapper samples used the rebuilt package without the selector or profiler. No TTsim claim.",
+  "request": {
+    "state": "'filler ' repeated N times, followed by 'The final code is 42.'",
+    "question": {"type": "choice", "instructions": "Which code appears at the end?", "criteria": {"42": "the number forty two", "17": "the number seventeen"}}
+  },
+  "flash_paired_warm_http": {
+    "medium": {
+      "filler_repetitions": 200,
+      "input_tokens": 342,
+      "bucket_before_after": [512, 384],
+      "baseline_seconds": [0.522, 0.5208, 0.5238, 0.5178, 0.5207, 0.5322, 0.5176, 0.5288],
+      "candidate_seconds": [0.3169, 0.311, 0.3224, 0.336, 0.3224, 0.3218, 0.3261, 0.3499],
+      "median_before_after_seconds": [0.5214, 0.3224],
+      "identical_response": {"choice": "42", "probabilities": {"42": 0.9984, "17": 0.0016}}
+    },
+    "cross_chunk": {
+      "filler_repetitions": 1200,
+      "input_tokens": 1342,
+      "segment_buckets_before_after": [[1024, 512], [1024, 384]],
+      "baseline_seconds": [1.1966, 1.1955, 1.1916, 1.2037, 1.191, 1.1883, 1.1887, 1.2007],
+      "candidate_seconds": [0.986, 1.0144, 0.9814, 0.9805, 0.9993, 0.9801, 0.9888, 1.0],
+      "median_before_after_seconds": [1.1936, 0.9874],
+      "identical_response": {"choice": "42", "probabilities": {"42": 0.9985, "17": 0.0015}}
+    }
+  },
+  "two_device_candidate_not_retained": {
+    "note": "Temporary 128-row bucket experiment under variable host load, not a package change; results did not show an improvement and first-use compilation added cost.",
+    "339_tokens_median_baseline_candidate_seconds": [2.2572, 2.2567],
+    "1339_tokens_median_baseline_candidate_seconds": [3.5324, 3.5535]
+  },
+  "optimized_package_physical_recheck": {
+    "flash_342_tokens": {"warm_samples_seconds": [0.3076, 0.3114, 0.338, 0.314, 0.3124], "median_seconds": 0.3124, "choice": "42", "probabilities": {"42": 0.9984, "17": 0.0016}},
+    "flash_1342_tokens": {"warm_samples_seconds": [1.005, 0.9839, 0.9762, 1.0369, 1.0632], "median_seconds": 1.005, "choice": "42", "probabilities": {"42": 0.9985, "17": 0.0015}},
+    "flash_more_buckets": [
+      {"input_tokens": 602, "bucket": 640, "warm_seconds": 0.4832, "choice": "42"},
+      {"input_tokens": 742, "bucket": 768, "warm_seconds": 0.5749, "choice": "42"},
+      {"input_tokens": 892, "bucket": 896, "warm_seconds": 0.6385, "choice": "42"}
+    ],
+    "flash_short_132_tokens": {"choice": "blue", "probabilities": {"blue": 0.9705, "green": 0.0295}, "repeated_after_other_inputs": true},
+    "flash_image_321_tokens": {"media": "one 32x32 red PNG data URL", "choice": "red", "probabilities": {"red": 0.9942, "blue": 0.0058}, "repeated_after_other_inputs": true},
+    "flash_video_292_tokens": {"media": "four red PNG frames", "noul": 0.7535, "repeated_after_other_inputs": true},
+    "clef_132_tokens": {"warm_samples_seconds": [1.7994, 1.7453, 1.638, 2.0067], "choice": "blue", "probabilities": {"blue": 0.9973, "green": 0.0027}, "repeated_after_other_inputs": true},
+    "clef_1342_tokens": {"warm_samples_seconds": [3.4545, 3.7782, 3.8628, 3.5964], "choice": "42", "probabilities": {"42": 0.9987, "17": 0.0013}}
+  },
+  "cold_shape_limit": "New bucket sizes compile on their first use. In the rebuilt Flash wrapper, first HTTP requests for 342/602/742/892/1342 tokens took 52.2174/16.208/16.2172/15.9123/18.3653 seconds respectively; the first 342-token request also compiled the new package's previously unwarmed kernels. These are observed first-request times, not an isolated estimate of incremental compilation cost. Startup is not prewarmed; measure warm latency only after each required shape has compiled.",
+  "scope": "Bounded single-chip text, image, video, state-reset and >1024-token recurrence checks plus two-chip text recheck. Exact recorded decisions matched the old path on the paired examples; no model-wide numerical equivalence, cold-latency improvement, 16384-token capacity, stable fleet-wide speedup or production admission is established."
+}

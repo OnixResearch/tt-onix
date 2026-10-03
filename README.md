@@ -77,6 +77,10 @@ See [Qwen3.8 structured reads](docs/qwen38-structured-reads.md) for the
 `POST /v1/systemone` decision endpoint ported from vLLM PR 57250, its batched
 read traces, and measured accuracy and latency.
 
+See [Cloudflare Clef on Tenstorrent](docs/clef-tenstorrent.md) for the
+separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
+`/v1/systemone` services and their bounded physical smoke.
+
 To benchmark OMP `task` subagents on the running P150x2 Qwen3.8-27B service,
 run `python3 scripts/qwen38-subagent-benchmark.py --timeout-seconds 600 --output /tmp/qwen38-subagents.json`.
 The bounded three-worker workload compares three sequential task calls with

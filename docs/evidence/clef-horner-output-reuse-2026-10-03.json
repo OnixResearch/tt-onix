@@ -1,0 +1,46 @@
+{
+  "schema": "bounded-clef-horner-output-reuse-v1",
+  "date_utc": "2026-10-03",
+  "simulated": false,
+  "provenance": "Manual transcription of physical TT-NN inverse, hidden-state and serial localhost HTTP observations; bounded examples, not a corpus-scale accuracy or fleet performance study.",
+  "hardware": "Two physical Blackhole P150a cards: Clef 27B on PCIe IDs 0+1 (1x2), Clef-Flash 9B on ID 0 (1x1). Firmware 19.11.0.0, TT-KMD 2.10.0, TT-Metal 0.77.0. All probe meshes shut down and ports 8189/8190 released.",
+  "packages": {
+    "baseline": "/nix/store/py135ihx7amv86f2ai0265yf2wii696v-qwen38-0.1.0",
+    "optimized": "/nix/store/mv0ppabsz1xx8criib7c0xrz6d735d8a-qwen38-0.1.0",
+    "checkpoint_27b": "/nix/store/l1s63v023cw6c4f5piv3qhmbd926lqh1-cloudflare-clef-2f3de3dd85f3",
+    "checkpoint_flash": "/nix/store/54i0i8p13pi3jw7lw5g7744y3yvs5k5f-cloudflare-clef-flash-17f0b0ad64ef",
+    "build": "nix build --no-link --print-out-paths .#qwen38 --option substituters '' --option builders '' succeeded, including device-free installCheck"
+  },
+  "change": "Horner lower-triangular inverse keeps its existing R tensor as output_tensor of each add after the preceding matmul has finished reading R. The same 30 matmuls and arithmetic order remain; R has the same shape, FP32 dtype and memory configuration throughout. Per inverse, Python-level TT-NN output arguments change from 31 newly allocated add outputs to one newly allocated add output plus 30 reuse calls; matmul outputs remain 30 allocations. Reuse is local to one solve, never cached across calls or device traces. The separately probed optional_output_tensor matmul reuse was not retained.",
+  "method": "Physical TT-NN 0.77. An in-memory-only selector compiled original and candidate inverses from the same installed source; no baseline branch was packaged. Full inverse and hidden tensors were first compared elementwise with torch.equal. A separate strict probe reinterpreted contiguous FP32/BF16 host tensors as uint8 and asserted zero byte mismatches for the retained reuse_add path on both physical meshes. Warm serial HTTP A/B excluded first-use compilation and hidden-capture overhead; four long and three short 27B cycles each ran baseline, reuse_add, reuse_both, reuse_both, reuse_add, baseline. Flash used four baseline, reuse_add, reuse_add, baseline cycles per shape. HTTP results include parsing, device execution and the released head; response probabilities are rounded by that head.",
+  "synthetic_inverse_micro": {
+    "shape_per_replicated_device": [384, 32, 32],
+    "dtype": "FP32",
+    "element_equal_to_baseline": {"reuse_add": true, "reuse_both": true},
+    "warm_synchronized_samples_per_arm": 10,
+    "median_seconds": {"baseline": 0.02505, "reuse_add": 0.01941, "reuse_both": 0.01760},
+    "range_seconds": {"baseline": [0.01144, 0.07542], "reuse_add": [0.00773, 0.03575], "reuse_both": [0.00893, 0.02546]},
+    "new_matmul_outputs_per_solve": {"baseline": 30, "reuse_add": 30, "reuse_both": 1},
+    "new_add_outputs_per_solve": {"baseline": 31, "reuse_add": 1, "reuse_both": 1},
+    "reused_add_outputs_per_solve": {"baseline": 0, "reuse_add": 30, "reuse_both": 30}
+  },
+  "real_inverse_and_hidden_equality": {
+    "clef_27b": {"real_fp32_inverse_shapes": [[1536, 32, 32], [768, 32, 32], [384, 32, 32]], "both_candidates_full_inverse_element_equal": true, "reuse_add_full_bf16_hidden_shapes": [[1, 1342, 5120], [1, 132, 5120]], "reuse_add_full_bf16_hidden_byte_equal": true, "reuse_both_full_bf16_hidden_element_equal": true},
+    "clef_flash": {"real_fp32_inverse_shapes": [[1024, 32, 32], [384, 32, 32], [256, 32, 32]], "both_candidates_full_inverse_element_equal": true, "reuse_add_full_bf16_hidden_shapes": [[1, 1342, 4096], [1, 132, 4096]], "reuse_add_full_bf16_hidden_byte_equal": true},
+    "strict_reuse_add_byte_comparison": {"clef_27b_fp32_inverse_bytes": [6291456, 3145728, 1572864], "clef_27b_bf16_hidden_bytes": [13742080, 1351680], "clef_flash_fp32_inverse_bytes": [4194304, 1572864, 1048576], "clef_flash_bf16_hidden_bytes": [10993664, 1081344], "byte_mismatches_for_every_listed_tensor": 0},
+    "all_compared_tensor_element_mismatches": 0
+  },
+  "paired_warm_http_27b": {
+    "long_1342_tokens": {"baseline_seconds": [3.223108, 3.219794, 3.315058, 3.321118, 3.051784, 3.424546, 3.532855, 3.13432], "reuse_add_seconds": [3.068639, 2.909892, 3.183113, 3.128227, 3.180384, 2.824605, 3.121058, 3.143167], "reuse_both_median_seconds": 3.052621, "baseline_reuse_add_median_seconds": [3.269083, 3.124643], "reuse_add_median_improvement_percent": 4.42, "per_cycle_baseline_minus_reuse_add_mean_seconds": [0.2322, 0.1624, 0.2357, 0.2015], "identical_response": {"choice": "42", "probabilities": {"42": 0.9987, "17": 0.0013}}},
+    "short_182_tokens": {"baseline_seconds": [1.669992, 1.598195, 1.612255, 1.657779, 1.83964, 1.77469], "reuse_add_seconds": [1.5441, 1.613376, 1.461669, 1.61106, 1.557283, 1.762064], "reuse_both_median_seconds": 1.580406, "baseline_reuse_add_median_seconds": [1.663886, 1.584172], "reuse_add_median_improvement_percent": 4.79, "per_cycle_baseline_minus_reuse_add_mean_seconds": [0.0554, 0.0987, 0.1475], "identical_response": {"choice": "42", "probabilities": {"42": 0.9987, "17": 0.0013}}}
+  },
+  "paired_warm_http_flash": {
+    "long_1342_tokens": {"samples_per_arm": 8, "baseline_reuse_add_median_seconds": [1.01155, 1.01815], "result": "No demonstrated long-request Flash gain; medians differ by 0.0066 seconds within host-load variation.", "identical_response": {"choice": "42", "probabilities": {"42": 0.9985, "17": 0.0015}}},
+    "short_132_tokens": {"samples_per_arm": 8, "baseline_reuse_add_median_seconds": [0.41695, 0.3898], "identical_response": {"choice": "blue", "probabilities": {"blue": 0.9705, "green": 0.0295}}}
+  },
+  "rebuilt_package_physical_recheck": {
+    "clef_27b": {"short_132_token_choice": "blue", "short_probabilities": {"blue": 0.9973, "green": 0.0027}, "multi_question_noul_and_score_http_200": true, "long_1342_token_choice": "42", "long_probabilities": {"42": 0.9987, "17": 0.0013}, "warm_long_samples_seconds": [3.523, 3.7197, 3.962, 3.8938], "short_answer_same_after_long_request": true},
+    "clef_flash": {"short_132_token_choice": "blue", "short_probabilities": {"blue": 0.9705, "green": 0.0295}, "multi_question_noul_and_score_http_200": true, "long_1342_token_choice": "42", "long_probabilities": {"42": 0.9985, "17": 0.0015}, "warm_long_samples_seconds": [1.0164, 0.9997, 0.9859, 0.9942], "short_answer_same_after_long_request": true}
+  },
+  "limits": "The 27B HTTP speedup is an in-process matched warm comparison of these two text shapes; the separately rebuilt process ran under different host load and its raw times are not cross-process speedup evidence. The Flash 1342-token comparison showed no gain. First requests in fresh rebuilt processes compiled kernels (27B short 72 s, long 53 s; Flash short 39 s, long 50 s); no cold-start improvement is claimed. Exact numerical equality is for the recorded tensors and requests, not a corpus-wide accuracy guarantee or an admission decision."
+}

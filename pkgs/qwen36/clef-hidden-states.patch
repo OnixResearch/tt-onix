@@ -1,0 +1,118 @@
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -641,1 +641,115 @@
++    def prefill_hidden_states(self, token_ids: torch.Tensor, valid_len: int | None = None, vision_tokens: ttnn.Tensor | None = None) -> torch.Tensor:
++        """Return the post-final-RMSNorm hidden states [1, valid_len, dim] on the host.
++
++        Run one paged, masked prefill segment at a time so both the recurrent state and
++        the full-attention KV cache carry across segments. Unlike the logit-prefill
++        entry points, transfer *every* normalized row, without the LM head or a
++        last-row selector. This owns a B=1 cache; do not mix with a serving trace.
++        """
++        if not isinstance(token_ids, torch.Tensor) or token_ids.ndim != 2 or token_ids.shape[0] != 1:
++            raise ValueError("token_ids must be a torch tensor of shape [1, T]")
++        length = token_ids.shape[1] if valid_len is None else valid_len
++        if not isinstance(length, int) or not 1 <= length <= token_ids.shape[1]:
++            raise ValueError("valid_len must be in [1, token_ids.shape[1]]")
++        if length > min(16384, self.args.max_seq_len):
++            raise ValueError("hidden-state prefill requires valid_len <= min(16384, max_seq_len)")
++        if self.num_devices not in (1, 2):
++            raise ValueError("hidden-state prefill supports only one or two devices")
++
++        ids = token_ids[:, :length]
++        if vision_tokens is not None:
++            if (self._req_image_grid_thw is None) == (self._req_video_grid_thw is None):
++                raise ValueError("vision tokens require exactly one staged image or video grid")
++            count = int((ids == self._vision_placeholder_token_id()).sum())
++            if count != int(vision_tokens.shape[0]):
++                raise ValueError(f"{count} vision placeholders but {vision_tokens.shape[0]} feature rows")
++        elif int(((ids == self.args.hf_config.image_token_id) | (ids == self.args.hf_config.video_token_id)).sum()):
++            raise ValueError("vision placeholders require vision_tokens")
++        if vision_tokens is not None and self._vis_buf is not None:
++            raise RuntimeError("hidden-state prefill cannot use serving vision trace buffers")
++
++        # The flexible paged SDPA path requires a page-table width divisible by 32;
++        # keep an identity table large enough for the model's entire admitted window.
++        block_size = 64
++        max_tokens = min(16384, self.args.max_seq_len)
++        num_blocks = ((math.ceil(max_tokens / block_size) + 31) // 32) * 32
++        owned_cache = getattr(self, "_hidden_states_kv_cache", None)
++        if owned_cache is None:
++            if self._paged_kv_caches is not None or self._deltanet_external_states is not None:
++                raise RuntimeError("hidden-state prefill requires a model without serving KV caches")
++            self.allocate_kv_caches(
++                [num_blocks, self.args.n_kv_heads if self.num_devices == 1 else self.args.n_local_kv_heads, block_size, self.args.head_dim],
++                ttnn.bfloat16,
++                batch_size=1,
++            )
++            self._hidden_states_kv_cache = self._paged_kv_caches
++            if self.num_devices == 1:
++                # Preserve the externally allocated recurrent/conv buffers across
++                # requests; reset them in place rather than detaching on reset_state.
++                for layer in self.layers:
++                    if not layer.is_full_attention:
++                        layer.attention._chunk_inplace_state = True
++                self._init_dn_zero_buffers()
++        elif self._paged_kv_caches is not owned_cache:
++            raise RuntimeError("hidden-state prefill cache was replaced by a serving cache")
++
++        page_table = torch.arange(num_blocks, dtype=torch.int32).unsqueeze(0)
++        result = torch.empty((1, length, self.args.dim), dtype=torch.bfloat16)
++        vision_buffers_owned = vision_tokens is not None
++        try:
++            if vision_buffers_owned:
++                self._alloc_vision_merge_buffers(self.device, EAGER_PREFILL_CHUNK_TOKENS)
++            self._reset_gdn_state_for_new_sequence()
++            self._build_request_rope(ids, vision_tokens)
++            for start in range(0, length, EAGER_PREFILL_CHUNK_TOKENS):
++                real_len = min(EAGER_PREFILL_CHUNK_TOKENS, length - start)
++                # Single-chip GDN handles 128-row buckets without the TP collective cost.
++                # Do not run padded power-of-two rows through every layer unnecessarily.
++                bucket = (
++                    ((real_len + 127) // 128) * 128
++                    if self.num_devices == 1
++                    else self._mask_bucket_for(real_len)
++                )
++                segment = ids[:, start : start + real_len].to(torch.int32)
++                if bucket != real_len:
++                    segment = torch.nn.functional.pad(segment, (0, bucket - real_len))
++                if vision_buffers_owned:
++                    self._set_vision_merge(segment, vision_tokens, self._vis_row_offset_for(ids, start))
++                hidden = self._forward_prefill_chunk_masked(
++                    segment, real_len, start, page_table, bucket, vision_tokens=vision_tokens
++                )
++                try:
++                    # Bound the TP all-gather and host transfer to 128 rows at a
++                    # time; never materialize 16K gathered rows on device.
++                    for row in range(0, real_len, 128):
++                        end = min(row + 128, bucket)
++                        part = hidden[:, :, row:end, :] if self.num_devices > 1 else hidden[:, row:end, :]
++                        part = ttnn.to_memory_config(part, ttnn.DRAM_MEMORY_CONFIG)
++                        normalized = self.norm(part, mode=Mode.PREFILL)
++                        try:
++                            if self.num_devices > 1:
++                                host = ttnn.to_torch(
++                                    normalized, mesh_composer=ttnn.ConcatMeshToTensor(self.device, dim=0)
++                                )[0]
++                            else:
++                                host = ttnn.to_torch(normalized)
++                            rows = host.reshape(1, end - row, self.args.dim)
++                            take = min(128, real_len - row)
++                            result[:, start + row : start + row + take] = rows[:, :take]
++                        finally:
++                            ttnn.deallocate(normalized)
++                            if part is not normalized:
++                                ttnn.deallocate(part)
++                finally:
++                    ttnn.deallocate(hidden)
++        finally:
++            if vision_buffers_owned:
++                for buf in (self._vis_buf, self._vis_mask_buf):
++                    if buf is not None:
++                        ttnn.deallocate(buf)
++                self._vis_buf = None
++                self._vis_mask_buf = None
++                self._vis_zero_mask_host = None
++        return result
++
+     def reset_tp(self):

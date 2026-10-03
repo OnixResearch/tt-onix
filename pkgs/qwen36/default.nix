@@ -18,6 +18,14 @@
 }:
 let
   source = callPackage ./source.nix { inherit fetchFromGitHub; };
+  clefReleaseSource = fetchurl {
+    url = "https://huggingface.co/Cloudflare/clef/resolve/2f3de3dd85f379784083b0814d997ab627200f0c/joint_schema_model.py";
+    hash = "sha256-DjBM98ZQDou1m+9+Kv0sY3P4JZbfs7V9Gqk8F14tw6M=";
+  };
+  clefLicense = fetchurl {
+    url = "https://huggingface.co/Cloudflare/clef/resolve/2f3de3dd85f379784083b0814d997ab627200f0c/LICENSE";
+    hash = "sha256-u+3D/aMwWCC5dyZfAbhhnYdXCmc53jpVgsNGSEDx5Xo=";
+  };
   # r[impl tenstorrent.qwen36.upstream_authority]
   # Canonical adopted authority (committed, mirroring model-targets/qwen3-6).
   canonicalAuthority = builtins.fromJSON (builtins.readFile ./generated/authority.json);
@@ -44,12 +52,14 @@ let
     # Model-stack deps (qwen36 + gated DeltaNet + tt_transformers + vLLM-adjacent).
     packages.blake3
     packages.pydantic
+    packages.pillow
     packages.pytest
     packages.safetensors
     packages.sentencepiece
     packages.tiktoken
     packages.tokenizers
     packages.torch
+    packages.torchvision
     packages.transformers
   ]);
   ttnnSitePackages = "${tt-metal}/lib/python${python3.pythonVersion}/site-packages";
@@ -73,6 +83,9 @@ let
     ./structured-read-rows.patch
     ./prefix-cache.patch
     ./masked-prefill-mask-reuse.patch
+    ./clef-hidden-states.patch
+    ./gdn-seq-horner-output-reuse.patch
+    ./cache-hit-shard-load.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:
@@ -135,6 +148,8 @@ let
     executionIdentityLocalInputs
     ++ [
       source
+      clefReleaseSource
+      clefLicense
       pythonEnvironment
       tt-metal
       tt-metal-tracy-tools
@@ -202,6 +217,9 @@ stdenvNoCC.mkDerivation {
     cp -r models "$out/lib/python${python3.pythonVersion}/site-packages/models"
     cp -r ${./service/qwen36_service} \
       "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service"
+    cp ${clefReleaseSource} "$out/lib/python${python3.pythonVersion}/site-packages/clef_release_model.py"
+    mkdir -p "$out/share/licenses/clef"
+    cp ${clefLicense} "$out/share/licenses/clef/LICENSE"
     # The tt-metal models tree carries upstream-relative symlinks whose targets
     # live outside models/ (e.g. tests/didt/... under the repo root). Prune the
     # dangling links so the installed tree is self-contained.
@@ -498,6 +516,34 @@ stdenvNoCC.mkDerivation {
       --add-flags ${lib.escapeShellArg tt-metal} \
       --add-flags "--package-identity" \
       --add-flags ${lib.escapeShellArg executionIdentity}
+
+    # Clef uses a joint schema head over every Qwen hidden row, not the
+    # production autoregressive structured-read logit path. Keep the two
+    # checkpoint families isolated from the Qwen service and from each other.
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/clef-serve" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150x2" \
+      --set HF_HUB_OFFLINE "1" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.clef" \
+      --add-flags "--variant" \
+      --add-flags "clef"
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/clef-flash-serve" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --set MESH_DEVICE "P150" \
+      --set HF_HUB_OFFLINE "1" \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --unset TT_METAL_SIMULATOR \
+      --add-flags "-m" \
+      --add-flags "qwen36_service.clef" \
+      --add-flags "--variant" \
+      --add-flags "clef-flash"
 
     # r[impl tenstorrent.qwen38_p150x2.traced_decode]
     # Production serves the traced candidate. Matched physical measurement on
@@ -1062,6 +1108,8 @@ stdenvNoCC.mkDerivation {
     # Positive: each legacy command resolves to one executable canonical command.
     test -x "$out/bin/qwen38-check"
     test -x "$out/bin/qwen38-p150x2-serve"
+    test -x "$out/bin/clef-serve"
+    test -x "$out/bin/clef-flash-serve"
     for legacy_command in "$out"/bin/qwen36*; do
       canonical_name="qwen38''${legacy_command##*/qwen36}"
       test -L "$legacy_command"
@@ -1091,6 +1139,9 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/clef_release_model.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/clef.py"
+    test -f "$out/share/licenses/clef/LICENSE"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"

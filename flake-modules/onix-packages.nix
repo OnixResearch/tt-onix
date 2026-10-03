@@ -797,6 +797,7 @@
         tt-metal = pkgs.tt-metal-gdn-grid;
       };
       rwkv7Chat = pkgs.callPackage ../pkgs/rwkv7-chat { };
+      clefModels = pkgs.callPackage ../pkgs/qwen36/clef-models.nix { };
       # r[impl tenstorrent.qwen36.deployable]
       qwen38 = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
@@ -1076,7 +1077,19 @@
         '';
     in
     {
-      apps = lib.optionalAttrs isSupportedSystem developmentApps;
+      apps = lib.optionalAttrs isSupportedSystem (
+        developmentApps
+        // {
+          clef-serve = {
+            type = "app";
+            program = "${qwen38}/bin/clef-serve";
+          };
+          clef-flash-serve = {
+            type = "app";
+            program = "${qwen38}/bin/clef-flash-serve";
+          };
+        }
+      );
 
       devShells = lib.optionalAttrs isSupportedSystem {
         default = trainingPlatformDevShell;
@@ -1121,6 +1134,8 @@
         qwen38-gdn-grid = qwen38GdnGrid;
         repository-quality = repositoryQuality.repositoryQualityPackage;
         inherit qwen38;
+        clef-checkpoint = clefModels.clef;
+        clef-flash-checkpoint = clefModels.clef-flash;
         qwen36 = qwen38; # Compatibility alias.
       };
 

@@ -14,6 +14,9 @@ The PR itself cannot run on these cards:
 The owner chose the validated Qwen3.8 service instead. Qwen3.8 is autoregressive, so
 the reads work differently. The request and answer shapes are the same.
 
+For the separate Cloudflare/Clef and Clef-Flash joint-head services on the
+same Tenstorrent hardware, see [Clef on Tenstorrent](clef-tenstorrent.md).
+
 ## Request and answer
 
 The body follows the PR's example server:

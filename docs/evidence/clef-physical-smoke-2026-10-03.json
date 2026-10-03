@@ -1,0 +1,71 @@
+{
+  "schema": "bounded-clef-systemone-smoke-v1",
+  "date_utc": "2026-10-03",
+  "simulated": false,
+  "provenance": "Manual transcription of the observed build and local HTTP responses in this session; not a model-accuracy benchmark or independently signed log.",
+  "hardware": {
+    "cards": "two physical Blackhole P150a",
+    "available_pcie_device_ids": [0, 1],
+    "firmware_tt_smi": "19.11.0.0",
+    "kmd_tt_smi": "2.10.0",
+    "device_owner_before_probe": "existing Qwen service isolated with ttwkv7-owner-control",
+    "device_owner_after_probe": "both Clef smoke services stopped; Qwen owner not restored"
+  },
+  "package": {
+    "tt_metal": "0.77.0 candidate",
+    "qwen38_multimodal_and_recurrent_smoke_output": "/nix/store/jw4bknd3w7fxpvmihk15kbm1k78r8092-qwen38-0.1.0",
+    "qwen38_final_output": "/nix/store/a26l97ks4bqsj7hfr50f2v9lkxh1xgid-qwen38-0.1.0",
+    "qwen38_final_build_and_device_free_install_check": "passed",
+    "final_output_physical_recheck": "Both text_choice requests returned the identical JSON responses listed below. Only import ordering and startup malformed-metadata TypeError handling changed after the multimodal and recurrent-state smoke.",
+    "clef_checkpoint_output": "/nix/store/l1s63v023cw6c4f5piv3qhmbd926lqh1-cloudflare-clef-2f3de3dd85f3",
+    "clef_flash_checkpoint_output": "/nix/store/54i0i8p13pi3jw7lw5g7744y3yvs5k5f-cloudflare-clef-flash-17f0b0ad64ef"
+  },
+  "scenarios": [
+    {
+      "model": "Cloudflare/Clef",
+      "revision": "2f3de3dd85f379784083b0814d997ab627200f0c",
+      "physical_pcie_device_ids_opened": [0, 1],
+      "mesh": "1x2",
+      "http_port": 8190,
+      "text_choice": {
+        "state": "The sky is blue.",
+        "question": "What color is the sky?",
+        "options": {"blue": "blue sky", "green": "green sky"},
+        "http_status": 200,
+        "response": {"choice": "blue", "confidence": 0.9973, "probabilities": {"blue": 0.9973, "green": 0.0027}},
+        "input_tokens": 132
+      },
+      "image_choice": {"media": "32x32 red PNG passed as base64 image data URL", "response": {"choice": "red", "confidence": 0.9972, "probabilities": {"red": 0.9972, "blue": 0.0028}}, "input_tokens": 199},
+      "video_noul": {"media": "four red PNG frames in one video", "response": {"noul": 0.9491}, "input_tokens": 166},
+      "cross_chunk_choice": {"state": "1200 repetitions of 'filler ' followed by 'The final code is 42.'", "question": "Which code appears at the end?", "options": ["42", "17"], "response": {"choice": "42", "confidence": 0.9987, "probabilities": {"42": 0.9987, "17": 0.0013}}, "input_tokens": 1342},
+      "repeat_after_different_input": {"state": "The sky is blue.", "choice": "blue", "confidence": 0.9973, "probabilities": {"blue": 0.9973, "green": 0.0027}},
+      "negative_http": [
+        {"condition": "request names Cloudflare/Clef-Flash", "status": 400, "error": "model must identify Cloudflare/Clef"},
+        {"condition": "one request includes images and videos", "status": 400, "error": "mixed image/video records are unsupported by the TT vision splice"}
+      ]
+    },
+    {
+      "model": "Cloudflare/Clef-Flash",
+      "revision": "17f0b0ad64efb65d273590632833508766b2aae6",
+      "physical_pcie_device_ids_opened": [0],
+      "mesh": "1x1",
+      "http_port": 8189,
+      "text_choice": {
+        "state": "The sky is blue.",
+        "question": "What color is the sky?",
+        "options": {"blue": "blue sky", "green": "green sky"},
+        "http_status": 200,
+        "response": {"choice": "blue", "confidence": 0.9705, "probabilities": {"blue": 0.9705, "green": 0.0295}},
+        "input_tokens": 132
+      },
+      "text_noul_and_score": {"noul": 0.9825, "brightness_score": 1.0868, "input_tokens": 226},
+      "image_choice": {"media": "32x32 red PNG passed as base64 image data URL", "response": {"choice": "red", "confidence": 0.9946}, "input_tokens": 199},
+      "video_noul": {"media": "four red PNG frames in one video", "response": {"noul": 0.9425}, "input_tokens": 166},
+      "cross_chunk_choice": {"state": "1200 repetitions of 'filler ' followed by 'The final code is 42.'", "question": "Which code appears at the end?", "options": ["42", "17"], "response": {"choice": "42", "confidence": 0.9985, "probabilities": {"42": 0.9985, "17": 0.0015}}, "input_tokens": 1342},
+      "repeat_after_different_input": {"choice": "blue", "confidence": 0.9705, "probabilities": {"blue": 0.9705, "green": 0.0295}},
+      "negative_preflight": "Flash wrapper rejects the Clef checkpoint revision before opening a TT device"
+    }
+  ],
+  "scope": "Bounded text, image, video, multi-question, state-reset and >1024-token physical smoke. No corpus-scale accuracy, throughput profiling, broad 16384-token capacity, mixed-image-video support, or production readiness claim.",
+  "simulator_limit": "TTsim 1.10.6 does not model ALU_ACC_CTRL_Zero_Flag_disabled_src=1 in the GDN path; see docs/tt-metal-0.77-port.md."
+}
