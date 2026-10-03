@@ -1,0 +1,73 @@
+{
+  "schema": "bounded-clef-visual-meta-startup-v1",
+  "date_utc": "2026-10-03",
+  "simulated": false,
+  "provenance": "Manual summary of a physical startup-stage profile, host checkpoint tensor comparisons, two serial wrapper startup orders, parsed localhost HTTP objects and retained local logs. Not a signed or statistically powered benchmark.",
+  "packages": {
+    "baseline": "/nix/store/i6ir6bk7xnpj12x12r5vws9yimbqcy30-qwen38-0.1.0",
+    "candidate": "/nix/store/8y7j95q0kaiz6qvvzhha3lyd2hxiddkj-qwen38-0.1.0",
+    "tt_metal": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "build": "nix build .#qwen38 --no-link --print-out-paths -L --option substituters '' succeeded locally, including the 2m12s device-free installCheck; a remote-builder SSH warning fell back to the local builder."
+  },
+  "bottleneck_profile": {
+    "package": "/nix/store/i6ir6bk7xnpj12x12r5vws9yimbqcy30-qwen38-0.1.0",
+    "hardware": "Physical Blackhole P150a IDs 0+1, 1x2 mesh, firmware 19.11.0 and KMD 2.10.0",
+    "method": "One instrumented service-equivalent Python process, identical TTNN/Python environment and revision-named tensor cache. Process launch to the emitted stage:ready; targeted Python method timers are inclusive and nested, not additive. No request ran before readiness.",
+    "process_start_to_ready_seconds": 54.663591,
+    "python_import_seconds": 6.113269,
+    "from_pretrained_seconds": 23.614068,
+    "model_init_seconds_inside_from_pretrained": 19.676826,
+    "reference_visual_seconds": 4.465103,
+    "init_vision_model_seconds": 6.93176,
+    "drop_in_vision_constructor_seconds_inside_init": 2.808769,
+    "vision_block_constructor_calls": 27,
+    "vision_blocks_inclusive_seconds_inside_init": 2.63192,
+    "interpretation": "Language backbone construction is still the largest measured constructor. The separately initialized checkpoint-backed CPU reference visual consumes about 4.5 seconds before the still-required TT vision construction; this CPU stage is the optimization target. Instrumentation and host conditions make the absolute profile time incomparable to the prior 35.943s unprofiled startup."
+  },
+  "change": "Build the existing HF visual tower on torch meta, assign the same pinned checkpoint BF16 parameters, and explicitly restore its one nonpersistent BF16 rotary-frequency buffer. Neither TT vision/device assembly, cache keys, checkpoint contents, GDN equations nor request initialization moves across stage:ready.",
+  "host_checkpoint_comparison": {
+    "method": "Each pinned checkpoint loaded with the original full-FP32-constructor/BF16-cast/copy path and with the candidate meta/assign path. Compared all 333 named parameter values and the rotary-frequency buffer with torch.equal; every candidate parameter and buffer was non-meta, and all pinned checkpoint weights were BF16.",
+    "clef_27b": {"baseline_visual_seconds": 4.0006, "candidate_visual_seconds": 0.034, "all_333_parameters_and_one_buffer_equal": true},
+    "clef_flash_9b": {"baseline_visual_seconds": 3.9716, "candidate_visual_seconds": 0.0418, "all_333_parameters_and_one_buffer_equal": true}
+  },
+  "physical_comparison": {
+    "method": "Production clef-serve and clef-flash-serve wrappers, serial one process per arm, same existing revision-qualified TT tensor caches and owner-private TT_METAL_CACHE on spacious /datapool. First order baseline then candidate with 13 HTTP requests per process; immediately afterward reverse order candidate then baseline, startup-only. time.perf_counter from subprocess launch to emitted stage:ready. qwen38-p150x2.service inactive and no competing device holder during measurements. Every process exited with UMD close.",
+    "clef_27b_p150x2": {
+      "baseline_then_candidate_startup_seconds": [65.879907, 39.460953],
+      "candidate_then_baseline_startup_seconds": [26.981169, 28.91407],
+      "http_status_200_per_arm": 13,
+      "parsed_response_objects_identical_across_packages": 13,
+      "response_shapes": "132-token short, 1,637-token cross-chunk text, real 32x32 red PNG (201 tokens), four-frame video (168 tokens), changed/restored states and joint noul/ordinal score (232 tokens). First/restored state responses matched inside each process; output_tokens was zero throughout.",
+      "single_warm_http_seconds_baseline_candidate": {"short": [3.560802, 2.213626], "long": [7.885412, 3.937862], "png": [2.007327, 1.922959], "video": [2.443379, 2.073743]},
+      "examples": {"short_choice_blue_probability": 0.9973, "long_choice_42_probability": 0.9988, "png_choice_red_probability": 0.9972, "video_noul": 0.9868}
+    },
+    "clef_flash_9b_p150_id0": {
+      "baseline_then_candidate_startup_seconds": [41.694355, 35.400113],
+      "candidate_then_baseline_startup_seconds": [65.719434, 34.215832],
+      "http_status_200_per_arm": 13,
+      "parsed_response_objects_identical_across_packages": 13,
+      "response_shapes": "The same 132/1,637/201/168/232-token text, image, video and joint-question shapes; first/restored state responses matched inside each process and output_tokens was always zero.",
+      "single_warm_http_seconds_baseline_candidate": {"short": [0.29339, 0.313428], "long": [1.138684, 1.138428], "png": [0.43815, 0.41203], "video": [0.373455, 0.377763]},
+      "examples": {"short_choice_blue_probability": 0.9705, "long_choice_42_probability": 0.9978, "png_choice_red_probability": 0.9936, "video_noul": 0.945}
+    },
+    "latency_scope": "The first HTTP requests compiled kernels after readiness and reused the same private binary-cache directory in later arms; first-request timings are not a controlled paired comparison. Single warm-request observations cannot establish request acceleration. The reverse-order Flash candidate took 65.719s, with slower model-config/layer phases before visual loading than its 34.216s baseline; the full-process startup speedup is not established for Flash and the 26.419s initial 27B difference is not attributable solely to this approximately 4s host visual change."
+  },
+  "retained_local_results": [
+    "/datapool/aspen-builds/tmp/clef-next-profile-27b.log",
+    "/datapool/aspen-builds/tmp/clef-next-comparison.json",
+    "/datapool/aspen-builds/tmp/clef-next-reverse-startup.json",
+    "/datapool/aspen-builds/tmp/clef-next-clef-baseline.log",
+    "/datapool/aspen-builds/tmp/clef-next-clef-candidate.log",
+    "/datapool/aspen-builds/tmp/clef-next-clef-flash-baseline.log",
+    "/datapool/aspen-builds/tmp/clef-next-clef-flash-candidate.log",
+    "/datapool/aspen-builds/tmp/clef-next-reverse-clef-candidate.log",
+    "/datapool/aspen-builds/tmp/clef-next-reverse-clef-baseline.log",
+    "/datapool/aspen-builds/tmp/clef-next-reverse-clef-flash-candidate.log",
+    "/datapool/aspen-builds/tmp/clef-next-reverse-clef-flash-baseline.log"
+  ],
+  "limits": [
+    "The approximately 4s direct host visual-loading reduction is checkpoint- and environment-specific. Instrumented child phases overlap; one startup per package/variant/order is not a latency distribution, and OS page-cache, host contention, mesh setup and other startup phases vary substantially.",
+    "No broad accuracy or numerical GDN simulator pass: TTsim still lacks ALU_ACC_CTRL_Zero_Flag_disabled_src=1. These bounded physical comparisons do not test alternative checkpoints, training, cold full-model TT tensor-cache rebuilds, malformed full-model caches, or generic autoregressive Qwen serving.",
+    "The TT kernel binary cache used /datapool/aspen-builds/tmp/clef-next-kernels with mode 0700 and 525+ GiB free. That owner-created trial directory was removed after all meshes closed; tensor caches and retained logs were preserved, and no HOME, system or Nix file was deleted."
+  ]
+}

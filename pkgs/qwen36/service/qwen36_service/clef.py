@@ -157,10 +157,16 @@ def _load_head(path: Path, head_config: dict[str, Any], embedding_shard: Path) -
 def _reference_visual(path: Path, config: dict[str, Any]) -> Any:
     """Load just the HF visual tower needed by the TT vision adapter."""
     from transformers import Qwen3_5Config
-    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5VisionModel
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5VisionModel, Qwen3_5VisionRotaryEmbedding
 
-    visual = Qwen3_5VisionModel(Qwen3_5Config.from_dict(config).vision_config)
-    visual = visual.to(dtype=torch.bfloat16)
+    # The pinned checkpoint supplies every parameter in BF16. Avoid allocating
+    # and initializing an entire FP32 tower only to overwrite it with those weights.
+    with torch.device("meta"):
+        visual = Qwen3_5VisionModel(Qwen3_5Config.from_dict(config).vision_config)
+    # Rotary frequencies are nonpersistent, so assign=True cannot restore them.
+    # Construct that small buffer normally, including the original BF16 cast.
+    rotary = visual.rotary_pos_emb
+    visual.rotary_pos_emb = Qwen3_5VisionRotaryEmbedding(rotary.dim, rotary.theta).to(dtype=torch.bfloat16)
     index = _json_file(path / "model.safetensors.index.json")["weight_map"]
     prefix = "model.visual."
     keys = {key.removeprefix(prefix): key for key in index if key.startswith(prefix)}
@@ -174,7 +180,7 @@ def _reference_visual(path: Path, config: dict[str, Any]) -> Any:
             for name, original in keys.items():
                 if index[original] == shard:
                     state[name] = weights.get_tensor(original)
-    visual.load_state_dict(state, strict=True)
+    visual.load_state_dict({name: weight.to(dtype=torch.bfloat16) for name, weight in state.items()}, strict=True, assign=True)
     return visual.eval()
 
 

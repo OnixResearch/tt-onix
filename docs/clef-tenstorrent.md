@@ -254,3 +254,46 @@ serialization report. See the
 [bounded derived-weight receipt](evidence/clef-derived-cache-hit-2026-10-03.json)
 for exact packages, request timings, response examples, retained local logs,
 and limits.
+
+### Reference vision checkpoint initialization
+
+A physical profile of the current cache-hit package measured **54.664 seconds**
+from process launch to readiness on Clef 27B P150x2. Within that instrumented
+startup, `from_pretrained` occupied 23.614 seconds, the separate CPU reference
+visual load 4.465 seconds, and the subsequent TT vision initialization 6.932
+seconds. These phases have different nesting and the profile is not directly
+comparable to the preceding unprofiled 35.943-second sample. The language
+backbone remains the larger startup phase.
+
+The pinned checkpoints already contain all 333 reference-visual parameters in
+BF16. The reference visual now constructs on the Torch `meta` device and
+assigns those existing checkpoint tensors instead of initializing an FP32
+vision tower, casting it to BF16, then copying the same weights into it. Its
+nonpersistent rotary-frequency buffer is initialized and cast as before.
+Host comparisons on **both** checkpoints found all 333 parameters and the
+rotary buffer exactly equal to the previous loader, with no meta tensors left.
+Direct host visual-loading times were approximately **4.001 → 0.034 seconds**
+(27B) and **3.972 → 0.042 seconds** (Flash). TT vision/device construction,
+checkpoint identities, GDN arithmetic and request-side work are unchanged.
+
+With the same revision-qualified TT tensor caches and a private `/datapool`
+`TT_METAL_CACHE`, serial physical wrapper startup pairs measured
+**65.880 → 39.461 seconds** for 27B and **41.694 → 35.400 seconds** for
+Flash. Reverse-order, startup-only pairs measured candidate/baseline
+**26.981/28.914 seconds** for 27B and **65.719/34.216 seconds** for Flash.
+The large first 27B difference cannot be assigned to this roughly
+four-second CPU change, and Flash's reverse-order sample does **not**
+demonstrate a consistent process-level speedup. Its logged model-config and
+language-layer phases slowed before visual loading. These four small pairs
+show substantial host/startup variability, not a latency distribution.
+
+Both packages returned HTTP 200 with **13 exactly equal parsed response
+objects per variant**: 132-token short, 1,637-token cross-chunk text, real
+32×32 red PNG, four-frame video, changed/restored state, and joint noul/score,
+including probabilities and usage. First/restored states also matched within
+each process. First-use kernels compiled after readiness; later arms shared
+the same binary-cache directory, so neither first-request nor warmed HTTP
+acceleration is claimed. All meshes closed. The
+[bounded visual-initialization receipt](evidence/clef-visual-meta-startup-2026-10-03.json)
+records the packages, startup orders, individual samples, profile, retained
+local logs and limits.
