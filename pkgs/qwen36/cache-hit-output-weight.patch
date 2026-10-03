@@ -1,0 +1,47 @@
+diff --git a/models/demos/blackhole/qwen36/tt/model.py b/models/demos/blackhole/qwen36/tt/model.py
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -143,10 +143,10 @@
+         # LM head [in,out]. Mesh: vocab-sharded (dim=-1); _lm_head all-gathers logits.
+         # M=1 decode is weight-read-bound (~1.3GB/token), so sharding cuts bandwidth;
+         # gather moves only the logit row. REPLICATED fallback if vocab indivisible.
+-        lm_head_weight = state_dict["output.weight"].T.contiguous()  # [dim, vocab_size]
+-        self._lmhead_vocab_sharded = self.num_devices > 1 and lm_head_weight.shape[-1] % self.num_devices == 0
++        vocab_size = state_dict["output.weight"].shape[0]
++        self._lmhead_vocab_sharded = self.num_devices > 1 and vocab_size % self.num_devices == 0
+         if self.num_devices > 1 and not self._lmhead_vocab_sharded:
+             logger.warning(
+-                f"LM-head vocab {lm_head_weight.shape[-1]} not divisible by num_devices "
++                f"LM-head vocab {vocab_size} not divisible by num_devices "
+                 f"{self.num_devices}; falling back to replicated LM head."
+             )
+@@ -160,15 +160,20 @@
+         else:
+             lm_mapper = ttnn.ReplicateTensorToMesh(mesh_device) if self.num_devices > 1 else None
+             lm_cache = tensor_cache_path / f"output.weight{lm_tag}" if tensor_cache_path else None
+         logger.info(f"LM head dtype={lm_head_dtype} cache={lm_cache}")
+-        self.lm_head_weight = ttnn.as_tensor(
+-            lm_head_weight,
+-            dtype=lm_head_dtype,
+-            layout=ttnn.TILE_LAYOUT,
+-            device=mesh_device,
+-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-            cache_file_name=lm_cache,
+-            **(dict(mesh_mapper=lm_mapper) if lm_mapper is not None else {}),
+-        )
++        from models.demos.blackhole.qwen36.tt import tp_common as tpc
++
++        self.lm_head_weight = tpc.load_cached_weight(mesh_device, lm_cache, lm_head_dtype)
++        if self.lm_head_weight is None:
++            lm_head_weight = state_dict["output.weight"].T.contiguous()  # [dim, vocab_size]
++            self.lm_head_weight = ttnn.as_tensor(
++                lm_head_weight,
++                dtype=lm_head_dtype,
++                layout=ttnn.TILE_LAYOUT,
++                device=mesh_device,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++                cache_file_name=lm_cache,
++                **(dict(mesh_mapper=lm_mapper) if lm_mapper is not None else {}),
++            )
+ 
+         self.vocab_size = args.vocab_size

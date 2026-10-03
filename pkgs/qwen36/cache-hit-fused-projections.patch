@@ -1,0 +1,188 @@
+diff --git a/models/demos/blackhole/qwen36/tt/tp_common.py b/models/demos/blackhole/qwen36/tt/tp_common.py
+--- a/models/demos/blackhole/qwen36/tt/tp_common.py
++++ b/models/demos/blackhole/qwen36/tt/tp_common.py
+@@ -311,15 +311,23 @@
+ # Mesh tensor helpers
++def load_cached_weight(mesh, cache_path, dtype):
++    """Return an existing TILE tensor on this mesh, or None for the normal creation path."""
++    if cache_path is not None:
++        cache_file = f"{cache_path}_dtype_{dtype.name}_layout_{ttnn.TILE_LAYOUT.name}.tensorbin"
++        if os.path.isfile(cache_file):
++            try:
++                return ttnn.load_tensor(cache_file, device=mesh)
++            except RuntimeError:
++                # as_tensor will repair a damaged cache using the original checkpoint weight.
++                pass
++    return None
++
++
+ def shard_w(torch_tensor, mesh, dim, memory_config, cache_path, dtype=ttnn.bfloat8_b):
+     """Torch weight [out,in] -> sharded mesh tensor. Transpose to [in,out]; dim=-1 column, dim=0 row."""
+     # as_tensor loads a matching cache as-is, without using its torch input or mesh mapper.
+     # Do not transpose/copy a full checkpoint weight merely to discard it on a cache hit.
+-    if cache_path is not None:
+-        cache_file = f"{cache_path}_dtype_{dtype.name}_layout_{ttnn.TILE_LAYOUT.name}.tensorbin"
+-        if os.path.isfile(cache_file):
+-            try:
+-                return ttnn.load_tensor(cache_file, device=mesh)
+-            except RuntimeError:
+-                # Preserve as_tensor's checkpoint-backed repair path for damaged caches.
+-                pass
++    cached = load_cached_weight(mesh, cache_path, dtype)
++    if cached is not None:
++        return cached
+     w = torch_tensor.to(torch.bfloat16).T.contiguous()
+     return ttnn.as_tensor(
+diff --git a/models/demos/blackhole/qwen36/tt/attention/tp.py b/models/demos/blackhole/qwen36/tt/attention/tp.py
+--- a/models/demos/blackhole/qwen36/tt/attention/tp.py
++++ b/models/demos/blackhole/qwen36/tt/attention/tp.py
+@@ -37,39 +37,44 @@
+     # No-op when tp <= n_kv_heads, so TP=4 weights stay bit-identical.
+     kv_rep = lambda w: tpc.replicate_kv_weight(w, args.n_kv_heads, args.num_devices, args.head_dim)
+     k_proj, v_proj = kv_rep(state_dict["k_proj.weight"]), kv_rep(state_dict["v_proj.weight"])
+ 
+     if fused_qkv:
+-        if qg_deint:
+-            fused = tpc.prepare_attn_qkv_deint(
+-                state_dict["q_proj.weight"],
+-                k_proj,
+-                v_proj,
+-                args.n_local_heads,
+-                args.head_dim,
+-                args.n_local_kv_heads * args.head_dim,
+-                args.num_devices,
+-            )
+-        else:
+-            fused = tpc.prepare_attn_qkv(
+-                state_dict["q_proj.weight"],
+-                k_proj,
+-                v_proj,
+-                args.n_local_heads * args.head_dim * 2,
+-                args.n_local_kv_heads * args.head_dim,
+-                args.num_devices,
+-            )
+         # proj_1d_decode: interleaved weight (fast small-grid 1D decode matmul; prefill AGMM verified
+         # bit-identical on interleaved — test_agmm_accepts_interleaved_weight). Distinct cache suffix.
+         _proj1d = getattr(args, "proj_1d_decode", False)
+         _base = "wqkv_fused_qkvg" if qg_deint else "wqkv_fused"
+-        tw["wqkv_fused"] = tpc.shard_w(
+-            fused,
+-            mesh,
+-            dim=-1,
+-            memory_config=ttnn.DRAM_MEMORY_CONFIG if _proj1d else args.attn_qkv_fused_weight_memcfg,
+-            cache_path=c(_base + (".il" if _proj1d else ".dramshard")),
+-            dtype=ttnn.bfloat8_b,
+-        )
++        cache_path = c(_base + (".il" if _proj1d else ".dramshard"))
++        cached = tpc.load_cached_weight(mesh, cache_path, ttnn.bfloat8_b)
++        if cached is not None:
++            tw["wqkv_fused"] = cached
++        else:
++            if qg_deint:
++                fused = tpc.prepare_attn_qkv_deint(
++                    state_dict["q_proj.weight"],
++                    k_proj,
++                    v_proj,
++                    args.n_local_heads,
++                    args.head_dim,
++                    args.n_local_kv_heads * args.head_dim,
++                    args.num_devices,
++                )
++            else:
++                fused = tpc.prepare_attn_qkv(
++                    state_dict["q_proj.weight"],
++                    k_proj,
++                    v_proj,
++                    args.n_local_heads * args.head_dim * 2,
++                    args.n_local_kv_heads * args.head_dim,
++                    args.num_devices,
++                )
++            tw["wqkv_fused"] = tpc.shard_w(
++                fused,
++                mesh,
++                dim=-1,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG if _proj1d else args.attn_qkv_fused_weight_memcfg,
++                cache_path=cache_path,
++                dtype=ttnn.bfloat8_b,
++            )
+     else:
+         qkv_sharded = getattr(args, "attn_qg_weight_memcfg", None) is not None
+         qg_mc = args.attn_qg_weight_memcfg if qkv_sharded else ttnn.DRAM_MEMORY_CONFIG
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/tp.py b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/tp.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/tp.py
+@@ -89,44 +89,50 @@
+     qkv_w = first_key("in_proj_qkv.weight", "qkv_proj.weight")
+     if (P + "conv1d.weight") in sd:
+         conv1d_w = sd[P + "conv1d.weight"]
+     else:  # bf16 remap: reassemble fused conv1d from q/k/v streams
+         conv1d_w = torch.cat([sd[P + "q_conv.weight"], sd[P + "k_conv.weight"], sd[P + "v_conv.weight"]], dim=0)
+-    qkv_re = tpc.prepare_gdn_qkv(qkv_w, key_dim, value_dim, nk, dk, nv, dv, tp)
+     z_w = sd[P + "in_proj_z.weight"]
+     a_w, b_w = sd[P + "in_proj_a.weight"], sd[P + "in_proj_b.weight"]
+     tw = {}
+     # Column-parallel qkvz (DRAM-sharded decode matmul when enabled); distinct .dramshard cache
+     qkvz_sharded = getattr(args, "gdn_qkvz_weight_memcfg", None) is not None
+     # Fold a/b into qkvz → one matmul outputs [qkv|z|a|b] (default when DRAM-sharded)
+     fuse_ab = qkvz_sharded
+     if fuse_ab:
+-        fused = torch.cat(
+-            [
+-                torch.cat(
+-                    [
+-                        qkv_re[d * qkv_per : (d + 1) * qkv_per],
+-                        z_w[d * z_per : (d + 1) * z_per],
+-                        a_w[d * nv_per : (d + 1) * nv_per],
+-                        b_w[d * nv_per : (d + 1) * nv_per],
+-                    ],
+-                    dim=0,
+-                )
+-                for d in range(tp)
+-            ],
+-            dim=0,
+-        )
+         # proj_1d_decode: interleaved weight (fast small-grid 1D decode matmul; prefill AGMM verified
+         # bit-identical on interleaved). Distinct cache suffix.
+         _proj1d = getattr(args, "proj_1d_decode", False)
+-        tw["qkvz"] = tpc.shard_w(
+-            fused,
+-            mesh,
+-            dim=-1,
+-            memory_config=ttnn.DRAM_MEMORY_CONFIG if _proj1d else args.gdn_qkvzab_weight_memcfg,
+-            cache_path=c("qkvzab" + (".il" if _proj1d else ".dramshard") + proj_tag),
+-            dtype=proj_dtype,
+-        )
++        cache_path = c("qkvzab" + (".il" if _proj1d else ".dramshard") + proj_tag)
++        cached = tpc.load_cached_weight(mesh, cache_path, proj_dtype)
++        if cached is not None:
++            tw["qkvz"] = cached
++        else:
++            qkv_re = tpc.prepare_gdn_qkv(qkv_w, key_dim, value_dim, nk, dk, nv, dv, tp)
++            fused = torch.cat(
++                [
++                    torch.cat(
++                        [
++                            qkv_re[d * qkv_per : (d + 1) * qkv_per],
++                            z_w[d * z_per : (d + 1) * z_per],
++                            a_w[d * nv_per : (d + 1) * nv_per],
++                            b_w[d * nv_per : (d + 1) * nv_per],
++                        ],
++                        dim=0,
++                    )
++                    for d in range(tp)
++                ],
++                dim=0,
++            )
++            tw["qkvz"] = tpc.shard_w(
++                fused,
++                mesh,
++                dim=-1,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG if _proj1d else args.gdn_qkvzab_weight_memcfg,
++                cache_path=cache_path,
++                dtype=proj_dtype,
++            )
+     else:
++        qkv_re = tpc.prepare_gdn_qkv(qkv_w, key_dim, value_dim, nk, dk, nv, dv, tp)
+         fused = torch.cat(
+             [
+                 torch.cat([qkv_re[d * qkv_per : (d + 1) * qkv_per], z_w[d * z_per : (d + 1) * z_per]], dim=0)

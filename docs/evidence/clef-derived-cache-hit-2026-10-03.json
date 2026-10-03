@@ -1,0 +1,48 @@
+{
+  "schema": "bounded-clef-derived-weight-cache-hit-v1",
+  "date_utc": "2026-10-03",
+  "simulated": false,
+  "provenance": "Manual summary of four serial wrapper processes, parsed localhost HTTP responses, Python perf_counter measurements, installed source, and retained local logs. Single process per package/variant, not a latency distribution or independently signed benchmark.",
+  "packages": {
+    "baseline": "/nix/store/0mlgv36vjxxck6990qhl4jalws62wabs-qwen38-0.1.0",
+    "candidate": "/nix/store/i6ir6bk7xnpj12x12r5vws9yimbqcy30-qwen38-0.1.0",
+    "tt_metal": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "clef_checkpoint": "/nix/store/l1s63v023cw6c4f5piv3qhmbd926lqh1-cloudflare-clef-2f3de3dd85f3",
+    "flash_checkpoint": "/nix/store/54i0i8p13pi3jw7lw5g7744y3yvs5k5f-cloudflare-clef-flash-17f0b0ad64ef",
+    "build": "nix build .#qwen38 --no-link --print-out-paths -L --option substituters '' passed, including its device-free installCheck. The unavailable remote builder warning fell back to a successful local build."
+  },
+  "source": {
+    "cache_loader": "pkgs/qwen36/cache-hit-fused-projections.patch: TTNN 0.77 dtype/layout-qualified tensorbin loads through the same load_tensor_flatbuffer(device=mesh) as as_tensor; missing or RuntimeError caches retain original as_tensor creation/repair.",
+    "tp_derived_weights": "Cache hits skip GDN qkv deinterleave/fusion and attention QKV preparation before constructing the existing cached mesh weights. Existing prior physical profiler measured 2.408516s GDN QKV prep and 3.067211s attention deinterleave prep inside an instrumented 27B startup; these are overlapping/profiled phase totals, not isolated savings.",
+    "shared_output_weight": "Both variants skip the checkpoint LM-head full CPU transpose when the matching cached device tensor exists; original sharding decision still uses checkpoint vocab dimension.",
+    "flash_projections": "Single-device MLP, GDN, and full-attention cached 2D projections bypass their CPU transposes. No GDN equation, solver, precision, hidden-state prefill, or post-ready KV initialization changed.",
+    "exact_077_contract": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source/ttnn/ttnn/operations/core.py:716-729 and :572-593; /nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source/ttnn/core/tensor/serialization.cpp:159-163"
+  },
+  "method": {
+    "hardware": "Two physical Blackhole P150a, firmware 19.11.0, KMD 2.10.0. Clef opened exact 1x2 physical IDs 0,1; Flash opened exact 1x1 physical ID 0. One service at a time; each exited with UMD close, no device holder and qwen38-p150x2.service inactive after run.",
+    "clock": "time.perf_counter from subprocess launch of each production clef-serve/clef-flash-serve wrapper until emitted stage:ready; urllib.request timings through parsed response objects. Baseline then candidate serially for each variant.",
+    "cache": "Identical existing revision-named TT tensor caches on /datapool for baseline/candidate. Both set TT_METAL_CACHE to a fresh private mode-0700 directory on /datapool, away from the HOME filesystem. Wrappers unset TT_MESH_GRAPH_DESC_PATH and TT_METAL_SIMULATOR. Missing kernels compiled after stage:ready, not during startup.",
+    "requests_per_process": 13,
+    "requests": "First/warm 134-token sky choice, first/warm 1637-token (>1024) 42-versus-17 choice, first/warm real 32x32 red PNG choice, first/warm four-red-frame video noul, changed green/restored blue choice, and blue/green/restored joint noul plus ordinal score. All request/response objects were parsed and compared; output_tokens always zero."
+  },
+  "physical_results": {
+    "clef_27b_p150x2": {
+      "process_start_to_ready_seconds": {"baseline": 74.039059, "candidate": 35.943478, "difference": 38.095581, "reduction_percent_rounded": 51},
+      "parsed_response_objects_identical_all_13": true,
+      "first_use_http_seconds_baseline_candidate": {"short": [74.055498, 69.227527], "long": [27.825088, 28.288378], "image": [21.939034, 22.358278], "video": [5.902598, 5.874497]},
+      "warm_http_seconds_baseline_candidate": {"short": [1.690872, 1.530257], "long": [3.368142, 3.479299], "image": [2.264563, 2.24931], "video": [1.984428, 2.035408]},
+      "matching_outputs": {"short": {"choice": "blue", "probabilities": {"blue": 0.9965, "green": 0.0035}}, "long": {"choice": "42", "probabilities": {"42": 0.999, "17": 0.001}}, "image": {"choice": "red", "probabilities": {"red": 0.9974, "blue": 0.0026}}, "video_noul": 0.9889, "changed_choice": "green", "joint_blue_noul_score": [0.9939, 0.9898], "joint_green_noul_score": [0.0086, 0.0583], "restored_joint_identical": true}
+    },
+    "clef_flash_9b_p150": {
+      "process_start_to_ready_seconds": {"baseline": 69.102316, "candidate": 36.960473, "difference": 32.141843, "reduction_percent_rounded": 47},
+      "parsed_response_objects_identical_all_13": true,
+      "first_use_http_seconds_baseline_candidate": {"short": [43.029816, 40.875555], "long": [34.739451, 34.231926], "image": [12.30354, 11.936471], "video": [2.263406, 2.283195]},
+      "warm_http_seconds_baseline_candidate": {"short": [0.291785, 0.312592], "long": [1.145561, 1.154833], "image": [0.373845, 0.383119], "video": [0.385747, 0.395924]},
+      "matching_outputs": {"short": {"choice": "blue", "probabilities": {"blue": 0.9763, "green": 0.0237}}, "long": {"choice": "42", "probabilities": {"42": 0.9984, "17": 0.0016}}, "image": {"choice": "red", "probabilities": {"red": 0.9903, "blue": 0.0097}}, "video_noul": 0.9656, "changed_choice": "green", "joint_blue_noul_score": [0.977, 0.9708], "joint_green_noul_score": [0.0242, 0.0647], "restored_joint_identical": true}
+    }
+  },
+  "cold_path_smoke": "A real 32x32 TTNN BF16 host tensor under an owned /datapool cache passed missing-file creation, direct cache-hit equality, corrupt-flatbuffer RuntimeError fallback, and as_tensor repair equality. TTNN initialized and closed the underlying UMD driver during this host serialization test; no mesh was explicitly opened. This is not a full-model cold rebuild or corrupt-checkpoint test.",
+  "documentation_mismatch": "The older package-matched 0.74 tensor_serialization.md report describes shape-mismatch regeneration. The exact pinned 0.77 as_tensor source at core.py:719-729 checks file presence/readability, not requested tensor shape. This optimization follows the exact 0.77 behavior; revision-, dtype/layout-, and mesh-qualified cache names supply provenance. Arbitrary wrong-shape-but-parseable cache files were not tested.",
+  "limits": ["One unprofiled baseline/candidate process-start pair per variant, always in that order; OS page-cache and host conditions may contribute to the observed difference. No statistically powered startup distribution, cold full-model tensor-cache build, or corpus-wide numerical equivalence is claimed.", "First-use kernel compilations occurred after readiness in both packages and are not evidence of first-HTTP acceleration. Warm HTTP samples are one observation per shape; no request-latency speedup is claimed.", "The TTsim recurrent-state numerical gate remains blocked by ALU_ACC_CTRL_Zero_Flag_disabled_src=1; no simulated GDN numerical pass is claimed. Nondefault BF4 flags, corrupted full-model caches, and physical Qwen3.8 autoregressive generation were not re-probed."],
+  "retained_local_logs": ["/datapool/aspen-builds/tmp/clef-fused-baseline-clef.log", "/datapool/aspen-builds/tmp/clef-fused-candidate-clef.log", "/datapool/aspen-builds/tmp/clef-fused-baseline-clef-flash.log", "/datapool/aspen-builds/tmp/clef-fused-candidate-clef-flash.log"]
+}

@@ -86,6 +86,9 @@ let
     ./clef-hidden-states.patch
     ./gdn-seq-horner-output-reuse.patch
     ./cache-hit-shard-load.patch
+    ./cache-hit-fused-projections.patch
+    ./cache-hit-output-weight.patch
+    ./cache-hit-single-projections.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:

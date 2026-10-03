@@ -176,8 +176,8 @@ existing dtype/layout-matched cache file, before copying the CPU weight.
 TTNN 0.77's own `as_tensor` cache-hit path loads that same flatbuffer onto
 the same mesh; a missing or unreadable cache retains the original
 checkpoint-backed `as_tensor` creation/repair path. This follows upstream's
-lazy-weight pattern. The Flash single-device loader is unchanged. No kernels
-are prewarmed or KV caches allocated before readiness.
+lazy-weight pattern. At that point the Flash single-device loader was unchanged.
+No kernels were prewarmed or KV caches allocated before readiness.
 
 Two independent **one-process-per-arm** unprofiled Clef 27B startup pairs,
 both using the same package Python/TTNN environment, warmed checkpoint/tensor
@@ -218,3 +218,39 @@ loads, not request-side KV/kernel work to move ahead of readiness. See the
 [bounded startup receipt](evidence/clef-startup-cache-hit-2026-10-03.json)
 for package identities, individual paired timings, response checks, profiler
 scope, preserved log paths, and resource limits.
+
+### Derived-weight cache hits
+
+For an existing dtype/layout- and revision-qualified TT tensor cache,
+`pkgs/qwen36/cache-hit-fused-projections.patch` now loads fused GDN and
+attention QKV tensors before constructing the full CPU fused weights.
+`cache-hit-output-weight.patch` skips the full LM-head transpose in both
+variants, and `cache-hit-single-projections.patch` skips the cached Flash
+MLP, GDN, and attention projection transposes. Missing or unreadable caches
+still take the original checkpoint-backed creation/repair path. The requested
+mesh, tensor names and types, and device execution are unchanged.
+
+In another serial, **one-process-per-arm** physical comparison of the prior
+shard-cache baseline against this full change, process launch to `stage:ready`
+was **74.039 → 35.943 seconds** for Clef 27B P150x2 (51% lower), and
+**69.102 → 36.960 seconds** for Clef-Flash 9B P150 (47% lower). Each
+baseline/candidate pair shared its revision-qualified TT tensor cache and
+used the same private `/datapool` kernel-cache location. All **13 parsed HTTP
+response objects per process** matched exactly between packages, including
+probabilities and usage: short and 1,637-token long text, real PNG image,
+four-frame video, changed/restored state, and joint noul/score requests.
+The wrapper emitted readiness before any of these requests; their first-use
+kernel compilations remained after readiness. No first-request or warmed
+request latency improvement is claimed from these single samples.
+
+This is a warm TT-tensor-cache startup result, **not** a full-model cold
+rebuild, statistical startup distribution, or simulated GDN numerical gate.
+A separate small TTNN 32×32 cache smoke covered creation, a matching hit,
+and unreadable-flatbuffer repair; the corresponding host TTNN setup did
+initialize and close the UMD driver, but it did not explicitly open a mesh.
+The pinned TTNN 0.77 `as_tensor` cache-hit implementation checks file
+presence/readability, not the source shape claimed by the older 0.74
+serialization report. See the
+[bounded derived-weight receipt](evidence/clef-derived-cache-hit-2026-10-03.json)
+for exact packages, request timings, response examples, retained local logs,
+and limits.

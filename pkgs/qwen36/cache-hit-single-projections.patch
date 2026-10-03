@@ -1,0 +1,111 @@
+diff --git a/models/demos/blackhole/qwen36/tt/mlp.py b/models/demos/blackhole/qwen36/tt/mlp.py
+--- a/models/demos/blackhole/qwen36/tt/mlp.py
++++ b/models/demos/blackhole/qwen36/tt/mlp.py
+@@ -147,14 +147,20 @@
+             w_gate_up=wgu,
+         )
+ 
++    from models.demos.blackhole.qwen36.tt import tp_common as tpc
++
+     def load(name, dtype):
++        cache_path = (tensor_cache_path / f"mlp.{name}.weight") if tensor_cache_path else None
++        cached = tpc.load_cached_weight(mesh_device, cache_path, dtype)
++        if cached is not None:
++            return cached
+         t = state_dict[f"{name}.weight"].T.contiguous()  # [in, out] for ttnn.linear
+         return ttnn.as_tensor(
+             t,
+             dtype=dtype,
+             layout=ttnn.TILE_LAYOUT,
+             device=mesh_device,
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-            cache_file_name=(tensor_cache_path / f"mlp.{name}.weight") if tensor_cache_path else None,
++            cache_file_name=cache_path,
+         )
+ 
+diff --git a/models/demos/blackhole/qwen36/tt/gdn/weights.py b/models/demos/blackhole/qwen36/tt/gdn/weights.py
+--- a/models/demos/blackhole/qwen36/tt/gdn/weights.py
++++ b/models/demos/blackhole/qwen36/tt/gdn/weights.py
+@@ -16,4 +16,5 @@
+ import ttnn
++from models.demos.blackhole.qwen36.tt import tp_common as tpc
+ from models.demos.blackhole.qwen36.tt.gdn.config import GDNConfig
+ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import create_chunk_masks_seq
+ 
+@@ -88,14 +89,18 @@
+     norm_eps = config.norm_eps
+ 
+     def load_weight_2d(name):
+         """Load 2D weight, transpose to [in, out] for ttnn.linear."""
++        cache_path = (tensor_cache_path / f"linear_attn.{name}") if tensor_cache_path else None
++        cached = tpc.load_cached_weight(mesh_device, cache_path, ttnn.bfloat8_b)
++        if cached is not None:
++            return cached
+         t = state_dict[name].T.contiguous()
+         return ttnn.as_tensor(
+             t,
+             dtype=ttnn.bfloat8_b,
+             layout=ttnn.TILE_LAYOUT,
+             device=mesh_device,
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-            cache_file_name=(tensor_cache_path / f"linear_attn.{name}") if tensor_cache_path else None,
++            cache_file_name=cache_path,
+         )
+ 
+@@ -123,13 +128,16 @@
+             f"(key '{qkv_key}' missing; the split q/k/v_proj were removed in the weight refactor)."
+         )
+-    t = state_dict[qkv_key].T.contiguous()  # [4096, 8192]
+-    qkv_proj_weight = ttnn.as_tensor(
+-        t,
+-        dtype=ttnn.bfloat8_b,
+-        layout=ttnn.TILE_LAYOUT,
+-        device=mesh_device,
+-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-        cache_file_name=(tensor_cache_path / "linear_attn.qkv_proj.weight") if tensor_cache_path else None,
+-    )
++    qkv_cache = (tensor_cache_path / "linear_attn.qkv_proj.weight") if tensor_cache_path else None
++    qkv_proj_weight = tpc.load_cached_weight(mesh_device, qkv_cache, ttnn.bfloat8_b)
++    if qkv_proj_weight is None:
++        t = state_dict[qkv_key].T.contiguous()  # [4096, 8192]
++        qkv_proj_weight = ttnn.as_tensor(
++            t,
++            dtype=ttnn.bfloat8_b,
++            layout=ttnn.TILE_LAYOUT,
++            device=mesh_device,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            cache_file_name=qkv_cache,
++        )
+     # The split q/k/v_proj are dead (the op runs the fused QKV from the combined weight; it
+     # reads the splits only in a fallback reached when qkv_proj_weight is None). Not created,
+diff --git a/models/demos/blackhole/qwen36/tt/attention/weights.py b/models/demos/blackhole/qwen36/tt/attention/weights.py
+--- a/models/demos/blackhole/qwen36/tt/attention/weights.py
++++ b/models/demos/blackhole/qwen36/tt/attention/weights.py
+@@ -2,6 +2,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ from dataclasses import dataclass
+ 
+ import ttnn
++from models.demos.blackhole.qwen36.tt import tp_common as tpc
+ 
+ 
+@@ -17,14 +18,18 @@
+ 
+ def load_attention_weights(mesh_device, state_dict, tensor_cache_path=None) -> AttentionWeights:
+     def load_2d(name):
++        cache_path = (tensor_cache_path / f"self_attn.{name}.weight") if tensor_cache_path else None
++        cached = tpc.load_cached_weight(mesh_device, cache_path, ttnn.bfloat8_b)
++        if cached is not None:
++            return cached
+         t = state_dict[f"{name}.weight"].T.contiguous()
+         return ttnn.as_tensor(
+             t,
+             dtype=ttnn.bfloat8_b,
+             layout=ttnn.TILE_LAYOUT,
+             device=mesh_device,
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-            cache_file_name=(tensor_cache_path / f"self_attn.{name}.weight") if tensor_cache_path else None,
++            cache_file_name=cache_path,
+         )
+ 
+     def load_norm(name):
