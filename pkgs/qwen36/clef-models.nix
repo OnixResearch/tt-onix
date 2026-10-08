@@ -1,4 +1,5 @@
 # Cloudflare Clef released artifacts; URLs and content hashes are pinned at the two revisions.
+# The qwen36 package turns these hashes into the Clef service's startup manifest.
 { lib, fetchurl, runCommand }:
 let
   mkModel = { variant, revision, files }:
@@ -10,7 +11,10 @@ let
         inherit hash;
       }) files;
     in
-    runCommand "cloudflare-${variant}-${builtins.substring 0 12 revision}" { } (''
+    runCommand "cloudflare-${variant}-${builtins.substring 0 12 revision}" {
+      # Read by the qwen36 release manifest; passthru does not change the derivation.
+      passthru = { inherit variant revision files; };
+    } (''
       mkdir -p "$out"
     '' + lib.concatStringsSep "\n" (lib.mapAttrsToList (filename: source:
       "ln -s ${source} \"$out/${filename}\""

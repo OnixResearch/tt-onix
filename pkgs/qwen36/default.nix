@@ -26,6 +26,16 @@ let
     url = "https://huggingface.co/Cloudflare/clef/resolve/2f3de3dd85f379784083b0814d997ab627200f0c/LICENSE";
     hash = "sha256-u+3D/aMwWCC5dyZfAbhhnYdXCmc53jpVgsNGSEDx5Xo=";
   };
+  # Per-file pins of both Clef releases, from clef-models.nix. The service checks
+  # every checkpoint file against this manifest before it opens a device.
+  clefModels = callPackage ./clef-models.nix { };
+  clefReleaseManifest = builtins.toFile "clef-release.json" (
+    builtins.toJSON (
+      lib.mapAttrs (_: model: { inherit (model) revision files; }) {
+        inherit (clefModels) clef clef-flash;
+      }
+    )
+  );
   # r[impl tenstorrent.qwen36.upstream_authority]
   # Canonical adopted authority (committed, mirroring model-targets/qwen3-6).
   canonicalAuthority = builtins.fromJSON (builtins.readFile ./generated/authority.json);
@@ -231,6 +241,7 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"
+    cp ${clefReleaseManifest} "$out/share/qwen36/clef-release.json"
     cp ${./mtp-kv-tail-device-check.py} "$out/share/qwen36/mtp-kv-tail-device-check.py"
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
@@ -534,7 +545,9 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "qwen36_service.clef" \
       --add-flags "--variant" \
-      --add-flags "clef"
+      --add-flags "clef" \
+      --add-flags "--release-manifest" \
+      --add-flags "$out/share/qwen36/clef-release.json"
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/clef-flash-serve" \
       --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
       --set TT_METAL_HOME "$overlayRoot" \
@@ -546,7 +559,9 @@ stdenvNoCC.mkDerivation {
       --add-flags "-m" \
       --add-flags "qwen36_service.clef" \
       --add-flags "--variant" \
-      --add-flags "clef-flash"
+      --add-flags "clef-flash" \
+      --add-flags "--release-manifest" \
+      --add-flags "$out/share/qwen36/clef-release.json"
 
     # r[impl tenstorrent.qwen38_p150x2.traced_decode]
     # Production serves the traced candidate. Matched physical measurement on
@@ -1145,6 +1160,7 @@ stdenvNoCC.mkDerivation {
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/clef_release_model.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/clef.py"
     test -f "$out/share/licenses/clef/LICENSE"
+    test -f "$out/share/qwen36/clef-release.json"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
     test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
@@ -1750,6 +1766,11 @@ PROFILE_CHECK
         TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
         ${pythonEnvironment}/bin/python "$probe"
     done
+
+    # Positive and negative: Clef identity routes and checkpoint verification;
+    # the installed manifest agrees with the pinned head and release code.
+    PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
+      ${pythonEnvironment}/bin/python ${./clef-identity-check.py} "$out/share/qwen36/clef-release.json"
 
     PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
       ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"

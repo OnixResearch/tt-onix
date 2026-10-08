@@ -63,7 +63,7 @@ expose it directly to untrusted clients. It serializes requests because GDN,
 KV, and vision state are mutable. `--max-length` defaults to 2,048 input tokens
 and accepts 1–16,384; the upper bound is not a validated hardware capacity.
 `HF_HUB_OFFLINE=1` is set by both wrappers. Startup rejects wrong variants,
-revisions, head hashes, architecture, device IDs, and unwritable or incorrectly
+revisions, checkpoint file hashes, architecture, device IDs, and unwritable or incorrectly
 named cache directories. Stop with SIGINT/SIGTERM to close the TT mesh.
 
 ## Request contract
@@ -92,6 +92,62 @@ in one record; that request returns HTTP 400 instead of silently dropping
 media. Question or input encoding errors return HTTP 400; inference failures
 return HTTP 500. A wrong model name returns HTTP 400, not a cross-checkpoint
 answer. These wrappers serve the pinned releases, not arbitrary HF checkpoints.
+
+## Served identity
+
+Startup checks the whole checkpoint before it opens a TT device. The package
+generates `share/qwen36/clef-release.json` from the per-file hashes in
+`clef-models.nix`, and both wrappers pass it as `--release-manifest`. The service
+hashes every pinned file of the variant with SHA-256: the backbone shards, the
+index, the configurations, tokenizer and processor files, the chat template, the
+license, the joint head and `joint_schema_model.py`. It refuses to start if a
+pinned file is missing or different, or if the directory holds any entry other
+than these and the Nix `revision` marker or Hugging Face `README.md`,
+`.gitattributes` and `.cache` metadata. The imported `clef_release_model.py`
+must equal the pinned `joint_schema_model.py`. This reads the whole checkpoint
+once per start, about 55.0 GB for Clef and 19.1 GB for Flash; requests hash
+nothing.
+
+The response `model` only echoes the request. `GET /v1/identity` returns the
+identity object built after these checks:
+
+| Field | Value |
+|---|---|
+| `schema` | `clef-tt-identity/1` |
+| `model` | public ID, `Cloudflare/Clef` or `Cloudflare/Clef-Flash` |
+| `accepted_models` | every request `model` value the service admits |
+| `variant` | `clef` or `clef-flash` |
+| `hf_repo`, `hf_revision` | the pinned Hugging Face repository and revision |
+| `checkpoint_files` | file name to SHA-256 for every verified checkpoint file |
+| `checkpoint_sha256` | SHA-256 of `checkpoint_files` as sorted-key, compact UTF-8 JSON |
+| `release_code_sha256` | SHA-256 of the imported released encoder and head module |
+| `tt_tensor_cache` | `empty-at-startup` or `preexisting-unattested` |
+| `max_length`, `max_body_bytes` | input-token bound and request-body limit |
+| `endpoint` | `POST /v1/systemone` |
+
+`GET /v1/models` returns an OpenAI-style list with the public ID and the same
+object under `identity`, so an exact-model router can register the service.
+Other GET paths return HTTP 404. Every GET and POST response the handler
+writes, including errors, carries `X-Clef-Identity-Sha256` (SHA-256 of the
+identity as sorted-key, compact UTF-8 JSON), `X-Clef-Revision`,
+`X-Clef-Checkpoint-Sha256` and `X-Clef-Tensor-Cache`. The startup readiness
+line includes the same `identity_sha256`.
+
+The claim has these limits:
+
+- On a TT tensor cache hit the backbone runs on tensors converted by an earlier
+  process. Their bytes are not verified, and `tt_tensor_cache` is then
+  `preexisting-unattested`. Only a start with an empty revision cache converts
+  the served tensors from the verified files.
+- A checkpoint file changed after the startup check is not detected.
+- Compiled TT-Metal kernels in `TT_METAL_CACHE` are not covered.
+- The server process reports its own identity. This is not remote attestation
+  of the host.
+
+`clef-identity-check.py` exercises the manifest, checkpoint verification,
+identity and HTTP surface on loopback with a fake engine and temporary files,
+and checks the installed manifest against the pinned head and release code. It
+is device-free: none of this has run on a physical P150 service.
 
 ## Bounded evidence and limits
 
