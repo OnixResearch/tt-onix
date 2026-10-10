@@ -16,6 +16,7 @@ let
   cfg = config.hardware.tenstorrent;
   training = cfg.training;
   qwen38 = cfg.qwen38;
+  clef = cfg.clef;
 
   defaultDriverPackage = config.boot.kernelPackages.callPackage ../pkgs/tt-kmd { };
   admittedTrainingDriverVersion = "2.10.0";
@@ -38,6 +39,13 @@ let
   qwenStopTimeoutSeconds = 120;
   qwenStateDirectory = "qwen38-p150x2";
   qwenStateDirectoryMode = "0750";
+  clefRevision = "2f3de3dd85f379784083b0814d997ab627200f0c";
+  clefServiceName = "clef-p150x2";
+  clefUnit = "${clefServiceName}.service";
+  qwenUnit = "qwen38-p150x2.service";
+  clefStatePath = "/var/lib/${clefServiceName}";
+  clefDefaultCacheParent = "/dev/shm/${clefServiceName}";
+  clefDefaultCachePath = "${clefDefaultCacheParent}/${clefRevision}";
 
   deviceMode =
     if cfg.accessPolicy == "group-restricted" then defaultDeviceMode else permissiveDeviceMode;
@@ -271,6 +279,53 @@ in
       };
     };
 
+    clef = {
+      enable = mkEnableOption "the pinned full Cloudflare/Clef 27B P150x2 service";
+
+      package = mkOption {
+        type = types.package;
+        default = pkgs.qwen38;
+        defaultText = lib.literalExpression "pkgs.qwen38";
+        description = "Package providing bin/clef-serve and its pinned release manifest.";
+      };
+
+      variant = mkOption {
+        type = types.enum [ "clef" ];
+        default = "clef";
+        description = "Only the full 27B, two-device release is admitted by this unit.";
+      };
+
+      modelPath = mkOption {
+        type = types.str;
+        default = "";
+        description = "Absolute path to the verified full Clef checkpoint with its revision marker.";
+      };
+
+      cachePath = mkOption {
+        type = types.str;
+        default = clefDefaultCachePath;
+        description = "Initially empty, writable TT tensor cache directory, named by the exact full release revision. The default is volatile tmpfs; a custom path must already exist.";
+      };
+
+      listenAddress = mkOption {
+        type = types.str;
+        default = "127.0.0.1";
+        description = "The Clef service is loopback-only.";
+      };
+
+      port = mkOption {
+        type = types.port;
+        default = 8190;
+        description = "Pinned full Clef service port.";
+      };
+
+      conflictingUnits = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "Additional accelerator owners mutually excluded from Clef.";
+      };
+    };
+
     training = {
       enable = mkEnableOption "the admitted dual-P150A training host profile";
 
@@ -362,8 +417,8 @@ in
         description = "Qwen3.8-27B serialized OpenAI-compatible service on P150x2";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
-        wantedBy = [ "multi-user.target" ];
-        conflicts = qwen38.conflictingUnits;
+        wantedBy = lib.optional (!clef.enable) "multi-user.target";
+        conflicts = lib.unique (qwen38.conflictingUnits ++ lib.optional clef.enable clefUnit);
 
         environment = {
           HF_HUB_OFFLINE = "1";
@@ -435,6 +490,93 @@ in
           ];
           User = "root";
           WorkingDirectory = "/var/lib/${qwenStateDirectory}";
+        };
+      };
+    })
+
+    (mkIf clef.enable {
+      assertions = [
+        {
+          assertion = qwen38.enable;
+          message = "hardware.tenstorrent.clef requires qwen38 enabled as a manual rollback unit";
+        }
+        {
+          assertion = lib.hasPrefix "/" clef.modelPath && lib.hasSuffix clefRevision clef.modelPath;
+          message = "hardware.tenstorrent.clef.modelPath must be an absolute path ending in the full Clef revision";
+        }
+        {
+          assertion = lib.hasPrefix "/" clef.cachePath && lib.hasSuffix "/${clefRevision}" clef.cachePath && clef.cachePath != clef.modelPath;
+          message = "hardware.tenstorrent.clef.cachePath must be a distinct absolute revision-named directory";
+        }
+        {
+          assertion = clef.listenAddress == "127.0.0.1" && clef.port == 8190;
+          message = "hardware.tenstorrent.clef must listen on 127.0.0.1:8190";
+        }
+        {
+          assertion = qwen38.port != clef.port;
+          message = "Qwen and Clef service ports must differ";
+        }
+      ];
+
+      systemd.tmpfiles.rules = lib.optionals (clef.cachePath == clefDefaultCachePath) [
+        "d ${clefDefaultCacheParent} 0700 root root - -"
+        "d ${clefDefaultCachePath} 0700 root root - -"
+      ];
+
+      systemd.services.${clefServiceName} = {
+        description = "Pinned full Cloudflare/Clef SystemOne service on P150x2";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        wantedBy = [ "multi-user.target" ];
+        conflicts = lib.unique ([ qwenUnit ] ++ qwen38.conflictingUnits ++ clef.conflictingUnits);
+
+        environment = {
+          HF_HUB_OFFLINE = "1";
+          HOME = clefStatePath;
+          MPLCONFIGDIR = "${clefStatePath}/matplotlib";
+          PYTHONUNBUFFERED = "1";
+          TT_CACHE_PATH = clef.cachePath;
+          TT_METAL_CACHE = "${clefStatePath}/tt-metal-kernels";
+          XDG_CACHE_HOME = "${clefStatePath}/cache";
+        };
+
+        unitConfig.ConditionPathExists = [
+          clef.modelPath
+          "/dev/tenstorrent/0"
+          "/dev/tenstorrent/1"
+        ];
+
+        serviceConfig = {
+          ExecStartPre = [
+            (pkgs.writeShellScript "clef-p150x2-preflight" ''
+            set -eu
+            model=${lib.escapeShellArg clef.modelPath}
+            cache=${lib.escapeShellArg clef.cachePath}
+            test -d "$model" && test -f "$model/revision" || { echo "Clef checkpoint or revision marker missing" >&2; exit 1; }
+            test "$(${pkgs.coreutils}/bin/cat "$model/revision")" = ${lib.escapeShellArg clefRevision} || { echo "wrong Clef checkpoint revision" >&2; exit 1; }
+            test -d "$cache" && test ! -L "$cache" && test -w "$cache" || { echo "Clef tensor cache must be an existing writable directory, not a symlink" >&2; exit 1; }
+            test "$(${pkgs.coreutils}/bin/basename "$(${pkgs.coreutils}/bin/realpath "$cache")")" = ${lib.escapeShellArg clefRevision} || { echo "wrong Clef tensor cache revision" >&2; exit 1; }
+            test -z "$(${pkgs.findutils}/bin/find "$cache" -mindepth 1 -maxdepth 1 -print -quit)" || { echo "Clef tensor cache must be empty at startup; inspect stopped owner before clearing exact cache" >&2; exit 1; }
+            '')
+            "${pkgs.coreutils}/bin/install -d -m 0700 ${lib.escapeShellArg "${clefStatePath}/tt-metal-kernels"}"
+          ];
+          ExecStart = lib.escapeShellArgs [
+            "${clef.package}/bin/clef-serve"
+            "--variant" "clef"
+            "--host" clef.listenAddress
+            "--port" (toString clef.port)
+            "--model-path" clef.modelPath
+            "--cache-path" clef.cachePath
+          ];
+          Group = cfg.deviceGroup;
+          Restart = "no";
+          StateDirectory = clefServiceName;
+          StateDirectoryMode = "0700";
+          TimeoutStopSec = 120;
+          Type = "simple";
+          UnsetEnvironment = [ "TT_MESH_GRAPH_DESC_PATH" "TT_METAL_SIMULATOR" ];
+          User = "root";
+          WorkingDirectory = clefStatePath;
         };
       };
     })

@@ -275,6 +275,99 @@
             hardware.tenstorrent.qwen38.gdnDecodeStep = false;
           });
       qwenServiceUnit = qwenServiceValidEval.config.systemd.services.qwen38-p150x2;
+      clefRevision = "2f3de3dd85f379784083b0814d997ab627200f0c";
+      clefFixtureModel = "/tmp/clef-service-model/${clefRevision}";
+      clefFixtureCache = "/tmp/clef-service-cache/${clefRevision}";
+      clefServiceEval = extraConfig: qwenServiceEval (lib.recursiveUpdate {
+        hardware.tenstorrent.clef = {
+          enable = true;
+          modelPath = "/models/cloudflare-clef-${clefRevision}";
+        };
+      } extraConfig);
+      clefServiceValidEval = clefServiceEval { };
+      clefUnit = clefServiceValidEval.config.systemd.services.clef-p150x2;
+      manualQwenUnit = clefServiceValidEval.config.systemd.services.qwen38-p150x2;
+      renderedClefUnit = clefServiceValidEval.config.systemd.units."clef-p150x2.service".text;
+      clefInvalidModel = clefServiceEval {
+        hardware.tenstorrent.clef.modelPath = lib.mkForce "/models/wrong-revision";
+      };
+      clefInvalidCache = clefServiceEval {
+        hardware.tenstorrent.clef.cachePath = lib.mkForce "/dev/shm/clef-p150x2/wrong-revision";
+      };
+      clefOverlappingPaths = clefServiceEval {
+        hardware.tenstorrent.clef.modelPath = lib.mkForce "/models/${clefRevision}";
+        hardware.tenstorrent.clef.cachePath = lib.mkForce "/models/${clefRevision}";
+      };
+      clefPublicBind = clefServiceEval {
+        hardware.tenstorrent.clef.listenAddress = lib.mkForce "0.0.0.0";
+      };
+      clefMissingRollback = clefServiceEval {
+        hardware.tenstorrent.qwen38.enable = lib.mkForce false;
+      };
+      clefInvalidVariant = builtins.tryEval (
+        (clefServiceEval {
+          hardware.tenstorrent.clef.variant = lib.mkForce "clef-flash";
+        }).config.hardware.tenstorrent.clef.variant
+      );
+      clefFixtureEval = clefServiceEval {
+        hardware.tenstorrent.clef.modelPath = lib.mkForce clefFixtureModel;
+        hardware.tenstorrent.clef.cachePath = lib.mkForce clefFixtureCache;
+      };
+      clefPreflight = builtins.head clefFixtureEval.config.systemd.services.clef-p150x2.serviceConfig.ExecStartPre;
+      clefServiceCheck =
+        assert lib.assertMsg (qwenServiceUnit.wantedBy == [ "multi-user.target" ] && !(qwenServiceValidEval.config.systemd.services ? clef-p150x2))
+          "Qwen-only hosts must keep their existing boot owner without adding Clef";
+        assert lib.assertMsg (manualQwenUnit.wantedBy == [ ] && clefUnit.wantedBy == [ "multi-user.target" ])
+          "Clef admission must remove Qwen from the boot transaction without deleting its manual rollback unit";
+        assert lib.assertMsg (
+          lib.hasInfix "Type=simple" renderedClefUnit
+          && lib.hasInfix "Conflicts=qwen38-p150x2.service" renderedClefUnit
+          && lib.hasInfix "ExecStart=" renderedClefUnit
+          && lib.hasInfix "ConditionPathExists=/dev/tenstorrent/0" renderedClefUnit
+        ) "the rendered systemd unit must retain its exclusive, device-gated service contract";
+        assert lib.assertMsg (lib.elem "clef-p150x2.service" manualQwenUnit.conflicts && lib.elem "qwen38-p150x2.service" clefUnit.conflicts)
+          "both device owners must conflict symmetrically";
+        assert lib.assertMsg (
+          clefUnit.serviceConfig.Type == "simple" && clefUnit.serviceConfig.Restart == "no"
+          && clefUnit.serviceConfig.Group == "tenstorrent"
+          && clefUnit.serviceConfig.StateDirectory == "clef-p150x2"
+          && clefUnit.environment.HOME == "/var/lib/clef-p150x2"
+          && clefUnit.environment.TT_METAL_CACHE == "/var/lib/clef-p150x2/tt-metal-kernels"
+        ) "Clef must have a private lifecycle, device group and cache state without unsupported notify readiness";
+        assert lib.assertMsg (
+          lib.hasInfix "/bin/clef-serve" clefUnit.serviceConfig.ExecStart
+          && clefServiceValidEval.config.hardware.tenstorrent.clef.package.drvPath == qwen38.drvPath
+          && lib.hasInfix "--variant clef" clefUnit.serviceConfig.ExecStart
+          && lib.hasInfix "--host 127.0.0.1 --port 8190" clefUnit.serviceConfig.ExecStart
+          && lib.hasInfix "--model-path /models/cloudflare-clef-${clefRevision}" clefUnit.serviceConfig.ExecStart
+          && lib.hasInfix "--cache-path /dev/shm/clef-p150x2/${clefRevision}" clefUnit.serviceConfig.ExecStart
+          && lib.all (path: lib.elem path clefUnit.unitConfig.ConditionPathExists) [ "/dev/tenstorrent/0" "/dev/tenstorrent/1" ]
+        ) "Clef must select the full packaged release, exact private endpoint, checkpoint and two physical devices";
+        assert lib.assertMsg (hasFailedAssertion "modelPath must be an absolute path ending" clefInvalidModel)
+          "an incorrect full-model revision must be rejected";
+        assert lib.assertMsg (hasFailedAssertion "cachePath must be a distinct absolute revision-named" clefInvalidCache)
+          "an incorrect tensor-cache revision must be rejected";
+        assert lib.assertMsg (hasFailedAssertion "cachePath must be a distinct absolute revision-named" clefOverlappingPaths)
+          "model and writable tensor cache must not overlap";
+        assert lib.assertMsg (hasFailedAssertion "must listen on 127.0.0.1:8190" clefPublicBind)
+          "the service must reject publicly bound endpoints";
+        assert lib.assertMsg (hasFailedAssertion "requires qwen38 enabled" clefMissingRollback)
+          "Clef admission must preserve an explicit Qwen rollback unit";
+        assert lib.assertMsg (!clefInvalidVariant.success)
+          "the full Clef unit must reject the single-device Flash variant";
+        pkgs.runCommand "clef-nixos-service" { } ''
+          set -eu
+          test -x ${clefPreflight}
+          mkdir -p ${lib.escapeShellArg clefFixtureModel} ${lib.escapeShellArg clefFixtureCache}
+          printf '%s\n' ${lib.escapeShellArg clefRevision} > ${lib.escapeShellArg "${clefFixtureModel}/revision"}
+          ${clefPreflight}
+          touch ${lib.escapeShellArg "${clefFixtureCache}/partial-tensor"}
+          if ${clefPreflight}; then echo "nonempty cache admitted" >&2; exit 1; fi
+          rm ${lib.escapeShellArg "${clefFixtureCache}/partial-tensor"}
+          printf '%s\n' wrong-revision > ${lib.escapeShellArg "${clefFixtureModel}/revision"}
+          if ${clefPreflight}; then echo "wrong model revision admitted" >&2; exit 1; fi
+          touch "$out"
+        '';
       qwenServiceCheck =
         assert lib.assertMsg qwenServiceInvalidModelPathRejected
           "the Qwen service must reject an empty model path";
@@ -1198,6 +1291,7 @@
         repository-quality-cairn = repositoryQuality.cairnQuality;
         inherit qwen38;
         qwen38-authority-negative = qwen36AuthorityNegativeCheck;
+        clef-nixos-service = clefServiceCheck;
         qwen38-nixos-service = qwenServiceCheck;
         qwen36 = qwen38; # Compatibility aliases for existing check callers.
         qwen36-authority-negative = qwen36AuthorityNegativeCheck;

@@ -42,6 +42,57 @@ nix run .#clef-flash-serve -- --model-path "$flash" \
   --port 8189
 ```
 
+## Opt-in NixOS full-27B service (source only)
+
+The default module also provides `hardware.tenstorrent.clef` for the full
+`Cloudflare/Clef` release, **not** the single-card Flash model. Enabling it
+requires an explicitly configured, already pinned Qwen rollback unit. It keeps
+that unit installed but removes Qwen's `multi-user.target` boot pull, makes
+both units conflict, and boots `clef-p150x2.service` instead. Qwen-only
+hosts are unchanged. An external mesh sidecar that still `Wants=Qwen` can
+re-pull Qwen despite this unit's boot setting: change its backend and route to
+Clef in the **same reviewed host deployment**. This module alone is not a
+Britton-desktop rollout.
+
+```nix
+hardware.tenstorrent = {
+  enable = true;
+  # Keep the site's existing Qwen modelPath, package, and rollback settings.
+  qwen38.enable = true;
+  clef = {
+    enable = true;
+    modelPath = "/home/brittonr/models/cloudflare-clef-2f3de3dd85f379784083b0814d997ab627200f0c";
+    # Default: /dev/shm/clef-p150x2/2f3de3dd85f379784083b0814d997ab627200f0c
+    # cachePath may instead name an existing private revision directory.
+  };
+};
+```
+
+The module's default tmpfs cache parent and exact revision directory are
+created root-owned with mode 0700; custom cache paths must already exist. The
+preflight requires the checkpoint's revision marker to match
+`2f3de3dd85f379784083b0814d997ab627200f0c` and refuses a missing,
+symlinked, unwritable, misnamed, or nonempty TT tensor cache before starting the
+model. This ensures a restart does not silently claim the fresh-cache identity
+while reusing unattested tensors. A failed conversion leaves partial tensors:
+inspect the stopped owner and clear **only that service-owned revision cache**
+under separate authorization before a manual retry. No automatic cleanup,
+restart loop, Qwen fallback, or unrelated cache sweep is performed. tmpfs is
+volatile: every boot needs a fresh conversion and adequate free memory/tmpfs
+capacity (the prior full-model cache reached about 24.2 GB). The distinct
+persistent kernel cache lives under the unit's private
+`/var/lib/clef-p150x2/tt-metal-kernels`; HOME and XDG cache are private too.
+
+Clef uses `Type=simple` because `clef-serve` has no systemd-notify
+contract. Systemd's active state is **not** readiness: check
+`GET http://127.0.0.1:8190/v1/identity` and `/v1/models` for the
+pinned full variant and revision before sending `POST /v1/systemone` or
+advertising the model through the mesh. The port is loopback-only. For manual
+Qwen rollback, first prevent Clef being re-pulled by the host/mesh dependency
+and stop the Clef owner, then start the retained Qwen unit and restore the
+Qwen mesh route; merely stopping Clef while mesh still Wants it is unsafe.
+No NixOS service switch or TT execution follows from evaluating this module.
+
 If `$HOME` lacks space, first place `cache_root` above on a spacious writable
 filesystem. Separately, give TT-Metal 0.77's **compiled binary** cache its own
 private directory outside the revision-specific TT tensor caches passed as
