@@ -46,6 +46,53 @@ let
   clefStatePath = "/var/lib/${clefServiceName}";
   clefDefaultCacheParent = "/dev/shm/${clefServiceName}";
   clefDefaultCachePath = "${clefDefaultCacheParent}/${clefRevision}";
+  # The default lives below a world-writable tmpfs. Never follow a pre-planted
+  # symlink or repair somebody else's directory on first switch or restart.
+  clefDefaultCacheSetup = pkgs.writeTextFile {
+    name = "clef-p150x2-default-cache-setup";
+    executable = true;
+    text = ''
+      #!${pkgs.python3}/bin/python3
+      import os
+      import stat
+      import sys
+
+      base, parent, revision, uid, gid = sys.argv[1:]
+      uid, gid = int(uid), int(gid)
+      if base == "/dev/shm" and (uid, gid) != (0, 0):
+          raise SystemExit("production Clef cache must be root-owned")
+      os.umask(0o077)
+      flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+      def secure_child(directory_fd, name):
+          if name in ("", ".", "..") or "/" in name:
+              raise SystemExit("invalid Clef cache directory name")
+          try:
+              os.mkdir(name, 0o700, dir_fd=directory_fd)
+          except FileExistsError:
+              pass
+          fd = os.open(name, flags, dir_fd=directory_fd)
+          st = os.fstat(fd)
+          if (st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)) != (uid, gid, 0o700):
+              os.close(fd)
+              raise SystemExit("Clef cache directory has unexpected owner or mode")
+          return fd
+
+      base_fd = os.open(base, flags)
+      try:
+          st = os.fstat(base_fd)
+          if base == "/dev/shm" and (st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)) != (0, 0, 0o1777):
+              raise SystemExit("/dev/shm has unexpected owner or mode")
+          parent_fd = secure_child(base_fd, parent)
+          try:
+              leaf_fd = secure_child(parent_fd, revision)
+              os.close(leaf_fd)
+          finally:
+              os.close(parent_fd)
+      finally:
+          os.close(base_fd)
+    '';
+  };
 
   deviceMode =
     if cfg.accessPolicy == "group-restricted" then defaultDeviceMode else permissiveDeviceMode;
@@ -547,7 +594,11 @@ in
         ];
 
         serviceConfig = {
-          ExecStartPre = [
+          ExecStartPre =
+            lib.optional (clef.cachePath == clefDefaultCachePath) (
+              lib.escapeShellArgs [ "${clefDefaultCacheSetup}" "/dev/shm" clefServiceName clefRevision "0" "0" ]
+            )
+            ++ [
             (pkgs.writeShellScript "clef-p150x2-preflight" ''
             set -eu
             model=${lib.escapeShellArg clef.modelPath}

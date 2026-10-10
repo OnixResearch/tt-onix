@@ -68,9 +68,15 @@ hardware.tenstorrent = {
 };
 ```
 
-The module's default tmpfs cache parent and exact revision directory are
-created root-owned with mode 0700; custom cache paths must already exist. The
-preflight requires the checkpoint's revision marker to match
+The default tmpfs cache parent and revision directory are declared in
+systemd-tmpfiles, but a first NixOS switch need not have applied the new rules
+before starting this unit. Its first ExecStartPre also creates **only** those
+two directories idempotently through directory-relative, no-symlink opens,
+requiring root ownership and mode 0700; wrong owners, modes, or planted
+symlinks fail closed. The device-free check exercises the generated setup
+with initially absent directories, a repeat start, insecure mode, and a
+symlinked leaf. Custom cache paths remain strictly pre-existing and are never
+created or repaired by this setup. The following preflight requires the checkpoint's revision marker to match
 `2f3de3dd85f379784083b0814d997ab627200f0c` and refuses a missing,
 symlinked, unwritable, misnamed, or nonempty TT tensor cache before starting the
 model. This ensures a restart does not silently claim the fresh-cache identity
