@@ -5,7 +5,7 @@
 - [x] [serial] A1 Fork `Knight-Ops/metalium-rs` to `brittonr/metalium-rs` and record the upstream base `b22a245`. r[tenstorrent.rust_ml.metalium_fork_authority]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A2 Add the Apache-2.0 license file and fix the stale F16 capability assertion. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A3 Run the full upstream validation tier on the fork and record the counts. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- [x] [serial] A4 Push the fork and pin commit `107cad8def543ab1653e3aef481fa57760eaac4a`. r[tenstorrent.rust_ml.metalium_fork_authority]
+- [x] [serial] A4 Push the fork and pin commit `012260616cc7afb5a2a764bbb092dd0c7e710df7`. r[tenstorrent.rust_ml.metalium_fork_authority]
 
 ## Phase 2: Toolchain and package
 
@@ -23,6 +23,7 @@
 - [x] [serial] M3a Implement the WKV7 host reference and composed Burn device path; verify output and two-token state carry on card 0. r[tenstorrent.rust_ml.metalium_migration.recurrence]
 - [x] [serial] M3b Implement one layer from the pinned equations with synthetic weights; compare Flex FP32 with TtBackend across two tokens on card 0. r[tenstorrent.rust_ml.metalium_migration.layer]
 - [x] [serial] M3c Load the real BF16 checkpoint for layer zero, including rank-128 g-LoRA and per-head `r_k`; compare Flex with TtBackend on card 0 after `tt-smi -r`. r[tenstorrent.rust_ml.metalium_migration.real_layer]
+- [x] [serial] M3d Load all 12 layers including rank-32 v-LoRA; compare the final normalized hidden and every recurrent matrix between Flex and TtBackend on card 0. r[tenstorrent.rust_ml.metalium_migration.model]
 - [ ] [serial] M3 Blocked: Fuse the WKV7 recurrence into a Tensix kernel and re-verify against the host reference. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M4 Blocked: Implement and verify Qwen3.6/3.8 linear attention, MoE routing, and state carry on `burn-tt`. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M5 Blocked: Admit each model only after its parity and physical gates pass. r[tenstorrent.rust_ml.metalium_migration.complete]
@@ -46,6 +47,7 @@
 - `Scenario: WKV7 recurrence and state carry pass` -> M3a, P6
 - `Scenario: Synthetic layer matches across backends` -> M3b
 - `Scenario: Real layer zero matches across backends` -> M3c
+- `Scenario: All 12 real layers match across backends` -> M3d
 - `Scenario: Model gates pass` -> M2, M3, M4, M5
 - `Scenario: Adoption evidence is recorded` -> D1, E1, V1
 - `Scenario: License scope is unresolved` -> L1

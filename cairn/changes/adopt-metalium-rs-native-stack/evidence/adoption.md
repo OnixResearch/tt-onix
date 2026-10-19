@@ -5,15 +5,15 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `107cad8def543ab1653e3aef481fa57760eaac4a`
+- Commit: `012260616cc7afb5a2a764bbb092dd0c7e710df7`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `8d7986989bd0919da7fc9b37c919c1f1823e3e26465d3b24acfe53b2674ce910`
+- Fork tree BLAKE3: `cc9e404d7482779a2e9cb57ddfcb3348d497743a9c297fb12962ae155c8343d5`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-72lA8MfDRa6wp/nBzysEla0myS35AFDgPg7ZUBIjD7Q=`
+- Nix source hash: `sha256-sTTObqGHpu8HAmUZBPYPlYXN9Lga+9bMARfeScMhI4U=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
-  (WKV reference/device gate, synthetic layer gate, and real-checkpoint layer-zero loader).
-  Ten files, +1,337/−2.
+  (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
+  all-12-layer gate). Eleven files, +1,602/−2.
 
 ## Validation
 
@@ -22,7 +22,7 @@ Date: 2026-10-19
 - 1,542 passed
 - 0 failed
 - 46 ignored
-- 263 test binaries
+- 264 test binaries
 
 The run used the pinned ISA specification, ttsim `v1.10.9`, and MNIST inputs. Simulator gates are
 simulated evidence. No physical device was opened.
@@ -36,14 +36,15 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/vq8f0pphs9m1wd80ahss9g7m0y3kvhzb-metalium-rs-0.1.0-unstable-2026-10-19`
-- Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB), and
-  `bin/rwkv7-layer-gate` (6.3 MiB).
-- Wrapper: `/nix/store/nqpabf2pnxx9b1czbmr2d1aj9g295dh3-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
-  bound to the pinned checkpoint.
+- Output: `/nix/store/lq05s6bwm9qk0jn0gyp3l9l2v6m4zhjy-metalium-rs-0.1.0-unstable-2026-10-19`
+- Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
+  `bin/rwkv7-layer-gate` (6.3 MiB), and `bin/rwkv7-model-gate` (6.3 MiB).
+- Wrappers: `/nix/store/29an1yjz5g4f09yjs28vl3annchhx6hk-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`
+  and `/nix/store/y2fyg4hg7dgz4i2g86m9lbjh8195ljfp-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
+  both bound to the pinned checkpoint.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,542 tests, 0 failures,
-  46 ignored, 263 binaries, in about 13 minutes.
+  46 ignored, 264 binaries, in about 13 minutes.
 - App: `.#metalium-rs-mnist`.
 
 ## Binary smoke
@@ -145,6 +146,26 @@ layer gate PASS
 This is real layer-zero weights, not the full model, not nonzero-layer v-LoRA, and not a fused
 kernel. The tolerance is absolute 1e-3 on hidden and state.
 
+## All 12 real-weight layers
+
+`crates/rwkv7/src/checkpoint.rs` now loads every layer, including the rank-32 v-LoRA on nonzero
+layers. The model gate carries the layer-zero value anchor through the stack, runs embedding rows 1
+and 2 through all 12 layers, applies `model.norm`, and compares the final hidden vector and all
+recurrent matrices.
+
+`cargo run -p rwkv7 --bin rwkv7-model-gate -- --checkpoint <path> --card 0`:
+
+```text
+flex: final hidden max 74.441063, recurrent max 54.999863; control gap 25.011158
+card 0: final hidden gap 1.678e-3 (max 7.444e1, relative 2.255e-5)
+card 0: recurrent state gap 4.005e-4 (max 5.500e1, relative 7.283e-6)
+model gate PASS
+```
+
+The bound is relative `1e-4` of each output's max magnitude. This is Flex FP32 vs TtBackend on
+real weights. It does not evaluate the 65536x768 logits, compare against the Python reference, or
+establish generation or performance parity.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -159,8 +180,9 @@ it as an operational gate, not as a source defect.
 - Device-free: fork build, package build, hermetic Nix test lane, `--help`.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
-  synthetic full-layer gate, and a real-checkpoint layer-zero gate on card 0. No full-model
-  inference, placement, long-run stability, or performance claim follows.
+  synthetic full-layer gate, the real-checkpoint layer-zero gate, and the all-12-layer final-hidden
+  and recurrent-state gate on card 0. No logits, reference parity, generation, placement, long-run
+  stability, or performance claim follows.
 
 ## Migration status
 

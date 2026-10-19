@@ -51,6 +51,12 @@
               exec ${metaliumRs}/bin/rwkv7-layer-gate --checkpoint ${metaliumRsCheckpoint} "$@"
             '';
           };
+          metaliumRsModelGate = pkgs.writeShellApplication {
+            name = "rwkv7-model-checkpoint";
+            text = ''
+              exec ${metaliumRs}/bin/rwkv7-model-gate --checkpoint ${metaliumRsCheckpoint} "$@"
+            '';
+          };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -93,6 +99,7 @@
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
             metalium-rs = metaliumRs;
             metalium-rs-rwkv7-checkpoint = metaliumRsCheckpointGate;
+            metalium-rs-rwkv7-model = metaliumRsModelGate;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
@@ -126,6 +133,12 @@
             type = "app";
             program = "${metaliumRsCheckpointGate}/bin/rwkv7-layer-checkpoint";
             meta.description = "Compare the real RWKV-7 layer zero on Flex and TtBackend";
+          };
+
+          apps.metalium-rs-rwkv7-model = {
+            type = "app";
+            program = "${metaliumRsModelGate}/bin/rwkv7-model-checkpoint";
+            meta.description = "Compare all 12 real RWKV-7 layers on Flex and TtBackend";
           };
 
           checks = {
