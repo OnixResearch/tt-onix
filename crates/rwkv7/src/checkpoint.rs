@@ -165,6 +165,11 @@ impl Checkpoint {
         })
     }
 
+    /// The output head, `[65536, 768]`.
+    pub fn lm_head(&self) -> Result<Vec<f32>, String> {
+        self.flat("lm_head.weight", 65_536 * HIDDEN)
+    }
+
     /// The final `model.norm` affine weights.
     pub fn final_norm(&self) -> Result<(Vec<f32>, Vec<f32>), String> {
         Ok((
