@@ -10,6 +10,7 @@ members = [
     "crates/tt-kernels",
     "crates/tt-firmware-images",
     "crates/burn-tt",
+    "crates/rwkv7",
     "crates/tt-mnist",
     "crates/tt-models",
     "crates/tt-tests",
