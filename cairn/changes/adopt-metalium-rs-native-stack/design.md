@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `d8c6e2fc4579cf29aa7525ddd086a90f81da2260` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, and a synthetic full-layer Flex/Tt differential gate.
+`brittonr/metalium-rs` at commit `107cad8def543ab1653e3aef481fa57760eaac4a` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, and a real-checkpoint layer-zero loader.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -55,6 +55,27 @@ remain next.
 **Rationale:** The synthetic gate isolates backend disagreement from checkpoint layout and weight
 conversion. It finds missing ops and shape bugs before a 382 MB checkpoint is involved.
 
+### Decision: Load the real checkpoint before nonzero layers
+
+**Choice:** Read the pinned BF16 safetensors checkpoint for layer zero, convert to F32, and compare
+`Flex` with `TtBackend`. The loader handles the checkpoint's rank-128 g-LoRA, per-head `r_k`, and
+the 3-D token-shift factors. Token inputs are embedding rows 1 and 2.
+
+Do not extend to nonzero layers until the v-LoRA path is implemented and checked.
+
+**Rationale:** Real weights expose layout and shape errors that synthetic weights cannot. Layer
+zero is the smallest real-weight slice with no cross-layer value anchor.
+
+### Decision: Reset cards between TT-Metal and native execution
+
+**Choice:** Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution.
+
+Without it, the first native process failed at `element-wise 0x2 ... queued list 2 failed`; a
+second process passed, and a reset made the first run deterministic.
+
+**Rationale:** The native stack must not depend on a failed first process to clear the card. The
+reset is an operational gate, not a source workaround.
+
 ### Decision: Migrate by parity gates, not by service replacement
 
 **Choice:** Route new Rust device, firmware, kernel, and Burn-backend work to `metalium-rs`.
@@ -83,7 +104,7 @@ stack can be evaluated and run without pretending the combined-work terms are re
 
 ## Validation Strategy
 
-Positive checks cover the fork pin, the license file, the F16 test fix, the WKV7 host reference, the full validation tier, a hermetic package build, the installed `tt-mnist`, `wkv7-gate`, and `rwkv7-layer-gate` binaries, the WKV7 two-token state-carry gate, and the synthetic full-layer Flex/Tt gate on card 0.
+Positive checks cover the fork pin, the license file, the F16 test fix, the WKV7 host reference, the full validation tier, a hermetic package build, the installed `tt-mnist`, `wkv7-gate`, and `rwkv7-layer-gate` binaries, the WKV7 two-token state-carry gate, the synthetic full-layer Flex/Tt gate, and the real-checkpoint layer-zero gate on card 0.
 
 Negative checks cover source drift, an unpinned toolchain, a missing firmware target, a missing license, and a package that claims a model runtime. The installed output excludes dev-only crates; the check phase runs their simulator-backed tier, and no check opens hardware.
 
@@ -92,7 +113,8 @@ Physical validation is separate. The first hardware gate is `tt-mnist --steps 1 
 ## Risks / Trade-offs
 
 - The fork can drift from upstream. The recorded delta and a revalidation requirement keep it reviewable.
-- The composed WKV7 and synthetic layer gates are correctness evidence only; they are neither fused-kernel cost nor real-weight/model results.
+- The composed WKV7, synthetic layer, and real layer-zero gates are correctness evidence only; they are neither fused-kernel cost nor full-model results.
+- Native execution after a TT-Metal service needs a board reset; omitting it makes the first process fail.
 - Rust 1.97.1 is pinned through `rust-overlay`; a future lock update can change the overlay revision even if the toolchain version stays fixed.
 - `tt-mnist` embeds about 11 MB of compressed data and adds build time. It is the only self-contained native binary today.
 - Excluding dev-only crates leaves the conformance and simulator gates outside the package check.

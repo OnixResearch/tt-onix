@@ -151,9 +151,9 @@ Do not treat a listed project as package-matched authority.
 Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
 The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
 The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
-`d8c6e2fc4579cf29aa7525ddd086a90f81da2260`, which adds the Apache-2.0 license file, fixes the
-stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, its composed device gate,
-and a synthetic full-layer Flex/Tt differential gate).
+`107cad8def543ab1653e3aef481fa57760eaac4a`, which adds the Apache-2.0 license file, fixes the
+stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, composed and synthetic
+layer gates, and a real-checkpoint layer-zero loader).
 The flake pins that fork and exposes the `metalium-rs` package.
 
 This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
@@ -175,8 +175,8 @@ and performance numbers as upstream claims until this repository reproduces them
 The fork passes the validation tier: 1,542 passed, 0 failed, 46 ignored across 263 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
 MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
 toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
-`tt-mnist`, `wkv7-gate`, and `rwkv7-layer-gate`, and excludes only dev-only crates from the installed
-output. Package and migration
+`tt-mnist`, `wkv7-gate`, and `rwkv7-layer-gate`, plus the `rwkv7-layer-checkpoint` wrapper over
+the pinned checkpoint, and excludes only dev-only crates from the installed output. Package and migration
 records live under `cairn/changes/evaluate-metalium-rs-native-stack/` and
 `cairn/changes/adopt-metalium-rs-native-stack/`.
 
@@ -189,10 +189,15 @@ The parity inventory is `docs/research/metalium-rs-parity-inventory.md`.
 
 Physical gates passed on 2026-10-19: one `tt-mnist` training step on card 0, one on the `1x2`
 mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8, state gaps
-2.98e-8), and a synthetic one-layer Flex/Tt gate on card 0 (hidden gaps <= 5.96e-7, state gaps
-<= 1.79e-7). `qwen38-p150x2.service` was stopped for the runs. The timings are smoke measurements,
-not benchmarks. The layer gate uses synthetic weights, layer zero only, and `accurate_matmul`; it
-is not a real-weight layer, the fused Tensix kernel, or a model.
+2.98e-8), a synthetic one-layer Flex/Tt gate on card 0 (hidden gaps <= 5.96e-7, state gaps
+<= 1.79e-7), and a real-checkpoint layer-zero gate (hidden gaps <= 1.63e-5, state gaps <= 1.99e-5).
+`qwen38-p150x2.service` was stopped for the runs. The timings are smoke measurements, not
+benchmarks. The layer gates use layer zero and `accurate_matmul`; they are not the full model, the
+nonzero-layer v-LoRA path, the fused Tensix kernel, or a performance result.
+
+Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution. Without the
+reset, the first native process failed at `element-wise 0x2 ... queued list 2 failed`; the second
+passed, and a reset made the first run deterministic.
 
 ## RWKV-7 references
 

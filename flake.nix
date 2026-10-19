@@ -40,6 +40,17 @@
           metaliumRs = pkgs.callPackage ./pkgs/metalium-rs {
             rustToolchain = metaliumRsToolchain;
           };
+          metaliumRsCheckpoint = pkgs.fetchurl {
+            name = "rwkv7-goose-world2.8-0.1b-d81965cb4e1a9f96696b4f70b84212b8f2e43216.safetensors";
+            url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/model.safetensors";
+            hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
+          };
+          metaliumRsCheckpointGate = pkgs.writeShellApplication {
+            name = "rwkv7-layer-checkpoint";
+            text = ''
+              exec ${metaliumRs}/bin/rwkv7-layer-gate --checkpoint ${metaliumRsCheckpoint} "$@"
+            '';
+          };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -81,6 +92,7 @@
               ;
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
             metalium-rs = metaliumRs;
+            metalium-rs-rwkv7-checkpoint = metaliumRsCheckpointGate;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
@@ -108,6 +120,12 @@
             type = "app";
             program = "${metaliumRs}/bin/rwkv7-layer-gate";
             meta.description = "Compare one RWKV-7 layer on Flex and TtBackend";
+          };
+
+          apps.metalium-rs-rwkv7-checkpoint = {
+            type = "app";
+            program = "${metaliumRsCheckpointGate}/bin/rwkv7-layer-checkpoint";
+            meta.description = "Compare the real RWKV-7 layer zero on Flex and TtBackend";
           };
 
           checks = {

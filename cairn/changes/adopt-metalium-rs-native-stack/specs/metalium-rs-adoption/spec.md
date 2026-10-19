@@ -7,7 +7,7 @@ r[tenstorrent.rust_ml.metalium_fork_authority] The repository MUST pin one fork 
 
 #### Scenario: Fork revision is admitted
 r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- GIVEN fork commit `d8c6e2fc4579cf29aa7525ddd086a90f81da2260` based on upstream `b22a245`
+- GIVEN fork commit `107cad8def543ab1653e3aef481fa57760eaac4a` based on upstream `b22a245`
 - AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gates
 - WHEN source admission runs
 - THEN it produces one deterministic fork authority
@@ -60,6 +60,13 @@ r[tenstorrent.rust_ml.metalium_migration.layer]
 - WHEN the layer runs on Flex FP32 and on TtBackend on card 0
 - THEN hidden outputs and recurrent states stay within the recorded tolerance
 - AND the result does not authorize a real-weight, fused-kernel, or model claim
+
+#### Scenario: Real layer zero matches across backends
+r[tenstorrent.rust_ml.metalium_migration.real_layer]
+- GIVEN the pinned BF16 checkpoint, layer-zero weights, and embedding rows 1 and 2
+- WHEN the layer runs on Flex FP32 and on TtBackend on card 0 after a board reset
+- THEN hidden outputs and recurrent states stay within the recorded tolerance
+- AND the result does not authorize a nonzero-layer, full-model, fused-kernel, or performance claim
 
 #### Scenario: Model gates pass
 r[tenstorrent.rust_ml.metalium_migration.complete]
