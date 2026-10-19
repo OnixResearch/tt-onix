@@ -18,11 +18,12 @@ fn dtype_capabilities_advertise_what_the_device_computes_and_no_more() {
             && int.contains(DTypeUsage::Arithmetic)
             && !int.contains(DTypeUsage::Accelerated)
     );
-    // F16 is raw storage with exact device casts, not compute.
+    // F16 widens to F32 on the card, computes, and rounds once, so it is general
+    // arithmetic but has no native accelerated path.
     let half = TtBackend::dtype_usage(&d, DType::F16);
     assert!(
         half.contains(DTypeUsage::Storage)
-            && !half.contains(DTypeUsage::Arithmetic)
+            && half.contains(DTypeUsage::Arithmetic)
             && !half.contains(DTypeUsage::Accelerated)
     );
     assert!(TtBackend::dtype_usage(&d, DType::BF16).contains(DTypeUsage::Accelerated));
