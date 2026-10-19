@@ -8,7 +8,9 @@ use std::path::Path;
 
 use safetensors::{Dtype, SafeTensors};
 
-use crate::layer::{LayerSpec, G_LORA_RANK, HEADS, HEAD_SIZE, HIDDEN, INTERMEDIATE, LORA_RANK};
+use crate::layer::{
+    LayerSpec, G_LORA_RANK, HEADS, HEAD_SIZE, HIDDEN, INTERMEDIATE, LORA_RANK, V_LORA_RANK,
+};
 
 pub struct Checkpoint {
     data: Vec<u8>,
@@ -72,12 +74,21 @@ impl Checkpoint {
         self.read_range("model.embeddings.weight", token * HIDDEN, HIDDEN)
     }
 
-    /// Layer-zero weights, with `hidden` set to the embedding row for `token`.
-    pub fn layer_zero_spec(&self, token: usize) -> Result<LayerSpec, String> {
-        let p = "model.layers.0";
+    /// Weights for `layer`. `token` fills the unused `hidden` field for the
+    /// single-layer gate; the model runner passes `None`.
+    pub fn layer_spec(&self, layer: usize, token: Option<usize>) -> Result<LayerSpec, String> {
+        let p = format!("model.layers.{layer}");
+        let (pre_norm_w, pre_norm_b) = if layer == 0 {
+            (
+                self.flat(&format!("{p}.pre_norm.weight"), HIDDEN)?,
+                self.flat(&format!("{p}.pre_norm.bias"), HIDDEN)?,
+            )
+        } else {
+            (vec![1.0; HIDDEN], vec![0.0; HIDDEN])
+        };
         Ok(LayerSpec {
-            pre_norm_w: self.flat(&format!("{p}.pre_norm.weight"), HIDDEN)?,
-            pre_norm_b: self.flat(&format!("{p}.pre_norm.bias"), HIDDEN)?,
+            pre_norm_w,
+            pre_norm_b,
             attn_norm_w: self.flat(&format!("{p}.attn_norm.weight"), HIDDEN)?,
             attn_norm_b: self.flat(&format!("{p}.attn_norm.bias"), HIDDEN)?,
             ffn_norm_w: self.flat(&format!("{p}.ffn_norm.weight"), HIDDEN)?,
@@ -120,18 +131,50 @@ impl Checkpoint {
                 &format!("{p}.attn.g_lora.lora.2.weight"),
                 HIDDEN * G_LORA_RANK,
             )?,
-            // Layer zero has no v-LoRA. The materializer still needs tensors;
-            // these zeros are never read on the layer-zero path.
-            v_lora0: vec![0.0; LORA_RANK * HIDDEN],
-            v_lora2: vec![0.0; HIDDEN * LORA_RANK],
-            v_lora2_b: vec![0.0; HIDDEN],
+            v_lora0: if layer == 0 {
+                vec![0.0; V_LORA_RANK * HIDDEN]
+            } else {
+                self.flat(
+                    &format!("{p}.attn.v_lora.lora.0.weight"),
+                    V_LORA_RANK * HIDDEN,
+                )?
+            },
+            v_lora2: if layer == 0 {
+                vec![0.0; HIDDEN * V_LORA_RANK]
+            } else {
+                self.flat(
+                    &format!("{p}.attn.v_lora.lora.2.weight"),
+                    HIDDEN * V_LORA_RANK,
+                )?
+            },
+            v_lora2_b: if layer == 0 {
+                vec![0.0; HIDDEN]
+            } else {
+                self.flat(&format!("{p}.attn.v_lora.lora.2.bias"), HIDDEN)?
+            },
             k_k: self.flat(&format!("{p}.attn.k_k"), HIDDEN)?,
             k_a: self.flat(&format!("{p}.attn.k_a"), HIDDEN)?,
             r_k: self.flat(&format!("{p}.attn.r_k"), HEADS * HEAD_SIZE)?,
             ffn_x_k: self.flat(&format!("{p}.ffn.x_k"), HIDDEN)?,
             ffn_key: self.flat(&format!("{p}.ffn.key.weight"), INTERMEDIATE * HIDDEN)?,
             ffn_value: self.flat(&format!("{p}.ffn.value.weight"), HIDDEN * INTERMEDIATE)?,
-            hidden: self.embedding(token)?,
+            hidden: match token {
+                Some(token) => self.embedding(token)?,
+                None => Vec::new(),
+            },
         })
+    }
+
+    /// The final `model.norm` affine weights.
+    pub fn final_norm(&self) -> Result<(Vec<f32>, Vec<f32>), String> {
+        Ok((
+            self.flat("model.norm.weight", HIDDEN)?,
+            self.flat("model.norm.bias", HIDDEN)?,
+        ))
+    }
+
+    /// Layer-zero weights for the single-layer gate.
+    pub fn layer_zero_spec(&self, token: usize) -> Result<LayerSpec, String> {
+        self.layer_spec(0, Some(token))
     }
 }

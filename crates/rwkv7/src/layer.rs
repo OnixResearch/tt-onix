@@ -17,6 +17,7 @@ pub const HEADS: usize = 12;
 pub const HEAD_SIZE: usize = 64;
 pub const LORA_RANK: usize = 64;
 pub const G_LORA_RANK: usize = 128;
+pub const V_LORA_RANK: usize = 32;
 const LAYER_NORM_EPS: f32 = 1.0e-5;
 const GROUP_NORM_EPS: f32 = HEAD_SIZE as f32 * LAYER_NORM_EPS;
 const NEGATIVE_INVERSE_SQRT_E: f32 = -0.606_530_67;
@@ -158,8 +159,8 @@ impl LayerSpec {
             a_lora2_b: v(&self.a_lora2_b, 1, HIDDEN),
             g_lora0: v(&self.g_lora0, G_LORA_RANK, HIDDEN),
             g_lora2: v(&self.g_lora2, HIDDEN, G_LORA_RANK),
-            v_lora0: v(&self.v_lora0, LORA_RANK, HIDDEN),
-            v_lora2: v(&self.v_lora2, HIDDEN, LORA_RANK),
+            v_lora0: v(&self.v_lora0, V_LORA_RANK, HIDDEN),
+            v_lora2: v(&self.v_lora2, HIDDEN, V_LORA_RANK),
             v_lora2_b: v(&self.v_lora2_b, 1, HIDDEN),
             k_k: v(&self.k_k, 1, HIDDEN),
             k_a: v(&self.k_a, 1, HIDDEN),
@@ -179,7 +180,7 @@ fn linear_b<B: Backend>(x: Tensor<B, 2>, weight: Tensor<B, 2>, bias: Tensor<B, 2
     linear(x, weight) + bias
 }
 
-fn layer_norm<B: Backend>(
+pub fn layer_norm<B: Backend>(
     x: Tensor<B, 2>,
     weight: Tensor<B, 2>,
     bias: Tensor<B, 2>,
@@ -398,8 +399,8 @@ pub fn synthetic_spec(seed: u64) -> LayerSpec {
         a_lora2_b: fill(&mut state, HIDDEN, 0.02, 0.0),
         g_lora0: fill(&mut state, G_LORA_RANK * HIDDEN, 0.02, 0.0),
         g_lora2: fill(&mut state, HIDDEN * G_LORA_RANK, 0.02, 0.0),
-        v_lora0: fill(&mut state, LORA_RANK * HIDDEN, 0.02, 0.0),
-        v_lora2: fill(&mut state, HIDDEN * LORA_RANK, 0.02, 0.0),
+        v_lora0: fill(&mut state, V_LORA_RANK * HIDDEN, 0.02, 0.0),
+        v_lora2: fill(&mut state, HIDDEN * V_LORA_RANK, 0.02, 0.0),
         v_lora2_b: fill(&mut state, HIDDEN, 0.02, 0.0),
         k_k: fill(&mut state, HIDDEN, 0.2, 0.5),
         k_a: fill(&mut state, HIDDEN, 0.2, 0.5),
