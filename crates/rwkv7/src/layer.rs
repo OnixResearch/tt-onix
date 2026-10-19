@@ -16,6 +16,7 @@ pub const INTERMEDIATE: usize = 3072;
 pub const HEADS: usize = 12;
 pub const HEAD_SIZE: usize = 64;
 pub const LORA_RANK: usize = 64;
+pub const G_LORA_RANK: usize = 128;
 const LAYER_NORM_EPS: f32 = 1.0e-5;
 const GROUP_NORM_EPS: f32 = HEAD_SIZE as f32 * LAYER_NORM_EPS;
 const NEGATIVE_INVERSE_SQRT_E: f32 = -0.606_530_67;
@@ -155,14 +156,14 @@ impl LayerSpec {
             a_lora0: v(&self.a_lora0, LORA_RANK, HIDDEN),
             a_lora2: v(&self.a_lora2, HIDDEN, LORA_RANK),
             a_lora2_b: v(&self.a_lora2_b, 1, HIDDEN),
-            g_lora0: v(&self.g_lora0, LORA_RANK, HIDDEN),
-            g_lora2: v(&self.g_lora2, HIDDEN, LORA_RANK),
+            g_lora0: v(&self.g_lora0, G_LORA_RANK, HIDDEN),
+            g_lora2: v(&self.g_lora2, HIDDEN, G_LORA_RANK),
             v_lora0: v(&self.v_lora0, LORA_RANK, HIDDEN),
             v_lora2: v(&self.v_lora2, HIDDEN, LORA_RANK),
             v_lora2_b: v(&self.v_lora2_b, 1, HIDDEN),
             k_k: v(&self.k_k, 1, HIDDEN),
             k_a: v(&self.k_a, 1, HIDDEN),
-            r_k: v(&self.r_k, 1, HIDDEN),
+            r_k: v(&self.r_k, HEADS, HEAD_SIZE),
             ffn_x_k: v(&self.ffn_x_k, 1, HIDDEN),
             ffn_key: v(&self.ffn_key, INTERMEDIATE, HIDDEN),
             ffn_value: v(&self.ffn_value, HIDDEN, INTERMEDIATE),
@@ -327,7 +328,7 @@ pub fn layer_step<B: Backend>(
         weights.g_norm_w.clone(),
         weights.g_norm_b.clone(),
     );
-    let r_k_heads: Tensor<B, 2> = weights.r_k.clone().reshape([HEADS, HEAD_SIZE]);
+    let r_k_heads: Tensor<B, 2> = weights.r_k.clone();
     let correction = (receptance_heads * key_heads * r_k_heads).sum_dim(1);
     let corrected = (normalized + correction * value_heads).reshape([1, HIDDEN]) * gate;
     let attention_output = linear(corrected, weights.o_proj.clone());
@@ -395,14 +396,14 @@ pub fn synthetic_spec(seed: u64) -> LayerSpec {
         a_lora0: fill(&mut state, LORA_RANK * HIDDEN, 0.02, 0.0),
         a_lora2: fill(&mut state, HIDDEN * LORA_RANK, 0.02, 0.0),
         a_lora2_b: fill(&mut state, HIDDEN, 0.02, 0.0),
-        g_lora0: fill(&mut state, LORA_RANK * HIDDEN, 0.02, 0.0),
-        g_lora2: fill(&mut state, HIDDEN * LORA_RANK, 0.02, 0.0),
+        g_lora0: fill(&mut state, G_LORA_RANK * HIDDEN, 0.02, 0.0),
+        g_lora2: fill(&mut state, HIDDEN * G_LORA_RANK, 0.02, 0.0),
         v_lora0: fill(&mut state, LORA_RANK * HIDDEN, 0.02, 0.0),
         v_lora2: fill(&mut state, HIDDEN * LORA_RANK, 0.02, 0.0),
         v_lora2_b: fill(&mut state, HIDDEN, 0.02, 0.0),
         k_k: fill(&mut state, HIDDEN, 0.2, 0.5),
         k_a: fill(&mut state, HIDDEN, 0.2, 0.5),
-        r_k: fill(&mut state, HIDDEN, 0.2, 0.5),
+        r_k: fill(&mut state, HEADS * HEAD_SIZE, 0.2, 0.5),
         ffn_x_k: fill(&mut state, HIDDEN, 0.1, 0.5),
         ffn_key: fill(&mut state, INTERMEDIATE * HIDDEN, 0.02, 0.0),
         ffn_value: fill(&mut state, HIDDEN * INTERMEDIATE, 0.02, 0.0),

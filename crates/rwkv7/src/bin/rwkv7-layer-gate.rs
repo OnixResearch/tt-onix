@@ -1,9 +1,13 @@
-//! One RWKV-7 layer, Flex (CPU FP32) against TtBackend on identical synthetic
-//! weights. Two tokens carry the recurrent and token-shift state.
+//! One RWKV-7 layer, Flex (CPU FP32) against TtBackend.
+//!
+//! Without `--checkpoint`, the weights are deterministic synthetic values.
+//! With `--checkpoint`, layer zero is read from the pinned safetensors file and
+//! the two token inputs are embedding rows 1 and 2.
 
 use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TtBackend, TtConfig, TtDevice};
+use rwkv7::checkpoint::Checkpoint;
 use rwkv7::layer::{layer_step, synthetic_spec, LayerSpec, LayerState, HIDDEN};
 
 const TOLERANCE: f32 = 1.0e-3;
@@ -23,57 +27,52 @@ fn to_vec<const D: usize, B: burn::tensor::backend::Backend>(tensor: Tensor<B, D
     tensor.into_data().to_vec::<f32>().expect("f32 tensor")
 }
 
-fn run_flex(spec: &LayerSpec) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
+fn run_flex(first: &LayerSpec, second: &LayerSpec) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
     let device = FlexDevice;
-    let weights = spec.materialize::<Flex>(&device);
+    let weights = first.materialize::<Flex>(&device);
     let mut state = LayerState::<Flex>::zeros(&device);
-    let first = layer_step(&weights, hidden(&spec.hidden, &device), &state, true, None);
-    let first_matrix = to_vec(first.1.matrix.clone());
-    state = first.1;
-    let second = layer_step(
+    let one = layer_step(&weights, hidden(&first.hidden, &device), &state, true, None);
+    let first_matrix = to_vec(one.1.matrix.clone());
+    state = one.1;
+    let two = layer_step(
         &weights,
-        hidden(
-            &spec.hidden.iter().map(|v| -0.5 * v).collect::<Vec<_>>(),
-            &device,
-        ),
+        hidden(&second.hidden, &device),
         &state,
         true,
         None,
     );
     (
-        [to_vec(first.0), to_vec(second.0)],
-        [first_matrix, to_vec(second.1.matrix)],
+        [to_vec(one.0), to_vec(two.0)],
+        [first_matrix, to_vec(two.1.matrix)],
     )
 }
 
-fn run_tt(spec: &LayerSpec, card: u16) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
+fn run_tt(first: &LayerSpec, second: &LayerSpec, card: u16) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
     let device = TtDevice::new(card);
     burn_tt::init(device, TtConfig::default()).expect("attach card");
-    let weights = spec.materialize::<TtBackend>(&device);
+    let weights = first.materialize::<TtBackend>(&device);
     accurate_matmul(|| {
         let mut state = LayerState::<TtBackend>::zeros(&device);
-        let first = layer_step(&weights, hidden(&spec.hidden, &device), &state, true, None);
-        let first_matrix = to_vec(first.1.matrix.clone());
-        state = first.1;
-        let second = layer_step(
+        let one = layer_step(&weights, hidden(&first.hidden, &device), &state, true, None);
+        let first_matrix = to_vec(one.1.matrix.clone());
+        state = one.1;
+        let two = layer_step(
             &weights,
-            hidden(
-                &spec.hidden.iter().map(|v| -0.5 * v).collect::<Vec<_>>(),
-                &device,
-            ),
+            hidden(&second.hidden, &device),
             &state,
             true,
             None,
         );
         (
-            [to_vec(first.0), to_vec(second.0)],
-            [first_matrix, to_vec(second.1.matrix)],
+            [to_vec(one.0), to_vec(two.0)],
+            [first_matrix, to_vec(two.1.matrix)],
         )
     })
 }
 
 fn main() -> std::process::ExitCode {
     let mut card = None;
+    let mut checkpoint = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -90,26 +89,66 @@ fn main() -> std::process::ExitCode {
                     }
                 }
             }
+            "--checkpoint" => {
+                let Some(value) = args.next() else {
+                    eprintln!("--checkpoint needs a safetensors path");
+                    return std::process::ExitCode::FAILURE;
+                };
+                checkpoint = Some(value);
+            }
             "-h" | "--help" => {
-                println!("usage: rwkv7-layer-gate [--card N]");
+                println!("usage: rwkv7-layer-gate [--checkpoint PATH] [--card N]");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
-                eprintln!("unknown argument {other}\n\nusage: rwkv7-layer-gate [--card N]");
+                eprintln!(
+                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N]"
+                );
                 return std::process::ExitCode::FAILURE;
             }
         }
     }
 
-    let spec = synthetic_spec(29);
-    let (flex_hidden, flex_state) = run_flex(&spec);
+    let (first, second, source) = if let Some(path) = checkpoint {
+        let checkpoint = match Checkpoint::open(std::path::Path::new(&path)) {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                eprintln!("checkpoint: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        let first = match checkpoint.layer_zero_spec(1) {
+            Ok(spec) => spec,
+            Err(error) => {
+                eprintln!("layer zero (token 1): {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        let second = match checkpoint.layer_zero_spec(2) {
+            Ok(spec) => spec,
+            Err(error) => {
+                eprintln!("layer zero (token 2): {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        (first, second, "checkpoint layer 0")
+    } else {
+        let first = synthetic_spec(29);
+        let mut second = first.clone();
+        second.hidden = first.hidden.iter().map(|value| -0.5 * value).collect();
+        (first, second, "synthetic layer 0")
+    };
 
-    let mut control = spec.clone();
-    control.k_k = vec![0.0; control.k_k.len()];
-    let (control_hidden, _) = run_flex(&control);
-    let control_gap = max_abs(&control_hidden[1], &flex_hidden[1]);
+    let (flex_hidden, flex_state) = run_flex(&first, &second);
+
+    let mut control_first = first.clone();
+    let mut control_second = second.clone();
+    control_first.r_proj = vec![0.0; control_first.r_proj.len()];
+    control_second.r_proj = vec![0.0; control_second.r_proj.len()];
+    let (control_hidden, _) = run_flex(&control_first, &control_second);
+    let control_gap = max_abs(&control_hidden[0], &flex_hidden[0]);
     println!(
-        "flex: token1 max {:.6}, token2 max {:.6}, state max {:.6}; control gap {:.6}",
+        "{source}: flex token1 max {:.6}, token2 max {:.6}, state max {:.6}; control gap {:.6}",
         flex_hidden[0].iter().map(|v| v.abs()).fold(0.0, f32::max),
         flex_hidden[1].iter().map(|v| v.abs()).fold(0.0, f32::max),
         flex_state[1].iter().map(|v| v.abs()).fold(0.0, f32::max),
@@ -124,7 +163,7 @@ fn main() -> std::process::ExitCode {
         println!("flex layer PASS; pass --card N to run the device gate");
         return std::process::ExitCode::SUCCESS;
     };
-    let (tt_hidden, tt_state) = run_tt(&spec, card);
+    let (tt_hidden, tt_state) = run_tt(&first, &second, card);
     let gaps = [
         ("token1 hidden", max_abs(&tt_hidden[0], &flex_hidden[0])),
         ("token2 hidden", max_abs(&tt_hidden[1], &flex_hidden[1])),

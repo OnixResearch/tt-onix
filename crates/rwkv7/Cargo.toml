@@ -11,3 +11,4 @@ publish = false
 burn.workspace = true
 burn-tt.workspace = true
 burn-flex.workspace = true
+safetensors = "0.6"

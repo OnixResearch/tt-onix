@@ -15,6 +15,8 @@
 
 pub mod layer;
 
+pub mod checkpoint;
+
 use burn::tensor::{Tensor, TensorData};
 use burn_tt::{accurate_matmul, TtBackend, TtDevice, TtError};
 
