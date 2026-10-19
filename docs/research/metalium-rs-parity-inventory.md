@@ -1,6 +1,6 @@
 # metalium-rs parity inventory
 
-Pinned source: `brittonr/metalium-rs` at `012260616cc7afb5a2a764bbb092dd0c7e710df7`
+Pinned source: `brittonr/metalium-rs` at `9afe95d1258667a771ab19a84e589c36eb06c44f`
 (upstream `Knight-Ops/metalium-rs` at `b22a245`).
 
 This inventory maps the repository's two model targets to the native stack. It is a work
@@ -53,9 +53,8 @@ all-reduce or other collective.
 ## Recommended order
 
 1. **RWKV-7 WKV7 kernel.** The host reference, composed Burn/TT gate, synthetic layer gate,
-   real layer-zero gate, and all-12-layer real-weight Flex/Tt gate are done. Next: evaluate the
-   logits and compare against the harness's Python reference, then fuse the recurrence into a
-   Tensix kernel.
+   real layer-zero gate, all-12-layer gate, and logits/Python-reference comparison are done. Next:
+   add tokenizer/generation parity, then fuse the recurrence into a Tensix kernel.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
    model; compare against the existing CPU reference and the tt-metal path. Keep the service on
    tt-metal until this passes.

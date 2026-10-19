@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `012260616cc7afb5a2a764bbb092dd0c7e710df7` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, and the all-12-layer gate.
+`brittonr/metalium-rs` at commit `9afe95d1258667a771ab19a84e589c36eb06c44f` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, and logits/oracle comparison.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -78,6 +78,17 @@ max magnitude.
 a large matmul without adding recurrence coverage, and the Python-reference comparison is a
 separate oracle.
 
+### Decision: Compare logits against the harness's Python equation reference
+
+**Choice:** Evaluate `lm_head`, write the reference `final_hidden`, `logits`, and `states` from the
+harness's Python equation source, and compare both Flex and TtBackend against those files.
+
+Use the harness's 0.5 final-hidden, 1.0 logit, and 1.0 recurrent-state bounds for the oracle. Do
+not claim tokenization, generation, or serving parity from this comparison.
+
+**Rationale:** The Python reference is the independent equation oracle. It caught no layout error
+at this point, which is evidence the Rust port and checkpoint mapping agree.
+
 ### Decision: Reset cards between TT-Metal and native execution
 
 **Choice:** Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution.
@@ -125,7 +136,7 @@ Physical validation is separate. The first hardware gate is `tt-mnist --steps 1 
 ## Risks / Trade-offs
 
 - The fork can drift from upstream. The recorded delta and a revalidation requirement keep it reviewable.
-- The composed WKV7, synthetic layer, real layer-zero, and all-12-layer gates are correctness evidence only; they are neither logits/reference parity, generation, fused-kernel cost, nor performance results.
+- The composed WKV7, synthetic layer, real layer-zero, and all-12-layer gates are correctness evidence only; the logits/oracle comparison is equation-level, not tokenization, generation, fused-kernel cost, or performance.
 - Native execution after a TT-Metal service needs a board reset; omitting it makes the first process fail.
 - Rust 1.97.1 is pinned through `rust-overlay`; a future lock update can change the overlay revision even if the toolchain version stays fixed.
 - `tt-mnist` embeds about 11 MB of compressed data and adds build time. It is the only self-contained native binary today.

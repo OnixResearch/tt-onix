@@ -5,15 +5,15 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `012260616cc7afb5a2a764bbb092dd0c7e710df7`
+- Commit: `9afe95d1258667a771ab19a84e589c36eb06c44f`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `cc9e404d7482779a2e9cb57ddfcb3348d497743a9c297fb12962ae155c8343d5`
+- Fork tree BLAKE3: `a97c473e39b8178a8c234ed80d0a6041a0fcb38f5d0abd8e5ac85f073f36bd20`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-sTTObqGHpu8HAmUZBPYPlYXN9Lga+9bMARfeScMhI4U=`
+- Nix source hash: `sha256-zl0OAVz7l0c2ymbw6ZPheEWyY7WmOuSnX8h4TnCFggQ=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
-  all-12-layer gate). Eleven files, +1,602/−2.
+  all-12-layer gate, and logits/oracle comparison). Eleven files, +1,731/−2.
 
 ## Validation
 
@@ -36,11 +36,11 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/lq05s6bwm9qk0jn0gyp3l9l2v6m4zhjy-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/hdr0r6d745mzpnhq22pykvvy0pd0wd0p-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
   `bin/rwkv7-layer-gate` (6.3 MiB), and `bin/rwkv7-model-gate` (6.3 MiB).
-- Wrappers: `/nix/store/29an1yjz5g4f09yjs28vl3annchhx6hk-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`
-  and `/nix/store/y2fyg4hg7dgz4i2g86m9lbjh8195ljfp-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
+- Wrappers: `/nix/store/l9216pl67rrw7sc5znal2822gmw9lk3w-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`
+  and `/nix/store/9k4ss5nyv4v1vkq2r76kraqhr0l73x3p-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
   both bound to the pinned checkpoint.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,542 tests, 0 failures,
@@ -166,6 +166,49 @@ The bound is relative `1e-4` of each output's max magnitude. This is Flex FP32 v
 real weights. It does not evaluate the 65536x768 logits, compare against the Python reference, or
 establish generation or performance parity.
 
+## Logits and Python-reference comparison
+
+The model gate now evaluates `lm_head` (`[65536, 768]`) and accepts `--oracle DIR` with the
+reference `final_hidden.f32`, `logits.f32`, and `states.f32`.
+
+The Python reference was generated with `evidence/rwkv_make_reference.py`, the harness's own
+equation source, and the pinned checkpoint under a
+`python3.withPackages [torch safetensors blake3 numpy]` environment:
+
+```text
+final_hidden (768,) max 74.44098663330078
+logits (65536,) max 19.674400329589844
+states (589824,) max 54.99984359741211
+```
+
+Reference file identities:
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `final_hidden.f32` | 3,072 | `f2531d339065bee2c518bc5f3e9ed32a67f32e161fef00c1ebf31a6aeda96f4e` |
+| `logits.f32` | 262,144 | `c12eb0eb011dba3c04cc954a32f14dd6661e247229220a9d869d3eff141cc6b9` |
+| `states.f32` | 2,359,296 | `1f1f17a2f464cdf32443e5a0eaba03d2575b90f17605938c17bb8d70de21f446` |
+
+`cargo run -p rwkv7 --bin rwkv7-model-gate -- --checkpoint <path> --oracle /var/tmp/rwkv-ref --card 0`
+and `nix run .#metalium-rs-rwkv7-model -- --oracle /var/tmp/rwkv-ref --card 0` produce:
+
+```text
+flex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)
+flex logits vs oracle: gap 1.717e-5 (bound 1.0e0)
+flex states vs oracle: gap 3.052e-5 (bound 1.0e0)
+card 0: final hidden gap 1.678e-3 (max 7.444e1, relative 2.255e-5)
+card 0: logits gap 2.680e-4 (max 1.967e1, relative 1.362e-5)
+card 0: recurrent state gap 4.005e-4 (max 5.500e1, relative 7.283e-6)
+tt hidden vs oracle: gap 1.614e-3 (bound 5.0e-1)
+tt logits vs oracle: gap 2.728e-4 (bound 1.0e0)
+tt states vs oracle: gap 3.939e-4 (bound 1.0e0)
+model gate PASS
+```
+
+The oracle bounds are the harness's 0.5 final-hidden, 1.0 logit, and 1.0 recurrent-state
+tolerances. This establishes the two-token logits and state against the Python equation reference.
+It does not test tokenization, generation, serving, or performance.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -180,9 +223,9 @@ it as an operational gate, not as a source defect.
 - Device-free: fork build, package build, hermetic Nix test lane, `--help`.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
-  synthetic full-layer gate, the real-checkpoint layer-zero gate, and the all-12-layer final-hidden
-  and recurrent-state gate on card 0. No logits, reference parity, generation, placement, long-run
-  stability, or performance claim follows.
+  synthetic full-layer gate, the real-checkpoint layer-zero gate, and the all-12-layer final-hidden,
+  logits, and recurrent-state gate on card 0. Logits match the Python equation reference. No
+  tokenization, generation, placement, long-run stability, or performance claim follows.
 
 ## Migration status
 
