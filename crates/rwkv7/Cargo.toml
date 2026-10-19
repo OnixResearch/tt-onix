@@ -10,3 +10,4 @@ publish = false
 [dependencies]
 burn.workspace = true
 burn-tt.workspace = true
+burn-flex.workspace = true

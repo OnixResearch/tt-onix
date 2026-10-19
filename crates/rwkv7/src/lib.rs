@@ -13,6 +13,8 @@
 //! broadcast, elementwise and transfer paths without a new Tensix kernel. It is
 //! a correctness gate, not the final fused kernel.
 
+pub mod layer;
+
 use burn::tensor::{Tensor, TensorData};
 use burn_tt::{accurate_matmul, TtBackend, TtDevice, TtError};
 
