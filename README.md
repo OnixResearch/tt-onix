@@ -201,6 +201,11 @@ boundary and non-claims.
 - [tenstorrent/luwen](https://github.com/tenstorrent/luwen) — package-matched chip discovery, diagnostics, and firmware communication source.
 - [tenstorrent/ttsim](https://github.com/tenstorrent/ttsim) — device-free simulator source and ABI reference.
 
+### Rust runtime references
+
+- [brittonr/metalium-rs](https://github.com/brittonr/metalium-rs) — fork of Knight-Ops/metalium-rs: native Rust Blackhole firmware, `tt-kmd` host transport, Tensix kernels, and a Burn backend, independent of TT-Metalium. The flake pins fork commit `8600f145abfc9955fa1238b2f2e9f51d34b3b3d8` as the `metalium-rs` package.
+
+
 ### Tenstorrent operations references
 
 - [tenstorrent/tt-tools-common](https://github.com/tenstorrent/tt-tools-common) — shared behavior and schemas for Tenstorrent operations tools.

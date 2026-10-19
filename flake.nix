@@ -4,6 +4,10 @@
     systems.url = "github:nix-systems/default-linux";
     flake-parts.url = "github:hercules-ci/flake-parts";
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     cairn.url = "github:OnixResearch/cairn/15f00875562025e7ea7e0d1f4af24d1a2e2ac06f";
   };
 
@@ -28,10 +32,20 @@
 
       perSystem =
         { system, pkgs, ... }:
+        let
+          metaliumRsToolchain = pkgs.rust-bin.stable."1.97.1".default.override {
+            targets = [ "riscv32im-unknown-none-elf" ];
+            extensions = [ "llvm-tools" ];
+          };
+          metaliumRs = pkgs.callPackage ./pkgs/metalium-rs {
+            rustToolchain = metaliumRsToolchain;
+          };
+        in
         {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = [
+              (import inputs.rust-overlay)
               self.overlays.default
             ];
           };
@@ -44,7 +58,6 @@
           };
 
           packages = {
-            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
             inherit (pkgs)
               enchantum
               llama-cpp-metalium
@@ -67,6 +80,10 @@
               tt-tools-common
               ;
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
+            metalium-rs = metaliumRs;
+          }
+          // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
           };
 
           apps.ttsim-blackhole-smoke = {
@@ -75,8 +92,19 @@
             meta.description = "Run the bounded Blackhole 1x1 TT-NN smoke on TTsim";
           };
 
+          apps.metalium-rs-mnist = {
+            type = "app";
+            program = "${metaliumRs}/bin/tt-mnist";
+            meta.description = "Train MNIST with the native Rust Blackhole stack";
+          };
+
+          apps.metalium-rs-wkv7 = {
+            type = "app";
+            program = "${metaliumRs}/bin/wkv7-gate";
+            meta.description = "Run the native RWKV-7 WKV7 state-carry gate";
+          };
+
           checks = {
-            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
             inherit (pkgs)
               enchantum
               llama-cpp-metalium
@@ -102,6 +130,10 @@
               tt-tools-common
               ;
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
+            metalium-rs = metaliumRs;
+          }
+          // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
           };
         };
     };

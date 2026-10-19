@@ -1,3 +1,6 @@
+> Status: superseded for native device work by `adopt-metalium-rs-native-stack`.
+> Keep this change as a reviewed record; do not implement the cxx bridge.
+
 ## Why
 
 The repository uses Rust for model validation, command orchestration, and evidence. Direct TT-Metal host execution still crosses C++ process boundaries.

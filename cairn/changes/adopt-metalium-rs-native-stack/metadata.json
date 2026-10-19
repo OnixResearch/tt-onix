@@ -1,0 +1,6 @@
+{
+  "depends_on": [
+    "evaluate-metalium-rs-native-stack",
+    "establish-rust-ml-runtime-boundary"
+  ]
+}

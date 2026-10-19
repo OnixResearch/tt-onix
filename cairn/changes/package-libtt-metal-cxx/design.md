@@ -1,3 +1,6 @@
+> Status: superseded for native device work by `adopt-metalium-rs-native-stack`.
+> Keep this change as a reviewed record; do not implement the cxx bridge.
+
 ## Context
 
 `libtt-metal-cxx` uses `cxx::bridge` to connect Rust with TT-Metal C++ APIs. Its reviewed tree includes device, program, kernel, buffer, circular-buffer, semaphore, runtime-argument, tilize, and unit-mesh surfaces.

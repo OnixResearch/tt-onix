@@ -146,6 +146,51 @@ Use `tt-awesome` to discover community and official projects, kernels, and tools
 Treat its entries as leads, not as verified behavior. Confirm claims against the linked project source.
 Do not treat a listed project as package-matched authority.
 
+### metalium-rs native Rust reference
+
+Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
+The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
+The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
+`8600f145abfc9955fa1238b2f2e9f51d34b3b3d8`, which adds the Apache-2.0 license file, fixes the
+stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference and composed device gate).
+The flake pins that fork and exposes the `metalium-rs` package.
+
+This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
+a `tt-kmd` host transport, Tensix kernels, `tt-layout`, and the `burn-tt` backend.
+Shipped crates have no TT-Metalium, TT-NN, simulator, or C/C++ dependency.
+Development oracles may use C/C++ models and the simulator; `tt-tests` classifies them as dev-only.
+It does not expose TT-Metal host APIs and does not replace the existing TT-Metal/ttnn model paths.
+
+Its pinned inputs are ttsim `v1.10.9`, tt-kmd `ttkmd-2.11.0` (IOCTL API version 2),
+tt-metal `cfg_defines.h` at commit `81989dcdb8f9b340c932ae7a71a346f4f08703eb`,
+and Burn `=0.21.0`. These differ from local pins; the ttsim versions are not interchangeable.
+The local host runs tt-kmd `2.10.0`. The 2.11.0 header only adds `SMC_MSG` and does not change
+the structures this tree uses, but its ABI gate compiles against the 2.11.0 header.
+
+Its model coverage is ResNet-18, ViT-Tiny, and SmolLM2-135M over Burn; it has no RWKV-7,
+Qwen3.6/3.8, MoE, or gated-delta implementation. Treat its conformance counts, model agreement,
+and performance numbers as upstream claims until this repository reproduces them.
+
+The fork passes the validation tier: 1,542 passed, 0 failed, 46 ignored across 262 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
+MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
+toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
+`tt-mnist` and `wkv7-gate`, and excludes only dev-only crates from the installed output. Package and migration
+records live under `cairn/changes/evaluate-metalium-rs-native-stack/` and
+`cairn/changes/adopt-metalium-rs-native-stack/`.
+
+Migration is phased. The native stack is the authority for new Rust device, firmware, kernel, and
+Burn-backend work. Existing Qwen3.6/3.8 and RWKV-7 services remain on their TT-Metal/ttnn paths
+until the missing model operators, linear attention, MoE, and state-carry paths have native
+implementations and physical evidence.
+
+The parity inventory is `docs/research/metalium-rs-parity-inventory.md`.
+
+Physical gates passed on 2026-10-19: one `tt-mnist` training step on card 0, one on the `1x2`
+mesh, and a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8, state gaps
+2.98e-8). `qwen38-p150x2.service` was stopped for the runs. The timings are smoke measurements,
+not benchmarks. The WKV7 gate is a composed Burn op graph, not the fused Tensix kernel and not a
+model.
+
 ## RWKV-7 references
 
 Read these local references before you change RWKV-7 code, equations, tests, or package pins.
