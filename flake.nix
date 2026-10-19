@@ -104,6 +104,12 @@
             meta.description = "Run the native RWKV-7 WKV7 state-carry gate";
           };
 
+          apps.metalium-rs-rwkv7-layer = {
+            type = "app";
+            program = "${metaliumRs}/bin/rwkv7-layer-gate";
+            meta.description = "Compare one RWKV-7 layer on Flex and TtBackend";
+          };
+
           checks = {
             inherit (pkgs)
               enchantum

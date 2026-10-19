@@ -7,8 +7,8 @@ r[tenstorrent.rust_ml.metalium_fork_authority] The repository MUST pin one fork 
 
 #### Scenario: Fork revision is admitted
 r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- GIVEN fork commit `8600f145abfc9955fa1238b2f2e9f51d34b3b3d8` based on upstream `b22a245`
-- AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gate
+- GIVEN fork commit `d8c6e2fc4579cf29aa7525ddd086a90f81da2260` based on upstream `b22a245`
+- AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gates
 - WHEN source admission runs
 - THEN it produces one deterministic fork authority
 - AND the recorded delta is exactly those reviewed changes
@@ -53,6 +53,13 @@ r[tenstorrent.rust_ml.metalium_migration.recurrence]
 - WHEN a two-token sequence runs on card 0 and the second token consumes the first token's state
 - THEN output and state stay within the recorded tolerance of the host reference
 - AND the result does not authorize a fused-kernel, layer, or model claim
+
+#### Scenario: Synthetic layer matches across backends
+r[tenstorrent.rust_ml.metalium_migration.layer]
+- GIVEN one RWKV-7 layer with synthetic weights and the two-token state carry
+- WHEN the layer runs on Flex FP32 and on TtBackend on card 0
+- THEN hidden outputs and recurrent states stay within the recorded tolerance
+- AND the result does not authorize a real-weight, fused-kernel, or model claim
 
 #### Scenario: Model gates pass
 r[tenstorrent.rust_ml.metalium_migration.complete]

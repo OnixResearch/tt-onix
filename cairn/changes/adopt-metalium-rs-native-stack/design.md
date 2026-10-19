@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `8600f145abfc9955fa1238b2f2e9f51d34b3b3d8` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`, a host reference plus composed device gate for the WKV7 recurrence.
+`brittonr/metalium-rs` at commit `d8c6e2fc4579cf29aa7525ddd086a90f81da2260` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, and a synthetic full-layer Flex/Tt differential gate.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -43,6 +43,18 @@ Do not call this a fused kernel or a model. The fused Tensix recurrence remains 
 **Rationale:** The composed path proves the equation, the state contract, and the existing backend
 ops before a new kernel exists. It gives a reference the fused kernel can be compared against.
 
+### Decision: Prove the layer graph with synthetic weights before real weights
+
+**Choice:** Implement one layer from the pinned equations and compare `Flex` FP32 with `TtBackend`
+on identical synthetic weights. Use layer zero, which exercises the pre-norm, token shift, time
+mixing LoRA, WKV recurrence, group norm, correction, output projection, and squared-ReLU FFN.
+
+Do not call this a real-weight layer or a model. Real checkpoint loading and nonzero-layer v-LoRA
+remain next.
+
+**Rationale:** The synthetic gate isolates backend disagreement from checkpoint layout and weight
+conversion. It finds missing ops and shape bugs before a 382 MB checkpoint is involved.
+
 ### Decision: Migrate by parity gates, not by service replacement
 
 **Choice:** Route new Rust device, firmware, kernel, and Burn-backend work to `metalium-rs`.
@@ -71,7 +83,7 @@ stack can be evaluated and run without pretending the combined-work terms are re
 
 ## Validation Strategy
 
-Positive checks cover the fork pin, the license file, the F16 test fix, the WKV7 host reference, the full validation tier, a hermetic package build, the installed `tt-mnist` and `wkv7-gate` binaries, and the WKV7 two-token state-carry gate on card 0.
+Positive checks cover the fork pin, the license file, the F16 test fix, the WKV7 host reference, the full validation tier, a hermetic package build, the installed `tt-mnist`, `wkv7-gate`, and `rwkv7-layer-gate` binaries, the WKV7 two-token state-carry gate, and the synthetic full-layer Flex/Tt gate on card 0.
 
 Negative checks cover source drift, an unpinned toolchain, a missing firmware target, a missing license, and a package that claims a model runtime. The installed output excludes dev-only crates; the check phase runs their simulator-backed tier, and no check opens hardware.
 
@@ -80,7 +92,7 @@ Physical validation is separate. The first hardware gate is `tt-mnist --steps 1 
 ## Risks / Trade-offs
 
 - The fork can drift from upstream. The recorded delta and a revalidation requirement keep it reviewable.
-- The composed WKV7 gate is correctness evidence only; it is neither a fused-kernel cost nor a layer/model result.
+- The composed WKV7 and synthetic layer gates are correctness evidence only; they are neither fused-kernel cost nor real-weight/model results.
 - Rust 1.97.1 is pinned through `rust-overlay`; a future lock update can change the overlay revision even if the toolchain version stays fixed.
 - `tt-mnist` embeds about 11 MB of compressed data and adds build time. It is the only self-contained native binary today.
 - Excluding dev-only crates leaves the conformance and simulator gates outside the package check.

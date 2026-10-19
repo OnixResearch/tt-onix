@@ -5,14 +5,14 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `8600f145abfc9955fa1238b2f2e9f51d34b3b3d8`
+- Commit: `d8c6e2fc4579cf29aa7525ddd086a90f81da2260`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `44954b7b594c8396700d76fff7108690f268f81aa5f40fe5b08d54c98d98565e`
-- `Cargo.lock` SHA-256: `e14604b50265889e04df0ff092de35a3e921f249609d14108510d5839313c42f`
-- Nix source hash: `sha256-B0PpW06FqClmv2v8Bw1c+3NLUUCC1Cj2S1AN2MruwIE=`
+- Fork tree BLAKE3: `2a424a20cf34fdccbc68071d00d5eae8cf0bc8bae9d03cc79c660ac57479bb00`
+- `Cargo.lock` SHA-256: `13231685f3a42f549454864e696af3d4a3c35f7d54113b94fbcbf9d64ce57501`
+- Nix source hash: `sha256-izG12OWV37sIUiQFYam701M6FR5kUAvqYvvLeEEqT28=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
-  assertion now expects `Storage | Arithmetic`, without `Accelerated`), and the `crates/rwkv7`
-  reference/device gate. Seven files, +588/−2.
+  assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
+  (WKV reference/device gate and synthetic full-layer gate). Nine files, +1,146/−2.
 
 ## Validation
 
@@ -21,7 +21,7 @@ Date: 2026-10-19
 - 1,542 passed
 - 0 failed
 - 46 ignored
-- 259 test binaries
+- 263 test binaries
 
 The run used the pinned ISA specification, ttsim `v1.10.9`, and MNIST inputs. Simulator gates are
 simulated evidence. No physical device was opened.
@@ -35,11 +35,12 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/j72kqnw7r9zw4fb02ps4rwikymkrjz50-metalium-rs-0.1.0-unstable-2026-10-19`
-- Installed artifacts: `bin/tt-mnist` (26 MiB) and `bin/wkv7-gate` (4.4 MiB).
+- Output: `/nix/store/qvs6jxcbw6dq91plm73a0ykp64asdnkv-metalium-rs-0.1.0-unstable-2026-10-19`
+- Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB), and
+  `bin/rwkv7-layer-gate` (6.1 MiB).
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,542 tests, 0 failures,
-  46 ignored, 262 binaries, in about 13 minutes.
+  46 ignored, 263 binaries, in about 13 minutes.
 - App: `.#metalium-rs-mnist`.
 
 ## Binary smoke
@@ -89,12 +90,38 @@ The second token consumes the first token's device state, so this is a state-car
 card, two tokens, and a composed op graph. The packaged binary reproduced the same gaps. It does not establish a fused-kernel cost, a layer, a
 model, or mesh behavior.
 
+## Synthetic RWKV-7 layer gate
+
+`crates/rwkv7/src/layer.rs` implements one layer from the pinned checkpoint equations: pre/attn/ffn
+norms, token shift, the time-mixing LoRA projections, the WKV recurrence, group norm, value
+correction, output projection, and the squared-ReLU channel mixer. The gate runs layer zero with
+synthetic weights on `Flex` (CPU FP32) and `TtBackend`, for two tokens, with `accurate_matmul`.
+
+`nix run .#metalium-rs-rwkv7-layer -- --card 0`:
+
+```text
+flex: token1 max 1.834199, token2 max 1.805208, state max 0.156451; control gap 0.000691
+card 0: token1 hidden gap 5.960e-7
+card 0: token2 hidden gap 3.576e-7
+card 0: token1 state gap 1.788e-7
+card 0: token2 state gap 1.490e-7
+layer gate PASS
+```
+
+Two fresh runs produced the same gaps. A first attempt immediately after stopping the service
+failed with a stopped backend queue (`element-wise 0x2 ... queued list 2 failed`); the cause is not
+established and the later runs were clean.
+
+The gate uses synthetic weights, layer zero only (no v-LoRA), and no real checkpoint. It is not a
+real-weight layer, full-model, fused-kernel, or performance result.
+
 ## Evidence classes
 
 - Device-free: fork build, package build, hermetic Nix test lane, `--help`.
 - Simulated: the ttsim gates inside the fork validation tier.
-- Physical: one training step on card 0, one on the `1x2` mesh, and one two-token WKV7 device gate
-  on card 0. No model inference, placement, long-run stability, or performance claim follows.
+- Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, and
+  the synthetic full-layer gate on card 0. No real-weight model inference, placement, long-run
+  stability, or performance claim follows.
 
 ## Migration status
 

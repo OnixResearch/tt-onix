@@ -5,7 +5,7 @@
 - [x] [serial] A1 Fork `Knight-Ops/metalium-rs` to `brittonr/metalium-rs` and record the upstream base `b22a245`. r[tenstorrent.rust_ml.metalium_fork_authority]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A2 Add the Apache-2.0 license file and fix the stale F16 capability assertion. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A3 Run the full upstream validation tier on the fork and record the counts. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- [x] [serial] A4 Push the fork and pin commit `8600f145abfc9955fa1238b2f2e9f51d34b3b3d8`. r[tenstorrent.rust_ml.metalium_fork_authority]
+- [x] [serial] A4 Push the fork and pin commit `d8c6e2fc4579cf29aa7525ddd086a90f81da2260`. r[tenstorrent.rust_ml.metalium_fork_authority]
 
 ## Phase 2: Toolchain and package
 
@@ -21,6 +21,7 @@
 - [ ] [serial] M1 Inventory native operator, state-carry, dtype, and topology coverage for each model service. r[tenstorrent.rust_ml.metalium_migration.incomplete]
 - [x] [serial] M2 Run the first single-card physical `tt-mnist --steps 1` gate, then the `1x2` mesh gate. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [x] [serial] M3a Implement the WKV7 host reference and composed Burn device path; verify output and two-token state carry on card 0. r[tenstorrent.rust_ml.metalium_migration.recurrence]
+- [x] [serial] M3b Implement one layer from the pinned equations with synthetic weights; compare Flex FP32 with TtBackend across two tokens on card 0. r[tenstorrent.rust_ml.metalium_migration.layer]
 - [ ] [serial] M3 Blocked: Fuse the WKV7 recurrence into a Tensix kernel and re-verify against the host reference. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M4 Blocked: Implement and verify Qwen3.6/3.8 linear attention, MoE routing, and state carry on `burn-tt`. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M5 Blocked: Admit each model only after its parity and physical gates pass. r[tenstorrent.rust_ml.metalium_migration.complete]
@@ -42,6 +43,7 @@
 - `Scenario: Toolchain or input is unpinned` -> P1, P2
 - `Scenario: Model parity is incomplete` -> M1
 - `Scenario: WKV7 recurrence and state carry pass` -> M3a, P6
+- `Scenario: Synthetic layer matches across backends` -> M3b
 - `Scenario: Model gates pass` -> M2, M3, M4, M5
 - `Scenario: Adoption evidence is recorded` -> D1, E1, V1
 - `Scenario: License scope is unresolved` -> L1
