@@ -2490,3 +2490,12 @@ model, 1e-2 for the decode logits).
 3.96-9.74 s for the host path (card-state variance, but no run was faster). The device reduction of
 the whole vocabulary costs more than the transfer; a fused argmax in the matmul epilogue would be
 needed, not a separate reduction.
+
+### Traced token loop, prototyped and not shipped (2026-10-20, ttsim)
+
+A `TracedInference::capture_with_state` of one layer (`rwkv7::trace_token`) captured the first
+token's matrix exactly as the eager path (4.95e-4 against Flex), but a replay's second token
+differed by 9.7e-4 and its recurrent matrix by 2.13e-3 (the eager path's second-token matrix is
+3.66e-4 from Flex). The matrix state output was right after capture, so the likely gap is the
+attention/forget state vectors or the replay's state-copy ordering, not the matrix. The prototype
+was reverted; a trace needs the vector states observed and the copy order checked before it ships.

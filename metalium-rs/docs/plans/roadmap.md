@@ -142,6 +142,10 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
      nearly unchanged fast matmul; `64x32x64` was 15% lower on both. The per-digit program was reverted. The saving needs **one
      program that computes the chain once and stores all four/five digits** (a multi-output kernel), or a cheaper digit
      extraction -- not one program per digit.
+3. **Trace/replay the token loop.** Prototyped on one layer (`TracedInference::capture_with_state`):
+   the captured matrix matched the eager path, but a replay's second token differed by 9.7e-4 and
+   its matrix by 2.13e-3 (eager 3.66e-4), so the vector-state carry or the replay's copy order needs
+   work; the prototype was reverted (see the performance log).
   2. **A cheaper NaN and infinity classification**: about 45 of the 127 jobs (15 an operand: `is_nan`, `is_inf`, `== 0`, three
      bool-to-float, `bool_not`, `mask_fill`, `sign`, `mul`, two `sub`, a `sum_dim`, a second `mask_fill`, `clamp`, then six 0/+-1
      matmuls and about a dozen combining ops). One kind per operand producing the encodings (`inf_sign`, `finite_sign`, the zero and
