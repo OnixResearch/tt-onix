@@ -103,6 +103,10 @@ pub const SMOKE: &[&str] = &[
     // refusals, or with `--feature fast-reads` the encoded reads' (step172).
     "step172_encoded_reads::",
     "step173_mover_differential::",
+    // The one-head RWKV-7 WKV7 kernel: the role streams and their GDDR
+    // session form (step186), then the same step through `burn-tt` (step187).
+    "step186_wkv7::",
+    "step187_wkv7_burn::",
     "step19_eltwise::",
     "step27_burn_eltwise::",
     "step32_burn_softmax::",

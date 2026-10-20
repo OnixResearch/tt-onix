@@ -9,16 +9,17 @@
 //! ```
 //!
 //! The reference is device-free. [`step_device`] expresses the same equation as
-//! Burn tensor operations on `TtBackend`, so it exercises the existing matmul,
-//! broadcast, elementwise and transfer paths without a new Tensix kernel. It is
-//! a correctness gate, not the final fused kernel.
+//! Burn tensor operations on `TtBackend`, exercising the matmul, broadcast,
+//! elementwise and transfer paths. [`step_head_device_attached`] is the fused
+//! route: one head through `burn_tt::wkv7_step` and the one-head Tensix kernel
+//! (`tt_kernels::wkv7`), one device job.
 
 pub mod layer;
 pub mod tokenizer;
 
 pub mod checkpoint;
 
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::{Tensor, TensorData, TensorPrimitive};
 use burn_tt::{accurate_matmul, TtBackend, TtDevice, TtError};
 
 pub const HEAD_COUNT: usize = 12;
@@ -175,6 +176,62 @@ pub fn step_device_attached(device: TtDevice, inputs: &Inputs) -> Result<Outputs
         state: to_vec(next_state)?,
         out: to_vec(out)?,
     })
+}
+
+/// One head of the recurrence through the fused kernel
+/// (`burn_tt::wkv7_step`): one device job instead of the composed path's
+/// matmuls, broadcasts and adds.
+///
+/// The kernel returns one `[64, 96]` tensor -- the updated state in columns
+/// 0..64 and the output replicated across 64..96 -- split by
+/// [`tt_kernels::wkv7::split_step`]. `device` must already be attached.
+pub struct HeadOutputs {
+    /// `[64, 64]`, row-major.
+    pub state: Vec<f32>,
+    /// `[64]`.
+    pub out: Vec<f32>,
+}
+
+/// [`HeadOutputs`] for `head` of `inputs`, on an attached `device`.
+pub fn step_head_device_attached(
+    device: TtDevice,
+    inputs: &Inputs,
+    head: usize,
+) -> Result<HeadOutputs, String> {
+    inputs.validate()?;
+    if head >= HEAD_COUNT {
+        return Err(format!("head {head} of {HEAD_COUNT}"));
+    }
+    let d = HEAD_SIZE;
+    let base = head * d;
+    let state_base = head * d * d;
+    let float = |t: Tensor<TtBackend, 2>| match t.into_primitive() {
+        TensorPrimitive::Float(t) => t,
+        _ => unreachable!("an F32 tensor"),
+    };
+    let matrix = |values: Vec<f32>, rows: usize, cols: usize| {
+        float(Tensor::from_data(
+            TensorData::new(values, [rows, cols]),
+            &device,
+        ))
+    };
+    let state = matrix(inputs.state[state_base..state_base + d * d].to_vec(), d, d);
+    let row = |v: &[f32]| matrix(v[base..base + d].to_vec(), 1, d);
+    let combined = burn_tt::wkv7_step(
+        state,
+        row(&inputs.r),
+        row(&inputs.w),
+        row(&inputs.k),
+        matrix(inputs.v[base..base + d].to_vec(), d, 1),
+        row(&inputs.a),
+        row(&inputs.b),
+    );
+    let values = Tensor::<TtBackend, 2>::from_primitive(TensorPrimitive::Float(combined))
+        .into_data()
+        .to_vec::<f32>()
+        .map_err(|error| error.to_string())?;
+    let (state, out) = tt_kernels::wkv7::split_step(&values);
+    Ok(HeadOutputs { state, out })
 }
 
 /// Attach a card once for a multi-step run. Returns the device on success.

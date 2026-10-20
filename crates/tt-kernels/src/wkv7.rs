@@ -410,6 +410,150 @@ fn update_kv(p: &mut Program, state: u32, k: u32, v: u32) {
     });
 }
 
+/// A `[64, 96]` step result split into the head's state `[64, 64]` and its
+/// output `[64]`: columns 0..64 of each row are the state, and columns 64..96
+/// are the output replicated across 32 columns.
+pub fn split_step(values: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    assert_eq!(
+        values.len(),
+        HEAD_SIZE * (HEAD_SIZE + 32),
+        "a step result is 64 rows of 96 columns"
+    );
+    let mut state = Vec::with_capacity(HEAD_SIZE * HEAD_SIZE);
+    let mut out = Vec::with_capacity(HEAD_SIZE);
+    for row in 0..HEAD_SIZE {
+        let at = row * (HEAD_SIZE + 32);
+        state.extend_from_slice(&values[at..at + HEAD_SIZE]);
+        out.push(values[at + HEAD_SIZE]);
+    }
+    (state, out)
+}
+
+/// One head's step as GDDR-resident work for [`crate::session::Session`]:
+/// a gather of the four state tiles and twelve vector tiles, the kernel, and
+/// a scatter of the four updated state tiles and two output tiles.
+///
+/// The output is one `[64, 96]` tensor, state in columns 0..64 and the output
+/// (replicated across 32 columns) in 64..96, so a session op has one result
+/// buffer; [`split_step`] reads it back. Row vectors are `[1, 64]` tensors, so
+/// the mover reads each half as one tile and the unpacker spreads it; `v` is a
+/// `[64, 1]` column the mover broadcasts across each tile
+/// (`tt_isa::dm::op::READ_BROADCAST_COL`).
+///
+/// The vector tensors are ragged (`[1, 64]`, `[64, 1]`) and their padding is
+/// never read: the unpacker takes face 0/1 row 0 of each row-vector tile, and
+/// the mover copies column 0 of each column-vector tile. State and output are
+/// whole tiles.
+#[allow(clippy::too_many_arguments)]
+pub fn work(
+    alloc: &mut crate::tensor::DramAlloc,
+    state: &crate::tensor::DramTensor,
+    r: &crate::tensor::DramTensor,
+    w: &crate::tensor::DramTensor,
+    k: &crate::tensor::DramTensor,
+    v: &crate::tensor::DramTensor,
+    a: &crate::tensor::DramTensor,
+    b: &crate::tensor::DramTensor,
+) -> Result<crate::tensor::Work, crate::tensor::TensorError> {
+    use crate::tensor::{DramTensor, Elem, Step, TensorError, Work};
+    use std::sync::Arc;
+    use tt_isa::dm::record;
+
+    let expect = |t: &DramTensor, name: &str, rows: usize, cols: usize| {
+        if t.elem != Elem::F32 {
+            return Err(TensorError::Elem {
+                op: "wkv7 step".into(),
+                got: t.elem,
+                wants: Elem::F32,
+            });
+        }
+        if (t.rows, t.cols) != (rows, cols) {
+            return Err(TensorError::Shape(format!(
+                "wkv7 {name}: [{}x{}], expected [{rows}x{cols}]",
+                t.rows, t.cols
+            )));
+        }
+        Ok(())
+    };
+    expect(state, "state", HEAD_SIZE, HEAD_SIZE)?;
+    for (name, t) in [("r", r), ("w", w), ("k", k), ("a", a), ("b", b)] {
+        expect(t, name, 1, HEAD_SIZE)?;
+    }
+    expect(v, "v", HEAD_SIZE, 1)?;
+
+    let layout = plan_layout().map_err(|e| TensorError::Shape(format!("wkv7 layout: {e}")))?;
+    let read = |t: &DramTensor, first: usize, at: u64, flags: u32, ct: usize| {
+        let [head, bases] = t.tensor_ref().encode();
+        [
+            [
+                record::READ_RUN,
+                first as u32,
+                1,
+                at as u32,
+                flags,
+                ct as u32,
+                0,
+                0,
+            ],
+            head,
+            bases,
+        ]
+    };
+    let out = DramTensor::alloc_elem(alloc, HEAD_SIZE, HEAD_SIZE + 32, Elem::F32)?;
+    let mut gather = Vec::new();
+    for (i, slot) in layout.state_in.iter().enumerate() {
+        gather.extend(read(state, i, *slot, 0, 2));
+    }
+    for (t, slot) in [a, w, b, k, r]
+        .iter()
+        .zip([&layout.a, &layout.w, &layout.b, &layout.k, &layout.r])
+    {
+        for (half, at) in slot.iter().enumerate() {
+            gather.extend(read(t, half, *at, 0, 2));
+        }
+    }
+    for (p, at) in layout.v.iter().enumerate() {
+        gather.extend(read(v, p, *at, 2, 1));
+    }
+    let [head, bases] = out.tensor_ref().encode();
+    let write = |first: usize, at: u64| {
+        [
+            [record::WRITE_RUN, first as u32, 1, at as u32, 0, 0, 0, 0],
+            head,
+            bases,
+        ]
+    };
+    let mut scatter = Vec::new();
+    for (tile, slot) in layout.state_out.iter().enumerate() {
+        let first = (tile / 2) * 3 + tile % 2;
+        scatter.extend(write(first, *slot));
+    }
+    for (p, slot) in layout.out.iter().enumerate() {
+        scatter.extend(write(p * 3 + 2, *slot));
+    }
+    let job = vec![
+        Step::List {
+            what: "wkv7 gather",
+            entries: gather,
+        },
+        Step::Kernel {
+            roles: Arc::new(roles(&layout)),
+            init: layout.init.clone(),
+            mop: Box::new([None; 3]),
+            loops: Arc::new([Vec::new(), Vec::new(), Vec::new()]),
+            half: None,
+        },
+        Step::List {
+            what: "wkv7 scatter",
+            entries: scatter,
+        },
+    ];
+    Ok(Work {
+        out,
+        jobs: vec![job],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

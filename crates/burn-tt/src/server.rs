@@ -340,6 +340,23 @@ pub trait Engine {
     ) -> Result<(BufferId, [usize; 2]), TtError> {
         Err(unsupported())
     }
+    /// One head of RWKV-7's WKV7 recurrence on the device
+    /// (`tt_kernels::session::Session::wkv7_step`): state `[64, 64]`,
+    /// `r`/`w`/`k`/`a`/`b` `[1, 64]`, `v` `[64, 1]`, and one `[64, 96]`
+    /// result -- state in columns 0..64, the output replicated in 64..96.
+    #[allow(clippy::too_many_arguments)]
+    fn wkv7_step(
+        &mut self,
+        _state: BufferId,
+        _r: BufferId,
+        _w: BufferId,
+        _k: BufferId,
+        _v: BufferId,
+        _a: BufferId,
+        _b: BufferId,
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        Err(unsupported())
+    }
     /// Inclusive scan down matrix rows, keeping all prefixes resident.
     fn scan(
         &mut self,
@@ -1329,6 +1346,31 @@ impl DramBuffers {
         let ta = self.get(a)?.clone();
         let c = s.reduce(&ta, op, axis).map_err(TtError::from)?;
         Ok(self.insert(c))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn wkv7_step<T: tt_device::Transport>(
+        &mut self,
+        s: &mut Session<T>,
+        state: BufferId,
+        r: BufferId,
+        w: BufferId,
+        k: BufferId,
+        v: BufferId,
+        a: BufferId,
+        b: BufferId,
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        let state = self.get(state)?.clone();
+        let r = self.get(r)?.clone();
+        let w = self.get(w)?.clone();
+        let k = self.get(k)?.clone();
+        let v = self.get(v)?.clone();
+        let a = self.get(a)?.clone();
+        let b = self.get(b)?.clone();
+        let out = s
+            .wkv7_step(&state, &r, &w, &k, &v, &a, &b)
+            .map_err(TtError::from)?;
+        Ok(self.insert(out))
     }
 
     pub fn scan<T: tt_device::Transport>(
@@ -2570,6 +2612,40 @@ pub(crate) fn reduce(
     )
 }
 
+/// One head of RWKV-7's WKV7 recurrence, without waiting.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wkv7_step(
+    device: TtDevice,
+    state: BufferId,
+    r: BufferId,
+    w: BufferId,
+    k: BufferId,
+    v: BufferId,
+    a: BufferId,
+    b: BufferId,
+) -> (BufferId, [usize; 2]) {
+    submit(
+        "wkv7_step",
+        device,
+        [
+            tt_kernels::wkv7::HEAD_SIZE,
+            tt_kernels::wkv7::HEAD_SIZE + 32,
+        ],
+        || "one-head WKV7 step".into(),
+        move |engine, ids| {
+            engine.wkv7_step(
+                ids.get(state)?,
+                ids.get(r)?,
+                ids.get(w)?,
+                ids.get(k)?,
+                ids.get(v)?,
+                ids.get(a)?,
+                ids.get(b)?,
+            )
+        },
+    )
+}
+
 pub(crate) fn scan(
     device: TtDevice,
     a: BufferId,
@@ -3097,6 +3173,19 @@ impl Engine for KmdEngine {
     ) -> Result<(BufferId, [usize; 2]), TtError> {
         let bufs = self.buffers.as_mut().ok_or_else(unsupported)?;
         bufs.reduce(&mut self.session, a, op, axis)
+    }
+    fn wkv7_step(
+        &mut self,
+        state: BufferId,
+        r: BufferId,
+        w: BufferId,
+        k: BufferId,
+        v: BufferId,
+        a: BufferId,
+        b: BufferId,
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        let bufs = self.buffers.as_mut().ok_or_else(unsupported)?;
+        bufs.wkv7_step(&mut self.session, state, r, w, k, v, a, b)
     }
     fn scan(
         &mut self,

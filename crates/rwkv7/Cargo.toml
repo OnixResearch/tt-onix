@@ -10,5 +10,6 @@ publish = false
 [dependencies]
 burn.workspace = true
 burn-tt.workspace = true
+tt-kernels.workspace = true
 burn-flex.workspace = true
 safetensors = "0.6"

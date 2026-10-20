@@ -54,7 +54,7 @@ mod views;
 pub use error::TtError;
 pub use matmul_mode::{accurate_matmul, exact_matmul, with_matmul_mode, MatmulMode};
 #[doc(hidden)]
-pub use ops::{set_accurate_matmul_slicing, set_exact_matmul_chunk_products};
+pub use ops::{set_accurate_matmul_slicing, set_exact_matmul_chunk_products, wkv7_step};
 pub use random::Draw;
 pub use report::{
     host_ok, report, report_reset, server_report, server_report_reset, set_strict, strict,

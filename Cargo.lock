@@ -4127,6 +4127,7 @@ dependencies = [
  "burn-flex",
  "burn-tt",
  "safetensors 0.6.2",
+ "tt-kernels",
 ]
 
 [[package]]

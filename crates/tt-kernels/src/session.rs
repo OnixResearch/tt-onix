@@ -4765,6 +4765,30 @@ impl<T: Transport> Session<T> {
         Ok(out)
     }
 
+    /// One head of RWKV-7's WKV7 recurrence (`crate::wkv7`): the four state
+    /// tiles and twelve vector tiles are gathered from GDDR into L1, one
+    /// three-role kernel runs, and the updated state and output are scattered
+    /// back. The result is one `[64, 96]` tensor -- state in columns 0..64,
+    /// the output replicated across columns 64..96 (`wkv7::split_step`).
+    ///
+    /// The kernel is one tile's worth of work: it runs on unit 0 whatever the
+    /// session's spread. Inputs: state `[64, 64]`, `r`/`w`/`k`/`a`/`b`
+    /// `[1, 64]`, `v` `[64, 1]`, all F32.
+    #[allow(clippy::too_many_arguments)]
+    pub fn wkv7_step(
+        &mut self,
+        state: &DramTensor,
+        r: &DramTensor,
+        w: &DramTensor,
+        k: &DramTensor,
+        v: &DramTensor,
+        a: &DramTensor,
+        b: &DramTensor,
+    ) -> Result<DramTensor, TensorError> {
+        let work = crate::wkv7::work(&mut self.dram_state()?.alloc, state, r, w, k, v, a, b)?;
+        self.execute_on(work, 1, RESET_BUDGET)
+    }
+
     /// `a` reduced over `axis` by `op`: `[rows, 1]` over columns, `[1, cols]`
     /// over rows. On the SFPU ([`tensor::sfpu_reduce`]); a sum over rows in
     /// Flex's order ([`Session::sum_rows`]).

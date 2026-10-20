@@ -27,6 +27,15 @@ With an engine that keeps tensors in GDDR (`KmdEngine`, and the ttsim engine in
 | `float_expand` / `int_expand` / `bool_expand` | native byte-preserving gathers and transposes |
 | `float_slice` of whole rows on 32-row bounds | a view, no copy |
 
+`burn_tt::wkv7_step` is a model-level op rather than a Burn trait method: one
+head of RWKV-7's WKV7 recurrence in one device job (`Session::wkv7_step` --
+gather, one three-role kernel, scatter; `tt_kernels::wkv7`). Its result is one
+`[64, 96]` tensor, state in columns 0..64 and the output replicated in 64..96;
+`tt_kernels::wkv7::split_step` reads it back. `crates/rwkv7`'s
+`step_head_device_attached` is the caller; `step187_wkv7_burn` gates it on ttsim
+and card 0. It is single-card: a mesh engine refuses the op (the kernel is one
+tile's work).
+
 Supported element-wise ops upload inputs as needed and compute on the device. A rank-N
 `float_matmul` whose right side has no real batch (a `Linear` over `[b, s, d]`) folds
 the batch into the rows and runs as the 2-D product; so do `linear_weight_backward` and

@@ -428,6 +428,63 @@ fn retag(tensor: TtTensor, device: &TtDevice) -> TtTensor {
     TtTensor::new(tensor.into_host(), *device)
 }
 
+/// One head of RWKV-7's WKV7 recurrence on the device, through the fused
+/// Tensix kernel (`tt_kernels::wkv7`).
+///
+/// `state` is `[64, 64]`; `r`, `w`, `k`, `a` and `b` are `[1, 64]` rows and
+/// `v` is `[64, 1]`, all F32 on one device. The result is one `[64, 96]`
+/// tensor: the updated state in columns 0..64 and the output (replicated
+/// across 32 columns) in 64..96, read with `tt_kernels::wkv7::split_step`.
+/// One device job: gather, one three-role kernel, scatter.
+pub fn wkv7_step(
+    state: TtTensor,
+    r: TtTensor,
+    w: TtTensor,
+    k: TtTensor,
+    v: TtTensor,
+    a: TtTensor,
+    b: TtTensor,
+) -> TtTensor {
+    use tt_kernels::wkv7::HEAD_SIZE;
+    let device = state.device;
+    let check = |name: &str, t: &TtTensor, rows: usize, cols: usize| {
+        assert_eq!(
+            t.device, device,
+            "wkv7_step: {name} on another device ({} against {})",
+            t.device.chip, device.chip
+        );
+        assert_eq!(t.dtype(), DType::F32, "wkv7_step: {name} is not F32");
+        assert_eq!(
+            t.shape().to_vec(),
+            vec![rows, cols],
+            "wkv7_step: {name} shape"
+        );
+    };
+    check("state", &state, HEAD_SIZE, HEAD_SIZE);
+    for (name, t) in [("r", &r), ("w", &w), ("k", &k), ("a", &a), ("b", &b)] {
+        check(name, t, 1, HEAD_SIZE);
+    }
+    check("v", &v, HEAD_SIZE, 1);
+    let state = plain_dram(&state);
+    let r = plain_dram(&r);
+    let w = plain_dram(&w);
+    let k = plain_dram(&k);
+    let v = plain_dram(&v);
+    let a = plain_dram(&a);
+    let b = plain_dram(&b);
+    let (id, dims) = crate::server::wkv7_step(
+        device,
+        state.buffer.id,
+        r.buffer.id,
+        w.buffer.id,
+        k.buffer.id,
+        v.buffer.id,
+        a.buffer.id,
+        b.buffer.id,
+    );
+    device_result(device, id, dims)
+}
+
 /// A device result as a tensor.
 fn device_result(device: TtDevice, id: crate::server::BufferId, dims: [usize; 2]) -> TtTensor {
     device_view(device, id, dims, None, DType::F32)

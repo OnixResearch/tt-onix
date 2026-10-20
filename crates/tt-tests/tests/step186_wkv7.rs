@@ -194,6 +194,42 @@ fn check(what: &str, got: &[f32], want: &[f32]) {
     );
 }
 
+/// The same step through the GDDR-resident path a backend uses: upload the
+/// head as tensors, one `Session::wkv7_step` (gather, kernel, scatter), and
+/// download the combined result.
+#[test]
+fn the_session_op_matches_the_host_reference() {
+    use tt_kernels::session::TileChoice;
+    use tt_tests::backend::{with_session, GATE_TILE};
+
+    let first = inputs(7, None);
+    let host = step(&first).expect("host step");
+    let head = Head::of(&first);
+    with_session(TileChoice::Exactly(GATE_TILE.0, GATE_TILE.1), |s| {
+        s.enable_dram(tt_firmware_images::DM_B.1, tt_firmware_images::DM_NC.1)
+            .expect("enable GDDR");
+        let state = s.upload(&head.state, 64, 64).expect("state");
+        let r = s.upload(&head.r, 1, 64).expect("r");
+        let w = s.upload(&head.w, 1, 64).expect("w");
+        let k = s.upload(&head.k, 1, 64).expect("k");
+        let v = s.upload(&head.v, 64, 1).expect("v");
+        let a = s.upload(&head.a, 1, 64).expect("a");
+        let b = s.upload(&head.b, 1, 64).expect("b");
+        let combined = s
+            .wkv7_step(&state, &r, &w, &k, &v, &a, &b)
+            .expect("one-head WKV7 step");
+        assert_eq!([combined.rows, combined.cols], [64, 96]);
+        let values = s.download(&combined).expect("download");
+        let (state, out) = wkv7::split_step(&values);
+        check(
+            "session state",
+            &state,
+            &host.state[..HEAD_SIZE * HEAD_SIZE],
+        );
+        check("session out", &out, &host.out[..HEAD_SIZE]);
+    });
+}
+
 #[test]
 fn one_head_wkv7_step_matches_the_host_reference_and_carries_its_state() {
     let layout = wkv7::plan_layout().expect("one head fits the data arena");

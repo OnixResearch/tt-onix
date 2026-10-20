@@ -326,10 +326,12 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   max 3.0e-8 on the state, 7.5e-8 on the output, against a 1e-5 bound; zeroing `a` moves the output
   9.9e-2, the negative control). Row vectors arrive raw (`[1, 64]`), and the unpacker lays them into
   the row-broadcast form; `v` is a `[64, 1]` column the mover broadcasts. Card 0 run `1792472083`,
-  0.40 s. Left: routing a one-head step through `burn-tt`; only then the layer and model. The kernel
-  takes 22 vector unpacks per token because `Dst` holds just two vector slots beside the four state
-  tiles, so a later version should stage vectors in `Src` or reuse a vector across the four state
-  tiles.
+  0.40 s. The GDDR-resident form (`wkv7::work` + `Session::wkv7_step`) and its `burn-tt` route
+  (`burn_tt::wkv7_step`, `rwkv7::step_head_device_attached`) pass the same gate on ttsim and card 0
+  (`step187_wkv7_burn`, run `1792472975`, 0.91 s). Left: all twelve heads per token and the layer and
+  model. The kernel takes 22 vector unpacks per token because `Dst` holds just two vector slots beside
+  the four state tiles, so a later version should stage vectors in `Src` or reuse a vector across the
+  four state tiles.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL
