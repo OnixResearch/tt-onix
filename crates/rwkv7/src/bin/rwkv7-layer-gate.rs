@@ -8,7 +8,7 @@ use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TtBackend, TtConfig, TtDevice};
 use rwkv7::checkpoint::Checkpoint;
-use rwkv7::layer::{layer_step, synthetic_spec, LayerSpec, LayerState, HIDDEN};
+use rwkv7::layer::{layer_step, layer_step_fused, synthetic_spec, LayerSpec, LayerState, HIDDEN};
 
 const TOLERANCE: f32 = 1.0e-3;
 
@@ -47,22 +47,41 @@ fn run_flex(first: &LayerSpec, second: &LayerSpec) -> ([Vec<f32>; 2], [Vec<f32>;
     )
 }
 
-fn run_tt(first: &LayerSpec, second: &LayerSpec, card: u16) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
+fn run_tt(
+    first: &LayerSpec,
+    second: &LayerSpec,
+    card: u16,
+    fused: bool,
+) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
     let device = TtDevice::new(card);
     burn_tt::init(device, TtConfig::default()).expect("attach card");
     let weights = first.materialize::<TtBackend>(&device);
     accurate_matmul(|| {
         let mut state = LayerState::<TtBackend>::zeros(&device);
-        let one = layer_step(&weights, hidden(&first.hidden, &device), &state, true, None);
+        let one = if fused {
+            layer_step_fused(&weights, hidden(&first.hidden, &device), &state, true, None)
+        } else {
+            layer_step(&weights, hidden(&first.hidden, &device), &state, true, None)
+        };
         let first_matrix = to_vec(one.1.matrix.clone());
         state = one.1;
-        let two = layer_step(
-            &weights,
-            hidden(&second.hidden, &device),
-            &state,
-            true,
-            None,
-        );
+        let two = if fused {
+            layer_step_fused(
+                &weights,
+                hidden(&second.hidden, &device),
+                &state,
+                true,
+                None,
+            )
+        } else {
+            layer_step(
+                &weights,
+                hidden(&second.hidden, &device),
+                &state,
+                true,
+                None,
+            )
+        };
         (
             [to_vec(one.0), to_vec(two.0)],
             [first_matrix, to_vec(two.1.matrix)],
@@ -73,6 +92,7 @@ fn run_tt(first: &LayerSpec, second: &LayerSpec, card: u16) -> ([Vec<f32>; 2], [
 fn main() -> std::process::ExitCode {
     let mut card = None;
     let mut checkpoint = None;
+    let mut fused = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -89,6 +109,7 @@ fn main() -> std::process::ExitCode {
                     }
                 }
             }
+            "--fused" => fused = true,
             "--checkpoint" => {
                 let Some(value) = args.next() else {
                     eprintln!("--checkpoint needs a safetensors path");
@@ -97,12 +118,13 @@ fn main() -> std::process::ExitCode {
                 checkpoint = Some(value);
             }
             "-h" | "--help" => {
-                println!("usage: rwkv7-layer-gate [--checkpoint PATH] [--card N]");
+                println!("usage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused]");
+                println!("  --fused  the WKV7 recurrence through the one-head kernel");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N]"
+                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -163,7 +185,7 @@ fn main() -> std::process::ExitCode {
         println!("flex layer PASS; pass --card N to run the device gate");
         return std::process::ExitCode::SUCCESS;
     };
-    let (tt_hidden, tt_state) = run_tt(&first, &second, card);
+    let (tt_hidden, tt_state) = run_tt(&first, &second, card, fused);
     let gaps = [
         ("token1 hidden", max_abs(&tt_hidden[0], &flex_hidden[0])),
         ("token2 hidden", max_abs(&tt_hidden[1], &flex_hidden[1])),

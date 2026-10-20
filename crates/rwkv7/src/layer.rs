@@ -9,7 +9,8 @@
 //! weights. It is a layer-graph and state-carry check, not a real-weight model
 //! result.
 
-use burn::tensor::{activation, backend::Backend, Tensor, TensorData};
+use burn::tensor::{activation, backend::Backend, Tensor, TensorData, TensorPrimitive};
+use burn_tt::TtBackend;
 
 pub const HIDDEN: usize = 768;
 pub const INTERMEDIATE: usize = 3072;
@@ -206,6 +207,101 @@ fn mixed<B: Backend>(
     current.clone() + (previous - current) * factor
 }
 
+/// The WKV7 recurrence the layer runs: `(matrix, key_key, adaptation, decay,
+/// value, key, receptance)` for all heads, to `(next matrix, recurrent
+/// output)`. [`composed_recurrence`] is the Burn-op form and
+/// [`fused_tt_recurrence`] the one-head Tensix kernel, twelve launches.
+pub type Recurrence<B> = fn(
+    Tensor<B, 3>,
+    Tensor<B, 2>,
+    Tensor<B, 2>,
+    Tensor<B, 2>,
+    Tensor<B, 2>,
+    Tensor<B, 2>,
+    Tensor<B, 2>,
+) -> (Tensor<B, 3>, Tensor<B, 2>);
+
+/// The recurrence as Burn tensor operations: a matmul for `S @ a`, the decay
+/// and outer terms, and a matmul for the output. What every backend computes;
+/// `TtBackend` can replace it with [`fused_tt_recurrence`].
+pub fn composed_recurrence<B: Backend>(
+    matrix: Tensor<B, 3>,
+    key_key: Tensor<B, 2>,
+    adaptation: Tensor<B, 2>,
+    decay: Tensor<B, 2>,
+    value: Tensor<B, 2>,
+    key: Tensor<B, 2>,
+    receptance: Tensor<B, 2>,
+) -> (Tensor<B, 3>, Tensor<B, 2>) {
+    let state_dot_a = matrix
+        .clone()
+        .matmul((key_key.clone() * -1.0).unsqueeze_dim::<3>(2));
+    let next_matrix = matrix * decay.unsqueeze_dim::<3>(1)
+        + state_dot_a * (key_key * adaptation).unsqueeze_dim::<3>(1)
+        + value.unsqueeze_dim::<3>(2) * key.unsqueeze_dim::<3>(1);
+    let recurrent_output = next_matrix
+        .clone()
+        .matmul(receptance.unsqueeze_dim::<3>(2))
+        .squeeze_dim::<2>(2);
+    (next_matrix, recurrent_output)
+}
+
+/// [`composed_recurrence`] with the one-head WKV7 kernel
+/// (`burn_tt::wkv7_step`) launched once per head. The state comes back as
+/// twelve `[64, 64]` results concatenated along the head axis; each output is
+/// the kernel's replicated `[64, 32]` result, read at column 0.
+pub fn fused_tt_recurrence(
+    matrix: Tensor<TtBackend, 3>,
+    key_key: Tensor<TtBackend, 2>,
+    adaptation: Tensor<TtBackend, 2>,
+    decay: Tensor<TtBackend, 2>,
+    value: Tensor<TtBackend, 2>,
+    key: Tensor<TtBackend, 2>,
+    receptance: Tensor<TtBackend, 2>,
+) -> (Tensor<TtBackend, 3>, Tensor<TtBackend, 2>) {
+    let rank = key_key.clone() * adaptation;
+    let mut states = Vec::with_capacity(HEADS);
+    let mut outs = Vec::with_capacity(HEADS);
+    for head in 0..HEADS {
+        let row = |t: Tensor<TtBackend, 2>| t.slice([head..head + 1, 0..HEAD_SIZE]);
+        let state = matrix
+            .clone()
+            .slice([head..head + 1, 0..HEAD_SIZE, 0..HEAD_SIZE])
+            .reshape([HEAD_SIZE, HEAD_SIZE]);
+        let a = row(key_key.clone()) * -1.0;
+        let b = row(rank.clone());
+        let w = row(decay.clone());
+        let v = row(value.clone()).reshape([HEAD_SIZE, 1]);
+        let k = row(key.clone());
+        let r = row(receptance.clone());
+        let combined = burn_tt::wkv7_step(
+            float(state),
+            float(r),
+            float(w),
+            float(k),
+            float(v),
+            float(a),
+            float(b),
+        );
+        let combined = Tensor::<TtBackend, 2>::from_primitive(TensorPrimitive::Float(combined));
+        states.push(combined.clone().slice([0..HEAD_SIZE, 0..HEAD_SIZE]));
+        outs.push(
+            combined
+                .slice([0..HEAD_SIZE, HEAD_SIZE..HEAD_SIZE + 1])
+                .reshape([1, HEAD_SIZE]),
+        );
+    }
+    let next = Tensor::cat(states, 0).reshape([HEADS, HEAD_SIZE, HEAD_SIZE]);
+    (next, Tensor::cat(outs, 0))
+}
+
+fn float(t: Tensor<TtBackend, 2>) -> burn_tt::TtTensor {
+    match t.into_primitive() {
+        TensorPrimitive::Float(t) => t,
+        _ => unreachable!("an F32 tensor"),
+    }
+}
+
 /// Run one layer token. `layer_zero` selects the pre-norm and omits the v-LoRA
 /// (the checkpoint has no v-LoRA at layer 0). `anchor` is required for nonzero
 /// layers; layer zero returns the anchor it established.
@@ -215,6 +311,27 @@ pub fn layer_step<B: Backend>(
     state: &LayerState<B>,
     layer_zero: bool,
     anchor: Option<Tensor<B, 2>>,
+) -> (Tensor<B, 2>, LayerState<B>, Option<Tensor<B, 2>>) {
+    layer_step_with(
+        weights,
+        hidden,
+        state,
+        layer_zero,
+        anchor,
+        composed_recurrence::<B>,
+    )
+}
+
+/// [`layer_step`] with the WKV7 recurrence chosen by the caller. Everything
+/// else -- norms, token shift, projections, LoRA, the value correction and the
+/// mixer -- is the same graph.
+pub fn layer_step_with<B: Backend>(
+    weights: &LayerWeights<B>,
+    hidden: Tensor<B, 2>,
+    state: &LayerState<B>,
+    layer_zero: bool,
+    anchor: Option<Tensor<B, 2>>,
+    recurrence: Recurrence<B>,
 ) -> (Tensor<B, 2>, LayerState<B>, Option<Tensor<B, 2>>) {
     let residual = if layer_zero {
         layer_norm(
@@ -312,18 +429,15 @@ pub fn layer_step<B: Backend>(
     let adaptation_heads: Tensor<B, 2> = adaptation.reshape([HEADS, HEAD_SIZE]);
     let decay_heads: Tensor<B, 2> = decay.reshape([HEADS, HEAD_SIZE]);
 
-    let state_dot_a = state
-        .matrix
-        .clone()
-        .matmul((key_key.clone() * -1.0).unsqueeze_dim::<3>(2));
-    let next_matrix = state.matrix.clone() * decay_heads.unsqueeze_dim::<3>(1)
-        + state_dot_a * (key_key * adaptation_heads).unsqueeze_dim::<3>(1)
-        + value_heads.clone().unsqueeze_dim::<3>(2) * key_heads.clone().unsqueeze_dim::<3>(1);
-
-    let recurrent_output = next_matrix
-        .clone()
-        .matmul(receptance_heads.clone().unsqueeze_dim::<3>(2))
-        .squeeze_dim::<2>(2);
+    let (next_matrix, recurrent_output) = recurrence(
+        state.matrix.clone(),
+        key_key,
+        adaptation_heads,
+        decay_heads,
+        value_heads.clone(),
+        key_heads.clone(),
+        receptance_heads.clone(),
+    );
     let normalized = group_norm(
         recurrent_output,
         weights.g_norm_w.clone(),
@@ -359,6 +473,30 @@ pub fn layer_step<B: Backend>(
 }
 
 /// Deterministic synthetic weights for the differential gate.
+/// [`layer_step`] for `TtBackend` with the fused one-head kernel as the
+/// recurrence (`fused_tt_recurrence`). Opt-in: the twelve launches are a
+/// correctness path, while the model gates stay on the composed graph.
+pub fn layer_step_fused(
+    weights: &LayerWeights<TtBackend>,
+    hidden: Tensor<TtBackend, 2>,
+    state: &LayerState<TtBackend>,
+    layer_zero: bool,
+    anchor: Option<Tensor<TtBackend, 2>>,
+) -> (
+    Tensor<TtBackend, 2>,
+    LayerState<TtBackend>,
+    Option<Tensor<TtBackend, 2>>,
+) {
+    layer_step_with(
+        weights,
+        hidden,
+        state,
+        layer_zero,
+        anchor,
+        fused_tt_recurrence,
+    )
+}
+
 pub fn synthetic_spec(seed: u64) -> LayerSpec {
     fn lcg(state: &mut u64) -> f32 {
         *state = state

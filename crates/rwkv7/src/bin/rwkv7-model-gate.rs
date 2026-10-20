@@ -8,7 +8,9 @@ use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TtBackend, TtConfig, TtDevice};
 use rwkv7::checkpoint::Checkpoint;
-use rwkv7::layer::{layer_norm, layer_step, LayerSpec, LayerState, LayerWeights, HIDDEN};
+use rwkv7::layer::{
+    layer_norm, layer_step, layer_step_fused, LayerSpec, LayerState, LayerWeights, HIDDEN,
+};
 
 const LAYER_COUNT: usize = 12;
 const RELATIVE_TOLERANCE: f32 = 1.0e-4;
@@ -18,6 +20,15 @@ const EXPECTED_RUNNER: u32 = 33;
 const EXPECTED_RUNNER_LOGIT: f32 = 0.896_408_86;
 const EXPECTED_MARGIN: f32 = 1.967_699_5;
 const TOKEN_TOLERANCE: f32 = 1.0e-2;
+
+/// One layer token, with the WKV7 recurrence the caller chose.
+type Step<B> = fn(
+    &LayerWeights<B>,
+    Tensor<B, 2>,
+    &LayerState<B>,
+    bool,
+    Option<Tensor<B, 2>>,
+) -> (Tensor<B, 2>, LayerState<B>, Option<Tensor<B, 2>>);
 
 fn vector<B: burn::tensor::backend::Backend>(values: &[f32], device: &B::Device) -> Tensor<B, 2> {
     Tensor::from_data(TensorData::new(values.to_vec(), [1, HIDDEN]), device)
@@ -96,6 +107,7 @@ fn run<B: burn::tensor::backend::Backend>(
     lm_head: &Tensor<B, 2>,
     embeddings: &[Vec<f32>; 2],
     device: &B::Device,
+    step: Step<B>,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let mut states: Vec<LayerState<B>> = (0..LAYER_COUNT)
         .map(|_| LayerState::<B>::zeros(device))
@@ -106,7 +118,7 @@ fn run<B: burn::tensor::backend::Backend>(
         let mut anchor = None;
         for (layer, layer_weights) in weights.iter().enumerate() {
             let (next, state, next_anchor) =
-                layer_step(layer_weights, hidden, &states[layer], layer == 0, anchor);
+                step(layer_weights, hidden, &states[layer], layer == 0, anchor);
             hidden = next;
             states[layer] = state;
             anchor = next_anchor;
@@ -131,7 +143,14 @@ fn run_flex(
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let device = FlexDevice;
     let (weights, norm_w, norm_b, head) = materialize::<Flex>(specs, norm_values, lm_head, &device);
-    run(&weights, &(norm_w, norm_b), &head, embeddings, &device)
+    run(
+        &weights,
+        &(norm_w, norm_b),
+        &head,
+        embeddings,
+        &device,
+        layer_step::<Flex>,
+    )
 }
 
 fn run_tt(
@@ -140,13 +159,26 @@ fn run_tt(
     lm_head: &[f32],
     embeddings: &[Vec<f32>; 2],
     card: u16,
+    fused: bool,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let device = TtDevice::new(card);
     burn_tt::init(device, TtConfig::default()).expect("attach card");
+    let step: Step<TtBackend> = if fused {
+        layer_step_fused
+    } else {
+        layer_step::<TtBackend>
+    };
     accurate_matmul(|| {
         let (weights, norm_w, norm_b, head) =
             materialize::<TtBackend>(specs, norm_values, lm_head, &device);
-        run(&weights, &(norm_w, norm_b), &head, embeddings, &device)
+        run(
+            &weights,
+            &(norm_w, norm_b),
+            &head,
+            embeddings,
+            &device,
+            step,
+        )
     })
 }
 
@@ -165,6 +197,7 @@ fn main() -> std::process::ExitCode {
     let mut card = None;
     let mut checkpoint_path = None;
     let mut oracle = None;
+    let mut fused = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -188,6 +221,7 @@ fn main() -> std::process::ExitCode {
                 };
                 checkpoint_path = Some(value);
             }
+            "--fused" => fused = true,
             "--oracle" => {
                 let Some(value) = args.next() else {
                     eprintln!("--oracle needs a reference directory");
@@ -196,12 +230,15 @@ fn main() -> std::process::ExitCode {
                 oracle = Some(value);
             }
             "-h" | "--help" => {
-                println!("usage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N]");
+                println!(
+                    "usage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused]"
+                );
+                println!("  --fused  the WKV7 recurrence through the one-head kernel");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N]"
+                    "unknown argument {other}\n\nusage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -334,7 +371,7 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::SUCCESS;
     };
     let (tt_hidden, tt_logits, tt_states) =
-        run_tt(&specs, &norm_values, &lm_head, &embeddings, card);
+        run_tt(&specs, &norm_values, &lm_head, &embeddings, card, fused);
     let scale = |values: &[f32]| values.iter().map(|v| v.abs()).fold(0.0, f32::max).max(1.0);
     let gaps = [
         (

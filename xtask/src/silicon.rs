@@ -107,6 +107,7 @@ pub const SMOKE: &[&str] = &[
     // session form (step186), then the same step through `burn-tt` (step187).
     "step186_wkv7::",
     "step187_wkv7_burn::",
+    "step188_wkv7_layer::",
     "step19_eltwise::",
     "step27_burn_eltwise::",
     "step32_burn_softmax::",
