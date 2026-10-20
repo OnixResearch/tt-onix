@@ -297,6 +297,10 @@ Prompt generation uses fast matmuls. With batching enabled it produces the same 
 accurate-matmul path still fragments GDDR after the 8-token prompt (the 72-slot `abs` allocation);
 that limitation remains recorded, but the prompt gate does not depend on disabling batching.
 
+A longer run with `--generate 8` produced the same continuation on Flex and card 0:
+`[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`, decoding to
+`" Hi, I'm sorry to hear that"`. It is a state-carry smoke, not a harness-pinned result.
+
 This is a bounded greedy generation, not a sampler, stop-policy-complete endpoint, or serving
 result.
 

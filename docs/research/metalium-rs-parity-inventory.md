@@ -56,7 +56,7 @@ all-reduce or other collective.
    real layer-zero gate, all-12-layer gate, logits/Python-reference comparison, and exact tokenizer
    are done, one greedy next-token step matches the harness, and the three-step stateful decode
    chain matches the harness. Prompt text now runs through the exact tokenizer and bounded greedy
-   generation (`" Hi, I"`) with fast matmuls and batching. The accurate-matmul path still fragments
+   generation (`" Hi, I"`, and an eight-token continuation) with fast matmuls and batching. The accurate-matmul path still fragments
    GDDR after an 8-token prompt; fix that allocator limit next,
    then fuse the recurrence into a Tensix kernel. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.

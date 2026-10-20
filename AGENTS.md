@@ -198,14 +198,16 @@ mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8,
 <= 1.79e-7), a real-checkpoint layer-zero gate (hidden gaps <= 1.63e-5, state gaps <= 1.99e-5),
 an all-12-layer real-weight gate (final-hidden relative gap 2.26e-5, logits 1.36e-5,
 recurrent-state 7.28e-6), one greedy next-token step (token 2; logit within 1.3e-4 of the
-harness), and a three-step stateful decode chain (token 1 each step; logits within 1.1e-4 of the
-harness), and a bounded prompt generation producing `" Hi, I"`. Against the harness's Python
+harness), a three-step stateful decode chain (token 1 each step; logits within 1.1e-4 of the
+harness), and bounded prompt generation producing `" Hi, I"` (three tokens) and
+`" Hi, I'm sorry to hear that"` (eight tokens, Flex/card 0 agreeing). Against the harness's Python
 equation reference, the device logits differ by 2.73e-4 (bound 1.0) and states by 3.94e-4
 (bound 1.0). Prompt generation uses fast matmuls; batching works. The accurate-matmul path still
 fragments GDDR after an 8-token prompt, which is recorded as an open allocator limitation. `qwen38-p150x2.service` is stopped; do
 not restart it for native work without a task that needs it. The timings are smoke measurements,
-not benchmarks. The gates use `accurate_matmul`; they do not establish a sampler,
-stop-policy-complete endpoint, serving, fused-kernel, or performance parity.
+not benchmarks. The numerical gates use `accurate_matmul` where noted; prompt generation uses
+fast matmuls. They do not establish a sampler, stop-policy-complete endpoint, serving,
+fused-kernel, or performance parity.
 
 Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution. Without the
 reset, the first native process failed at `element-wise 0x2 ... queued list 2 failed`; the second
