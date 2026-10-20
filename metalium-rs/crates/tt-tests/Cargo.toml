@@ -1,0 +1,90 @@
+[package]
+name = "tt-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# No library of its own. This crate exists to hold gates that span several crates
+# -- notably any gate needing both tt-device and tt-ttsim, which tt-device itself
+# must never depend on.
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Selects the *device the whole suite runs against*, not merely which tests
+# compile. With it off, `harness::Dev` is `Device<LibTtsim>` and every gate runs
+# in-process against the simulator. With it on, `harness::Dev` is `Device<Kmd>`
+# and the same gates run against `/dev/tenstorrent/N`.
+#
+# It started as the narrower thing -- a flag for tests ttsim cannot host -- and
+# that reading is still true, because those tests are `#[cfg(feature =
+# "silicon")]` and only compile here. But the transport switch is the point: a
+# gate that proves something on the simulator should prove it on hardware without
+# being rewritten, and the two-gate rule is unaffordable if it means two suites.
+#
+# Tests that assert something *about the simulator* -- that it refuses an access,
+# that its decode map has a particular shape -- are `#[cfg(not(feature =
+# "silicon"))]` for the same reason.
+#
+# Silicon runs every tier, so it implies `e2e`.
+silicon = ["e2e", "weights"]
+
+# The model ladder's gates (step165 onward) read pretrained weights and test photographs fetched by
+# `cargo xtask fetch-weights`; without this they are ignored rather than failing on a checkout that
+# has not fetched them. Silicon runs them, so it implies this.
+weights = []
+
+# The test tiers. The simulator is for *validation*: the ISA, kernel, mover and
+# residency gates, where ttsim's bit-exactness and its refusal of undefined
+# behaviour are the point, run by plain `cargo test` in well under a minute.
+# Whole training runs through Burn -- the gates that write and guard
+# `tests/golden/mnist_reduced.txt` -- are the end-to-end tier: they take most of
+# the simulator suite's time and prove nothing per kernel that the validation
+# gates do not, so on ttsim they run only with this feature, when the arithmetic
+# changes (and in CI). Day to day, burn-tt is smoke-tested against burn-flex on
+# the cards (`cargo xtask silicon --smoke`). An end-to-end gate is
+# `#[cfg_attr(not(feature = "e2e"), ignore = ...)]`: it still compiles and
+# shows as ignored, rather than quietly passing.
+e2e = []
+
+# The `.ttinsn` push-fusion experiment's silicon rungs and measurement
+# (`docs/plans/ttinsn-push-experiment.md`, `tests/probe_ttinsn_push.rs`): builds the
+# experiment image into `tt-firmware-images`. Off by default, and in no suite.
+ttinsn-experiment = ["tt-firmware-images/ttinsn-experiment"]
+
+# The B mover's host-encoded reads (`tt_isa::dm::encoded`), and with `encoded-guard` its
+# semantic guard: build the firmware images in the "fast" mode and run the gates and
+# measurements that exist only there (`step172_encoded_reads`, `step173_mover_differential`, the encoded half of
+# `silicon_probe_read_loop`). Off by default: the safe mode, in which the same gate
+# holds that the card refuses an encoded read.
+fast-reads = ["tt-firmware-images/fast-reads"]
+encoded-guard = ["fast-reads", "tt-firmware-images/encoded-guard"]
+
+# Real dependencies, not dev-dependencies: `src/harness.rs` uses them. This crate
+# is classified DEV_ONLY in `xtask/src/ship.rs`, so the simulator binding still
+# cannot reach a shippable artefact -- `check-no-sim-in-ship` walks the shippable
+# crates, and this is not one of them.
+[dependencies]
+tt-isa.workspace = true
+tt-device.workspace = true
+tt-layout.workspace = true
+tt-kernels.workspace = true
+tt-firmware-images.workspace = true
+burn-tt.workspace = true
+rwkv7.workspace = true
+tt-ttsim.workspace = true
+tt-kmd.workspace = true
+
+[dev-dependencies]
+burn-flex.workspace = true
+image.workspace = true
+burn-tensor.workspace = true
+burn.workspace = true
+# The general-model gate trains the model `tt-mnist --model transformer` times.
+tt-mnist = { path = "../tt-mnist" }
+# The model ladder (step165 onward): pretrained models and their loader.
+tt-models = { path = "../tt-models" }
+# step145: the f64 oracle for `gelu` (`erfc`), independent of the programs.
+libm.workspace = true

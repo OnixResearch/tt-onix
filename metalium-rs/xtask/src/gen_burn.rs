@@ -1,0 +1,1192 @@
+//! Generate native dispatch and explicit unsupported methods from Burn's
+//! pinned operation traits. Composed defaults remain Burn's implementations.
+//! No reference backend is consulted by this generator.
+
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::util::{rustfmt, workspace_root};
+
+/// The pinned version; `Cargo.toml` pins the crate with `=`.
+pub const BURN_VERSION: &str = "0.21.0";
+
+/// The op traits `Backend` requires, and the file under `src/backend/` each
+/// lives in.
+const TRAITS: &[(&str, &str)] = &[
+    ("FloatTensorOps", "ops/tensor.rs"),
+    ("IntTensorOps", "ops/int_tensor.rs"),
+    ("BoolTensorOps", "ops/bool_tensor.rs"),
+    ("ModuleOps", "ops/modules/base.rs"),
+    ("ActivationOps", "ops/activation.rs"),
+    ("QTensorOps", "ops/qtensor.rs"),
+    ("TransactionOps", "ops/transaction.rs"),
+];
+
+/// The override list: every method implemented by hand in `burn-tt/src/ops.rs`.
+pub fn overridden() -> &'static [(&'static str, &'static [&'static str])] {
+    OVERRIDDEN
+}
+
+/// The names `overridden` lists for one trait.
+pub(crate) fn hand_methods<'a>(overridden: &[(&str, &'a [&'a str])], tr: &str) -> Vec<&'a str> {
+    overridden
+        .iter()
+        .filter(|(t, _)| *t == tr)
+        .flat_map(|(_, names)| names.iter().copied())
+        .collect()
+}
+
+/// Methods implemented by hand in `burn-tt/src/ops.rs`, by trait: the ones that
+/// run on the device, the ones that say which device a tensor is on or move it,
+/// and the ones returning futures.
+pub const OVERRIDDEN: &[(&str, &[&str])] = &[
+    (
+        "FloatTensorOps",
+        &[
+            "float_from_data",
+            "float_empty",
+            "float_random",
+            "float_expand",
+            "float_matmul",
+            "float_add",
+            "float_sub",
+            "float_mul",
+            "float_mul_scalar",
+            "float_add_scalar",
+            "float_sub_scalar",
+            "float_div",
+            "float_div_scalar",
+            "float_recip",
+            "float_exp",
+            "float_log",
+            "float_cumsum",
+            "float_cumprod",
+            "float_prod",
+            "float_prod_dim",
+            "float_sum",
+            "float_mean",
+            "float_sum_dim",
+            "float_mean_dim",
+            "float_gather",
+            "float_scatter_add",
+            "float_select",
+            "float_select_add",
+            "float_max_dim",
+            "float_argmax",
+            "float_argmin",
+            "float_permute",
+            "float_reshape",
+            "float_slice",
+            "float_slice_assign",
+            "float_cat",
+            "float_repeat_dim",
+            "float_unfold",
+            "float_grid_sample_2d",
+            "float_flip",
+            "float_swap_dims",
+            "float_transpose",
+            "float_device",
+            "float_to_device",
+            "float_into_data",
+            "float_neg",
+            "float_abs",
+            "float_sign",
+            "float_clamp",
+            "float_clamp_min",
+            "float_clamp_max",
+            "float_equal",
+            "float_not_equal",
+            "float_greater",
+            "float_greater_equal",
+            "float_lower",
+            "float_lower_equal",
+            "float_equal_elem",
+            "float_not_equal_elem",
+            "float_greater_elem",
+            "float_greater_equal_elem",
+            "float_lower_elem",
+            "float_lower_equal_elem",
+            "float_is_nan",
+            "float_is_inf",
+            "float_mask_fill",
+            "float_mask_where",
+            "float_round",
+            "float_floor",
+            "float_ceil",
+            "float_trunc",
+            "float_into_int",
+            "float_cast",
+            "float_sqrt",
+            "float_log1p",
+            "float_powf",
+            "float_powi",
+            "float_powf_scalar",
+            "float_powf_scalar_impl",
+            "float_powi_scalar",
+            "float_tanh",
+            "float_erf",
+            "float_sinh",
+            "float_cosh",
+            "float_asinh",
+            "float_acosh",
+            "float_atanh",
+            "float_sin",
+            "float_cos",
+            "float_tan",
+            "float_atan",
+            "float_atan2",
+            "float_asin",
+            "float_acos",
+            "float_gather_nd",
+            "float_scatter_nd",
+            "float_cross",
+            "float_cummin",
+            "float_cummax",
+            "float_remainder",
+            "float_remainder_scalar",
+            "float_sort",
+            "float_sort_with_indices",
+            "float_argsort",
+            "float_argtopk",
+            "float_topk",
+        ],
+    ),
+    (
+        "IntTensorOps",
+        &[
+            "int_add",
+            "int_sub",
+            "int_mul",
+            "int_div",
+            "int_div_scalar",
+            "int_remainder",
+            "int_remainder_scalar",
+            "int_sum",
+            "int_sum_dim",
+            "int_mean_dim",
+            "int_prod",
+            "int_prod_dim",
+            "int_min_dim",
+            "int_max_dim",
+            "bitwise_and",
+            "bitwise_or",
+            "bitwise_xor",
+            "bitwise_left_shift",
+            "bitwise_right_shift",
+            "int_add_scalar",
+            "int_sub_scalar",
+            "int_mul_scalar",
+            "bitwise_and_scalar",
+            "bitwise_or_scalar",
+            "bitwise_xor_scalar",
+            "bitwise_left_shift_scalar",
+            "bitwise_right_shift_scalar",
+            "bitwise_not",
+            "int_equal",
+            "int_equal_elem",
+            "int_greater",
+            "int_greater_elem",
+            "int_greater_equal",
+            "int_greater_equal_elem",
+            "int_lower",
+            "int_lower_elem",
+            "int_lower_equal",
+            "int_lower_equal_elem",
+            "int_from_data",
+            "int_empty",
+            "int_random",
+            "int_device",
+            "int_to_device",
+            "int_into_data",
+            "int_into_float",
+            "int_expand",
+            "int_reshape",
+            "int_slice",
+            "int_slice_assign",
+            "int_cat",
+            "int_repeat_dim",
+            "int_gather",
+            "int_scatter_add",
+            "int_select_add",
+            "int_select",
+            "int_swap_dims",
+            "int_transpose",
+            "int_abs",
+            "int_cast",
+            "int_flip",
+            "int_mask_fill",
+            "int_mask_where",
+            "int_permute",
+            "int_unfold",
+            "int_gather_nd",
+            "int_scatter_nd",
+            "int_matmul",
+            "int_cumsum",
+            "int_cumprod",
+            "int_cummin",
+            "int_cummax",
+            "int_argmax",
+            "int_argmin",
+            "int_sort",
+            "int_sort_with_indices",
+            "int_argsort",
+            "int_argtopk",
+            "int_topk",
+        ],
+    ),
+    (
+        "BoolTensorOps",
+        &[
+            "bool_from_data",
+            "bool_empty",
+            "bool_zeros",
+            "bool_ones",
+            "bool_device",
+            "bool_to_device",
+            "bool_into_data",
+            "bool_argwhere",
+            "bool_reshape",
+            "bool_slice",
+            "bool_slice_assign",
+            "bool_cat",
+            "bool_repeat_dim",
+            "bool_gather",
+            "bool_scatter_or",
+            "bool_select_or",
+            "bool_select",
+            "bool_swap_dims",
+            "bool_transpose",
+            "bool_not",
+            "bool_and",
+            "bool_or",
+            "bool_xor",
+            "bool_any",
+            "bool_all",
+            "bool_any_dim",
+            "bool_all_dim",
+            "bool_equal",
+            "bool_equal_elem",
+            "bool_expand",
+            "bool_into_float",
+            "bool_into_int",
+            "bool_flip",
+            "bool_mask_fill",
+            "bool_mask_where",
+            "bool_permute",
+            "bool_unfold",
+        ],
+    ),
+    (
+        "ActivationOps",
+        &[
+            "relu",
+            "relu_backward",
+            "softmax",
+            "log_softmax",
+            "softmin",
+            "leaky_relu",
+            "hard_sigmoid",
+            "prelu",
+            "sigmoid",
+            "sigmoid_backward",
+            "gelu",
+            "gelu_backward",
+            "log_sigmoid",
+            "log_sigmoid_backward",
+        ],
+    ),
+    (
+        "ModuleOps",
+        &[
+            "unfold4d",
+            "conv2d",
+            "conv2d_x_backward",
+            "conv2d_weight_backward",
+            "conv2d_bias_backward",
+            "conv_transpose2d",
+            "conv_transpose2d_x_backward",
+            "conv_transpose2d_weight_backward",
+            "conv_transpose2d_bias_backward",
+            "conv3d",
+            "conv3d_x_backward",
+            "conv3d_weight_backward",
+            "conv3d_bias_backward",
+            "conv_transpose3d",
+            "conv_transpose3d_x_backward",
+            "conv_transpose3d_weight_backward",
+            "conv_transpose3d_bias_backward",
+            "attention",
+            "avg_pool2d",
+            "avg_pool2d_backward",
+            "adaptive_avg_pool2d",
+            "adaptive_avg_pool2d_backward",
+            "max_pool2d",
+            "max_pool2d_with_indices",
+            "max_pool2d_with_indices_backward",
+            "linear_weight_backward",
+            "linear_bias_backward",
+            "embedding",
+            "embedding_backward",
+            "interpolate",
+            "interpolate_backward",
+            "deform_conv2d",
+            "deform_conv2d_backward",
+            "has_ctc_loss_backward",
+            "ctc_loss",
+            "ctc_loss_backward",
+        ],
+    ),
+    ("QTensorOps", &["q_device", "q_to_device", "q_into_data"]),
+    ("TransactionOps", &["tr_execute"]),
+];
+
+/// Where each identifier the signatures use is imported from.
+const IMPORTS: &[(&str, &str)] = &[
+    ("FloatTensor", "burn_backend::tensor::FloatTensor"),
+    ("IntTensor", "burn_backend::tensor::IntTensor"),
+    ("BoolTensor", "burn_backend::tensor::BoolTensor"),
+    ("QuantizedTensor", "burn_backend::tensor::QuantizedTensor"),
+    ("Device", "burn_backend::tensor::Device"),
+    ("TensorPrimitive", "burn_backend::TensorPrimitive"),
+    ("Scalar", "burn_backend::Scalar"),
+    ("BoolDType", "burn_backend::BoolDType"),
+    ("IntDType", "burn_backend::IntDType"),
+    ("FloatDType", "burn_backend::FloatDType"),
+    ("Shape", "burn_backend::Shape"),
+    ("Slice", "burn_backend::Slice"),
+    ("TensorData", "burn_backend::TensorData"),
+    ("Distribution", "burn_backend::Distribution"),
+    ("ExecutionError", "burn_backend::ExecutionError"),
+    ("Range", "core::ops::Range"),
+    ("Vec", "alloc_vec::Vec"),
+    ("Option", "core::option::Option"),
+    ("ConvOptions", "burn_backend::ops::ConvOptions"),
+    (
+        "ConvTransposeOptions",
+        "burn_backend::ops::ConvTransposeOptions",
+    ),
+    ("DeformConvOptions", "burn_backend::ops::DeformConvOptions"),
+    (
+        "DeformConv2dBackward",
+        "burn_backend::ops::DeformConv2dBackward",
+    ),
+    (
+        "InterpolateOptions",
+        "burn_backend::ops::InterpolateOptions",
+    ),
+    ("GridSampleOptions", "burn_backend::ops::GridSampleOptions"),
+    ("UnfoldOptions", "burn_backend::ops::UnfoldOptions"),
+    (
+        "AttentionModuleOptions",
+        "burn_backend::ops::AttentionModuleOptions",
+    ),
+    (
+        "MaxPool1dWithIndices",
+        "burn_backend::ops::MaxPool1dWithIndices",
+    ),
+    ("MaxPool1dBackward", "burn_backend::ops::MaxPool1dBackward"),
+    (
+        "MaxPool2dWithIndices",
+        "burn_backend::ops::MaxPool2dWithIndices",
+    ),
+    ("MaxPool2dBackward", "burn_backend::ops::MaxPool2dBackward"),
+    (
+        "TransactionPrimitive",
+        "burn_backend::ops::TransactionPrimitive",
+    ),
+    (
+        "TransactionPrimitiveData",
+        "burn_backend::ops::TransactionPrimitiveData",
+    ),
+    ("QuantScheme", "burn_backend::quantization::QuantScheme"),
+    (
+        "QuantizationParametersPrimitive",
+        "burn_backend::quantization::QuantizationParametersPrimitive",
+    ),
+    ("IndexingUpdateOp", "burn_backend::tensor::IndexingUpdateOp"),
+    ("Future", "core::future::Future"),
+];
+
+/// Identifiers that need no import: the backend's own generic parameter,
+/// primitive types, and paths.
+const BUILTIN: &[&str] = &[
+    "B", "usize", "bool", "f64", "f32", "i64", "u64", "u32", "i32", "Output", "Send", "Result",
+    "static", "impl", "crate", "tensor", "mut",
+];
+
+/// One method of an op trait.
+#[derive(Debug, Clone)]
+pub struct Method {
+    pub name: String,
+    /// The trait gives it a body.
+    pub defaulted: bool,
+    /// `(pattern, type)`, with the type as written.
+    pub args: Vec<(String, String)>,
+    /// `None` for `()`.
+    pub ret: Option<String>,
+}
+
+/// Every method of each op trait, as the pinned burn-backend declares it.
+pub fn all_trait_methods() -> Result<Vec<(&'static str, Vec<Method>)>, String> {
+    let root = workspace_root();
+    let src = crate_source(&root, "burn-backend")?;
+    let mut traits = Vec::new();
+    for (name, file) in TRAITS {
+        let path = src.join("src/backend").join(file);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("reading {}: {e}", path.display()))?;
+        traits.push((*name, parse_trait(&text, name)?));
+    }
+    Ok(traits)
+}
+
+/// Whether the generator emits a placeholder for a method Burn already gives
+/// a (failing) default body.
+pub fn is_placeholder(name: &str) -> bool {
+    PLACEHOLDERS.contains(&name)
+}
+
+const PLACEHOLDERS: &[&str] = &[
+    "float_scatter_nd",
+    "float_gather_nd",
+    "int_scatter_nd",
+    "int_gather_nd",
+];
+
+pub fn generate(check_only: bool) -> Result<(), String> {
+    let root = workspace_root();
+    let overridden = overridden();
+    let traits: Vec<_> = all_trait_methods()?
+        .into_iter()
+        .map(|(name, methods)| (name, selected(name, methods)))
+        .collect();
+    check_overridden(&traits, overridden)?;
+    let rendered = render(&traits, overridden)?;
+    let generated = rustfmt(&rendered, &root)?;
+    let dest = root.join("crates/burn-tt/src/generated/ops.rs");
+    if check_only {
+        let current = std::fs::read_to_string(&dest)
+            .map_err(|e| format!("reading {}: {e}", dest.display()))?;
+        if current == generated {
+            println!(
+                "ok: {} is up to date with burn-backend {BURN_VERSION}",
+                dest.display()
+            );
+            Ok(())
+        } else {
+            Err(format!(
+                "{} is out of date with burn-backend {BURN_VERSION}.\n\
+                 Run `cargo xtask gen-burn-ops` and commit the result.",
+                dest.display()
+            ))
+        }
+    } else {
+        std::fs::write(&dest, generated).map_err(|e| format!("writing {}: {e}", dest.display()))?;
+        let count: usize = traits.iter().map(|(_, m)| m.len()).sum();
+        println!("wrote {} ({count} methods)", dest.display());
+        Ok(())
+    }
+}
+
+/// Emit required methods, native overrides, and defaults that are only
+/// unsupported placeholders in Burn. Other defaults compose our primitives.
+pub fn selected(tr: &str, methods: Vec<Method>) -> Vec<Method> {
+    let hand = hand_methods(overridden(), tr);
+    methods
+        .into_iter()
+        .filter(|m| !m.defaulted || hand.contains(&m.name.as_str()) || is_placeholder(&m.name))
+        .collect()
+}
+
+/// A pinned crate's source directory, from `cargo metadata`.
+fn crate_source(root: &Path, krate: &str) -> Result<PathBuf, String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let out = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("could not run cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let json = String::from_utf8_lossy(&out.stdout);
+    let needle = format!("{krate}-{BURN_VERSION}/Cargo.toml");
+    let hit = json
+        .split("\"manifest_path\":\"")
+        .skip(1)
+        .map(|rest| &rest[..rest.find('"').unwrap_or(0)])
+        .find(|p| p.ends_with(&needle))
+        .ok_or_else(|| format!("{krate} {BURN_VERSION} is not in the dependency graph"))?;
+    Ok(Path::new(hit)
+        .parent()
+        .expect("a manifest has a directory")
+        .to_path_buf())
+}
+
+fn strip_comments(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+        } else if b[i] == b'"' {
+            // String literals in default bodies may hold braces.
+            out.push('"');
+            i += 1;
+            while i < b.len() && b[i] != b'"' {
+                if b[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            out.push('"');
+            i += 1;
+        } else if b[i] == b'\'' && b.get(i + 2) == Some(&b'\'') {
+            // A char literal such as '{'.
+            out.push_str("' '");
+            i += 3;
+        } else {
+            out.push(b[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Every method of `pub trait {name}` in `source`, in order.
+pub fn parse_trait(source: &str, name: &str) -> Result<Vec<Method>, String> {
+    let s = strip_comments(source);
+    let head = format!("pub trait {name}<B: Backend>");
+    let start = s.find(&head).ok_or_else(|| format!("`{head}` not found"))?;
+    let open = start + s[start..].find('{').ok_or("trait has no body")?;
+    let body = matching_body(&s, open)?;
+    let b = body.as_bytes();
+    let mut methods = Vec::new();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            b'f' if depth == 0
+                && body[i..].starts_with("fn ")
+                && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) =>
+            {
+                let (sig, end) = signature(body, i)?;
+                let mut m = parse_signature(&sig).map_err(|e| format!("{name}: {e}"))?;
+                m.defaulted = b[end] == b'{';
+                methods.push(m);
+                i = end;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if methods.is_empty() {
+        return Err(format!(
+            "{name} has no methods; the parser is not reading it"
+        ));
+    }
+    Ok(methods)
+}
+
+/// The text between the brace at `open` and its match.
+fn matching_body(s: &str, open: usize) -> Result<&str, String> {
+    let mut depth = 0;
+    for (i, c) in s[open..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(&s[open + 1..open + i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    Err("unbalanced braces".into())
+}
+
+/// The signature starting at `at` (`fn ...`), up to its `;` or `{` outside
+/// parentheses, whitespace-normalised; and where it ends.
+fn signature(body: &str, at: usize) -> Result<(String, usize), String> {
+    let mut paren = 0;
+    for (off, c) in body[at..].char_indices() {
+        match c {
+            '(' => paren += 1,
+            ')' => paren -= 1,
+            ';' | '{' if paren == 0 => {
+                let sig = body[at..at + off].split_whitespace().collect::<Vec<_>>();
+                return Ok((sig.join(" "), at + off));
+            }
+            _ => {}
+        }
+    }
+    Err(format!(
+        "unterminated signature at `{}`",
+        &body[at..at + 40]
+    ))
+}
+
+fn parse_signature(sig: &str) -> Result<Method, String> {
+    let rest = sig.strip_prefix("fn ").ok_or("not a fn")?;
+    let paren = rest
+        .find('(')
+        .ok_or_else(|| format!("no argument list: `{sig}`"))?;
+    let name = rest[..paren].trim().to_string();
+    if name.contains('<') {
+        return Err(format!("`{name}` has generic parameters; look at it"));
+    }
+    let close = close_paren(rest, paren)?;
+    let args_text = &rest[paren + 1..close];
+    let tail = rest[close + 1..].trim();
+    if tail.contains(" where ") || tail.starts_with("where") {
+        return Err(format!("`{name}` has a where clause; look at it"));
+    }
+    let ret = match tail.strip_prefix("->") {
+        Some(r) => Some(r.trim().to_string()),
+        None if tail.is_empty() => None,
+        None => return Err(format!("`{name}`: unexpected `{tail}` after the arguments")),
+    };
+    let mut args = Vec::new();
+    for part in split_top(args_text) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if part.contains("self") {
+            return Err(format!("`{name}` takes self; op traits are static"));
+        }
+        let colon = part
+            .find(':')
+            .ok_or_else(|| format!("`{name}`: argument `{part}` has no type"))?;
+        args.push((
+            part[..colon].trim().to_string(),
+            part[colon + 1..].trim().to_string(),
+        ));
+    }
+    Ok(Method {
+        name,
+        defaulted: false,
+        args,
+        ret,
+    })
+}
+
+fn close_paren(s: &str, open: usize) -> Result<usize, String> {
+    let mut depth = 0;
+    for (i, c) in s[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok(open + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    Err(format!("unbalanced parentheses in `{s}`"))
+}
+
+/// `s` split at commas outside `<>`, `()` and `[]`.
+fn split_top(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    let b = s.as_bytes();
+    for (i, &c) in b.iter().enumerate() {
+        match c {
+            b'<' | b'(' | b'[' => depth += 1,
+            b'>' if i > 0 && b[i - 1] == b'-' => {}
+            b'>' | b')' | b']' => depth -= 1,
+            b',' if depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
+/// Whether a type names the backend, and so converts.
+fn names_backend(ty: &str) -> bool {
+    words(ty).any(|w| w == "B")
+}
+
+fn words(s: &str) -> impl Iterator<Item = &str> {
+    s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty() && !w.chars().next().unwrap().is_ascii_digit())
+}
+
+/// `B` replaced by the backend, and `crate::` by `burn_backend::`.
+fn for_backend(ty: &str) -> String {
+    let ty = ty.replace("crate::", "burn_backend::");
+    let mut out = String::new();
+    let mut word = String::new();
+    for c in ty.chars().chain(std::iter::once(' ')) {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            if word == "B" {
+                out.push_str("TtBackend");
+            } else {
+                out.push_str(&word);
+            }
+            word.clear();
+            out.push(c);
+        }
+    }
+    out.pop();
+    out
+}
+
+pub fn check_overridden(
+    traits: &[(&str, Vec<Method>)],
+    overridden: &[(&str, &[&str])],
+) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for (tr, names) in overridden {
+        let Some((_, methods)) = traits.iter().find(|(t, _)| t == tr) else {
+            return Err(format!("OVERRIDDEN names `{tr}`, which is not an op trait"));
+        };
+        for n in names.iter() {
+            if !seen.insert((*tr, *n)) {
+                return Err(format!("`{tr}::{n}` is overridden in two lists"));
+            }
+            if !methods.iter().any(|m| m.name == *n) {
+                return Err(format!(
+                    "OVERRIDDEN names `{tr}::{n}`, which burn-backend {BURN_VERSION} \
+                     does not have"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn render(
+    traits: &[(&str, Vec<Method>)],
+    overridden: &[(&str, &[&str])],
+) -> Result<String, String> {
+    let mut used = BTreeSet::new();
+    let mut impls = String::new();
+    for (tr, methods) in traits {
+        let hand = hand_methods(overridden, tr);
+        impls.push_str(&format!("impl {tr}<TtBackend> for TtBackend {{\n"));
+        for m in methods {
+            for (_, ty) in &m.args {
+                used.extend(words(ty).map(str::to_string));
+            }
+            if let Some(r) = &m.ret {
+                used.extend(words(r).map(str::to_string));
+            }
+            let params: Vec<String> = m
+                .args
+                .iter()
+                .map(|(p, t)| format!("{p}: {}", for_backend(t)))
+                .collect();
+            let ret = m
+                .ret
+                .as_ref()
+                .map(|r| format!(" -> {}", for_backend(r)))
+                .unwrap_or_default();
+            let names: Vec<&str> = m
+                .args
+                .iter()
+                .map(|(p, _)| p.trim_start_matches("mut ").trim())
+                .collect();
+            impls.push_str(&format!("fn {}({}){ret} {{\n", m.name, params.join(", ")));
+            let is_hand = hand.contains(&m.name.as_str());
+            let is_future = m.ret.as_deref().is_some_and(|r| r.contains("Future"));
+            if is_future {
+                impls.push_str("async move {\n");
+            }
+            impls.push_str(&format!(
+                "let _op = crate::report::enter(\"{}\", {is_hand});\n",
+                m.name
+            ));
+            if is_hand {
+                // BF16 and F16 arithmetic have an explicit native F32 compute /
+                // half-precision result policy. Metadata, raw transfers and views retain their
+                // own dtype-aware implementation and never round view bytes.
+                let floats: Vec<_> = m
+                    .args
+                    .iter()
+                    .zip(&names)
+                    .filter(|((_, ty), _)| ty == "FloatTensor<B>")
+                    .map(|(_, name)| *name)
+                    .collect();
+                // BFP is physical storage, not dtype. This boundary is emitted
+                // before matrix dispatch so compressed IDs never reach F32 ops.
+                let optional: Vec<_> = m
+                    .args
+                    .iter()
+                    .zip(&names)
+                    .filter(|((_, ty), _)| ty == "Option<FloatTensor<B>>")
+                    .map(|(_, name)| *name)
+                    .collect();
+                if m.name == "float_slice" {
+                    impls.push_str("if tensor.storage_format() != crate::storage::StorageFormat::F32 { if let Some(view) = crate::ops::float::row_view(&tensor, slices) { return view; } }\n");
+                }
+                let keep = [
+                    "float_device",
+                    "float_into_data",
+                    "float_to_device",
+                    "float_reshape",
+                    "float_transpose",
+                    "float_swap_dims",
+                    "float_permute",
+                ];
+                if !is_future && !floats.is_empty() && !keep.contains(&m.name.as_str()) {
+                    let refs = floats.iter().map(|n| format!("&{n}")).collect::<Vec<_>>();
+                    impls.push_str(&format!(
+                        "let {}storage_inputs = {}[{}];\n",
+                        if optional.is_empty() { "" } else { "mut " },
+                        if optional.is_empty() { "" } else { "vec!" },
+                        refs.join(", ")
+                    ));
+                    let end_borrow = if optional.is_empty() {
+                        ""
+                    } else {
+                        "drop(storage_inputs);\n"
+                    };
+                    for name in &optional {
+                        impls.push_str(&format!(
+                            "if let Some(t) = &{name} {{ storage_inputs.push(t); }}\n"
+                        ));
+                    }
+                    impls.push_str(&format!("if storage_inputs.iter().any(|t| t.storage_format() != crate::storage::StorageFormat::F32) {{\nlet result_storage = crate::ops::bfp_result_storage(\"{}\", &storage_inputs);\n{end_borrow}", m.name));
+                    if m.name == "float_matmul" {
+                        impls.push_str("if let Some(output) = crate::ops::bfp_matmul(&lhs, &rhs) { return output; }\n");
+                    }
+                    for name in &floats {
+                        impls.push_str(&format!(
+                            "let {name} = crate::ops::bfp_compute_input({name});\n"
+                        ));
+                    }
+                    for name in &optional {
+                        impls.push_str(&format!(
+                            "let {name} = {name}.map(crate::ops::bfp_compute_input);\n"
+                        ));
+                    }
+                    let call = format!("<Self as {tr}<Self>>::{}({})", m.name, names.join(", "));
+                    if m.ret.as_deref() == Some("FloatTensor<B>") {
+                        impls.push_str(&format!(
+                            "return crate::ops::bfp_compute_result({call}, result_storage);\n"
+                        ));
+                    } else if m.ret.as_deref() == Some("MaxPool2dWithIndices<B>") {
+                        impls.push_str(&format!("let mut output = {call};\noutput.output = output.output.with_storage(result_storage);\nreturn output;\n"));
+                    } else {
+                        impls.push_str(&format!("let _ = result_storage;\nreturn {call};\n"));
+                    }
+                    impls.push_str(&format!("}}\n{end_borrow}"));
+                }
+                let storage = [
+                    "float_cast",
+                    "float_into_data",
+                    "float_to_device",
+                    "float_reshape",
+                    "float_swap_dims",
+                    "float_transpose",
+                    "float_permute",
+                    "float_slice",
+                    "float_flip",
+                    "float_expand",
+                    "attention",
+                    "avg_pool2d",
+                    "adaptive_avg_pool2d",
+                    "float_slice_assign",
+                    "float_cat",
+                    "float_repeat_dim",
+                    "conv2d",
+                    "conv2d_x_backward",
+                    "conv2d_weight_backward",
+                    "conv2d_bias_backward",
+                    "conv_transpose2d",
+                    "conv_transpose2d_x_backward",
+                    "conv_transpose2d_weight_backward",
+                    "conv_transpose2d_bias_backward",
+                    "unfold4d",
+                    "deform_conv2d",
+                    "deform_conv2d_backward",
+                    "float_unfold",
+                    "float_gather",
+                    "float_select",
+                    "float_scatter_add",
+                    "float_select_add",
+                ];
+                let matrix_kind = match m.name.as_str() {
+                    "float_add" | "float_add_scalar" => Some("ADD"),
+                    "float_sub" | "float_sub_scalar" => Some("SUB"),
+                    "float_mul" | "float_mul_scalar" => Some("MUL"),
+                    _ => None,
+                };
+                if let Some(kind) = matrix_kind {
+                    let args = if m.name.ends_with("_scalar") {
+                        "num_traits::ToPrimitive::to_f64(&rhs).expect(\"a float scalar\") as f32, &lhs, None"
+                    } else {
+                        "0.0, &lhs, Some(&rhs)"
+                    };
+                    impls.push_str(&format!("if let Some(output) = crate::ops::matrix_float_op(tt_kernels::kind::{kind}, {args}) {{ return output; }}\n"));
+                }
+                if !is_future && !floats.is_empty() && !storage.contains(&m.name.as_str()) {
+                    impls.push_str(&format!(
+                        "let compute_dtype = crate::ops::float_compute_dtype(&[{}]);\nif crate::tensor::is_half(compute_dtype) {{\n",
+                        floats.iter().map(|name| format!("&{name}")).collect::<Vec<_>>().join(", ")
+                    ));
+                    if m.name == "float_matmul" {
+                        impls.push_str("if let Some(output) = crate::ops::bf16_matmul(&lhs, &rhs) { return output; }\n");
+                    }
+                    for name in &floats {
+                        impls.push_str(&format!(
+                            "let {name} = crate::ops::float_compute_input({name});\n"
+                        ));
+                    }
+                    // An optional operand (a bias) computes in F32 with the rest.
+                    for name in &optional {
+                        impls.push_str(&format!(
+                            "let {name} = {name}.map(crate::ops::float_compute_input);\n"
+                        ));
+                    }
+                    let call = format!(
+                        "crate::ops::{}::{}({})",
+                        module_of(tr),
+                        m.name,
+                        names.join(", ")
+                    );
+                    if m.ret.as_deref() == Some("FloatTensor<B>") {
+                        impls.push_str(&format!(
+                            "return crate::ops::cast_native({call}, compute_dtype);\n"
+                        ));
+                    } else if m.ret.as_deref() == Some("MaxPool2dWithIndices<B>") {
+                        impls.push_str(&format!("let mut output = {call};\noutput.output = crate::ops::cast_native(output.output, compute_dtype);\nreturn output;\n"));
+                    } else if m.ret.as_deref() == Some("MaxPool2dBackward<B>") {
+                        impls.push_str(&format!("let mut output = {call};\noutput.x_grad = crate::ops::cast_native(output.x_grad, compute_dtype);\nreturn output;\n"));
+                    } else if m.ret.as_deref() == Some("(FloatTensor<B>, IntTensor<B>)") {
+                        // Values come back in the input's dtype; the indices are integers.
+                        impls.push_str(&format!("let (values, indices) = {call};\nreturn (crate::ops::cast_native(values, compute_dtype), indices);\n"));
+                    } else {
+                        impls.push_str(&format!("return {call};\n"));
+                    }
+                    impls.push_str("}\n");
+                }
+                impls.push_str(&format!(
+                    "crate::ops::{}::{}({})",
+                    module_of(tr),
+                    m.name,
+                    names.join(", ")
+                ));
+                if is_future {
+                    impls.push_str(".await\n}\n");
+                }
+                impls.push_str("\n}\n");
+                continue;
+            }
+            let details: Vec<String> = m
+                .args
+                .iter()
+                .zip(&names)
+                .map(|((_, ty), n)| {
+                    if names_backend(ty) || ty == "TensorData" {
+                        format!("format!(\"{n}={{}}\", crate::unsupported::context(&{n}))")
+                    } else {
+                        format!("format!(\"{n}={{:?}}\", {n})")
+                    }
+                })
+                .collect();
+            let call = format!(
+                "crate::unsupported::fail(\"{}\", [{}].join(\"; \"))",
+                m.name,
+                details.join(", ")
+            );
+            impls.push_str(&call);
+            if is_future {
+                impls.push_str("\n}\n");
+            }
+            impls.push_str("\n}\n");
+        }
+        impls.push_str("}\n\n");
+    }
+
+    let mut imports = String::new();
+    for w in &used {
+        if BUILTIN.contains(&w.as_str()) || TRAITS.iter().any(|(t, _)| t == w) {
+            continue;
+        }
+        let Some((_, path)) = IMPORTS.iter().find(|(n, _)| n == w) else {
+            return Err(format!(
+                "a signature uses `{w}`, which gen_burn's IMPORTS does not know how to import"
+            ));
+        };
+        if path.starts_with("alloc_vec") || path.starts_with("core::option") {
+            continue;
+        }
+        imports.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+    }
+    let trait_imports: Vec<&str> = TRAITS.iter().map(|(t, _)| *t).collect();
+    Ok(format!(
+        "//! Native dispatch and unsupported operations for `burn-backend` {BURN_VERSION};\n\
+         //! Burn defaults compose the primitives implemented by this backend.\n\
+         //!\n\
+         //! @generated by `cargo xtask gen-burn-ops` from the pinned\n\
+         //! burn-backend's op traits. Do not edit: `gen-burn-ops --check` fails\n\
+         //! if this file and its source disagree.\n\n\
+         // Signatures mirror Burn's traits, including explicit Future bounds.\n\
+         #![allow(clippy::too_many_arguments, clippy::manual_async_fn, unused_variables)]\n\n\
+         use burn_backend::ops::{{{}}};\n\
+         {imports}\n\
+         use crate::TtBackend;\n\n\
+         {impls}",
+        trait_imports.join(", ")
+    ))
+}
+
+/// The `burn-tt/src/ops.rs` module holding a trait's hand-written methods.
+fn module_of(tr: &str) -> &'static str {
+    match tr {
+        "FloatTensorOps" => "float",
+        "IntTensorOps" => "int",
+        "BoolTensorOps" => "bool",
+        "ModuleOps" => "module",
+        "ActivationOps" => "activation",
+        "QTensorOps" => "quantized",
+        "TransactionOps" => "transaction",
+        _ => unreachable!("TRAITS lists every trait"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = r#"
+pub trait FloatTensorOps<B: Backend> {
+    /// A comment with a { brace.
+    fn float_add(lhs: FloatTensor<B>, rhs: FloatTensor<B>) -> FloatTensor<B>;
+    fn float_zeros(shape: Shape, device: &Device<B>, dtype: FloatDType) -> FloatTensor<B> {
+        let x = "}";
+        todo!()
+    }
+    fn float_sort_with_indices(
+        tensor: FloatTensor<B>,
+        dim: usize,
+    ) -> (FloatTensor<B>, IntTensor<B>);
+}
+"#;
+
+    #[test]
+    fn parses_required_and_defaulted_methods_across_lines() {
+        let m = parse_trait(SAMPLE, "FloatTensorOps").unwrap();
+        let names: Vec<&str> = m.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["float_add", "float_zeros", "float_sort_with_indices"]
+        );
+        assert_eq!(m[1].args[1], ("device".into(), "&Device<B>".into()));
+        assert_eq!(m[2].ret.as_deref(), Some("(FloatTensor<B>, IntTensor<B>)"));
+    }
+
+    #[test]
+    fn unsupported_methods_name_arguments_without_reading_tensor_values() {
+        let m = selected(
+            "FloatTensorOps",
+            parse_trait(SAMPLE, "FloatTensorOps").unwrap(),
+        );
+        let out = render(&[("FloatTensorOps", m)], &[]).unwrap();
+        assert!(out.contains("crate::unsupported::fail(\"float_add\""));
+        assert!(out.contains("crate::unsupported::context(&lhs)"));
+        assert!(out.contains("crate::report::enter(\"float_add\", false)"));
+        assert!(!out.contains("fn float_zeros"));
+    }
+
+    #[test]
+    fn records_which_methods_have_defaults() {
+        let m = parse_trait(SAMPLE, "FloatTensorOps").unwrap();
+        let d: Vec<bool> = m.iter().map(|m| m.defaulted).collect();
+        assert_eq!(d, [false, true, false]);
+    }
+
+    #[test]
+    fn composed_defaults_are_preserved_unless_overridden() {
+        let m = parse_trait(SAMPLE, "FloatTensorOps").unwrap();
+        let kept: Vec<_> = selected("FloatTensorOps", m)
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        assert_eq!(kept, ["float_add", "float_sort_with_indices"]);
+        let out = render(
+            &[(
+                "FloatTensorOps",
+                parse_trait(SAMPLE, "FloatTensorOps").unwrap(),
+            )],
+            &[("FloatTensorOps", &["float_add"])],
+        )
+        .unwrap();
+        assert!(out.contains("crate::ops::float::float_add(lhs, rhs)"));
+    }
+
+    #[test]
+    fn refuses_an_override_that_is_not_a_method() {
+        let m = parse_trait(SAMPLE, "FloatTensorOps").unwrap();
+        let traits = [("FloatTensorOps", m)];
+        let err =
+            check_overridden(&traits, &[("FloatTensorOps", &["float_nonexistent"])]).unwrap_err();
+        assert!(err.contains("float_nonexistent"), "{err}");
+        assert!(check_overridden(&traits, &[("FloatTensorOps", &["float_add"])]).is_ok());
+    }
+
+    #[test]
+    fn a_trait_may_repeat_across_lists_but_a_method_may_not() {
+        let m = parse_trait(SAMPLE, "FloatTensorOps").unwrap();
+        let traits = [("FloatTensorOps", m)];
+        let split = [
+            ("FloatTensorOps", &["float_add"][..]),
+            ("FloatTensorOps", &["float_zeros"][..]),
+        ];
+        assert!(check_overridden(&traits, &split).is_ok());
+        let twice = [
+            ("FloatTensorOps", &["float_add"][..]),
+            ("FloatTensorOps", &["float_add"][..]),
+        ];
+        let err = check_overridden(&traits, &twice).unwrap_err();
+        assert!(err.contains("two lists"), "{err}");
+    }
+
+    #[test]
+    fn refuses_an_unknown_identifier() {
+        let src = "pub trait FloatTensorOps<B: Backend> { fn f(x: FloatTensor<B>, y: Mystery) -> FloatTensor<B>; }";
+        let m = parse_trait(src, "FloatTensorOps").unwrap();
+        let err = render(&[("FloatTensorOps", m)], &[]).unwrap_err();
+        assert!(err.contains("Mystery"), "{err}");
+    }
+
+    #[test]
+    fn refuses_generics_and_generates_unsupported_futures() {
+        let g = "pub trait FloatTensorOps<B: Backend> { fn f<T>(x: FloatTensor<B>) -> T; }";
+        assert!(parse_trait(g, "FloatTensorOps").is_err());
+        let f = "pub trait FloatTensorOps<B: Backend> { fn f(x: FloatTensor<B>) -> impl Future<Output = TensorData> + Send; }";
+        let m = parse_trait(f, "FloatTensorOps").unwrap();
+        let generated = render(&[("FloatTensorOps", m)], &[]).unwrap();
+        assert!(generated.contains("async move {"));
+        assert!(generated.contains("crate::unsupported::fail"));
+    }
+}

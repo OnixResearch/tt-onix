@@ -1,0 +1,114 @@
+//! Build orchestration: fetching pinned specification inputs, generating the
+//! tables `tt-isa` is built from, and the checks that keep those pins honest.
+//!
+//! Deliberately dependency-free — it shells out to `curl`, `sha256sum` and
+//! `rustfmt` rather than pulling an HTTP stack, a hash crate and a formatter into
+//! the workspace for a handful of calls.
+
+use std::process::ExitCode;
+
+mod burn_coverage;
+mod burn_tests;
+mod conformance;
+mod fetch;
+mod gen_burn;
+mod gen_cfg;
+mod gen_isa;
+mod pin;
+mod ship;
+mod silicon;
+mod spec;
+mod testrun;
+mod util;
+
+fn main() -> ExitCode {
+    let mut args = std::env::args().skip(1);
+    let cmd = args.next();
+    let result = match cmd.as_deref() {
+        Some("fetch-ttsim") => fetch::fetch_ttsim(args.any(|a| a == "--force")),
+        Some("check-no-sim-in-ship") => ship::check_no_sim_in_ship(),
+        Some("check-no-flex-in-backend") => ship::check_no_flex_in_backend(),
+        Some("gen-cfg") => gen_cfg::gen_cfg(args.any(|a| a == "--check")),
+        Some("fetch-spec") => fetch::fetch_spec(args.any(|a| a == "--force")),
+        Some("fetch-kmd") => fetch::fetch_kmd(args.any(|a| a == "--force")),
+        Some("fetch-mnist") => fetch::fetch_mnist(args.any(|a| a == "--force")),
+        Some("fetch-weights") => {
+            let rest: Vec<String> = args.collect();
+            let force = rest.iter().any(|a| a == "--force");
+            let model = rest
+                .iter()
+                .position(|a| a == "--model")
+                .and_then(|i| rest.get(i + 1))
+                .map(String::as_str);
+            fetch::fetch_weights(model, force)
+        }
+        Some("fetch-burn-tests") => fetch::fetch_burn_tests(args.any(|a| a == "--force")),
+        Some("check-isa-sources") => gen_isa::check_sources(),
+        Some("gen-isa") => gen_isa::generate(args.any(|a| a == "--check")),
+        Some("gen-burn-ops") => gen_burn::generate(args.any(|a| a == "--check")),
+        Some("burn-coverage") => burn_coverage::run(args.any(|a| a == "--check")),
+        Some("silicon") => silicon::run(args),
+        Some("conformance") => conformance::run(args),
+        Some("bench") => silicon::bench(args),
+        Some(other) => Err(format!("unknown task `{other}`\n\n{USAGE}")),
+        None => Err(USAGE.to_string()),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(msg) => {
+            eprintln!("xtask: {msg}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+const USAGE: &str = "\
+usage: cargo xtask <task>
+
+tasks:
+  fetch-ttsim [--force]   download the pinned libttsim builds into vendor/
+  fetch-spec [--force]    download the pinned ISA specification tree into vendor/
+                          and verify it against the pinned content digest
+  fetch-kmd [--force]     download the pinned tt-kmd ioctl.h into vendor/; this is
+                          the driver ABI tt-kmd binds, not a specification
+  fetch-mnist [--force]   download MNIST into vendor/mnist/, decompressed and
+                          verified against the pinned hashes; the Phase 7
+                          training gate reads it
+  fetch-weights [--model <name>] [--force]
+                          download the pinned pretrained weights (resnet18,
+                          vit-tiny, smollm2-135m) and test images (images) into
+                          vendor/weights/<name>/ and verify each against its
+                          pinned length and SHA-256; tt-models reads them
+  fetch-burn-tests [--force]
+                          download Burn's backend test suite (the pinned tag's
+                          crates/burn-backend-tests/tests) into
+                          vendor/burn-backend-tests/ and verify it against the
+                          pinned content digest; burn-tt-conformance runs it
+  gen-cfg [--check]      regenerate tt-isa's backend-configuration field table
+                          from the pinned cfg_defines.h; --check fails if the
+                          committed file is out of date rather than rewriting it
+  gen-isa [--check]       regenerate tt-isa's instruction table from the pinned
+                          Bits32.lua, cross-checked against the specification's
+                          syntax blocks; --check fails if the committed file is
+                          out of date rather than rewriting it
+  gen-burn-ops [--check]
+                          regenerate burn-tt's native dispatch and unsupported
+                          operations from the pinned burn-backend source;
+                          --check fails if the committed file is out of date
+  burn-coverage [--check]
+                          regenerate docs/plans/burn-op-coverage.md: each Burn
+                          trait method native, composed or unsupported, with a
+                          disposition for every unsupported one; --check also
+                          fails on a missing or stale disposition
+  check-isa-sources       parse the pinned Bits32.lua and report what it holds,
+                          without generating anything
+  check-no-flex-in-backend assert burn-tt has no Flex dependency, including tests
+  check-no-sim-in-ship    assert tt-ttsim is absent from shippable dependency graphs
+  silicon [options]       run the silicon suite one test per process, with an
+                          fsync'd log; `cargo xtask silicon --help` for options
+  conformance [options]   Burn's own backend tests against burn-tt on the simulator,
+                          one test per process, compared with the expected-failures
+                          list; `cargo xtask conformance --help` for options
+  bench [options]         the firmware benchmarks on silicon (release, ignored
+                          tests included), collected into target/silicon/bench/;
+                          `cargo xtask bench --help`";

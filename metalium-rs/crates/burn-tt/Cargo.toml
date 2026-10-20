@@ -1,0 +1,31 @@
+[package]
+name = "burn-tt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Native Burn backend. Flex and simulator comparisons live in tt-tests.
+[dependencies]
+burn-backend.workspace = true
+burn-tensor.workspace = true
+burn-autodiff = { version = "=0.21.0", default-features = false, features = ["std"] }
+burn-std = { workspace = true, optional = true }
+burn-ir = { workspace = true, optional = true }
+burn-fusion = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+rand = { version = "0.10", default-features = false, features = ["std", "std_rng"] }
+tt-device.workspace = true
+tt-isa.workspace = true
+# Native scalar conversion for SFPU parameters.
+num-traits = { version = "0.2", default-features = false }
+tt-kernels.workspace = true
+tt-kmd.workspace = true
+tt-firmware-images.workspace = true
+# `atexit`, for `TT_REPORT=1` (`report.rs`).
+libc.workspace = true
+
+[features]
+default = ["std", "fusion"]
+std = []
+fusion = ["dep:burn-std", "dep:burn-ir", "dep:burn-fusion", "dep:serde"]

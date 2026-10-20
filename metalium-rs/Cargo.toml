@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tt-isa",
+    "crates/tt-ttsim-sys",
+    "crates/tt-ttsim",
+    "crates/tt-device",
+    "crates/tt-kmd",
+    "crates/tt-layout",
+    "crates/tt-kernels",
+    "crates/tt-firmware-images",
+    "crates/burn-tt",
+    "crates/rwkv7",
+    "crates/tt-mnist",
+    "crates/tt-models",
+    "crates/tt-tests",
+    "crates/burn-tt-conformance",
+    "xtask",
+]
+# tt-firmware builds for riscv32im and is driven by xtask, not the host workspace.
+exclude = ["crates/tt-firmware"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+tt-isa = { path = "crates/tt-isa" }
+tt-ttsim-sys = { path = "crates/tt-ttsim-sys" }
+tt-ttsim = { path = "crates/tt-ttsim" }
+tt-device = { path = "crates/tt-device" }
+tt-kmd = { path = "crates/tt-kmd" }
+tt-layout = { path = "crates/tt-layout" }
+tt-kernels = { path = "crates/tt-kernels" }
+tt-firmware-images = { path = "crates/tt-firmware-images" }
+burn-tt = { path = "crates/burn-tt" }
+rwkv7 = { path = "crates/rwkv7" }
+# Exact pins (PINS.toml, [burn]): `cargo xtask gen-burn-ops` reads the
+# op traits of exactly this burn-backend, so a caret range would let the
+# generated operation implementations drift from their trait source.
+burn-backend = { version = "=0.21.0", default-features = false, features = ["std"] }
+burn-flex = { version = "=0.21.0", default-features = false, features = ["std"] }
+burn-tensor = { version = "=0.21.0", default-features = false, features = ["std"] }
+# The training half, for the Phase 7 gates only (tt-tests): `burn` re-exports
+# burn-nn, burn-optim and autodiff, and `#[derive(Module)]` expands to `burn::`
+# paths, so the umbrella crate rather than its parts.
+burn-std = { version = "=0.21.0", default-features = false, features = ["std", "cubecl"] }
+burn-ir = { version = "=0.21.0", default-features = false }
+burn-fusion = { version = "=0.21.0", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+burn = { version = "=0.21.0", default-features = false, features = ["std", "autodiff"] }
+# Pretrained-weight loading for `tt-models` (B15): safetensors only, no PyTorch pickle
+# reader and no burnpack. The same release as every other burn crate.
+burn-store = { version = "=0.21.0", default-features = false, features = ["std", "safetensors"] }
+# The independent Lanczos3 oracle of `tt-tests` (step155_interpolate): dev-only, no codecs.
+image = { version = "=0.25.10", default-features = false }
+libloading = "0.8"
+libc = "0.2"
+# The reference `erfc` the SFPU's `erf` fits its tail to, at program build time
+# (`tt_kernels::sfpu::ops::erfc_fit`): pure Rust, already in the tree as
+# burn-flex's.
+libm = "0.2"
+# `burn-tt-conformance`, the dev-only crate that runs Burn's own backend tests
+# against `TtBackend`: exactly the versions upstream's `burn-backend-tests` uses
+# (the `ctor` that sets the test dtypes, the `might_panic` attribute, and
+# autodiff's test-only checkpointer check).
+burn-tensor-testgen = "=0.21.0"
+ctor = "=0.10.1"
+
+# `tt-mnist`'s build script deflates 55 MB of MNIST; unoptimised, that is
+# most of a minute.
+[profile.dev.build-override]
+opt-level = 3
+[profile.release.build-override]
+opt-level = 3

@@ -1,0 +1,314 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Nightly full simulator regression at 03:00 UTC
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  sanity:
+    name: Format, codegen & boundaries
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup component add clippy rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The specification tree is pinned in PINS.toml and checked by content digest.
+      - name: Cache the pinned specification tree
+        uses: actions/cache@v4
+        with:
+          path: vendor/tt-isa-documentation
+          key: tt-isa-docs-${{ hashFiles('PINS.toml') }}
+
+      - name: Fetch specification
+        run: cargo xtask fetch-spec
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Simulator binding stays out of shippable crates
+        run: cargo xtask check-no-sim-in-ship
+
+      - name: Burn backend is independent of Flex
+        run: cargo xtask check-no-flex-in-backend
+
+      - name: Generated config table is current
+        run: cargo xtask gen-cfg --check
+
+      - name: Generated instruction table is current
+        run: cargo xtask gen-isa --check
+
+      - name: Generated Burn operations are current
+        run: cargo xtask gen-burn-ops --check
+
+      - name: Burn operation coverage is current
+        run: cargo xtask burn-coverage --check
+
+  firmware:
+    name: Firmware integrity & lints
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add riscv32im-unknown-none-elf
+          rustup component add clippy llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Firmware is excluded from host workspace, so lint it directly for riscv32im.
+      - name: Clippy (firmware)
+        run: cargo clippy --manifest-path crates/tt-firmware/Cargo.toml --target riscv32im-unknown-none-elf --bins --lib -- -D warnings
+
+      # Building tt-firmware-images runs its build.rs, which verifies that all
+      # compiled firmware binaries obey the Blackhole instruction blacklist.
+      - name: Instruction set blacklist gate
+        run: cargo check -p tt-firmware-images
+
+      # The B mover's other read modes (AGENTS.md, "Avoid hardware failures"): `fast-reads` runs host-encoded
+      # reads, `encoded-guard` adds the card's semantic guard. They are separate images, so they are linted
+      # and put through the instruction gate separately.
+      - name: Clippy (firmware, encoded-guard)
+        run: cargo clippy --manifest-path crates/tt-firmware/Cargo.toml --target riscv32im-unknown-none-elf --bins --lib --features encoded-guard -- -D warnings
+
+      - name: Instruction set blacklist gate (fast images)
+        run: cargo check -p tt-firmware-images --features encoded-guard
+
+  lint-and-silicon:
+    name: Lints & Silicon compilation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add riscv32im-unknown-none-elf
+          rustup component add clippy llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache the pinned MNIST files
+        uses: actions/cache@v4
+        with:
+          path: vendor/mnist
+          key: mnist-${{ hashFiles('PINS.toml') }}
+
+      # `tt-mnist`'s build script embeds the IDX files and panics without them,
+      # and every job that builds the workspace builds `tt-mnist`.
+      - name: Fetch MNIST
+        run: cargo xtask fetch-mnist
+
+      - name: Clippy (host workspace)
+        run: cargo clippy --workspace --all-targets
+
+      - name: Type-check the silicon-only suite
+        run: cargo test --workspace --features tt-tests/silicon --no-run
+
+      - name: Clippy (silicon build)
+        run: cargo clippy --workspace --all-targets --features tt-tests/silicon
+
+      - name: Cache the pinned Burn test suite
+        uses: actions/cache@v4
+        with:
+          path: vendor/burn-backend-tests
+          key: burn-backend-tests-${{ hashFiles('PINS.toml') }}
+
+      # The conformance suite compiles Burn's own tests, which `--workspace` does
+      # not build: its test targets need the `run` feature.
+      - name: Fetch the Burn test suite
+        run: cargo xtask fetch-burn-tests
+
+      - name: Clippy (conformance suite)
+        run: cargo clippy -p burn-tt-conformance --all-targets --features run
+
+      - name: Clippy (conformance suite, silicon build)
+        run: cargo clippy -p burn-tt-conformance --all-targets --features silicon
+
+  unit-tests:
+    name: Host unit & doc tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add riscv32im-unknown-none-elf
+          rustup component add llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache the pinned MNIST files
+        uses: actions/cache@v4
+        with:
+          path: vendor/mnist
+          key: mnist-${{ hashFiles('PINS.toml') }}
+
+      # `tt-mnist`'s build script embeds the IDX files and panics without them,
+      # and every job that builds the workspace builds `tt-mnist`.
+      - name: Fetch MNIST
+        run: cargo xtask fetch-mnist
+
+      # Pure host unit tests: covers encodings, tilize/detilize, SFPU bounds,
+      # tensor padding/slicing, and driver ABI layouts without simulator overhead.
+      - name: Host unit tests
+        run: cargo test --workspace --exclude tt-tests
+
+      - name: Doc tests
+        run: cargo test --doc --workspace
+
+  simulator-smoke:
+    name: Simulator smoke suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add riscv32im-unknown-none-elf
+          rustup component add llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache the pinned MNIST files
+        uses: actions/cache@v4
+        with:
+          path: vendor/mnist
+          key: mnist-${{ hashFiles('PINS.toml') }}
+
+      # `tt-mnist`'s build script embeds the IDX files and panics without them,
+      # and every job that builds the workspace builds `tt-mnist`.
+      - name: Fetch MNIST
+        run: cargo xtask fetch-mnist
+
+      - name: Cache the pinned simulator
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/libttsim_bh.so
+            vendor/libttsim_bh_x2.so
+          key: libttsim-${{ hashFiles('PINS.toml') }}
+
+      - name: Fetch simulator
+        run: cargo xtask fetch-ttsim
+
+      # Fast simulator smoke test: proves FFI binding, BAR configuration,
+      # reset, and Tensix instruction dispatch on ttsim in under a minute.
+      - name: Test (simulator smoke)
+        run: cargo test -p tt-tests --test step1_harness --test step4_tensix --test step8_eltwise
+
+      # The B mover's three read modes, each against its own firmware image: the safe image refuses an
+      # encoded read, a fast one runs it, an encoded-guard one also guards it.
+      - name: Test (encoded reads - safe, fast, guard)
+        run: |
+          cargo test -p tt-tests --test step172_encoded_reads --test step173_mover_differential
+          cargo test -p tt-tests --features fast-reads --test step172_encoded_reads --test step173_mover_differential
+          cargo test -p tt-tests --features encoded-guard --test step172_encoded_reads --test step173_mover_differential
+
+  simulator-full:
+    name: Full simulator & E2E regression
+    # Run on scheduled nightly, manual trigger, or push to main
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add riscv32im-unknown-none-elf
+          rustup component add llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache the pinned simulator
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/libttsim_bh.so
+            vendor/libttsim_bh_x2.so
+            vendor/libttsim_bh_x4.so
+          key: libttsim-${{ hashFiles('PINS.toml') }}
+
+      - name: Cache the pinned specification tree
+        uses: actions/cache@v4
+        with:
+          path: vendor/tt-isa-documentation
+          key: tt-isa-docs-${{ hashFiles('PINS.toml') }}
+
+      - name: Cache the pinned MNIST files
+        uses: actions/cache@v4
+        with:
+          path: vendor/mnist
+          key: mnist-${{ hashFiles('PINS.toml') }}
+
+      - name: Fetch simulator
+        run: cargo xtask fetch-ttsim
+
+      - name: Fetch specification
+        run: cargo xtask fetch-spec
+
+      - name: Fetch MNIST
+        run: cargo xtask fetch-mnist
+
+      # `step120_tag_search` checks the L1 cache tag-search register layout
+      # against the pinned `vendor/cfg_defines.h`. `gen-cfg --check` fetches it
+      # (verified against PINS.toml) and confirms the generated table is current.
+      - name: Fetch cfg_defines.h
+        run: cargo xtask gen-cfg --check
+
+      # Full simulator gate suite across all 80+ steps
+      - name: Test (simulator all)
+        run: cargo test -p tt-tests
+
+      # The same suite against the fast read mode's firmware (host-encoded reads on every list that has a
+      # plain read): the nightly proof that turning it on changes no result.
+      - name: Test (simulator all, fast-reads)
+        run: cargo test -p tt-tests --features fast-reads
+
+      # The end-to-end tier: Burn training on ttsim against the golden loss curve
+      - name: Test (end-to-end)
+        run: cargo test -p tt-tests --features e2e --test step12_mnist
+
+      - name: Cache the pinned Burn test suite
+        uses: actions/cache@v4
+        with:
+          path: vendor/burn-backend-tests
+          key: burn-backend-tests-${{ hashFiles('PINS.toml') }}
+
+      - name: Fetch the Burn test suite
+        run: cargo xtask fetch-burn-tests
+
+      # Burn's own backend tests against burn-tt on ttsim, one test per process; the
+      # outcome must match crates/burn-tt-conformance/expected-failures.toml.
+      - name: Conformance (Burn's backend tests)
+        run: cargo xtask conformance --release
+
+      - name: Upload the conformance outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance
+          path: target/conformance

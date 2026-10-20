@@ -1,0 +1,15 @@
+[package]
+name = "rwkv7"
+description = "RWKV-7 WKV7 recurrent-state reference and native Burn/TT gate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+burn.workspace = true
+burn-tt.workspace = true
+tt-kernels.workspace = true
+burn-flex.workspace = true
+safetensors = "0.6"

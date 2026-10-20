@@ -1,0 +1,40 @@
+/target
+/crates/tt-firmware/target
+
+# The pinned simulator build, fetched by `cargo xtask fetch-ttsim`.
+# Not committed: a 244 KiB binary blob with its own release cadence. It is
+# *pinned* in PINS.toml, which is what actually matters -- it is the oracle every
+# gate is measured against.
+/vendor/*.so
+
+# Fetched by `cargo xtask gen-cfg`, pinned by SHA-256 in PINS.toml. The *generated*
+# Rust table is committed; the header it came from is not.
+/vendor/cfg_defines.h
+
+# Fetched by `cargo xtask fetch-spec`, pinned by content digest in PINS.toml. The
+# specification is a pinned *input*, not a dependency: it is third-party CC BY-ND
+# content with its own cadence, so it is verified on arrival rather than vendored.
+/vendor/tt-isa-documentation/
+/vendor/tt-isa-documentation.staging/
+/vendor/tt-isa-documentation.tar.gz
+
+# Fetched by `cargo xtask fetch-kmd`, pinned by SHA-256 in PINS.toml. Third-party
+# GPL-2.0-only-WITH-Linux-syscall-note header; verified on arrival rather than
+# vendored, like every other pinned input.
+/vendor/ioctl.h
+
+# Fetched by `cargo xtask fetch-mnist`, pinned by SHA-256 in PINS.toml; the
+# Phase 7 training gate's data.
+/vendor/mnist/
+
+# Fetched by `cargo xtask fetch-weights`, pinned by SHA-256 in PINS.toml; the
+# model ladder's pretrained weights (tt-models).
+/vendor/weights/
+
+# Fetched by `cargo xtask fetch-burn-tests`, pinned by content digest in PINS.toml:
+# the tests of Burn's own `burn-backend-tests` crate (not on crates.io), which
+# `burn-tt-conformance` runs against `TtBackend`. Third-party, so fetched and
+# verified rather than vendored.
+/vendor/burn-backend-tests/
+/vendor/burn-backend-tests.staging/
+/vendor/burn-backend-tests.tar.gz
