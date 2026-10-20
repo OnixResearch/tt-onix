@@ -2422,3 +2422,29 @@ transfers as B-only lists; end to end from the host, medians):
   faster than a plain weight, so the views stay.
 - `step187`'s twelve-tile kernel gate is 0.51 s for one token; the session setup dominates a single
   step, so the win is over a token stream.
+
+### Model gate breakdown (2026-10-20, card 0, 12 tiles)
+
+`rwkv7-model-gate --checkpoint <pinned> --card 0 --fused`, two tokens, accurate matmuls:
+
+| Phase | Time |
+|---|---:|
+| checkpoint read | 0.40 s |
+| Flex run | 0.22 s |
+| Flex control run | 0.23 s |
+| device run (12 layers, fused recurrence) | 5.65 s |
+| total | 7.1 s |
+
+The device time is the 768x768 projections and the 65536x768 head; the fused recurrence is no
+longer the critical path. A head-batched kernel would move only a fraction of the total.
+
+### Fused path vs the Python reference and eight-token generation (2026-10-20, card 0)
+
+`rwkv7-model-gate --checkpoint <pinned> --oracle /var/tmp/rwkv-ref --card 0 --fused`:
+tt hidden 1.619e-3 (bound 5.0e-1), logits 2.756e-4 (bound 1.0), states 4.101e-4 (bound 1.0); the
+composed path gave 1.614e-3, 2.728e-4, 3.939e-4. The fused recurrence adds nothing measurable to
+the model's agreement.
+
+`rwkv7-generate-gate --prompt <fixed> --generate 8 --card 0 --fused` (12 tiles): 3.96 s, ids
+`[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`, text `" Hi, I'm sorry to hear that"`, equal to
+Flex.

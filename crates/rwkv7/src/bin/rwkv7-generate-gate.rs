@@ -20,6 +20,8 @@ const EXPECTED_LOGITS: [f32; STEPS] = [0.044_930_69, 6.954_383_4, 6.486_726];
 const TOKEN_TOLERANCE: f32 = 1.0e-2;
 const FIXED_PROMPT: &str = "<|rwkv_tokenizer_end_of_text|>User: Hi\n\nAssistant:";
 const EXPECTED_TEXT: &str = " Hi, I";
+const EXPECTED_STEPS: usize = 8;
+const EXPECTED_TEXT_8: &str = " Hi, I'm sorry to hear that";
 
 /// One layer token, with the WKV7 recurrence the caller chose.
 type Step<B> = fn(
@@ -443,9 +445,16 @@ fn main() -> std::process::ExitCode {
         let flex_text = String::from_utf8_lossy(&flex_bytes);
         println!("flex generated ids: {flex_ids:?}");
         println!("flex generated text: {flex_text:?}");
-        if prompt == FIXED_PROMPT && steps == STEPS && flex_text != EXPECTED_TEXT {
-            eprintln!("flex text differs from the harness: expected {EXPECTED_TEXT:?}");
-            return std::process::ExitCode::FAILURE;
+        let expected = match steps {
+            STEPS => Some(EXPECTED_TEXT),
+            EXPECTED_STEPS => Some(EXPECTED_TEXT_8),
+            _ => None,
+        };
+        if let (FIXED_PROMPT, Some(expected)) = (prompt.as_str(), expected) {
+            if flex_text != expected {
+                eprintln!("flex text differs from the harness: expected {expected:?}");
+                return std::process::ExitCode::FAILURE;
+            }
         }
         if let Some(card) = card {
             let tt_ids = match run(Some(card)) {
@@ -459,9 +468,16 @@ fn main() -> std::process::ExitCode {
             let tt_text = String::from_utf8_lossy(&tt_bytes);
             println!("tt generated ids: {tt_ids:?}");
             println!("tt generated text: {tt_text:?}");
-            if prompt == FIXED_PROMPT && steps == STEPS && tt_text != EXPECTED_TEXT {
-                eprintln!("tt text differs from the harness: expected {EXPECTED_TEXT:?}");
-                return std::process::ExitCode::FAILURE;
+            let expected = match steps {
+                STEPS => Some(EXPECTED_TEXT),
+                EXPECTED_STEPS => Some(EXPECTED_TEXT_8),
+                _ => None,
+            };
+            if let (FIXED_PROMPT, Some(expected)) = (prompt.as_str(), expected) {
+                if tt_text != expected {
+                    eprintln!("tt text differs from the harness: expected {expected:?}");
+                    return std::process::ExitCode::FAILURE;
+                }
             }
             if tt_ids != flex_ids {
                 eprintln!("tt and flex selected different tokens");

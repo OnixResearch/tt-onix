@@ -341,8 +341,13 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   2.245e-5), logits 2.708e-4 (relative 1.377e-5), recurrent state 4.168e-4 (relative 7.577e-6), and
   greedy token 2, about 19 s. `step188_wkv7_layer` runs the layer on ttsim and card 0 in the default
   matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). The generate gate's `--fused`
-  path also passes on card 0: the three-step decode chain picks token 1 at every step, and the fixed
-  prompt generates `" Hi, I"` (ids `[3880, 45, 308]`, equal to Flex). Cost, measured: `w`/`b` are
+  path also passes on card 0: the three-step decode chain picks token 1 at every step; the fixed
+  prompt generates `" Hi, I"` (ids `[3880, 45, 308]`) and, at eight tokens,
+  `" Hi, I'm sorry to hear that"` (ids `[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`), both
+  equal to Flex and gate-pinned; the eight-token run is 3.96 s at twelve tiles. The 12-layer model
+  gate with `--oracle /var/tmp/rwkv-ref` passes on the fused path: hidden 1.619e-3 (bound 5.0e-1),
+  logits 2.756e-4 (bound 1.0), states 4.101e-4 (bound 1.0), against the composed path's
+  1.614e-3/2.728e-4/3.939e-4. Cost, measured: `w`/`b` are
   now unpacked once per column tile and shared by both row tiles (eighteen vector unpacks a head,
   down from twenty-two), and the twelve heads are twelve jobs in one `Work`, so the layer makes one
   submission instead of twelve and its state/output are one slice and reshape, not twelve `cat`s.
@@ -353,7 +358,11 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   generation from 10.93 s to 2.83 s, with the same gaps, token and text. Pre-transposing the linear
   weights (or the `lm_head`) at load and using plain right operands was tried and is slower on card
   (the model gate rose from 6.0 s to 6.9 to 7.1 s), so the backend's transposed-view matmul path
-  stays; the per-token transpose copies are cheaper than a plain operand. `step187` also runs the twelve-head step on a twelve-tile session
+  stays; the per-token transpose copies are cheaper than a plain operand. A model-gate breakdown
+  (12 tiles, two tokens, accurate matmuls): checkpoint read 0.40 s, Flex 0.22 s plus a 0.23 s
+  control, device 5.65 s of 7.1 s. The recurrence is no longer the critical path: the device time
+  is the 768x768 projections, so a head-batched kernel would move only a fraction. Further cost
+  work belongs in the matmul path, not the recurrence. `step187` also runs the twelve-head step on a twelve-tile session
   (card 0, 0.51 s for one token; the session setup dominates a single step). Left: a head-batched
   kernel (more than one head per `Dst` pass) and the 768x768 projections, which dominate the layer.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still

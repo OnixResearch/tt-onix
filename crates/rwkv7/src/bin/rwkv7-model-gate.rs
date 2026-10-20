@@ -4,6 +4,8 @@
 //! normalized hidden vector and every layer's post-token-2 recurrent matrix.
 //! Logits are not evaluated: the 65536x768 head is outside this gate.
 
+use std::time::Instant;
+
 use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TileChoice, TtBackend, TtConfig, TtDevice};
@@ -173,7 +175,8 @@ fn run_tt(
     } else {
         layer_step::<TtBackend>
     };
-    accurate_matmul(|| {
+    let started = Instant::now();
+    let out = accurate_matmul(|| {
         let (weights, norm_w, norm_b, head) =
             materialize::<TtBackend>(specs, norm_values, lm_head, &device);
         run(
@@ -184,7 +187,9 @@ fn run_tt(
             &device,
             step,
         )
-    })
+    });
+    println!("device run: {:.3} s", started.elapsed().as_secs_f64());
+    out
 }
 
 fn read_f32(path: &std::path::Path) -> Result<Vec<f32>, String> {
@@ -269,6 +274,7 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     };
 
+    let checkpoint_started = Instant::now();
     let checkpoint = match Checkpoint::open(std::path::Path::new(&path)) {
         Ok(checkpoint) => checkpoint,
         Err(error) => {
@@ -308,12 +314,23 @@ fn main() -> std::process::ExitCode {
         }
     };
 
+    println!(
+        "checkpoint read: {:.3} s",
+        checkpoint_started.elapsed().as_secs_f64()
+    );
+    let flex_started = Instant::now();
     let (flex_hidden, flex_logits, flex_states) =
         run_flex(&specs, &norm_values, &lm_head, &embeddings);
+    println!("flex run: {:.3} s", flex_started.elapsed().as_secs_f64());
 
     let mut control = specs.clone();
     control[0].r_proj = vec![0.0; control[0].r_proj.len()];
+    let control_started = Instant::now();
     let (control_hidden, _, _) = run_flex(&control, &norm_values, &lm_head, &embeddings);
+    println!(
+        "flex control run: {:.3} s",
+        control_started.elapsed().as_secs_f64()
+    );
     let control_gap = max_abs(&control_hidden, &flex_hidden);
     println!(
         "flex: final hidden max {:.6}, logits max {:.6}, recurrent max {:.6}; control gap {:.6}",
