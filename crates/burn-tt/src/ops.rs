@@ -485,6 +485,77 @@ pub fn wkv7_step(
     device_result(device, id, dims)
 }
 
+/// All twelve heads of one token in one device job list
+/// (`tt_kernels::wkv7::work_batched`): twelve independent gather/kernel/scatter
+/// jobs, dealt over the session's units.
+///
+/// `state` is `[12, 64, 64]`; `a`, `b`, `w`, `k` and `r` are `[1, 768]` rows
+/// (head `h` at columns `64h..64h+64`); `v` is twelve `[64, 1]` columns in
+/// head order. The result is `[768, 96]`: head `h` occupies rows
+/// `64h..64h+64`, its state in columns 0..64 and its output (replicated) in
+/// 64..96. `tt_kernels::wkv7::split_batched` reads the host vectors back.
+#[allow(clippy::too_many_arguments)]
+pub fn wkv7_step_batched(
+    state: TtTensor,
+    a: TtTensor,
+    b: TtTensor,
+    w: TtTensor,
+    k: TtTensor,
+    r: TtTensor,
+    v: Vec<TtTensor>,
+) -> TtTensor {
+    use tt_kernels::wkv7::{HEADS, HEAD_SIZE};
+    let device = state.device;
+    let check = |name: &str, t: &TtTensor, dims: &[usize]| {
+        assert_eq!(
+            t.device, device,
+            "wkv7_step_batched: {name} on another device ({} against {})",
+            t.device.chip, device.chip
+        );
+        assert_eq!(
+            t.dtype(),
+            DType::F32,
+            "wkv7_step_batched: {name} is not F32"
+        );
+        assert_eq!(
+            t.shape().to_vec(),
+            dims.to_vec(),
+            "wkv7_step_batched: {name} shape"
+        );
+    };
+    check("state", &state, &[HEADS, HEAD_SIZE, HEAD_SIZE]);
+    for (name, t) in [("a", &a), ("b", &b), ("w", &w), ("k", &k), ("r", &r)] {
+        check(name, t, &[1, HEADS * HEAD_SIZE]);
+    }
+    assert_eq!(
+        v.len(),
+        HEADS,
+        "wkv7_step_batched: {} v columns, expected {HEADS}",
+        v.len()
+    );
+    for (head, t) in v.iter().enumerate() {
+        check(&format!("v[{head}]"), t, &[HEAD_SIZE, 1]);
+    }
+    let state = plain_dram(&state);
+    let a = plain_dram(&a);
+    let b = plain_dram(&b);
+    let w = plain_dram(&w);
+    let k = plain_dram(&k);
+    let r = plain_dram(&r);
+    let v: Vec<crate::server::BufferId> = v.iter().map(|t| plain_dram(t).buffer.id).collect();
+    let (id, dims) = crate::server::wkv7_step_batched(
+        device,
+        state.buffer.id,
+        a.buffer.id,
+        b.buffer.id,
+        w.buffer.id,
+        k.buffer.id,
+        r.buffer.id,
+        v,
+    );
+    device_result(device, id, dims)
+}
+
 /// A device result as a tensor.
 fn device_result(device: TtDevice, id: crate::server::BufferId, dims: [usize; 2]) -> TtTensor {
     device_view(device, id, dims, None, DType::F32)

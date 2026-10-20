@@ -210,7 +210,8 @@ fn mixed<B: Backend>(
 /// The WKV7 recurrence the layer runs: `(matrix, key_key, adaptation, decay,
 /// value, key, receptance)` for all heads, to `(next matrix, recurrent
 /// output)`. [`composed_recurrence`] is the Burn-op form and
-/// [`fused_tt_recurrence`] the one-head Tensix kernel, twelve launches.
+/// [`fused_tt_recurrence`] the batched Tensix kernel: twelve head jobs in one
+/// job list (`burn_tt::wkv7_step_batched`).
 pub type Recurrence<B> = fn(
     Tensor<B, 3>,
     Tensor<B, 2>,
@@ -259,40 +260,35 @@ pub fn fused_tt_recurrence(
     key: Tensor<TtBackend, 2>,
     receptance: Tensor<TtBackend, 2>,
 ) -> (Tensor<TtBackend, 3>, Tensor<TtBackend, 2>) {
-    let rank = key_key.clone() * adaptation;
-    let mut states = Vec::with_capacity(HEADS);
-    let mut outs = Vec::with_capacity(HEADS);
+    let flat = |t: Tensor<TtBackend, 2>| t.reshape([1, HEADS * HEAD_SIZE]);
+    let value_flat = flat(value);
+    let mut v = Vec::with_capacity(HEADS);
     for head in 0..HEADS {
-        let row = |t: Tensor<TtBackend, 2>| t.slice([head..head + 1, 0..HEAD_SIZE]);
-        let state = matrix
-            .clone()
-            .slice([head..head + 1, 0..HEAD_SIZE, 0..HEAD_SIZE])
-            .reshape([HEAD_SIZE, HEAD_SIZE]);
-        let a = row(key_key.clone()) * -1.0;
-        let b = row(rank.clone());
-        let w = row(decay.clone());
-        let v = row(value.clone()).reshape([HEAD_SIZE, 1]);
-        let k = row(key.clone());
-        let r = row(receptance.clone());
-        let combined = burn_tt::wkv7_step(
-            float(state),
-            float(r),
-            float(w),
-            float(k),
-            float(v),
-            float(a),
-            float(b),
-        );
-        let combined = Tensor::<TtBackend, 2>::from_primitive(TensorPrimitive::Float(combined));
-        states.push(combined.clone().slice([0..HEAD_SIZE, 0..HEAD_SIZE]));
-        outs.push(
-            combined
-                .slice([0..HEAD_SIZE, HEAD_SIZE..HEAD_SIZE + 1])
-                .reshape([1, HEAD_SIZE]),
-        );
+        v.push(float(
+            value_flat
+                .clone()
+                .slice([0..1, head * HEAD_SIZE..(head + 1) * HEAD_SIZE])
+                .reshape([HEAD_SIZE, 1]),
+        ));
     }
-    let next = Tensor::cat(states, 0).reshape([HEADS, HEAD_SIZE, HEAD_SIZE]);
-    (next, Tensor::cat(outs, 0))
+    let combined = burn_tt::wkv7_step_batched(
+        crate::float3(matrix),
+        float(flat(key_key.clone() * -1.0)),
+        float(flat(key_key * adaptation)),
+        float(flat(decay)),
+        float(flat(key)),
+        float(flat(receptance)),
+        v,
+    );
+    let combined = Tensor::<TtBackend, 2>::from_primitive(TensorPrimitive::Float(combined));
+    let next = combined
+        .clone()
+        .slice([0..HEADS * HEAD_SIZE, 0..HEAD_SIZE])
+        .reshape([HEADS, HEAD_SIZE, HEAD_SIZE]);
+    let out = combined
+        .slice([0..HEADS * HEAD_SIZE, HEAD_SIZE..HEAD_SIZE + 1])
+        .reshape([HEADS, HEAD_SIZE]);
+    (next, out)
 }
 
 fn float(t: Tensor<TtBackend, 2>) -> burn_tt::TtTensor {
@@ -473,8 +469,8 @@ pub fn layer_step_with<B: Backend>(
 }
 
 /// Deterministic synthetic weights for the differential gate.
-/// [`layer_step`] for `TtBackend` with the fused one-head kernel as the
-/// recurrence (`fused_tt_recurrence`). Opt-in: the twelve launches are a
+/// [`layer_step`] for `TtBackend` with the batched Tensix kernel as the
+/// recurrence (`fused_tt_recurrence`). Opt-in: the twelve head jobs are a
 /// correctness path, while the model gates stay on the composed graph.
 pub fn layer_step_fused(
     weights: &LayerWeights<TtBackend>,

@@ -4,7 +4,7 @@
 //! `tt_kernels::wkv7` kernel, scatter -- through the attached engine and
 //! returns one `[64, 96]` tensor. `rwkv7::step_head_device_attached` builds the
 //! head's tensors and splits the result; `step_device_fused_attached` runs all
-//! twelve heads, one launch a head. Both gates compare with the host
+//! twelve heads as twelve jobs in one submission. Both gates compare with the host
 //! recurrence across a carried second token; `step186_wkv7` covers the same
 //! kernel's role streams and its `Session` form directly.
 //!

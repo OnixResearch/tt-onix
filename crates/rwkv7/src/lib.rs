@@ -193,6 +193,20 @@ pub struct HeadOutputs {
     pub out: Vec<f32>,
 }
 
+fn float(t: Tensor<TtBackend, 2>) -> burn_tt::TtTensor {
+    match t.into_primitive() {
+        TensorPrimitive::Float(t) => t,
+        _ => unreachable!("an F32 tensor"),
+    }
+}
+
+pub(crate) fn float3(t: Tensor<TtBackend, 3>) -> burn_tt::TtTensor {
+    match t.into_primitive() {
+        TensorPrimitive::Float(t) => t,
+        _ => unreachable!("an F32 tensor"),
+    }
+}
+
 /// [`HeadOutputs`] for `head` of `inputs`, on an attached `device`.
 pub fn step_head_device_attached(
     device: TtDevice,
@@ -206,10 +220,6 @@ pub fn step_head_device_attached(
     let d = HEAD_SIZE;
     let base = head * d;
     let state_base = head * d * d;
-    let float = |t: Tensor<TtBackend, 2>| match t.into_primitive() {
-        TensorPrimitive::Float(t) => t,
-        _ => unreachable!("an F32 tensor"),
-    };
     let matrix = |values: Vec<f32>, rows: usize, cols: usize| {
         float(Tensor::from_data(
             TensorData::new(values, [rows, cols]),
@@ -235,22 +245,43 @@ pub fn step_head_device_attached(
     Ok(HeadOutputs { state, out })
 }
 
-/// All twelve heads of one token through [`step_device_fused_attached`]'s
-/// kernel: one launch per head, assembled into the full [`Outputs`].
-///
-/// The kernel is one head's work -- four state tiles and two vector slots fill
-/// `Dst` -- so a token is twelve launches, each with its own gather and
-/// scatter. A layer that keeps the token's projections resident would cut the
-/// per-head uploads; this is the correctness path.
+/// All twelve heads of one token in one device job list
+/// (`burn_tt::wkv7_step_batched`): twelve independent head jobs, dealt over
+/// the session's units, into the full [`Outputs`].
 pub fn step_device_fused_attached(device: TtDevice, inputs: &Inputs) -> Result<Outputs, String> {
     inputs.validate()?;
-    let mut state = Vec::with_capacity(HEAD_COUNT * HEAD_SIZE * HEAD_SIZE);
-    let mut out = Vec::with_capacity(HEAD_COUNT * HEAD_SIZE);
-    for head in 0..HEAD_COUNT {
-        let head = step_head_device_attached(device, inputs, head)?;
-        state.extend_from_slice(&head.state);
-        out.extend_from_slice(&head.out);
-    }
+    let d = HEAD_SIZE;
+    let matrix = |values: Vec<f32>, rows: usize, cols: usize| {
+        float(Tensor::from_data(
+            TensorData::new(values, [rows, cols]),
+            &device,
+        ))
+    };
+    let state = float3(Tensor::<TtBackend, 3>::from_data(
+        TensorData::new(
+            inputs.state[..HEAD_COUNT * d * d].to_vec(),
+            [HEAD_COUNT, d, d],
+        ),
+        &device,
+    ));
+    let row = |v: &[f32]| matrix(v.to_vec(), 1, HEAD_COUNT * d);
+    let v: Vec<_> = (0..HEAD_COUNT)
+        .map(|head| matrix(inputs.v[head * d..(head + 1) * d].to_vec(), d, 1))
+        .collect();
+    let combined = burn_tt::wkv7_step_batched(
+        state,
+        row(&inputs.a),
+        row(&inputs.b),
+        row(&inputs.w),
+        row(&inputs.k),
+        row(&inputs.r),
+        v,
+    );
+    let values = Tensor::<TtBackend, 2>::from_primitive(TensorPrimitive::Float(combined))
+        .into_data()
+        .to_vec::<f32>()
+        .map_err(|error| error.to_string())?;
+    let (state, out) = tt_kernels::wkv7::split_batched(&values);
     Ok(Outputs { state, out })
 }
 

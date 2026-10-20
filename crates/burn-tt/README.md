@@ -33,8 +33,11 @@ gather, one three-role kernel, scatter; `tt_kernels::wkv7`). Its result is one
 `[64, 96]` tensor, state in columns 0..64 and the output replicated in 64..96;
 `tt_kernels::wkv7::split_step` reads it back. `crates/rwkv7`'s
 `step_head_device_attached` is the caller; `step187_wkv7_burn` gates it on ttsim
-and card 0. It is single-card: a mesh engine refuses the op (the kernel is one
-tile's work).
+and card 0. `burn_tt::wkv7_step_batched` takes the state `[12, 64, 64]`, five
+`[1, 768]` row vectors and twelve `[64, 1]` columns and runs all twelve heads
+as twelve jobs in one submission (`Session::wkv7_step_batched`); the jobs spread
+over a session's units, so a multi-tile session runs heads in parallel. It is
+single-card: a mesh engine refuses both ops (the kernel is one tile's work).
 
 Supported element-wise ops upload inputs as needed and compute on the device. A rank-N
 `float_matmul` whose right side has no real batch (a `Linear` over `[b, s, d]`) folds

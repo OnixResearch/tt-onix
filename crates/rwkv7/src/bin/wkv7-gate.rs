@@ -64,7 +64,7 @@ fn main() -> ExitCode {
             "--fused" => fused = true,
             "-h" | "--help" => {
                 println!("usage: wkv7-gate [--card N] [--fused]");
-                println!("  --fused  the one-head Tensix kernel, one launch a head");
+                println!("  --fused  the fused kernel, twelve head jobs in one job list");
                 return ExitCode::SUCCESS;
             }
             other => {

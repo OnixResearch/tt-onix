@@ -264,6 +264,20 @@ fn sim_factory(
             self.buffers
                 .wkv7_step(&mut self.session, state, r, w, k, v, a, b)
         }
+        #[allow(clippy::too_many_arguments)]
+        fn wkv7_step_batched(
+            &mut self,
+            state: burn_tt::BufferId,
+            a: burn_tt::BufferId,
+            b: burn_tt::BufferId,
+            w: burn_tt::BufferId,
+            k: burn_tt::BufferId,
+            r: burn_tt::BufferId,
+            v: &[burn_tt::BufferId],
+        ) -> Result<(burn_tt::BufferId, [usize; 2]), TtError> {
+            self.buffers
+                .wkv7_step_batched(&mut self.session, state, a, b, w, k, r, v)
+        }
         fn pool_bf16(
             &mut self,
             a: burn_tt::BufferId,

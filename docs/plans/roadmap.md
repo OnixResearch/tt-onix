@@ -328,10 +328,12 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   the row-broadcast form; `v` is a `[64, 1]` column the mover broadcasts. Card 0 run `1792472083`,
   0.40 s. The GDDR-resident form (`wkv7::work` + `Session::wkv7_step`) and its `burn-tt` route
   (`burn_tt::wkv7_step`, `rwkv7::step_head_device_attached`) pass the same gate on ttsim and card 0
-  (`step187_wkv7_burn`, run `1792472975`, 0.91 s). All twelve heads run as twelve launches
-  (`rwkv7::step_device_fused_attached`; card 0 run `1792505756`, 0.36 s, max state gap 4.5e-8 and
-  output 1.5e-7; the existing `wkv7-gate --card 0 --fused` passes with 1.5e-7/4.5e-8 on step 1 and
-  8.9e-8/2.2e-8 on the carried step). The layer's Goose recurrence has the same `S*w + (S@a)*b +
+  (`step187_wkv7_burn`, run `1792472975`, 0.91 s). All twelve heads run in one job list
+  (`rwkv7::step_device_fused_attached`, `burn_tt::wkv7_step_batched`: twelve head jobs, one
+  submission; card 0 all-heads test 0.32 to 0.37 s over three warm runs, against 0.36 to 0.53 s for
+  twelve one-head calls; max state gap 4.5e-8 and output 1.5e-7; the existing
+  `wkv7-gate --card 0 --fused` passes with 1.5e-7/4.5e-8 on step 1 and 8.9e-8/2.2e-8 on the carried
+  step). The layer's Goose recurrence has the same `S*w + (S@a)*b +
   v*k` form with `a = -key_key`, `b = key_key * adaptation`, `w = decay`, so `layer_step_fused`
   (opt-in, `--fused` on the layer and model gates) routes it through the kernel. Card 0 with the
   pinned checkpoint: the layer gate in accurate mode gives token1 hidden 3.6e-7, token2 2.4e-7,
@@ -340,10 +342,13 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   greedy token 2, about 19 s. `step188_wkv7_layer` runs the layer on ttsim and card 0 in the default
   matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). The generate gate's `--fused`
   path also passes on card 0: the three-step decode chain picks token 1 at every step, and the fixed
-  prompt generates `" Hi, I"` (ids `[3880, 45, 308]`, equal to Flex). Left: cost. The kernel takes 22
-  vector unpacks per token because `Dst` holds just two vector slots beside the four state tiles, and
-  the layer route is twelve launches per layer; a later version should stage vectors in `Src`, reuse a
-  vector across the four state tiles, or batch heads.
+  prompt generates `" Hi, I"` (ids `[3880, 45, 308]`, equal to Flex). Cost, measured: `w`/`b` are
+  now unpacked once per column tile and shared by both row tiles (eighteen vector unpacks a head,
+  down from twenty-two), and the twelve heads are twelve jobs in one `Work`, so the layer makes one
+  submission instead of twelve and its state/output are one slice and reshape, not twelve `cat`s.
+  The layer gate's run falls from about 3.3 s to 2 s; the model gate stays about 19 s (checkpoint
+  load and the 65536x768 head dominate). Left: a head-batched kernel or multi-tile spread to use
+  more than one tile, and the 768x768 projections, which dominate the layer.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

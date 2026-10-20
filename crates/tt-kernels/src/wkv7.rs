@@ -74,6 +74,11 @@ pub const HEAD_SIZE: usize = 64;
 pub const STATE_TILES: usize = 4;
 /// Tiles one 64-value vector occupies: two halves.
 pub const VECTOR_TILES: usize = 2;
+/// The model's heads: the batched builder runs one job per head.
+pub const HEADS: usize = 12;
+/// Columns of a batched step's result: the head's state then its output
+/// replicated across 32 columns.
+pub const STEP_COLS: usize = HEAD_SIZE + 32;
 
 /// `Dst` row of each state tile, in `(row tile, column tile)` order.
 pub const STATE_ROW: [u32; STATE_TILES] = [0, 64, 128, 192];
@@ -192,14 +197,13 @@ fn unpack_row_vector(l1: u64, base: u32) -> Vec<Instruction> {
 /// `b`, `k` and `v`, then the two halves of `r` twice, once per row tile.
 fn vector_sequence(l: &Layout) -> Vec<(u64, bool)> {
     let mut seq = vec![(l.a[0], false), (l.a[1], false)];
-    for p in 0..2 {
-        for t in 0..2 {
-            seq.extend([
-                (l.w[t], false),
-                (l.b[t], false),
-                (l.k[t], false),
-                (l.v[p], true),
-            ]);
+    // `W` and `B` are the same for both row tiles, so one pair serves both
+    // updates. `K` is reloaded for the second row tile because only two slots
+    // exist; eighteen vector unpacks in all, not twenty-two.
+    for t in 0..2 {
+        seq.extend([(l.w[t], false), (l.b[t], false)]);
+        for p in 0..2 {
+            seq.extend([(l.k[t], false), (l.v[p], true)]);
         }
     }
     seq.extend([
@@ -270,24 +274,33 @@ pub fn roles(l: &Layout) -> [Vec<Instruction>; 3] {
     math.extend(sa.finish());
     math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
     math.extend(sync::post_after(Unit::Sfpu, s.slot1_free));
-    for (p, t) in [(0usize, 0usize), (0, 1), (1, 0), (1, 1)] {
-        let state = STATE_ROW[2 * p + t];
-        // `S*w + sa*b`, with the two vectors the unpacker brought.
+    for t in 0..2 {
+        // `S*w + sa*b` for both row tiles, from one `W`/`B` pair.
         math.extend(sync::take(s.slot0_ready, Before::SFPU));
         math.extend(sync::take(s.slot1_ready, Before::SFPU));
         let mut stage = Program::with_policy(crate::sfpu::LoopPolicy::Unrolled);
-        update_ab(&mut stage, state, SLOT_ROW[0], SLOT_ROW[1], ACC_ROW[p]);
+        for p in 0..2 {
+            update_ab(
+                &mut stage,
+                STATE_ROW[2 * p + t],
+                SLOT_ROW[0],
+                SLOT_ROW[1],
+                ACC_ROW[p],
+            );
+        }
         math.extend(stage.finish());
         math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
         math.extend(sync::post_after(Unit::Sfpu, s.slot1_free));
-        // `k*v + S`.
-        math.extend(sync::take(s.slot0_ready, Before::SFPU));
-        math.extend(sync::take(s.slot1_ready, Before::SFPU));
-        let mut stage = Program::with_policy(crate::sfpu::LoopPolicy::Unrolled);
-        update_kv(&mut stage, state, SLOT_ROW[0], SLOT_ROW[1]);
-        math.extend(stage.finish());
-        math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
-        math.extend(sync::post_after(Unit::Sfpu, s.slot1_free));
+        // `k*v + S` per row tile; `K` is unpacked again for the second.
+        for p in 0..2 {
+            math.extend(sync::take(s.slot0_ready, Before::SFPU));
+            math.extend(sync::take(s.slot1_ready, Before::SFPU));
+            let mut stage = Program::with_policy(crate::sfpu::LoopPolicy::Unrolled);
+            update_kv(&mut stage, STATE_ROW[2 * p + t], SLOT_ROW[0], SLOT_ROW[1]);
+            math.extend(stage.finish());
+            math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
+            math.extend(sync::post_after(Unit::Sfpu, s.slot1_free));
+        }
     }
     math.extend(sync::post_after(Unit::Sfpu, s.state_computed));
     for p in 0..2 {
@@ -408,6 +421,177 @@ fn update_kv(p: &mut Program, state: u32, k: u32, v: u32) {
         p.mad(LReg::L1, LReg::L2, LReg::L0, LReg::L0);
         p.store(LReg::L0, Format::Fp32, state + o);
     });
+}
+
+/// One `READ_RUN` of one tile: `(header, tensor words)`.
+fn read_tile(
+    x: &crate::tensor::DramTensor,
+    first: usize,
+    at: u64,
+    flags: u32,
+    ct: usize,
+) -> [[u32; 8]; 3] {
+    use tt_isa::dm::record;
+    let [head, bases] = x.tensor_ref().encode();
+    [
+        [
+            record::READ_RUN,
+            first as u32,
+            1,
+            at as u32,
+            flags,
+            ct as u32,
+            0,
+            0,
+        ],
+        head,
+        bases,
+    ]
+}
+
+/// One `WRITE_RUN` of one tile: `(header, tensor words)`.
+fn write_tile(x: &crate::tensor::DramTensor, first: usize, at: u64) -> [[u32; 8]; 3] {
+    use tt_isa::dm::record;
+    let [head, bases] = x.tensor_ref().encode();
+    [
+        [record::WRITE_RUN, first as u32, 1, at as u32, 0, 0, 0, 0],
+        head,
+        bases,
+    ]
+}
+
+/// Every head's step in one `Work`: twelve independent jobs, each with its own
+/// gather, the kernel, and its scatter into a `[12*64, 96]` result. A session
+/// deals the jobs over its units, so a session with several tiles runs heads in
+/// parallel and one with a single tile runs them in order.
+///
+/// Inputs: the state as `[12*64, 64]` (head-major), each row vector `a`, `b`,
+/// `w`, `k`, `r` as one `[1, 12*64]` row (head `h` is tiles `2h` and `2h+1`),
+/// and `v` as twelve `[64, 1]` columns in head order -- the column broadcast
+/// reads a whole tile per half. The output's rows are head-major: head `h`
+/// occupies rows `64h..64h+64`, its state in columns 0..64 and its output in
+/// 64..96.
+#[allow(clippy::too_many_arguments)]
+pub fn work_batched(
+    alloc: &mut crate::tensor::DramAlloc,
+    state: &crate::tensor::DramTensor,
+    a: &crate::tensor::DramTensor,
+    b: &crate::tensor::DramTensor,
+    w: &crate::tensor::DramTensor,
+    k: &crate::tensor::DramTensor,
+    r: &crate::tensor::DramTensor,
+    v: &[&crate::tensor::DramTensor],
+) -> Result<crate::tensor::Work, crate::tensor::TensorError> {
+    use crate::tensor::{DramTensor, Elem, Step, TensorError, Work};
+    use std::sync::Arc;
+
+    let expect = |t: &DramTensor, name: &str, rows: usize, cols: usize| {
+        if t.elem != Elem::F32 {
+            return Err(TensorError::Elem {
+                op: "wkv7 batched step".into(),
+                got: t.elem,
+                wants: Elem::F32,
+            });
+        }
+        if (t.rows, t.cols) != (rows, cols) {
+            return Err(TensorError::Shape(format!(
+                "wkv7 batched {name}: [{}x{}], expected [{rows}x{cols}]",
+                t.rows, t.cols
+            )));
+        }
+        Ok(())
+    };
+    expect(state, "state", HEADS * HEAD_SIZE, HEAD_SIZE)?;
+    for (name, t) in [("a", a), ("b", b), ("w", w), ("k", k), ("r", r)] {
+        expect(t, name, 1, HEADS * HEAD_SIZE)?;
+    }
+    if v.len() != HEADS {
+        return Err(TensorError::Shape(format!(
+            "wkv7 batched v: {} columns, expected {HEADS}",
+            v.len()
+        )));
+    }
+    for (head, t) in v.iter().enumerate() {
+        expect(t, &format!("v[{head}]"), HEAD_SIZE, 1)?;
+    }
+
+    let layout = plan_layout().map_err(|e| TensorError::Shape(format!("wkv7 layout: {e}")))?;
+    let out = DramTensor::alloc_elem(alloc, HEADS * HEAD_SIZE, STEP_COLS, Elem::F32)?;
+    let roles = Arc::new(roles(&layout));
+    let mut jobs = Vec::with_capacity(HEADS);
+    for (head, column) in v.iter().enumerate() {
+        let mut gather = Vec::new();
+        // The four state tiles: tile row `2*head + p`, column `t`.
+        for i in 0..STATE_TILES {
+            gather.extend(read_tile(
+                state,
+                head * STATE_TILES + i,
+                layout.state_in[i],
+                0,
+                2,
+            ));
+        }
+        // Row vectors: two tiles each, read from the flat row.
+        for (t, slots) in [
+            (a, &layout.a),
+            (b, &layout.b),
+            (w, &layout.w),
+            (k, &layout.k),
+            (r, &layout.r),
+        ] {
+            for (half, at) in slots.iter().enumerate() {
+                gather.extend(read_tile(t, 2 * head + half, *at, 0, HEADS * VECTOR_TILES));
+            }
+        }
+        // `v` is column-broadcast: the mover copies column 0 across each tile.
+        for (p, at) in layout.v.iter().enumerate() {
+            gather.extend(read_tile(column, p, *at, 2, 1));
+        }
+        let mut scatter = Vec::new();
+        for (tile, slot) in layout.state_out.iter().enumerate() {
+            let first = (2 * head + tile / 2) * 3 + tile % 2;
+            scatter.extend(write_tile(&out, first, *slot));
+        }
+        for (p, slot) in layout.out.iter().enumerate() {
+            scatter.extend(write_tile(&out, (2 * head + p) * 3 + 2, *slot));
+        }
+        jobs.push(vec![
+            Step::List {
+                what: "wkv7 gather",
+                entries: gather,
+            },
+            Step::Kernel {
+                roles: roles.clone(),
+                init: layout.init.clone(),
+                mop: Box::new([None; 3]),
+                loops: Arc::new([Vec::new(), Vec::new(), Vec::new()]),
+                half: None,
+            },
+            Step::List {
+                what: "wkv7 scatter",
+                entries: scatter,
+            },
+        ]);
+    }
+    Ok(Work { out, jobs })
+}
+
+/// A `[12*64, 96]` batched result split into the model's `[12*64, 64]` state
+/// and `[12*64]` outputs (column 64 of each row).
+pub fn split_batched(values: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    assert_eq!(
+        values.len(),
+        HEADS * HEAD_SIZE * STEP_COLS,
+        "a batched result is 768 rows of 96 columns"
+    );
+    let mut state = Vec::with_capacity(HEADS * HEAD_SIZE * HEAD_SIZE);
+    let mut out = Vec::with_capacity(HEADS * HEAD_SIZE);
+    for row in 0..HEADS * HEAD_SIZE {
+        let at = row * STEP_COLS;
+        state.extend_from_slice(&values[at..at + HEAD_SIZE]);
+        out.push(values[at + HEAD_SIZE]);
+    }
+    (state, out)
 }
 
 /// A `[64, 96]` step result split into the head's state `[64, 64]` and its

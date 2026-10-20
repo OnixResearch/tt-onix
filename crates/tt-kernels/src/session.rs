@@ -4789,6 +4789,32 @@ impl<T: Transport> Session<T> {
         self.execute_on(work, 1, RESET_BUDGET)
     }
 
+    /// All twelve heads of one token in one `Work`
+    /// (`crate::wkv7::work_batched`): twelve independent jobs, each with its
+    /// own gather, kernel and scatter, dealt over the session's units. A
+    /// one-tile session runs them in order; more tiles run heads in parallel.
+    ///
+    /// `state` is `[768, 64]` (head-major), each row vector `a`, `b`, `w`,
+    /// `k`, `r` one `[1, 768]` row, and `v` twelve `[64, 1]` columns in head
+    /// order. The result is `[768, 96]`: each head's state in columns 0..64
+    /// and its output in 64..96 (`wkv7::split_batched`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn wkv7_step_batched(
+        &mut self,
+        state: &DramTensor,
+        a: &DramTensor,
+        b: &DramTensor,
+        w: &DramTensor,
+        k: &DramTensor,
+        r: &DramTensor,
+        v: &[&DramTensor],
+    ) -> Result<DramTensor, TensorError> {
+        let work =
+            crate::wkv7::work_batched(&mut self.dram_state()?.alloc, state, a, b, w, k, r, v)?;
+        let units = self.spread_for(crate::wkv7::HEADS);
+        self.execute_on(work, units, RESET_BUDGET)
+    }
+
     /// `a` reduced over `axis` by `op`: `[rows, 1]` over columns, `[1, cols]`
     /// over rows. On the SFPU ([`tensor::sfpu_reduce`]); a sum over rows in
     /// Flex's order ([`Session::sum_rows`]).

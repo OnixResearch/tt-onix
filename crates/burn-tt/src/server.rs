@@ -357,6 +357,22 @@ pub trait Engine {
     ) -> Result<(BufferId, [usize; 2]), TtError> {
         Err(unsupported())
     }
+    /// All twelve heads in one job list (`Session::wkv7_step_batched`): the
+    /// state `[768, 64]`, five `[1, 768]` row vectors and twelve `[64, 1]`
+    /// columns, to one `[768, 96]` result.
+    #[allow(clippy::too_many_arguments)]
+    fn wkv7_step_batched(
+        &mut self,
+        _state: BufferId,
+        _a: BufferId,
+        _b: BufferId,
+        _w: BufferId,
+        _k: BufferId,
+        _r: BufferId,
+        _v: &[BufferId],
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        Err(unsupported())
+    }
     /// Inclusive scan down matrix rows, keeping all prefixes resident.
     fn scan(
         &mut self,
@@ -1369,6 +1385,35 @@ impl DramBuffers {
         let b = self.get(b)?.clone();
         let out = s
             .wkv7_step(&state, &r, &w, &k, &v, &a, &b)
+            .map_err(TtError::from)?;
+        Ok(self.insert(out))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn wkv7_step_batched<T: tt_device::Transport>(
+        &mut self,
+        s: &mut Session<T>,
+        state: BufferId,
+        a: BufferId,
+        b: BufferId,
+        w: BufferId,
+        k: BufferId,
+        r: BufferId,
+        v: &[BufferId],
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        let state = self.get(state)?.clone();
+        let a = self.get(a)?.clone();
+        let b = self.get(b)?.clone();
+        let w = self.get(w)?.clone();
+        let k = self.get(k)?.clone();
+        let r = self.get(r)?.clone();
+        let v: Vec<_> = v
+            .iter()
+            .map(|&id| self.get(id).cloned())
+            .collect::<Result<_, _>>()?;
+        let v: Vec<&tt_kernels::tensor::DramTensor> = v.iter().collect();
+        let out = s
+            .wkv7_step_batched(&state, &a, &b, &w, &k, &r, &v)
             .map_err(TtError::from)?;
         Ok(self.insert(out))
     }
@@ -2646,6 +2691,39 @@ pub(crate) fn wkv7_step(
     )
 }
 
+/// All twelve heads of one token in one job list, without waiting.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wkv7_step_batched(
+    device: TtDevice,
+    state: BufferId,
+    a: BufferId,
+    b: BufferId,
+    w: BufferId,
+    k: BufferId,
+    r: BufferId,
+    v: Vec<BufferId>,
+) -> (BufferId, [usize; 2]) {
+    submit(
+        "wkv7_step_batched",
+        device,
+        [
+            tt_kernels::wkv7::HEADS * tt_kernels::wkv7::HEAD_SIZE,
+            tt_kernels::wkv7::STEP_COLS,
+        ],
+        || "twelve-head WKV7 step".into(),
+        move |engine, ids| {
+            let state = ids.get(state)?;
+            let a = ids.get(a)?;
+            let b = ids.get(b)?;
+            let w = ids.get(w)?;
+            let k = ids.get(k)?;
+            let r = ids.get(r)?;
+            let v: Vec<_> = v.iter().map(|&id| ids.get(id)).collect::<Result<_, _>>()?;
+            engine.wkv7_step_batched(state, a, b, w, k, r, &v)
+        },
+    )
+}
+
 pub(crate) fn scan(
     device: TtDevice,
     a: BufferId,
@@ -3186,6 +3264,20 @@ impl Engine for KmdEngine {
     ) -> Result<(BufferId, [usize; 2]), TtError> {
         let bufs = self.buffers.as_mut().ok_or_else(unsupported)?;
         bufs.wkv7_step(&mut self.session, state, r, w, k, v, a, b)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn wkv7_step_batched(
+        &mut self,
+        state: BufferId,
+        a: BufferId,
+        b: BufferId,
+        w: BufferId,
+        k: BufferId,
+        r: BufferId,
+        v: &[BufferId],
+    ) -> Result<(BufferId, [usize; 2]), TtError> {
+        let bufs = self.buffers.as_mut().ok_or_else(unsupported)?;
+        bufs.wkv7_step_batched(&mut self.session, state, a, b, w, k, r, v)
     }
     fn scan(
         &mut self,
