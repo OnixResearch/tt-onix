@@ -1,7 +1,8 @@
 # metalium-rs parity inventory
 
-Pinned source: `brittonr/metalium-rs` at `522b7fd074ed91bcc29e8a3eddc7f3c3e7d75204`
-(upstream `Knight-Ops/metalium-rs` at `b22a245`).
+In-tree source: `metalium-rs/` (fork main `0fb0802`; last code commit `522b7fd`; upstream
+`Knight-Ops/metalium-rs` at `b22a245`). The fork's history is merged into this repository, so
+stack changes are made in `metalium-rs/`.
 
 This inventory maps the repository's two model targets to the native stack. It is a work
 inventory, not a support claim.
@@ -117,6 +118,6 @@ single MNIST step is not model support.
 
 ## License gate
 
-The repository declares LGPL-2.1-only for its own code; the native stack is Apache-2.0. Keep the
-package separate until the owner records a combined-work license decision before repository
-binaries link the crates.
+The repository declares LGPL-2.1-only for its own code; the in-tree `metalium-rs/` is Apache-2.0
+(its `LICENSE` is kept). The `metalium-rs` package remains a separate derivation; linking its
+crates into repository binaries still needs the owner's combined-work license decision.

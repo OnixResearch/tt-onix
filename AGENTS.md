@@ -148,18 +148,19 @@ Do not treat a listed project as package-matched authority.
 
 ### metalium-rs native Rust reference
 
-Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
-The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
-The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
-`522b7fd074ed91bcc29e8a3eddc7f3c3e7d75204`, which adds the Apache-2.0 license file, fixes the
-stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, composed and synthetic
-layer gates, the real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle
-comparison, the exact byte-trie tokenizer, the greedy next-token check, the stateful decode chain,
-and bounded prompt generation). It also adds the fused one-head WKV7 kernel
-(`crates/tt-kernels/src/wkv7.rs`), its GDDR-resident and batched `burn-tt` forms, the layer/model/
-generate `--fused` routes, the twelve-tile spread (the gates default to twelve tiles), and the
-ttsim/card-0 gates `step186`-`step188`.
-The flake pins that fork and exposes the `metalium-rs` package.
+Read `metalium-rs/` (the in-tree fork) before you change the repository's Rust device stack or
+Burn backend work. The reviewed upstream remains `Knight-Ops/metalium-rs` at commit
+`b22a245db18252b131679aca992dac85c9f7d812`.
+The fork is merged into this repository at `metalium-rs/` (fork main `0fb0802`; the last code
+commit is `522b7fd`). It adds the Apache-2.0 license file, fixes the stale F16 capability test, and
+adds `crates/rwkv7` (the WKV7 reference, composed and synthetic layer gates, the real-checkpoint
+layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer,
+the greedy next-token check, the stateful decode chain, and bounded prompt generation). It also
+adds the fused one-head WKV7 kernel (`crates/tt-kernels/src/wkv7.rs`), its GDDR-resident and
+batched `burn-tt` forms, the layer/model/generate `--fused` routes, the twelve-tile spread (the
+gates default to twelve tiles), and the ttsim/card-0 gates `step186`-`step188`.
+`pkgs/metalium-rs` builds that tree; a change to the stack is a change in this repository, not a
+pin bump. The separate `brittonr/metalium-rs` remote remains the historical fork.
 
 This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
 a `tt-kmd` host transport, Tensix kernels, `tt-layout`, and the `burn-tt` backend.
@@ -177,7 +178,7 @@ Its model coverage is ResNet-18, ViT-Tiny, and SmolLM2-135M over Burn; it has no
 Qwen3.6/3.8, MoE, or gated-delta implementation. Treat its conformance counts, model agreement,
 and performance numbers as upstream claims until this repository reproduces them.
 
-The fork passes the validation tier: 1,551 passed, 0 failed, 46 ignored across 269 test binaries (the WKV7 kernel, session and layer gates add seven tests). The same tier runs inside the Nix package check with pinned specification, ttsim,
+The in-tree stack passes the validation tier: 1,551 passed, 0 failed, 46 ignored across 269 test binaries (the WKV7 kernel, session and layer gates add seven tests). The same tier runs inside the Nix package check with pinned specification, ttsim,
 MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
 toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
 `tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, `rwkv7-model-gate`,

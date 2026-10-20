@@ -14,11 +14,15 @@ let
     rustc = rustToolchain;
   };
 
-  src = fetchFromGitHub {
-    owner = "brittonr";
-    repo = "metalium-rs";
-    rev = "522b7fd074ed91bcc29e8a3eddc7f3c3e7d75204";
-    hash = "sha256-Mj6vb4nA+C885A9R18kvzviHSXu5zyR5I0RN9r7ZNLE=";
+  # The fork is merged into this repository; the package builds the in-tree
+  # tree. `target` is excluded (a build product, and large).
+  src = lib.cleanSourceWith {
+    src = ../../metalium-rs;
+    filter = path: _type:
+      let
+        name = baseNameOf (toString path);
+      in
+      name != "target" && name != ".git";
   };
 
   mnist = runCommand "mnist-idx-2017" { nativeBuildInputs = [ gzip ]; } ''
