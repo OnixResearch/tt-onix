@@ -66,13 +66,7 @@ fn flex_tokens(spec: &LayerSpec, values: &[f32]) -> (Vec<Vec<f32>>, Vec<f32>, Ve
     let mut state = LayerState::<Flex>::zeros(&device);
     let mut hidden = Vec::with_capacity(TOKENS);
     for token in 0..TOKENS {
-        let (out, next, _) = layer_step(
-            &weights,
-            row(&values[..], token, &device),
-            &state,
-            true,
-            None,
-        );
+        let (out, next, _) = layer_step(&weights, row(values, token, &device), &state, true, None);
         hidden.push(to_vec(out));
         state = next;
     }
@@ -97,7 +91,7 @@ fn four_token_chunk_matches_eager_tokens_and_flex() {
         for token in 0..TOKENS {
             let (out, next, _) = layer_step_fused(
                 &weights,
-                row(&values[..], token, &device),
+                row(&values, token, &device),
                 &token_state,
                 true,
                 None,
@@ -106,7 +100,7 @@ fn four_token_chunk_matches_eager_tokens_and_flex() {
             token_state = next;
         }
 
-        let mut chunk_state = LayerState::<TtBackend>::zeros(&device);
+        let chunk_state = LayerState::<TtBackend>::zeros(&device);
         let input = Tensor::<TtBackend, 2>::from_data(
             TensorData::new(values.clone(), [TOKENS, HIDDEN]),
             &device,
