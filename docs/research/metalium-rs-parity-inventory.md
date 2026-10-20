@@ -42,7 +42,7 @@ all-reduce or other collective.
 | Token shift | Composed from slice/cat | Required | Not used | None expected |
 | GroupNorm / norm | Burn composition over native ops | Required (RWKV norm) | RMSNorm | Verify numerics per model |
 | LoRA | Model-level matmul/add | Required | Not used | None expected |
-| **WKV7 recurrent update** | **One-head SFPU kernel; all 12 heads in one job list, the layer, the 12-layer model, the decode chain and fixed-prompt generation run on it at card 0** | **Required** | GDN is a related but distinct recurrence | Head-batched kernel or multi-tile spread; the 768x768 projections |
+| **WKV7 recurrent update** | **One-head SFPU kernel; all 12 heads in one job list across 12 tiles, the layer, the 12-layer model, the decode chain and fixed-prompt generation run on it at card 0** | **Required** | GDN is a related but distinct recurrence | Head-batched kernel; the 768x768 projections |
 | **Gated DeltaNet decode** | **Missing** | Not used | Required in 30 layers | Custom kernel, state carry, precision gate |
 | **MoE routing / top-k / expert dispatch** | **Missing as a fused path** | Not used | 256 routed + 1 shared expert | Routing, weight residency, BFP4/BFP8 expert formats |
 | **MTP / speculative verify** | **Missing** | Not used | Required for the serving profile | Verify/commit state contract |
@@ -81,8 +81,12 @@ all-reduce or other collective.
    `w`/`b` are shared by both row tiles (18 vector unpacks a head, down from 22), and the twelve
    heads are twelve jobs in one `Work` (`burn_tt::wkv7_step_batched`), one submission with one
    state/output slice rather than twelve `cat`s. The layer gate's run falls from about 3.3 s to 2 s;
-   the model gate stays about 19 s (checkpoint and the 65536x768 head dominate). Next: a
-   head-batched kernel or a multi-tile spread, then the projections. The accurate-matmul path still fragments GDDR after an 8-token
+   the model gate stays about 19 s on one tile. The gates take `--tiles N`, so the head jobs and
+   every other op spread over the session's units: card 0 `--fused` drops the layer gate from 1.56 s
+   to 0.84 s on twelve tiles, the 12-layer model gate from 18.47 s to 6.45 s, and fixed-prompt
+   generation from 10.93 s to 2.83 s, with the same gaps, token and text. `step187` also gates the
+   twelve-head step on twelve tiles (card 0, 0.51 s for one token). Next: a head-batched kernel and
+   the 768x768 projections. The accurate-matmul path still fragments GDDR after an 8-token
    prompt; fix that allocator limit separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
