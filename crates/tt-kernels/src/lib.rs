@@ -43,6 +43,7 @@ pub mod shard;
 pub mod source_banks;
 pub mod tensor;
 pub mod trace;
+pub mod wkv7;
 
 mod local_movement;
 

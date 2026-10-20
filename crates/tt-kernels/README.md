@@ -29,6 +29,7 @@ on-tile and chip-to-chip data movers. Shippable; depends on `tt-isa`, `tt-device
 | `prng` | Seeded random on the device: the host model of the hardware stream, the tile kernels and `Session::random_*`. |
 | `atomics` | The guarded runner for mutexes and L1 atomics: bounded deadline, blocked status and host release. |
 | `mesh_trace` | Capture and replay of a trace across chips, with the Ethernet transfers replayed in capture order. |
+| `wkv7` | One head of the RWKV-7 WKV7 recurrence as one three-role programme: the two matrix-vector products are in-tile SFPU column folds, the state update two replayed row loops, and seven semaphores carry the four state tiles and two vector slots. `plan_layout` places 24 tile slots in the data arena; `roles` builds the streams. Gate `step186_wkv7` on ttsim. |
 
 A feature module adds its own `impl Session` block (`fp16`, `prng`, `mesh_trace`, `sfpu::sort`); `session.rs` keeps the core bring-up and the BF16 methods.
 

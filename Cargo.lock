@@ -5007,6 +5007,7 @@ dependencies = [
  "burn-tt",
  "image",
  "libm",
+ "rwkv7",
  "tt-device",
  "tt-firmware-images",
  "tt-isa",

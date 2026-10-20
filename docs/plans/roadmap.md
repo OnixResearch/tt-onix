@@ -318,6 +318,15 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   nothing more for them. What the formats cost the model (host, 30 layers, one position): F16 0.017, BF16 0.26,
   BFP8 1.4, BFP4 19.8, BFP2 23.0 (top-1 holds through BFP8). Left: the full 30 layers per plan (the lookup makes each
   plan two minutes), the half formats against a per-matmul reference, and BFP in a trace or under autodiff.
+- [ ] **RWKV-7 WKV7 kernel.** The host recurrence, composed Burn/TT path and the tokenizer/model
+  gates live in `crates/rwkv7`. A fused one-head kernel is now in
+  [`wkv7.rs`](../../crates/tt-kernels/src/wkv7.rs): one Tensix programme computes `sa`, the state update
+  and `out` with in-tile SFPU column folds and two replayed row loops, and `step186_wkv7` holds its
+  state and output to `rwkv7::step` across a carried second token (ttsim: max gap 2.2e-8 on the carried
+  state against a 1e-5 bound; zeroing `a` moves the output 9.9e-2, the negative control). Left: the
+  same gate on card 0, then routing a one-head step through `burn-tt`; only then the layer and model.
+  The kernel takes 22 vector unpacks per token because `Dst` holds just two vector slots beside the four
+  state tiles, so a later version should stage vectors in `Src` or fold two vectors per slot.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

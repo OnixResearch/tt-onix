@@ -54,6 +54,7 @@ const DEV_ONLY: &[&str] = &[
     "tt-ttsim",
     "tt-ttsim-sys",
     "tt-tests",
+    "rwkv7",
     "burn-tt-conformance",
     "tt-models",
     "xtask",
