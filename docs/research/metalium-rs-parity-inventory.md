@@ -42,7 +42,7 @@ all-reduce or other collective.
 | Token shift | Composed from slice/cat | Required | Not used | None expected |
 | GroupNorm / norm | Burn composition over native ops | Required (RWKV norm) | RMSNorm | Verify numerics per model |
 | LoRA | Model-level matmul/add | Required | Not used | None expected |
-| **WKV7 recurrent update** | **One-head SFPU kernel, routed through burn-tt; all 12 heads per token on ttsim + card 0** | **Required** | GDN is a related but distinct recurrence | The layer and model on the fused recurrence |
+| **WKV7 recurrent update** | **One-head SFPU kernel; all 12 heads, the layer and the 12-layer model run on it at card 0** | **Required** | GDN is a related but distinct recurrence | Generation/prompt on the fused path; cost |
 | **Gated DeltaNet decode** | **Missing** | Not used | Required in 30 layers | Custom kernel, state carry, precision gate |
 | **MoE routing / top-k / expert dispatch** | **Missing as a fused path** | Not used | 256 routed + 1 shared expert | Routing, weight residency, BFP4/BFP8 expert formats |
 | **MTP / speculative verify** | **Missing** | Not used | Required for the serving profile | Verify/commit state contract |
@@ -69,8 +69,14 @@ all-reduce or other collective.
    (`step187_wkv7_burn`, run `1792472975`, 0.91 s). All twelve heads run as twelve launches
    (`rwkv7::step_device_fused_attached`; card 0 run `1792505756`, 0.36 s, state 4.5e-8, output
    1.5e-7; `wkv7-gate --card 0 --fused` passes at 1.5e-7/4.5e-8 and 8.9e-8/2.2e-8 carried). Next:
-   the layer and model on the fused recurrence -- the layer's Goose form is the same update with
-   `a = -key_key`, `b = key_key * adaptation`, `w = decay`. The accurate-matmul path still fragments GDDR after an 8-token
+   the layer and model now run on the fused recurrence: the layer's Goose form is the same update
+   with `a = -key_key`, `b = key_key * adaptation`, `w = decay`. `layer_step_fused` is opt-in
+   (`--fused` on the layer and model gates). Card 0, pinned checkpoint: layer gate in accurate mode
+   token1 hidden 3.6e-7 / token2 2.4e-7 / states 7.5e-8 and 1.7e-7; the 12-layer model gate passes
+   with final hidden 1.671e-3 (relative 2.245e-5), logits 2.708e-4 (relative 1.377e-5), recurrent
+   state 4.168e-4 (relative 7.577e-6), greedy token 2, about 19 s. `step188_wkv7_layer` runs a layer
+   on ttsim and card 0 (default matmul mode, 4.95e-4 -- TF32 rounding, not the kernel). Next:
+   generation/prompt on the fused path, and cost. The accurate-matmul path still fragments GDDR after an 8-token
    prompt; fix that allocator limit separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
