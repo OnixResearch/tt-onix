@@ -128,8 +128,8 @@ three-step chain is the smallest gate that does.
 **Choice:** Add wrapper tokenization (special id 0, wrapper EOS 65530) and a bounded greedy
 generation from the fixed chat prompt. Expect `" Hi, I"`.
 
-The prompt app sets `TT_BATCH=0`: the batched path exhausts contiguous GDDR slots after the
-8-token prompt. The default pipeline is fine. Treat that as an allocator limitation to fix, not a numerical difference.
+Prompt generation uses fast matmuls; batching works. The accurate-matmul path still exhausts
+contiguous GDDR slots after the 8-token prompt. Treat that as an allocator limitation to fix, not a numerical difference.
 
 **Rationale:** Text generation is the first end-to-end path from bytes to the model and back.
 Running it unbatched keeps the migration gate honest while the allocator behavior is unresolved.

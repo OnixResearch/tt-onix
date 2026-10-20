@@ -5,17 +5,17 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `dd5d316e3de31150fcee935ff321a6fc8ac863c2`
+- Commit: `4fbddb5d297044f8b9426e69366017b47bc55fba`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `8d82674236a37e5926f6ae30b11bfea7dca317eb4dcb2513ccb94928736ec188`
+- Fork tree BLAKE3: `ca8bd7408c1692a527b201a93d4d41ba235fe2e4326490bf114b4fb2577ac265`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-ODUQl+0E2MTNf0pvnHkspmxRByYQdo77N+xJWJGm8rc=`
+- Nix source hash: `sha256-TFvD4HlxfXo8SBmBrUXfToLe95tKnD0LRHpLNp/FEpQ=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
   all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer, the greedy next-token
   check, the stateful decode chain, and prompt generation with wrapper tokenization).
-  Fourteen files, +2,646/−2.
+  Fourteen files, +2,644/−2.
 
 ## Validation
 
@@ -38,7 +38,7 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/xqirzkrkidb62r414pwy31bk0g6l3pbg-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/0i08bi7kk5244c0snhd4937scnqjizjq-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
   `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB),
   `bin/rwkv7-tokenizer-gate` (896 KiB), and `bin/rwkv7-generate-gate` (6.4 MiB).
@@ -46,8 +46,8 @@ simulated evidence. No physical device was opened.
   `/nix/store/4f58rghjjmjn17nf9alq30dvl5lplbfq-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
   `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, and
   `/nix/store/02lfdd67v5grrns504a6g8xv4fv19m5w-rwkv7-generate-checkpoint/bin/rwkv7-generate-checkpoint`,
-  and `/nix/store/bc39r9djbyrkflyybjmby95370j50vq3-rwkv7-prompt-checkpoint/bin/rwkv7-prompt-checkpoint`,
-  bound to the pinned checkpoint and vocabulary. The prompt wrapper sets `TT_BATCH=0`.
+  and `/nix/store/4qbp9s3nni6jrvxarhx31wsabbq9wr3j-rwkv7-prompt-checkpoint/bin/rwkv7-prompt-checkpoint`,
+  bound to the pinned checkpoint and vocabulary. The prompt wrapper needs no batching override.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
   46 ignored, 266 binaries, in about 21 minutes locally.
@@ -293,10 +293,9 @@ tt generated text: " Hi, I"
 prompt gate PASS
 ```
 
-The bundled app sets `TT_BATCH=0` because the batched path exhausted contiguous GDDR slots after
-the 8-token prompt. Disabling the pipeline alone is not required: the same run passes with
-batching off and the default pipeline. Record this as an allocator blocker, not a numerical
-difference.
+Prompt generation uses fast matmuls. With batching enabled it produces the same ids and text. The
+accurate-matmul path still fragments GDDR after the 8-token prompt (the 72-slot `abs` allocation);
+that limitation remains recorded, but the prompt gate does not depend on disabling batching.
 
 This is a bounded greedy generation, not a sampler, stop-policy-complete endpoint, or serving
 result.

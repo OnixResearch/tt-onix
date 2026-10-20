@@ -1,6 +1,6 @@
 # metalium-rs parity inventory
 
-Pinned source: `brittonr/metalium-rs` at `dd5d316e3de31150fcee935ff321a6fc8ac863c2`
+Pinned source: `brittonr/metalium-rs` at `4fbddb5d297044f8b9426e69366017b47bc55fba`
 (upstream `Knight-Ops/metalium-rs` at `b22a245`).
 
 This inventory maps the repository's two model targets to the native stack. It is a work
@@ -56,7 +56,8 @@ all-reduce or other collective.
    real layer-zero gate, all-12-layer gate, logits/Python-reference comparison, and exact tokenizer
    are done, one greedy next-token step matches the harness, and the three-step stateful decode
    chain matches the harness. Prompt text now runs through the exact tokenizer and bounded greedy
-   generation (`" Hi, I"`). The batched path needs `TT_BATCH=0` after an 8-token prompt; fix that allocator limit next,
+   generation (`" Hi, I"`) with fast matmuls and batching. The accurate-matmul path still fragments
+   GDDR after an 8-token prompt; fix that allocator limit next,
    then fuse the recurrence into a Tensix kernel. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
