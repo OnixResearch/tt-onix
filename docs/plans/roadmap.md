@@ -338,10 +338,12 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   states 7.5e-8 and 1.7e-7; the 12-layer model gate passes with final hidden gap 1.671e-3 (relative
   2.245e-5), logits 2.708e-4 (relative 1.377e-5), recurrent state 4.168e-4 (relative 7.577e-6), and
   greedy token 2, about 19 s. `step188_wkv7_layer` runs the layer on ttsim and card 0 in the default
-  matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). Left: the generate and prompt
-  gates on the fused recurrence, and cost. The kernel takes 22 vector unpacks per token because `Dst`
-  holds just two vector slots beside the four state tiles, so a later version should stage vectors in
-  `Src` or reuse a vector across the four state tiles.
+  matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). The generate gate's `--fused`
+  path also passes on card 0: the three-step decode chain picks token 1 at every step, and the fixed
+  prompt generates `" Hi, I"` (ids `[3880, 45, 308]`, equal to Flex). Left: cost. The kernel takes 22
+  vector unpacks per token because `Dst` holds just two vector slots beside the four state tiles, and
+  the layer route is twelve launches per layer; a later version should stage vectors in `Src`, reuse a
+  vector across the four state tiles, or batch heads.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

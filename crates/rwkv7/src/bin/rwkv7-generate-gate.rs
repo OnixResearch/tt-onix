@@ -7,7 +7,9 @@ use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TtBackend, TtConfig, TtDevice};
 use rwkv7::checkpoint::Checkpoint;
-use rwkv7::layer::{layer_norm, layer_step, LayerSpec, LayerState, LayerWeights, HIDDEN};
+use rwkv7::layer::{
+    layer_norm, layer_step, layer_step_fused, LayerSpec, LayerState, LayerWeights, HIDDEN,
+};
 use rwkv7::tokenizer::Tokenizer;
 
 const LAYER_COUNT: usize = 12;
@@ -18,6 +20,15 @@ const EXPECTED_LOGITS: [f32; STEPS] = [0.044_930_69, 6.954_383_4, 6.486_726];
 const TOKEN_TOLERANCE: f32 = 1.0e-2;
 const FIXED_PROMPT: &str = "<|rwkv_tokenizer_end_of_text|>User: Hi\n\nAssistant:";
 const EXPECTED_TEXT: &str = " Hi, I";
+
+/// One layer token, with the WKV7 recurrence the caller chose.
+type Step<B> = fn(
+    &LayerWeights<B>,
+    Tensor<B, 2>,
+    &LayerState<B>,
+    bool,
+    Option<Tensor<B, 2>>,
+) -> (Tensor<B, 2>, LayerState<B>, Option<Tensor<B, 2>>);
 
 fn vector<B: burn::tensor::backend::Backend>(values: &[f32], device: &B::Device) -> Tensor<B, 2> {
     Tensor::from_data(TensorData::new(values.to_vec(), [1, HIDDEN]), device)
@@ -69,12 +80,13 @@ fn token_step<B: burn::tensor::backend::Backend>(
     states: &mut [LayerState<B>],
     embedding: &[f32],
     device: &B::Device,
+    step: Step<B>,
 ) -> Tensor<B, 2> {
     let mut hidden = vector(embedding, device);
     let mut anchor = None;
     for (layer, layer_weights) in weights.iter().enumerate() {
         let (next, state, next_anchor) =
-            layer_step(layer_weights, hidden, &states[layer], layer == 0, anchor);
+            step(layer_weights, hidden, &states[layer], layer == 0, anchor);
         hidden = next;
         states[layer] = state;
         anchor = next_anchor;
@@ -91,6 +103,7 @@ fn eval_logits<B: burn::tensor::backend::Backend>(
     to_vec(normalized.matmul(lm_head.clone().transpose()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate<B: burn::tensor::backend::Backend>(
     checkpoint: &Checkpoint,
     weights: &[LayerWeights<B>],
@@ -99,6 +112,7 @@ fn generate<B: burn::tensor::backend::Backend>(
     prompt_ids: &[u32],
     steps: usize,
     device: &B::Device,
+    step: Step<B>,
 ) -> Result<Vec<u32>, String> {
     let mut states: Vec<LayerState<B>> = (0..LAYER_COUNT)
         .map(|_| LayerState::<B>::zeros(device))
@@ -106,20 +120,20 @@ fn generate<B: burn::tensor::backend::Backend>(
     let mut hidden = None;
     for &id in prompt_ids {
         let embedding = checkpoint.embedding(id as usize)?;
-        hidden = Some(token_step(weights, &mut states, &embedding, device));
+        hidden = Some(token_step(weights, &mut states, &embedding, device, step));
         B::sync(device).map_err(|error| format!("{error:?}"))?;
     }
     let Some(mut hidden) = hidden else {
         return Err("prompt has no tokens".into());
     };
     let mut generated = Vec::with_capacity(steps);
-    for step in 0..steps {
+    for index in 0..steps {
         let logits = eval_logits(hidden.clone(), norm, lm_head);
         let (token, _, _, _) = top_two(&logits);
         generated.push(token);
-        if step + 1 < steps {
+        if index + 1 < steps {
             let embedding = checkpoint.embedding(token as usize)?;
-            hidden = token_step(weights, &mut states, &embedding, device);
+            hidden = token_step(weights, &mut states, &embedding, device, step);
             B::sync(device).map_err(|error| format!("{error:?}"))?;
         }
     }
@@ -132,6 +146,7 @@ fn decode<B: burn::tensor::backend::Backend>(
     norm: &(Tensor<B, 2>, Tensor<B, 2>),
     lm_head: &Tensor<B, 2>,
     device: &B::Device,
+    step: Step<B>,
 ) -> Result<Vec<(u32, f32)>, String> {
     let mut states: Vec<LayerState<B>> = (0..LAYER_COUNT)
         .map(|_| LayerState::<B>::zeros(device))
@@ -144,7 +159,7 @@ fn decode<B: burn::tensor::backend::Backend>(
         let mut anchor = None;
         for (layer, layer_weights) in weights.iter().enumerate() {
             let (next, state, next_anchor) =
-                layer_step(layer_weights, hidden, &states[layer], layer == 0, anchor);
+                step(layer_weights, hidden, &states[layer], layer == 0, anchor);
             hidden = next;
             states[layer] = state;
             anchor = next_anchor;
@@ -166,7 +181,14 @@ fn run_flex(
 ) -> Result<Vec<(u32, f32)>, String> {
     let device = FlexDevice;
     let (weights, norm_w, norm_b, head) = materialize::<Flex>(specs, norm, lm_head, &device);
-    decode::<Flex>(checkpoint, &weights, &(norm_w, norm_b), &head, &device)
+    decode::<Flex>(
+        checkpoint,
+        &weights,
+        &(norm_w, norm_b),
+        &head,
+        &device,
+        layer_step::<Flex>,
+    )
 }
 
 fn run_tt(
@@ -175,13 +197,26 @@ fn run_tt(
     norm: &(Vec<f32>, Vec<f32>),
     lm_head: &[f32],
     card: u16,
+    fused: bool,
 ) -> Result<Vec<(u32, f32)>, String> {
     let device = TtDevice::new(card);
     burn_tt::init(device, TtConfig::default()).map_err(|error| error.to_string())?;
+    let step: Step<TtBackend> = if fused {
+        layer_step_fused
+    } else {
+        layer_step::<TtBackend>
+    };
     accurate_matmul(|| {
         let (weights, norm_w, norm_b, head) =
             materialize::<TtBackend>(specs, norm, lm_head, &device);
-        decode::<TtBackend>(checkpoint, &weights, &(norm_w, norm_b), &head, &device)
+        decode::<TtBackend>(
+            checkpoint,
+            &weights,
+            &(norm_w, norm_b),
+            &head,
+            &device,
+            step,
+        )
     })
 }
 
@@ -210,6 +245,7 @@ fn main() -> std::process::ExitCode {
     let mut vocab = None;
     let mut prompt = None;
     let mut steps = STEPS;
+    let mut fused = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -233,6 +269,7 @@ fn main() -> std::process::ExitCode {
                 };
                 checkpoint_path = Some(value);
             }
+            "--fused" => fused = true,
             "--vocab" => {
                 let Some(value) = args.next() else {
                     eprintln!("--vocab needs a vocabulary path");
@@ -261,12 +298,15 @@ fn main() -> std::process::ExitCode {
                 }
             }
             "-h" | "--help" => {
-                println!("usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N]");
+                println!(
+                    "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused]"
+                );
+                println!("  --fused  the WKV7 recurrence through the one-head kernel");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N]"
+                    "unknown argument {other}\n\nusage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -342,6 +382,7 @@ fn main() -> std::process::ExitCode {
                         &prompt_ids,
                         steps,
                         &device,
+                        layer_step::<Flex>,
                     )
                 }
                 Some(card) => {
@@ -350,6 +391,11 @@ fn main() -> std::process::ExitCode {
                         .map_err(|error| error.to_string())?;
                     let (weights, norm_w, norm_b, head) =
                         materialize::<TtBackend>(&specs, &norm, &lm_head, &device);
+                    let step: Step<TtBackend> = if fused {
+                        layer_step_fused
+                    } else {
+                        layer_step::<TtBackend>
+                    };
                     generate::<TtBackend>(
                         &checkpoint,
                         &weights,
@@ -358,6 +404,7 @@ fn main() -> std::process::ExitCode {
                         &prompt_ids,
                         steps,
                         &device,
+                        step,
                     )
                 }
             }
@@ -417,7 +464,7 @@ fn main() -> std::process::ExitCode {
         println!("flex decode PASS; pass --card N to run the device gate");
         return std::process::ExitCode::SUCCESS;
     };
-    let tt = match run_tt(&checkpoint, &specs, &norm, &lm_head, card) {
+    let tt = match run_tt(&checkpoint, &specs, &norm, &lm_head, card, fused) {
         Ok(steps) => steps,
         Err(error) => {
             eprintln!("device decode: {error}");
