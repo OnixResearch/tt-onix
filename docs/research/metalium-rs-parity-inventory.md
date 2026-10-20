@@ -1,6 +1,6 @@
 # metalium-rs parity inventory
 
-Pinned source: `brittonr/metalium-rs` at `4fbddb5d297044f8b9426e69366017b47bc55fba`
+Pinned source: `brittonr/metalium-rs` at `522b7fd074ed91bcc29e8a3eddc7f3c3e7d75204`
 (upstream `Knight-Ops/metalium-rs` at `b22a245`).
 
 This inventory maps the repository's two model targets to the native stack. It is a work
