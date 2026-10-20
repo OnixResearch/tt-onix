@@ -28,7 +28,7 @@
 - [x] [serial] M3f Evaluate toks, record its refusal, and implement the exact byte-trie tokenizer with Python-derived vectors. r[tenstorrent.rust_ml.metalium_migration.tokenizer]
 - [x] [serial] M3g Rank the top two logits and match the harness token checkpoint (token 2, runner-up 33) on Flex and card 0. r[tenstorrent.rust_ml.metalium_migration.greedy]
 - [x] [serial] M3h Run the three-step stateful decode chain with carried matrices and token-shift state; match the harness tokens and logits on Flex and card 0. r[tenstorrent.rust_ml.metalium_migration.decode]
-- [x] [serial] M3i Add wrapper tokenization and bounded prompt generation; reproduce the fixed prompt ids and `" Hi, I"` with `TT_BATCH=0 TT_PIPELINE=0`. r[tenstorrent.rust_ml.metalium_migration.prompt]
+- [x] [serial] M3i Add wrapper tokenization and bounded prompt generation; reproduce the fixed prompt ids and `" Hi, I"` with `TT_BATCH=0`. r[tenstorrent.rust_ml.metalium_migration.prompt]
 - [ ] [serial] M3 Blocked: Fuse the WKV7 recurrence into a Tensix kernel and re-verify against the host reference. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M4 Blocked: Implement and verify Qwen3.6/3.8 linear attention, MoE routing, and state carry on `burn-tt`. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M5 Blocked: Admit each model only after its parity and physical gates pass. r[tenstorrent.rust_ml.metalium_migration.complete]

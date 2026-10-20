@@ -109,7 +109,7 @@ r[tenstorrent.rust_ml.metalium_migration.decode]
 #### Scenario: Prompt generation reproduces the fixed text
 r[tenstorrent.rust_ml.metalium_migration.prompt]
 - GIVEN the fixed rendered chat prompt and the exact wrapper tokenizer
-- WHEN three greedy tokens are generated with `TT_BATCH=0 TT_PIPELINE=0`
+- WHEN three greedy tokens are generated with `TT_BATCH=0`
 - THEN the prompt ids and generated ids match the harness
 - AND the generated text is `" Hi, I"`
 - AND the batched GDDR exhaustion is recorded as an open allocator blocker

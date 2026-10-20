@@ -46,9 +46,8 @@ simulated evidence. No physical device was opened.
   `/nix/store/4f58rghjjmjn17nf9alq30dvl5lplbfq-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
   `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, and
   `/nix/store/02lfdd67v5grrns504a6g8xv4fv19m5w-rwkv7-generate-checkpoint/bin/rwkv7-generate-checkpoint`,
-  and `/nix/store/iqiwk8vg1knpgymmd88y9i88fkw41y5j-rwkv7-prompt-checkpoint/bin/rwkv7-prompt-checkpoint`,
-  bound to the pinned checkpoint and vocabulary. The prompt wrapper sets
-  `TT_BATCH=0 TT_PIPELINE=0`.
+  and `/nix/store/bc39r9djbyrkflyybjmby95370j50vq3-rwkv7-prompt-checkpoint/bin/rwkv7-prompt-checkpoint`,
+  bound to the pinned checkpoint and vocabulary. The prompt wrapper sets `TT_BATCH=0`.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
   46 ignored, 266 binaries, in about 21 minutes locally.
@@ -294,9 +293,10 @@ tt generated text: " Hi, I"
 prompt gate PASS
 ```
 
-The bundled app sets `TT_BATCH=0 TT_PIPELINE=0` because the batched path exhausted contiguous
-GDDR slots after the 8-token prompt. The same 8-token prompt with batching is blocked by that
-allocator limitation; record it as a known migration blocker, not a numerical difference.
+The bundled app sets `TT_BATCH=0` because the batched path exhausted contiguous GDDR slots after
+the 8-token prompt. Disabling the pipeline alone is not required: the same run passes with
+batching off and the default pipeline. Record this as an allocator blocker, not a numerical
+difference.
 
 This is a bounded greedy generation, not a sampler, stop-policy-complete endpoint, or serving
 result.

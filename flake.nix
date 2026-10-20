@@ -77,7 +77,7 @@
           metaliumRsPromptGate = pkgs.writeShellApplication {
             name = "rwkv7-prompt-checkpoint";
             text = ''
-              export TT_BATCH=0 TT_PIPELINE=0
+              export TT_BATCH=0
               exec ${metaliumRs}/bin/rwkv7-generate-gate --checkpoint ${metaliumRsCheckpoint} --vocab ${rwkv7Vocab} "$@"
             '';
           };

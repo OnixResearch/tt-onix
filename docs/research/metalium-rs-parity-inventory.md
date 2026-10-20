@@ -56,8 +56,8 @@ all-reduce or other collective.
    real layer-zero gate, all-12-layer gate, logits/Python-reference comparison, and exact tokenizer
    are done, one greedy next-token step matches the harness, and the three-step stateful decode
    chain matches the harness. Prompt text now runs through the exact tokenizer and bounded greedy
-   generation (`" Hi, I"`). The batched path needs `TT_BATCH=0 TT_PIPELINE=0` after an 8-token
-   prompt; fix that allocator limit next, then fuse the recurrence into a Tensix kernel. toks was
+   generation (`" Hi, I"`). The batched path needs `TT_BATCH=0` after an 8-token prompt; fix that allocator limit next,
+   then fuse the recurrence into a Tensix kernel. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
    model; compare against the existing CPU reference and the tt-metal path. Keep the service on

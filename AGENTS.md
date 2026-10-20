@@ -201,8 +201,8 @@ recurrent-state 7.28e-6), one greedy next-token step (token 2; logit within 1.3e
 harness), a three-step stateful decode chain (token 1 each step; logits within 1.1e-4 of the
 harness), and a bounded prompt generation producing `" Hi, I"`. Against the harness's Python
 equation reference, the device logits differ by 2.73e-4 (bound 1.0) and states by 3.94e-4
-(bound 1.0). The prompt app sets `TT_BATCH=0 TT_PIPELINE=0`; the batched path exhausts contiguous
-GDDR slots after an 8-token prompt. `qwen38-p150x2.service` is stopped; do
+(bound 1.0). The prompt app sets `TT_BATCH=0`; the batched path exhausts contiguous GDDR slots after an
+8-token prompt. The default pipeline is fine. `qwen38-p150x2.service` is stopped; do
 not restart it for native work without a task that needs it. The timings are smoke measurements,
 not benchmarks. The gates use `accurate_matmul`; they do not establish a sampler,
 stop-policy-complete endpoint, serving, fused-kernel, or performance parity.
