@@ -17,8 +17,8 @@ let
   src = fetchFromGitHub {
     owner = "brittonr";
     repo = "metalium-rs";
-    rev = "4f27b42728a2d7351060493c143f26ef18c1eb76";
-    hash = "sha256-rLlTjphV18ikebdn3Nfro7N/3bLWeeCoZWmU1UYSA54=";
+    rev = "ad37557d675913faaf3b144d2bc2cf48dc0212f5";
+    hash = "sha256-83BmTmV5yN0r+llip9Gg0NP/ztqsR6zU/W7LO/93wwU=";
   };
 
   mnist = runCommand "mnist-idx-2017" { nativeBuildInputs = [ gzip ]; } ''

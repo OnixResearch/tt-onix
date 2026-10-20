@@ -5,16 +5,16 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `4f27b42728a2d7351060493c143f26ef18c1eb76`
+- Commit: `ad37557d675913faaf3b144d2bc2cf48dc0212f5`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `5a8a78a0f4efce721c7eb583b82b375b1790de8eaa2c675ec9c67de1090fd5d3`
+- Fork tree BLAKE3: `ff3033894342f3bcc68a76e1921eda709dfedc7ee95b4005c9bece1b5c2726d9`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-rLlTjphV18ikebdn3Nfro7N/3bLWeeCoZWmU1UYSA54=`
+- Nix source hash: `sha256-83BmTmV5yN0r+llip9Gg0NP/ztqsR6zU/W7LO/93wwU=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
-  all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer, and the greedy
-  next-token check). Thirteen files, +2,131/−2.
+  all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer, the greedy next-token
+  check, and the stateful decode chain). Fourteen files, +2,374/−2.
 
 ## Validation
 
@@ -23,7 +23,7 @@ Date: 2026-10-19
 - 1,544 passed
 - 0 failed
 - 46 ignored
-- 265 test binaries
+- 266 test binaries
 
 The run used the pinned ISA specification, ttsim `v1.10.9`, and MNIST inputs. Simulator gates are
 simulated evidence. No physical device was opened.
@@ -37,17 +37,18 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/dvsbbh8wz0g8fjp43hcmiphi1yns1arp-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/ym7xvsk3f22zi2zv0v55425q408y1rd7-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
-  `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB), and
-  `bin/rwkv7-tokenizer-gate` (892 KiB).
+  `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB),
+  `bin/rwkv7-tokenizer-gate` (892 KiB), and `bin/rwkv7-generate-gate` (6.3 MiB).
 - Wrappers: `/nix/store/80ylgakhv481qb4zjwn1sdrpmkbz5cli-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
   `/nix/store/4f58rghjjmjn17nf9alq30dvl5lplbfq-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
-  and `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, bound to the
-  pinned checkpoint and vocabulary.
+  `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, and
+  `/nix/store/02lfdd67v5grrns504a6g8xv4fv19m5w-rwkv7-generate-checkpoint/bin/rwkv7-generate-checkpoint`,
+  bound to the pinned checkpoint and vocabulary.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
-  46 ignored, 265 binaries, in about 21 minutes locally.
+  46 ignored, 266 binaries, in about 21 minutes locally.
 - App: `.#metalium-rs-mnist`.
 
 ## Binary smoke
@@ -249,6 +250,28 @@ tt greedy: token 2 logit 2.8639894, runner 33 logit 0.8964123, margin 1.9675771
 Flex is within 5e-6 of the expected logits; card 0 is within 1.3e-4. Both choose the same token
 and runner-up. This is one greedy step, not a generation loop, sampler, or serving result.
 
+## Stateful decode chain
+
+`rwkv7-generate-gate` starts from seed token 1 with zero state and runs three greedy steps,
+carrying every layer's recurrent matrix and token-shift vectors. The harness expects token 1 at each
+step with logits `0.04493069`, `6.9543834`, `6.486726`.
+
+`cargo run -p rwkv7 --bin rwkv7-generate-gate -- --checkpoint <path> --card 0` and
+`nix run .#metalium-rs-rwkv7-generate -- --card 0` produce:
+
+```text
+flex step 0: token 1 logit 0.04495239
+flex step 1: token 1 logit 6.95438051
+flex step 2: token 1 logit 6.48672342
+tt step 0: token 1 logit 0.04504108
+tt step 1: token 1 logit 6.95432234
+tt step 2: token 1 logit 6.48668861
+decode gate PASS
+```
+
+Flex gaps are at most 2.2e-5; card 0 at most 1.1e-4. The gate compares generated token ids and
+logits only; it is not a prompt-generation endpoint, sampler, or serving result.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -265,9 +288,9 @@ it as an operational gate, not as a source defect.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
   synthetic full-layer gate, the real-checkpoint layer-zero gate, the all-12-layer final-hidden,
-  logits, and recurrent-state gate, and one greedy next-token step. Logits match the Python
-  equation reference. No generation loop, sampler, serving, placement, long-run stability, or
-  performance claim follows.
+  logits, and recurrent-state gate, one greedy next-token step, and a three-step stateful decode
+  chain. Logits match the Python equation reference and the harness decode values. No prompt
+  endpoint, sampler, serving, placement, long-run stability, or performance claim follows.
 
 ## Migration status
 

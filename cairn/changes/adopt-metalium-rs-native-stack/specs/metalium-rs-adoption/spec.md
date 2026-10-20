@@ -7,7 +7,7 @@ r[tenstorrent.rust_ml.metalium_fork_authority] The repository MUST pin one fork 
 
 #### Scenario: Fork revision is admitted
 r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- GIVEN fork commit `4f27b42728a2d7351060493c143f26ef18c1eb76` based on upstream `b22a245`
+- GIVEN fork commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5` based on upstream `b22a245`
 - AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gates
 - WHEN source admission runs
 - THEN it produces one deterministic fork authority
@@ -97,6 +97,14 @@ r[tenstorrent.rust_ml.metalium_migration.greedy]
 - THEN both choose token 2 with runner-up 33
 - AND the logits and margin stay within the recorded tolerance
 - AND the result does not authorize a generation loop, sampler, or serving claim
+
+#### Scenario: Stateful decode chain matches the harness
+r[tenstorrent.rust_ml.metalium_migration.decode]
+- GIVEN seed token 1 and zero initial recurrent state
+- WHEN three greedy steps run on Flex and on TtBackend with state carried
+- THEN token 1 is selected at every step
+- AND each logit stays within the recorded tolerance of the harness values
+- AND the result does not authorize a prompt endpoint, sampler, or serving claim
 
 #### Scenario: Model gates pass
 r[tenstorrent.rust_ml.metalium_migration.complete]

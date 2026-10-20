@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `4f27b42728a2d7351060493c143f26ef18c1eb76` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact tokenizer, and the greedy next-token check.
+`brittonr/metalium-rs` at commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact tokenizer, the greedy next-token check, and the stateful decode chain.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -110,6 +110,18 @@ Do not call this a generation loop, sampler, or serving result.
 
 **Rationale:** The top-two check catches final-norm, head, and ranking errors with one more scalar
 comparison. A generation loop adds state transitions and stop conditions that need their own gate.
+
+### Decision: Carry state across a bounded decode chain
+
+**Choice:** Start from seed token 1 with zero state and run three greedy steps, carrying every
+layer's matrix and token-shift vectors. Compare generated ids and logits with the harness decode
+checkpoint.
+
+Keep the chain bounded and fixed. A prompt-generation endpoint, sampler, and stop policy remain
+separate work.
+
+**Rationale:** One greedy step does not exercise state transitions between generated tokens. The
+three-step chain is the smallest gate that does.
 
 ### Decision: Reset cards between TT-Metal and native execution
 

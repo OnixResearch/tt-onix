@@ -151,10 +151,11 @@ Do not treat a listed project as package-matched authority.
 Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
 The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
 The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
-`4f27b42728a2d7351060493c143f26ef18c1eb76`, which adds the Apache-2.0 license file, fixes the
+`ad37557d675913faaf3b144d2bc2cf48dc0212f5`, which adds the Apache-2.0 license file, fixes the
 stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, composed and synthetic
 layer gates, the real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle
-comparison, the exact byte-trie tokenizer, and the greedy next-token check).
+comparison, the exact byte-trie tokenizer, the greedy next-token check, and the stateful decode
+chain).
 The flake pins that fork and exposes the `metalium-rs` package.
 
 This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
@@ -173,12 +174,12 @@ Its model coverage is ResNet-18, ViT-Tiny, and SmolLM2-135M over Burn; it has no
 Qwen3.6/3.8, MoE, or gated-delta implementation. Treat its conformance counts, model agreement,
 and performance numbers as upstream claims until this repository reproduces them.
 
-The fork passes the validation tier: 1,544 passed, 0 failed, 46 ignored across 265 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
+The fork passes the validation tier: 1,544 passed, 0 failed, 46 ignored across 266 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
 MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
 toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
-`tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, `rwkv7-model-gate`, and
-`rwkv7-tokenizer-gate`, plus the layer/model/tokenizer wrappers, and excludes only dev-only crates
-from the installed output. Package and migration
+`tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, `rwkv7-model-gate`,
+`rwkv7-tokenizer-gate`, and `rwkv7-generate-gate`, plus the layer/model/tokenizer/generate
+wrappers, and excludes only dev-only crates from the installed output. Package and migration
 records live under `cairn/changes/evaluate-metalium-rs-native-stack/` and
 `cairn/changes/adopt-metalium-rs-native-stack/`.
 
@@ -196,12 +197,13 @@ mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8,
 2.98e-8), a synthetic one-layer Flex/Tt gate on card 0 (hidden gaps <= 5.96e-7, state gaps
 <= 1.79e-7), a real-checkpoint layer-zero gate (hidden gaps <= 1.63e-5, state gaps <= 1.99e-5),
 an all-12-layer real-weight gate (final-hidden relative gap 2.26e-5, logits 1.36e-5,
-recurrent-state 7.28e-6), and one greedy next-token step (token 2; logit within 1.3e-4 of the
+recurrent-state 7.28e-6), one greedy next-token step (token 2; logit within 1.3e-4 of the
+harness), and a three-step stateful decode chain (token 1 each step; logits within 1.1e-4 of the
 harness). Against the harness's Python equation reference, the device logits differ by 2.73e-4
 (bound 1.0) and states by 3.94e-4 (bound 1.0). `qwen38-p150x2.service` is stopped; do
 not restart it for native work without a task that needs it. The timings are smoke measurements,
-not benchmarks. The gates use `accurate_matmul`; they do not establish a generation loop, sampler,
-serving, fused-kernel, or performance parity.
+not benchmarks. The gates use `accurate_matmul`; they do not establish a prompt-generation
+endpoint, sampler, serving, fused-kernel, or performance parity.
 
 Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution. Without the
 reset, the first native process failed at `element-wise 0x2 ... queued list 2 failed`; the second

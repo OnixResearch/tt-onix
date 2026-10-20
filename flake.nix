@@ -68,6 +68,12 @@
               exec ${metaliumRs}/bin/rwkv7-tokenizer-gate --vocab ${rwkv7Vocab} "$@"
             '';
           };
+          metaliumRsGenerateGate = pkgs.writeShellApplication {
+            name = "rwkv7-generate-checkpoint";
+            text = ''
+              exec ${metaliumRs}/bin/rwkv7-generate-gate --checkpoint ${metaliumRsCheckpoint} "$@"
+            '';
+          };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -112,6 +118,7 @@
             metalium-rs-rwkv7-checkpoint = metaliumRsCheckpointGate;
             metalium-rs-rwkv7-model = metaliumRsModelGate;
             metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerGate;
+            metalium-rs-rwkv7-generate = metaliumRsGenerateGate;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
@@ -157,6 +164,12 @@
             type = "app";
             program = "${metaliumRsTokenizerGate}/bin/rwkv7-tokenizer";
             meta.description = "Check the exact RWKV-7 byte-trie tokenizer";
+          };
+
+          apps.metalium-rs-rwkv7-generate = {
+            type = "app";
+            program = "${metaliumRsGenerateGate}/bin/rwkv7-generate-checkpoint";
+            meta.description = "Check the stateful RWKV-7 decode chain";
           };
 
           checks = {
