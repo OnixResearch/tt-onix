@@ -346,9 +346,13 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   now unpacked once per column tile and shared by both row tiles (eighteen vector unpacks a head,
   down from twenty-two), and the twelve heads are twelve jobs in one `Work`, so the layer makes one
   submission instead of twelve and its state/output are one slice and reshape, not twelve `cat`s.
-  The layer gate's run falls from about 3.3 s to 2 s; the model gate stays about 19 s (checkpoint
-  load and the 65536x768 head dominate). Left: a head-batched kernel or multi-tile spread to use
-  more than one tile, and the 768x768 projections, which dominate the layer.
+  The layer gate's run falls from about 3.3 s to 2 s. The layer, model and generate gates take
+  `--tiles N`: the twelve head jobs (and every other op) spread over a session's units. Card 0,
+  `--fused`: the layer gate's run falls from 1.56 s on one tile to 0.84 s on twelve, the 12-layer
+  model gate from 18.47 s to 6.45 s, and fixed-prompt generation from 10.93 s to 2.83 s, with the
+  same gaps, token and text. `step187` also runs the twelve-head step on a twelve-tile session
+  (card 0, 0.51 s for one token; the session setup dominates a single step). Left: a head-batched
+  kernel (more than one head per `Dst` pass) and the 768x768 projections, which dominate the layer.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

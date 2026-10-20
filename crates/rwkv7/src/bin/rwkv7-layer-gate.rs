@@ -6,7 +6,7 @@
 
 use burn::tensor::{Tensor, TensorData};
 use burn_flex::{Flex, FlexDevice};
-use burn_tt::{accurate_matmul, TtBackend, TtConfig, TtDevice};
+use burn_tt::{accurate_matmul, TileChoice, TtBackend, TtConfig, TtDevice};
 use rwkv7::checkpoint::Checkpoint;
 use rwkv7::layer::{layer_step, layer_step_fused, synthetic_spec, LayerSpec, LayerState, HIDDEN};
 
@@ -52,9 +52,14 @@ fn run_tt(
     second: &LayerSpec,
     card: u16,
     fused: bool,
+    tiles: Option<usize>,
 ) -> ([Vec<f32>; 2], [Vec<f32>; 2]) {
     let device = TtDevice::new(card);
-    burn_tt::init(device, TtConfig::default()).expect("attach card");
+    let config = match tiles {
+        Some(n) => TtConfig::default().tiles(TileChoice::Count(n)),
+        None => TtConfig::default(),
+    };
+    burn_tt::init(device, config).expect("attach card");
     let weights = first.materialize::<TtBackend>(&device);
     accurate_matmul(|| {
         let mut state = LayerState::<TtBackend>::zeros(&device);
@@ -93,6 +98,7 @@ fn main() -> std::process::ExitCode {
     let mut card = None;
     let mut checkpoint = None;
     let mut fused = false;
+    let mut tiles = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -110,6 +116,19 @@ fn main() -> std::process::ExitCode {
                 }
             }
             "--fused" => fused = true,
+            "--tiles" => {
+                let Some(value) = args.next() else {
+                    eprintln!("--tiles needs a count");
+                    return std::process::ExitCode::FAILURE;
+                };
+                match value.parse::<usize>() {
+                    Ok(value) if value > 0 => tiles = Some(value),
+                    _ => {
+                        eprintln!("--tiles {value}: expected a positive count");
+                        return std::process::ExitCode::FAILURE;
+                    }
+                }
+            }
             "--checkpoint" => {
                 let Some(value) = args.next() else {
                     eprintln!("--checkpoint needs a safetensors path");
@@ -118,13 +137,16 @@ fn main() -> std::process::ExitCode {
                 checkpoint = Some(value);
             }
             "-h" | "--help" => {
-                println!("usage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused]");
-                println!("  --fused  the WKV7 recurrence through the one-head kernel");
+                println!(
+                    "usage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused] [--tiles N]"
+                );
+                println!("  --fused  the WKV7 recurrence through the fused kernel");
+                println!("  --tiles  Tensix tiles to open (default 1)");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused]"
+                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused] [--tiles N]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -185,7 +207,7 @@ fn main() -> std::process::ExitCode {
         println!("flex layer PASS; pass --card N to run the device gate");
         return std::process::ExitCode::SUCCESS;
     };
-    let (tt_hidden, tt_state) = run_tt(&first, &second, card, fused);
+    let (tt_hidden, tt_state) = run_tt(&first, &second, card, fused, tiles);
     let gaps = [
         ("token1 hidden", max_abs(&tt_hidden[0], &flex_hidden[0])),
         ("token2 hidden", max_abs(&tt_hidden[1], &flex_hidden[1])),

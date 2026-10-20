@@ -4,7 +4,8 @@
 //! `tt_kernels::wkv7` kernel, scatter -- through the attached engine and
 //! returns one `[64, 96]` tensor. `rwkv7::step_head_device_attached` builds the
 //! head's tensors and splits the result; `step_device_fused_attached` runs all
-//! twelve heads as twelve jobs in one submission. Both gates compare with the host
+//! twelve heads as twelve jobs in one submission, on one tile and on twelve.
+//! The gates compare with the host
 //! recurrence across a carried second token; `step186_wkv7` covers the same
 //! kernel's role streams and its `Session` form directly.
 //!
@@ -128,6 +129,31 @@ fn all_twelve_heads_through_burn_tt_match_the_host_reference() {
             "12 heads: step 2 out (carried)",
             &got.out,
             &host_second.out[..HEAD_COUNT * HEAD_SIZE],
+        );
+    });
+}
+
+/// The same twelve-head step with the session opened on twelve tiles: the
+/// batched op's twelve head jobs go one to a tile.
+#[test]
+fn all_twelve_heads_on_twelve_tiles_match_the_host_reference() {
+    let first = inputs(7, None);
+    let host = step(&first).expect("host step");
+    let config = Config {
+        tiles: Some(burn_tt::TileChoice::Count(12)),
+        ..Config::default()
+    };
+    with_device(config, |device| {
+        let got = step_device_fused_attached(device, &first).expect("fused token");
+        check(
+            "12 tiles: state",
+            &got.state,
+            &host.state[..HEAD_COUNT * HEAD_SIZE * HEAD_SIZE],
+        );
+        check(
+            "12 tiles: out",
+            &got.out,
+            &host.out[..HEAD_COUNT * HEAD_SIZE],
         );
     });
 }
