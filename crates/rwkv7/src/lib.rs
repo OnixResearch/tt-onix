@@ -14,6 +14,7 @@
 //! a correctness gate, not the final fused kernel.
 
 pub mod layer;
+pub mod tokenizer;
 
 pub mod checkpoint;
 
