@@ -6,7 +6,9 @@
 use std::process::ExitCode;
 
 use burn_tt::{TtConfig, TtDevice};
-use rwkv7::{step, step_device_attached, Inputs, HEAD_COUNT, HEAD_SIZE};
+use rwkv7::{
+    step, step_device_attached, step_device_fused_attached, Inputs, HEAD_COUNT, HEAD_SIZE,
+};
 
 const TOLERANCE: f32 = 1e-5;
 
@@ -42,6 +44,7 @@ fn max_abs(left: &[f32], right: &[f32]) -> f32 {
 
 fn main() -> ExitCode {
     let mut card = None;
+    let mut fused = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -58,12 +61,14 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            "--fused" => fused = true,
             "-h" | "--help" => {
-                println!("usage: wkv7-gate [--card N]");
+                println!("usage: wkv7-gate [--card N] [--fused]");
+                println!("  --fused  the one-head Tensix kernel, one launch a head");
                 return ExitCode::SUCCESS;
             }
             other => {
-                eprintln!("unknown argument {other}\n\nusage: wkv7-gate [--card N]");
+                eprintln!("unknown argument {other}\n\nusage: wkv7-gate [--card N] [--fused]");
                 return ExitCode::FAILURE;
             }
         }
@@ -112,14 +117,21 @@ fn main() -> ExitCode {
         eprintln!("attach card {card}: {error}");
         return ExitCode::FAILURE;
     }
-    let device_first = match step_device_attached(device, &first) {
+    let run = |inputs: &Inputs| {
+        if fused {
+            step_device_fused_attached(device, inputs)
+        } else {
+            step_device_attached(device, inputs)
+        }
+    };
+    let device_first = match run(&first) {
         Ok(output) => output,
         Err(error) => {
             eprintln!("device step 1 failed: {error}");
             return ExitCode::FAILURE;
         }
     };
-    let device_second = match step_device_attached(device, &second) {
+    let device_second = match run(&second) {
         Ok(output) => output,
         Err(error) => {
             eprintln!("device step 2 failed: {error}");

@@ -12,7 +12,8 @@
 //! Burn tensor operations on `TtBackend`, exercising the matmul, broadcast,
 //! elementwise and transfer paths. [`step_head_device_attached`] is the fused
 //! route: one head through `burn_tt::wkv7_step` and the one-head Tensix kernel
-//! (`tt_kernels::wkv7`), one device job.
+//! (`tt_kernels::wkv7`), one device job; [`step_device_fused_attached`] runs
+//! all twelve heads.
 
 pub mod layer;
 pub mod tokenizer;
@@ -232,6 +233,25 @@ pub fn step_head_device_attached(
         .map_err(|error| error.to_string())?;
     let (state, out) = tt_kernels::wkv7::split_step(&values);
     Ok(HeadOutputs { state, out })
+}
+
+/// All twelve heads of one token through [`step_device_fused_attached`]'s
+/// kernel: one launch per head, assembled into the full [`Outputs`].
+///
+/// The kernel is one head's work -- four state tiles and two vector slots fill
+/// `Dst` -- so a token is twelve launches, each with its own gather and
+/// scatter. A layer that keeps the token's projections resident would cut the
+/// per-head uploads; this is the correctness path.
+pub fn step_device_fused_attached(device: TtDevice, inputs: &Inputs) -> Result<Outputs, String> {
+    inputs.validate()?;
+    let mut state = Vec::with_capacity(HEAD_COUNT * HEAD_SIZE * HEAD_SIZE);
+    let mut out = Vec::with_capacity(HEAD_COUNT * HEAD_SIZE);
+    for head in 0..HEAD_COUNT {
+        let head = step_head_device_attached(device, inputs, head)?;
+        state.extend_from_slice(&head.state);
+        out.extend_from_slice(&head.out);
+    }
+    Ok(Outputs { state, out })
 }
 
 /// Attach a card once for a multi-step run. Returns the device on success.

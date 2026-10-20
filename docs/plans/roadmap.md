@@ -328,10 +328,14 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   the row-broadcast form; `v` is a `[64, 1]` column the mover broadcasts. Card 0 run `1792472083`,
   0.40 s. The GDDR-resident form (`wkv7::work` + `Session::wkv7_step`) and its `burn-tt` route
   (`burn_tt::wkv7_step`, `rwkv7::step_head_device_attached`) pass the same gate on ttsim and card 0
-  (`step187_wkv7_burn`, run `1792472975`, 0.91 s). Left: all twelve heads per token and the layer and
-  model. The kernel takes 22 vector unpacks per token because `Dst` holds just two vector slots beside
-  the four state tiles, so a later version should stage vectors in `Src` or reuse a vector across the
-  four state tiles.
+  (`step187_wkv7_burn`, run `1792472975`, 0.91 s). All twelve heads run as twelve launches
+  (`rwkv7::step_device_fused_attached`; card 0 run `1792505756`, 0.36 s, max state gap 4.5e-8 and
+  output 1.5e-7; the existing `wkv7-gate --card 0 --fused` passes with 1.5e-7/4.5e-8 on step 1 and
+  8.9e-8/2.2e-8 on the carried step). Left: the layer and model on the fused recurrence (the layer's
+  Goose recurrence has the same `S*w + (S@a)*b + v*k` form with `a = -key_key`, `b = key_key *
+  adaptation`, `w = decay`). The kernel takes 22 vector unpacks per token because `Dst` holds just two
+  vector slots beside the four state tiles, so a later version should stage vectors in `Src` or reuse
+  a vector across the four state tiles.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

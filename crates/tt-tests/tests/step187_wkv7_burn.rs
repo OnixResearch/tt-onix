@@ -1,16 +1,19 @@
-//! One-head WKV7 through `burn-tt`: the routed op, not the raw role kernel.
+//! WKV7 through `burn-tt`: the routed op, not the raw role kernel.
 //!
 //! `burn_tt::wkv7_step` sends one device job -- gather, the three-role
 //! `tt_kernels::wkv7` kernel, scatter -- through the attached engine and
 //! returns one `[64, 96]` tensor. `rwkv7::step_head_device_attached` builds the
-//! head's tensors and splits the result. This gate compares that path with the
-//! host recurrence across a carried second token; `step186_wkv7` covers the
-//! same kernel's role streams and its `Session` form directly.
+//! head's tensors and splits the result; `step_device_fused_attached` runs all
+//! twelve heads, one launch a head. Both gates compare with the host
+//! recurrence across a carried second token; `step186_wkv7` covers the same
+//! kernel's role streams and its `Session` form directly.
 //!
 //! ttsim and card 0: `with_device` picks the engine, so one gate proves both.
 
 use burn_tt::TtDevice;
-use rwkv7::{step, step_head_device_attached, Inputs, HEAD_COUNT, HEAD_SIZE};
+use rwkv7::{
+    step, step_device_fused_attached, step_head_device_attached, Inputs, HEAD_COUNT, HEAD_SIZE,
+};
 use tt_tests::burn_device::{with_device, Config};
 
 const TOLERANCE: f32 = 1e-5;
@@ -86,6 +89,45 @@ fn one_head_wkv7_through_burn_tt_matches_the_host_reference() {
             "step 2 out (carried)",
             &got.out,
             &host_second.out[..HEAD_SIZE],
+        );
+    });
+}
+
+/// The model-level path: all twelve heads, one kernel launch a head, with every
+/// head's state carried into the second token.
+#[test]
+fn all_twelve_heads_through_burn_tt_match_the_host_reference() {
+    let first = inputs(7, None);
+    let host_first = step(&first).expect("host step 1");
+    with_device(Config::default(), |device| {
+        let got = step_device_fused_attached(device, &first).expect("fused token 1");
+        check(
+            "12 heads: step 1 state",
+            &got.state,
+            &host_first.state[..HEAD_COUNT * HEAD_SIZE * HEAD_SIZE],
+        );
+        check(
+            "12 heads: step 1 out",
+            &got.out,
+            &host_first.out[..HEAD_COUNT * HEAD_SIZE],
+        );
+
+        // Every head starts the next token from what the kernel produced.
+        let mut second = inputs(13, None);
+        second
+            .state
+            .copy_from_slice(&got.state[..HEAD_COUNT * HEAD_SIZE * HEAD_SIZE]);
+        let host_second = step(&second).expect("host step 2");
+        let got = step_device_fused_attached(device, &second).expect("fused token 2");
+        check(
+            "12 heads: step 2 state (carried)",
+            &got.state,
+            &host_second.state[..HEAD_COUNT * HEAD_SIZE * HEAD_SIZE],
+        );
+        check(
+            "12 heads: step 2 out (carried)",
+            &got.out,
+            &host_second.out[..HEAD_COUNT * HEAD_SIZE],
         );
     });
 }
