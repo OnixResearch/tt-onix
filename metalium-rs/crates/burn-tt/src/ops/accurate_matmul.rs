@@ -23,6 +23,11 @@
 //! intermediate overflows or flushes. Inside it the result is within the bound `step163` derives;
 //! outside, use `MatmulMode::Exact`.
 //!
+//! **Finite operands skip the classification.** Six of the eighteen products say what NaNs and
+//! infinities do; when neither operand holds one, their class terms are zero and the six are
+//! skipped. A host reduction decides that; a trace capture never takes the short path, because a
+//! captured host branch would decide from the capture's inputs and a replay with other inputs
+//! would not repeat it.
 //! **NaN and infinity** are IEEE's and cost no precision: they are taken out of the operands before
 //! the slicing, and three matmuls of 0 and +-1 (exact at any fidelity) say what the sum does with
 //! them. A NaN anywhere in a row of the left operand or a column of the right one makes every entry
@@ -220,6 +225,20 @@ pub(crate) fn accurate_matmul(lhs: &TtTensor, rhs: &TtTensor) -> Option<TtTensor
         classes(a, a_axis, bool_dtype),
         classes(b, b_axis, bool_dtype),
     );
+    // Six of the eighteen matmuls are the NaN/infinity classification. When neither operand
+    // holds one, every class product is zero and the classification is skipped; the two
+    // reductions and their host reads cost less than the six products.
+    let has_special = |c: &Classes| -> bool {
+        let count = float::float_add(
+            float::float_sum(c.nans.clone()),
+            float::float_sum(c.infinite.clone()),
+        );
+        match count.download_device().to_vec::<f32>() {
+            Ok(values) => values.iter().any(|value| *value > 0.0),
+            Err(_) => true,
+        }
+    };
+    let classify = crate::trace::capturing(lhs.device) || has_special(&ca) || has_special(&cb);
     let (a, b) = (ca.finite.clone(), cb.finite.clone());
 
     // One power of two per row of `a` and column of `b`, from its largest magnitude.
@@ -269,31 +288,35 @@ pub(crate) fn accurate_matmul(lhs: &TtTensor, rhs: &TtTensor) -> Option<TtTensor
         float::float_mul_scalar(vb, scalar(pow2(1 - RHS_BITS as i32 - shift))),
     );
 
-    // What the NaNs and infinities do to the sum, by three matmuls of 0 and +-1.
-    let mm = |x: &TtTensor, y: &TtTensor| lo_matmul(x.clone(), y.clone());
-    let add = |x, y| float::float_add(x, y);
-    // `signed`: +1 for each product that is +inf, -1 for each that is -inf. `infinite`: how many are.
-    // `undefined`: inf times 0, each a NaN.
-    let signed = add(
-        mm(&ca.inf_sign, &cb.sign),
-        mm(&ca.finite_sign, &cb.inf_sign),
-    );
-    let infinite = add(
-        mm(&ca.infinite, &cb.nonzero),
-        mm(&ca.finite_nonzero, &cb.infinite),
-    );
-    let undefined = add(mm(&ca.infinite, &cb.zero), mm(&ca.zero, &cb.infinite));
-    // Both signs among the infinities: `infinite - |signed|` is twice the smaller count.
-    let both = float::float_sub(infinite.clone(), float::float_abs(signed.clone()));
-    let nan_total = add(add(add(ca.nans, cb.nans), undefined), both);
-    let infinity = float::float_mul_scalar(float::float_sign(signed), scalar(f32::INFINITY));
-    let has_inf = float::float_greater_elem(infinite, scalar(0.0), bool_dtype);
-    let is_nan = float::float_greater_elem(nan_total, scalar(0.0), bool_dtype);
-    let out = float::float_mask_fill(
-        float::float_mask_where(scaled, has_inf, infinity),
-        is_nan,
-        scalar(f32::NAN),
-    );
+    // What the NaNs and infinities do to the sum, by six matmuls of 0 and +-1.
+    let out = if classify {
+        let mm = |x: &TtTensor, y: &TtTensor| lo_matmul(x.clone(), y.clone());
+        let add = |x, y| float::float_add(x, y);
+        // `signed`: +1 for each product that is +inf, -1 for each that is -inf. `infinite`: how
+        // many are. `undefined`: inf times 0, each a NaN.
+        let signed = add(
+            mm(&ca.inf_sign, &cb.sign),
+            mm(&ca.finite_sign, &cb.inf_sign),
+        );
+        let infinite = add(
+            mm(&ca.infinite, &cb.nonzero),
+            mm(&ca.finite_nonzero, &cb.infinite),
+        );
+        let undefined = add(mm(&ca.infinite, &cb.zero), mm(&ca.zero, &cb.infinite));
+        // Both signs among the infinities: `infinite - |signed|` is twice the smaller count.
+        let both = float::float_sub(infinite.clone(), float::float_abs(signed.clone()));
+        let nan_total = add(add(add(ca.nans, cb.nans), undefined), both);
+        let infinity = float::float_mul_scalar(float::float_sign(signed), scalar(f32::INFINITY));
+        let has_inf = float::float_greater_elem(infinite, scalar(0.0), bool_dtype);
+        let is_nan = float::float_greater_elem(nan_total, scalar(0.0), bool_dtype);
+        float::float_mask_fill(
+            float::float_mask_where(scaled, has_inf, infinity),
+            is_nan,
+            scalar(f32::NAN),
+        )
+    } else {
+        scaled
+    };
     let mut shape: Vec<usize> = ls[..rank - 2]
         .iter()
         .zip(&rs[..rank - 2])

@@ -2509,3 +2509,14 @@ text. The four-token gate is bit-identical to four `layer_step_fused` calls (0.0
 card 0); Flex gaps are <=9.9e-4 per row and 3.2e-3 for the matrix after four fast tokens. A
 leading-1 broadcast of the group-norm weights was rejected by the backend's reshape path; the
 chunk tiles the weights along the token axis instead.
+
+### Accurate mode: finite operands skip the NaN/inf classification (2026-10-20, card 0)
+
+Six of the accurate matmul's eighteen products classify NaNs and infinities. When neither operand
+has one, the six are skipped; a host reduction decides, and a trace capture always classifies
+(a captured host branch would be fixed to the capture's inputs). Card 0 benchmark medians
+(`matmul_accurate` / `matmul_fast`): 256x256x256 14.43 ms / 2.05 ms, 512x512x512 72.27 ms /
+7.60 ms, 1024x1024x1024 234.05 ms / 24.44 ms. The 12-layer model gate's accurate device run falls
+from 5.65 s to 5.41 s: the per-matmul host reads that decide the short path cost much of what the
+six products did. The gate and the NaN/inf tests pass; the traced-accurate test passes with the
+capture always classifying.

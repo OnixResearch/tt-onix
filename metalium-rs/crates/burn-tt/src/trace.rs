@@ -48,6 +48,20 @@ struct Capturing {
 /// for each open training [`Capturing`]).
 static TRAINING: std::sync::Mutex<Vec<TtDevice>> = std::sync::Mutex::new(Vec::new());
 
+/// The devices capturing any trace now (inference or training). A host branch
+/// inside a captured op would decide from the capture's inputs; the capture
+/// instead takes the general path, whose ops the replays repeat.
+static CAPTURING: std::sync::Mutex<Vec<TtDevice>> = std::sync::Mutex::new(Vec::new());
+
+/// Is `device` capturing a trace? A captured op must not download: the replay
+/// runs device work only.
+pub(crate) fn capturing(device: TtDevice) -> bool {
+    CAPTURING
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(&device)
+}
+
 /// Is `device` capturing a training step? Its replays write the parameters in
 /// place (`copy_into`), so a tensor derived from one and kept (a convolution's
 /// relaid weights, `TtTensor::derived`) is neither read nor filled then: the
@@ -69,6 +83,10 @@ impl Capturing {
                 .unwrap_or_else(|p| p.into_inner())
                 .push(device);
         }
+        CAPTURING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(device);
         Capturing {
             device,
             open: true,
@@ -81,6 +99,12 @@ impl Drop for Capturing {
     fn drop(&mut self) {
         if self.training {
             let mut c = TRAINING.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(i) = c.iter().position(|&d| d == self.device) {
+                c.swap_remove(i);
+            }
+        }
+        {
+            let mut c = CAPTURING.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(i) = c.iter().position(|&d| d == self.device) {
                 c.swap_remove(i);
             }
