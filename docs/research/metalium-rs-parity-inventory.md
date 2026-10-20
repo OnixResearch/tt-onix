@@ -42,7 +42,7 @@ all-reduce or other collective.
 | Token shift | Composed from slice/cat | Required | Not used | None expected |
 | GroupNorm / norm | Burn composition over native ops | Required (RWKV norm) | RMSNorm | Verify numerics per model |
 | LoRA | Model-level matmul/add | Required | Not used | None expected |
-| **WKV7 recurrent update** | **Missing** | **Required** | GDN is a related but distinct recurrence | Custom kernel and state-carry gate |
+| **WKV7 recurrent update** | **One-head SFPU kernel, ttsim gate only** | **Required** | GDN is a related but distinct recurrence | Card-0 gate, burn-tt routing, then all heads |
 | **Gated DeltaNet decode** | **Missing** | Not used | Required in 30 layers | Custom kernel, state carry, precision gate |
 | **MoE routing / top-k / expert dispatch** | **Missing as a fused path** | Not used | 256 routed + 1 shared expert | Routing, weight residency, BFP4/BFP8 expert formats |
 | **MTP / speculative verify** | **Missing** | Not used | Required for the serving profile | Verify/commit state contract |
@@ -56,9 +56,15 @@ all-reduce or other collective.
    real layer-zero gate, all-12-layer gate, logits/Python-reference comparison, and exact tokenizer
    are done, one greedy next-token step matches the harness, and the three-step stateful decode
    chain matches the harness. Prompt text now runs through the exact tokenizer and bounded greedy
-   generation (`" Hi, I"`, and an eight-token continuation) with fast matmuls and batching. The accurate-matmul path still fragments
-   GDDR after an 8-token prompt; fix that allocator limit next,
-   then fuse the recurrence into a Tensix kernel. toks was
+   generation (`" Hi, I"`, and an eight-token continuation) with fast matmuls and batching.
+   One head of the recurrence is now a fused Tensix programme (`crates/tt-kernels/src/wkv7.rs` in
+   the fork): four state tiles and two vector slots in `Dst`, in-tile SFPU column folds for `sa`
+   and `out`, replayed row loops for the update, and seven semaphores for the hand-offs. The ttsim
+   gate `step186_wkv7` holds it to `rwkv7::step` across a carried second token (max state gap
+   3.0e-8, output 7.5e-8, against a 1e-5 bound), and zeroing `a` moves the output 9.9e-2 as the
+   negative control. Next: the same gate on card 0, then routing a one-head step through `burn-tt`;
+   only then the layer and model. The accurate-matmul path still fragments GDDR after an 8-token
+   prompt; fix that allocator limit separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
    model; compare against the existing CPU reference and the tt-metal path. Keep the service on
