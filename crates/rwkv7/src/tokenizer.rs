@@ -7,6 +7,11 @@
 
 use std::path::Path;
 
+pub const TOKENIZER_BOS_ID: u32 = 0;
+pub const TOKENIZER_WRAPPER_EOS_ID: u32 = 65_530;
+pub const TOKENIZER_SPECIAL_TEXT: &str = "<|rwkv_tokenizer_end_of_text|>";
+pub const TOKENIZER_EOS_TEXT: &str = "\n\n";
+
 #[derive(Default)]
 struct Node {
     edges: Vec<(u8, usize)>,
@@ -143,6 +148,53 @@ impl Tokenizer {
 
     pub fn decode(&self, ids: &[u32]) -> Result<String, String> {
         String::from_utf8(self.decode_bytes(ids)?).map_err(|error| error.to_string())
+    }
+
+    /// Wrapper tokenization: the special text is id 0, `\n\n` is the wrapper
+    /// EOS id, and every other segment uses the byte trie.
+    pub fn encode_wrapper(&self, text: &str) -> Result<Vec<u32>, String> {
+        let source = text.as_bytes();
+        let special = TOKENIZER_SPECIAL_TEXT.as_bytes();
+        let eos = TOKENIZER_EOS_TEXT.as_bytes();
+        let mut ids = Vec::new();
+        let mut offset = 0usize;
+        while offset < source.len() {
+            if source[offset..].starts_with(special) {
+                ids.push(TOKENIZER_BOS_ID);
+                offset += special.len();
+                continue;
+            }
+            if source[offset..].starts_with(eos) {
+                ids.push(TOKENIZER_WRAPPER_EOS_ID);
+                offset += eos.len();
+                continue;
+            }
+            let mut end = offset + 1;
+            while end < source.len()
+                && !source[end..].starts_with(special)
+                && !source[end..].starts_with(eos)
+            {
+                end += 1;
+            }
+            ids.extend(self.encode_bytes(&source[offset..end])?);
+            offset = end;
+        }
+        Ok(ids)
+    }
+
+    pub fn decode_wrapper(&self, ids: &[u32]) -> Result<Vec<u8>, String> {
+        let mut output = Vec::new();
+        for &id in ids {
+            match id {
+                TOKENIZER_BOS_ID => output.extend_from_slice(TOKENIZER_SPECIAL_TEXT.as_bytes()),
+                TOKENIZER_WRAPPER_EOS_ID => output.extend_from_slice(TOKENIZER_EOS_TEXT.as_bytes()),
+                _ => output.extend_from_slice(
+                    self.token_bytes(id)
+                        .ok_or_else(|| format!("unknown token id {id}"))?,
+                ),
+            }
+        }
+        Ok(output)
     }
 }
 

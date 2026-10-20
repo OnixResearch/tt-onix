@@ -8,6 +8,17 @@ use std::path::Path;
 
 use rwkv7::tokenizer::Tokenizer;
 
+const WRAPPER_VECTORS: &[(&str, &[u32])] = &[
+    (
+        "<|rwkv_tokenizer_end_of_text|>User: Hi\n\nAssistant:",
+        &[0, 24281, 59, 3880, 65530, 5585, 41693, 59],
+    ),
+    (
+        "User: Hi\n\nAssistant:",
+        &[24281, 59, 3880, 65530, 5585, 41693, 59],
+    ),
+];
+
 const VECTORS: &[(&str, &[u32])] = &[
     ("Hello world", &[33155, 40213]),
     (
@@ -103,6 +114,24 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
         println!("{sample:?}: {} ids", ids.len());
+    }
+    for (sample, expected) in WRAPPER_VECTORS {
+        let ids = match tokenizer.encode_wrapper(sample) {
+            Ok(ids) => ids,
+            Err(error) => {
+                eprintln!("wrapper {sample:?}: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        };
+        if ids != *expected {
+            eprintln!("wrapper {sample:?}: got {ids:?}, expected {expected:?}");
+            return std::process::ExitCode::FAILURE;
+        }
+        if tokenizer.decode_wrapper(&ids).unwrap() != sample.as_bytes() {
+            eprintln!("wrapper {sample:?}: round trip changed the bytes");
+            return std::process::ExitCode::FAILURE;
+        }
+        println!("wrapper {sample:?}: {} ids", ids.len());
     }
     println!("tokenizer gate PASS");
     std::process::ExitCode::SUCCESS
