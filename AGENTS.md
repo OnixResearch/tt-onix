@@ -151,10 +151,10 @@ Do not treat a listed project as package-matched authority.
 Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
 The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
 The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
-`cd0b03c48f550aa714682f102e1aa38976910ea1`, which adds the Apache-2.0 license file, fixes the
+`4f27b42728a2d7351060493c143f26ef18c1eb76`, which adds the Apache-2.0 license file, fixes the
 stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, composed and synthetic
 layer gates, the real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle
-comparison, and the exact byte-trie tokenizer).
+comparison, the exact byte-trie tokenizer, and the greedy next-token check).
 The flake pins that fork and exposes the `metalium-rs` package.
 
 This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
@@ -195,11 +195,12 @@ Physical gates passed on 2026-10-19: one `tt-mnist` training step on card 0, one
 mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8, state gaps
 2.98e-8), a synthetic one-layer Flex/Tt gate on card 0 (hidden gaps <= 5.96e-7, state gaps
 <= 1.79e-7), a real-checkpoint layer-zero gate (hidden gaps <= 1.63e-5, state gaps <= 1.99e-5),
-and an all-12-layer real-weight gate (final-hidden relative gap 2.26e-5, logits 1.36e-5,
-recurrent-state 7.28e-6). Against the harness's Python equation reference, the device logits differ
-by 2.73e-4 (bound 1.0) and states by 3.94e-4 (bound 1.0). `qwen38-p150x2.service` is stopped; do
+an all-12-layer real-weight gate (final-hidden relative gap 2.26e-5, logits 1.36e-5,
+recurrent-state 7.28e-6), and one greedy next-token step (token 2; logit within 1.3e-4 of the
+harness). Against the harness's Python equation reference, the device logits differ by 2.73e-4
+(bound 1.0) and states by 3.94e-4 (bound 1.0). `qwen38-p150x2.service` is stopped; do
 not restart it for native work without a task that needs it. The timings are smoke measurements,
-not benchmarks. The gates use `accurate_matmul`; they do not establish tokenization, generation,
+not benchmarks. The gates use `accurate_matmul`; they do not establish a generation loop, sampler,
 serving, fused-kernel, or performance parity.
 
 Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution. Without the

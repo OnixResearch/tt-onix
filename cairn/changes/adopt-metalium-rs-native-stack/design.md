@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `cd0b03c48f550aa714682f102e1aa38976910ea1` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, and the exact tokenizer.
+`brittonr/metalium-rs` at commit `4f27b42728a2d7351060493c143f26ef18c1eb76` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact tokenizer, and the greedy next-token check.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -100,6 +100,16 @@ cannot represent them.
 
 **Rationale:** The tokenizer is small and exact as a byte trie. A general tokenizer library cannot
 reproduce raw-byte leftmost-longest matching through its JSON model surface.
+
+### Decision: Check one greedy token before a generation loop
+
+**Choice:** Rank the top two logits and compare them with the harness token checkpoint: token 2,
+logit 2.8641083; runner-up 33, logit 0.89640886; margin 1.9676995.
+
+Do not call this a generation loop, sampler, or serving result.
+
+**Rationale:** The top-two check catches final-norm, head, and ranking errors with one more scalar
+comparison. A generation loop adds state transitions and stop conditions that need their own gate.
 
 ### Decision: Reset cards between TT-Metal and native execution
 

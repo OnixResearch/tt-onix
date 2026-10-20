@@ -5,16 +5,16 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `cd0b03c48f550aa714682f102e1aa38976910ea1`
+- Commit: `4f27b42728a2d7351060493c143f26ef18c1eb76`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `edff3a5ab975c4cb4323759003ece639fbdc444da3e016a8b77c064f065ba8d3`
+- Fork tree BLAKE3: `5a8a78a0f4efce721c7eb583b82b375b1790de8eaa2c675ec9c67de1090fd5d3`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-bErKjSqEbp8Dee9RXLTskZorL2LIXHZISgz5btCkGJE=`
+- Nix source hash: `sha256-rLlTjphV18ikebdn3Nfro7N/3bLWeeCoZWmU1UYSA54=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
-  all-12-layer gate, logits/oracle comparison, and the exact byte-trie tokenizer).
-  Thirteen files, +2,086/−2.
+  all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer, and the greedy
+  next-token check). Thirteen files, +2,131/−2.
 
 ## Validation
 
@@ -37,13 +37,13 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/l9nhiybx03nvs7qyir2a9qk2vchjjn0z-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/dvsbbh8wz0g8fjp43hcmiphi1yns1arp-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
   `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB), and
   `bin/rwkv7-tokenizer-gate` (892 KiB).
-- Wrappers: `/nix/store/l9216pl67rrw7sc5znal2822gmw9lk3w-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
-  `/nix/store/9k4ss5nyv4v1vkq2r76kraqhr0l73x3p-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
-  and `/nix/store/k8n1llzchvz94gphfmja1i13jc3v77gl-rwkv7-tokenizer/bin/rwkv7-tokenizer`, bound to the
+- Wrappers: `/nix/store/80ylgakhv481qb4zjwn1sdrpmkbz5cli-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
+  `/nix/store/4f58rghjjmjn17nf9alq30dvl5lplbfq-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
+  and `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, bound to the
   pinned checkpoint and vocabulary.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
@@ -233,6 +233,22 @@ See `docs/research/toks-rwkv-tokenizer.md`.
 `nix run .#metalium-rs-rwkv7-tokenizer` pass the Python-derived vectors, including `😀` and
 `U+10FFFF`, and round-trip the original bytes.
 
+## Greedy next token
+
+The model gate now ranks the top two logits. The harness token checkpoint's expected values are
+`token 2, logit 2.8641083`, `runner-up 33, logit 0.89640886`, `margin 1.9676995`.
+
+`cargo run -p rwkv7 --bin rwkv7-model-gate -- --checkpoint <path> --card 0` and
+`nix run .#metalium-rs-rwkv7-model -- --card 0`:
+
+```text
+flex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017
+tt greedy: token 2 logit 2.8639894, runner 33 logit 0.8964123, margin 1.9675771
+```
+
+Flex is within 5e-6 of the expected logits; card 0 is within 1.3e-4. Both choose the same token
+and runner-up. This is one greedy step, not a generation loop, sampler, or serving result.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -248,9 +264,10 @@ it as an operational gate, not as a source defect.
   gate.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
-  synthetic full-layer gate, the real-checkpoint layer-zero gate, and the all-12-layer final-hidden,
-  logits, and recurrent-state gate on card 0. Logits match the Python equation reference. No
-  tokenization, generation, placement, long-run stability, or performance claim follows.
+  synthetic full-layer gate, the real-checkpoint layer-zero gate, the all-12-layer final-hidden,
+  logits, and recurrent-state gate, and one greedy next-token step. Logits match the Python
+  equation reference. No generation loop, sampler, serving, placement, long-run stability, or
+  performance claim follows.
 
 ## Migration status
 
