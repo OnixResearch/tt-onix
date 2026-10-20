@@ -7,7 +7,7 @@ r[tenstorrent.rust_ml.metalium_fork_authority] The repository MUST pin one fork 
 
 #### Scenario: Fork revision is admitted
 r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- GIVEN fork commit `9afe95d1258667a771ab19a84e589c36eb06c44f` based on upstream `b22a245`
+- GIVEN fork commit `cd0b03c48f550aa714682f102e1aa38976910ea1` based on upstream `b22a245`
 - AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gates
 - WHEN source admission runs
 - THEN it produces one deterministic fork authority
@@ -81,6 +81,14 @@ r[tenstorrent.rust_ml.metalium_migration.logits]
 - WHEN the 12-layer model evaluates `lm_head` on Flex and on TtBackend
 - THEN final hidden, logits, and recurrent states stay within the harness bounds
 - AND the result does not authorize tokenization, generation, serving, fused-kernel, or performance claims
+
+#### Scenario: Exact tokenizer vectors pass
+r[tenstorrent.rust_ml.metalium_migration.tokenizer]
+- GIVEN the pinned `rwkv_vocab_v20230424.txt`
+- WHEN the byte-trie tokenizer encodes the Python-derived vectors
+- THEN every id sequence matches, including emoji and `U+10FFFF`
+- AND decoding reproduces the original UTF-8 bytes
+- AND toks is recorded as unable to load this tokenizer family
 
 #### Scenario: Model gates pass
 r[tenstorrent.rust_ml.metalium_migration.complete]

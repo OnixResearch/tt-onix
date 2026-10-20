@@ -45,6 +45,11 @@
             url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/model.safetensors";
             hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
           };
+          rwkv7Vocab = pkgs.fetchurl {
+            name = "rwkv_vocab_v20230424.txt";
+            url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/rwkv_vocab_v20230424.txt";
+            hash = "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=";
+          };
           metaliumRsCheckpointGate = pkgs.writeShellApplication {
             name = "rwkv7-layer-checkpoint";
             text = ''
@@ -55,6 +60,12 @@
             name = "rwkv7-model-checkpoint";
             text = ''
               exec ${metaliumRs}/bin/rwkv7-model-gate --checkpoint ${metaliumRsCheckpoint} "$@"
+            '';
+          };
+          metaliumRsTokenizerGate = pkgs.writeShellApplication {
+            name = "rwkv7-tokenizer";
+            text = ''
+              exec ${metaliumRs}/bin/rwkv7-tokenizer-gate --vocab ${rwkv7Vocab} "$@"
             '';
           };
         in
@@ -100,6 +111,7 @@
             metalium-rs = metaliumRs;
             metalium-rs-rwkv7-checkpoint = metaliumRsCheckpointGate;
             metalium-rs-rwkv7-model = metaliumRsModelGate;
+            metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerGate;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
@@ -139,6 +151,12 @@
             type = "app";
             program = "${metaliumRsModelGate}/bin/rwkv7-model-checkpoint";
             meta.description = "Compare all 12 real RWKV-7 layers on Flex and TtBackend";
+          };
+
+          apps.metalium-rs-rwkv7-tokenizer = {
+            type = "app";
+            program = "${metaliumRsTokenizerGate}/bin/rwkv7-tokenizer";
+            meta.description = "Check the exact RWKV-7 byte-trie tokenizer";
           };
 
           checks = {

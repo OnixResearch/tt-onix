@@ -151,10 +151,10 @@ Do not treat a listed project as package-matched authority.
 Read `.pi/references/tenstorrent/metalium-rs` before you change the repository's Rust device stack or Burn backend work.
 The reviewed upstream is `Knight-Ops/metalium-rs` at commit `b22a245db18252b131679aca992dac85c9f7d812`.
 The repository now uses the fork at <https://github.com/brittonr/metalium-rs>, commit
-`9afe95d1258667a771ab19a84e589c36eb06c44f`, which adds the Apache-2.0 license file, fixes the
+`cd0b03c48f550aa714682f102e1aa38976910ea1`, which adds the Apache-2.0 license file, fixes the
 stale F16 capability test, and adds `crates/rwkv7` (the WKV7 reference, composed and synthetic
-layer gates, the real-checkpoint layer-zero loader, the all-12-layer gate, and logits/oracle
-comparison).
+layer gates, the real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle
+comparison, and the exact byte-trie tokenizer).
 The flake pins that fork and exposes the `metalium-rs` package.
 
 This is a native Rust Blackhole stack, not a `cxx` bridge: bare-metal `riscv32im` firmware,
@@ -173,11 +173,12 @@ Its model coverage is ResNet-18, ViT-Tiny, and SmolLM2-135M over Burn; it has no
 Qwen3.6/3.8, MoE, or gated-delta implementation. Treat its conformance counts, model agreement,
 and performance numbers as upstream claims until this repository reproduces them.
 
-The fork passes the validation tier: 1,542 passed, 0 failed, 46 ignored across 264 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
+The fork passes the validation tier: 1,544 passed, 0 failed, 46 ignored across 265 test binaries. The same tier runs inside the Nix package check with pinned specification, ttsim,
 MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
 toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
-`tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, and `rwkv7-model-gate`, plus the layer/model checkpoint
-wrappers, and excludes only dev-only crates from the installed output. Package and migration
+`tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, `rwkv7-model-gate`, and
+`rwkv7-tokenizer-gate`, plus the layer/model/tokenizer wrappers, and excludes only dev-only crates
+from the installed output. Package and migration
 records live under `cairn/changes/evaluate-metalium-rs-native-stack/` and
 `cairn/changes/adopt-metalium-rs-native-stack/`.
 
@@ -187,6 +188,8 @@ until the missing model operators, linear attention, MoE, and state-carry paths 
 implementations and physical evidence.
 
 The parity inventory is `docs/research/metalium-rs-parity-inventory.md`.
+The toks evaluation is `docs/research/toks-rwkv-tokenizer.md`; toks cannot load the RWKV
+byte-trie vocabulary, so `crates/rwkv7` implements the exact tokenizer directly.
 
 Physical gates passed on 2026-10-19: one `tt-mnist` training step on card 0, one on the `1x2`
 mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8, state gaps

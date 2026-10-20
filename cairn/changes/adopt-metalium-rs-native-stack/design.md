@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `9afe95d1258667a771ab19a84e589c36eb06c44f` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, and logits/oracle comparison.
+`brittonr/metalium-rs` at commit `cd0b03c48f550aa714682f102e1aa38976910ea1` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, and the exact tokenizer.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -88,6 +88,18 @@ not claim tokenization, generation, or serving parity from this comparison.
 
 **Rationale:** The Python reference is the independent equation oracle. It caught no layout error
 at this point, which is evidence the Rust port and checkpoint mapping agree.
+
+### Decision: Implement the RWKV tokenizer directly; toks cannot load it
+
+**Choice:** Implement the vocabulary's leftmost-longest byte trie in `crates/rwkv7`. Pin
+Python-derived vectors, including emoji and `U+10FFFF`.
+
+`toks` 0.3.2 was evaluated and refused the model directory: it needs a `tokenizer.json` or tiktoken
+model. RWKV ships neither, and 486 vocabulary tokens are not valid UTF-8, so a JSON added token
+cannot represent them.
+
+**Rationale:** The tokenizer is small and exact as a byte trie. A general tokenizer library cannot
+reproduce raw-byte leftmost-longest matching through its JSON model surface.
 
 ### Decision: Reset cards between TT-Metal and native execution
 

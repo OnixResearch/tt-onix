@@ -5,24 +5,25 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `9afe95d1258667a771ab19a84e589c36eb06c44f`
+- Commit: `cd0b03c48f550aa714682f102e1aa38976910ea1`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `a97c473e39b8178a8c234ed80d0a6041a0fcb38f5d0abd8e5ac85f073f36bd20`
+- Fork tree BLAKE3: `edff3a5ab975c4cb4323759003ece639fbdc444da3e016a8b77c064f065ba8d3`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-zl0OAVz7l0c2ymbw6ZPheEWyY7WmOuSnX8h4TnCFggQ=`
+- Nix source hash: `sha256-bErKjSqEbp8Dee9RXLTskZorL2LIXHZISgz5btCkGJE=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
-  all-12-layer gate, and logits/oracle comparison). Eleven files, +1,731/−2.
+  all-12-layer gate, logits/oracle comparison, and the exact byte-trie tokenizer).
+  Thirteen files, +2,086/−2.
 
 ## Validation
 
 `cargo test --workspace --no-fail-fast` at the fork commit:
 
-- 1,542 passed
+- 1,544 passed
 - 0 failed
 - 46 ignored
-- 264 test binaries
+- 265 test binaries
 
 The run used the pinned ISA specification, ttsim `v1.10.9`, and MNIST inputs. Simulator gates are
 simulated evidence. No physical device was opened.
@@ -36,15 +37,17 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/hdr0r6d745mzpnhq22pykvvy0pd0wd0p-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/l9nhiybx03nvs7qyir2a9qk2vchjjn0z-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
-  `bin/rwkv7-layer-gate` (6.3 MiB), and `bin/rwkv7-model-gate` (6.3 MiB).
-- Wrappers: `/nix/store/l9216pl67rrw7sc5znal2822gmw9lk3w-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`
-  and `/nix/store/9k4ss5nyv4v1vkq2r76kraqhr0l73x3p-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
-  both bound to the pinned checkpoint.
+  `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB), and
+  `bin/rwkv7-tokenizer-gate` (892 KiB).
+- Wrappers: `/nix/store/l9216pl67rrw7sc5znal2822gmw9lk3w-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
+  `/nix/store/9k4ss5nyv4v1vkq2r76kraqhr0l73x3p-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
+  and `/nix/store/k8n1llzchvz94gphfmja1i13jc3v77gl-rwkv7-tokenizer/bin/rwkv7-tokenizer`, bound to the
+  pinned checkpoint and vocabulary.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
-  ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,542 tests, 0 failures,
-  46 ignored, 264 binaries, in about 13 minutes.
+  ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
+  46 ignored, 265 binaries, in about 21 minutes locally.
 - App: `.#metalium-rs-mnist`.
 
 ## Binary smoke
@@ -209,6 +212,27 @@ The oracle bounds are the harness's 0.5 final-hidden, 1.0 logit, and 1.0 recurre
 tolerances. This establishes the two-token logits and state against the Python equation reference.
 It does not test tokenization, generation, serving, or performance.
 
+## Tokenizer: toks refused, exact byte trie
+
+`actual-computer/toks` 0.3.2 (Apache-2.0) was tried first. Its C `toks_load` accepts a HF
+`tokenizer.json` or a tiktoken model; RWKV ships neither. The probe returned:
+
+```text
+/var/tmp/rwkv-model: load=-1 code=-1 what=model directory without tokenizer.json, tiktoken.model or qwen.tiktoken
+/var/tmp/rwkv-model/rwkv_vocab_v20230424.txt: load=-1 code=-1 what=tiktoken.model needs tokenizer_config.json and tokenization_kimi.py beside it
+/var/tmp/gpt2-tokenizer.json: load=0 code=0 what=
+```
+
+The RWKV tokenizer is leftmost-longest greedy matching over raw UTF-8 bytes. 486 of 65,529
+vocabulary tokens are not valid UTF-8 individually, and valid text emits them: `😀` is
+`[3319, 153, 129]` with bytes `f09f`, `98`, `80`. A JSON added token cannot carry those bytes.
+See `docs/research/toks-rwkv-tokenizer.md`.
+
+`crates/rwkv7/src/tokenizer.rs` implements the vocabulary's byte trie directly.
+`cargo run -p rwkv7 --bin rwkv7-tokenizer-gate -- --vocab <path>` and
+`nix run .#metalium-rs-rwkv7-tokenizer` pass the Python-derived vectors, including `😀` and
+`U+10FFFF`, and round-trip the original bytes.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -220,7 +244,8 @@ it as an operational gate, not as a source defect.
 
 ## Evidence classes
 
-- Device-free: fork build, package build, hermetic Nix test lane, `--help`.
+- Device-free: fork build, package build, hermetic Nix test lane, toks probe, and the tokenizer
+  gate.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
   synthetic full-layer gate, the real-checkpoint layer-zero gate, and the all-12-layer final-hidden,
