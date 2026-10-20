@@ -12,6 +12,12 @@ use rwkv7::layer::{layer_norm, layer_step, LayerSpec, LayerState, LayerWeights, 
 
 const LAYER_COUNT: usize = 12;
 const RELATIVE_TOLERANCE: f32 = 1.0e-4;
+const EXPECTED_TOKEN: u32 = 2;
+const EXPECTED_LOGIT: f32 = 2.864_108_3;
+const EXPECTED_RUNNER: u32 = 33;
+const EXPECTED_RUNNER_LOGIT: f32 = 0.896_408_86;
+const EXPECTED_MARGIN: f32 = 1.967_699_5;
+const TOKEN_TOLERANCE: f32 = 1.0e-2;
 
 fn vector<B: burn::tensor::backend::Backend>(values: &[f32], device: &B::Device) -> Tensor<B, 2> {
     Tensor::from_data(TensorData::new(values.to_vec(), [1, HIDDEN]), device)
@@ -26,6 +32,39 @@ fn max_abs(left: &[f32], right: &[f32]) -> f32 {
         .zip(right)
         .map(|(a, b)| (a - b).abs())
         .fold(0.0, f32::max)
+}
+
+fn top_two(logits: &[f32]) -> (u32, f32, u32, f32) {
+    let mut first = (0u32, f32::NEG_INFINITY);
+    let mut second = (0u32, f32::NEG_INFINITY);
+    for (index, &value) in logits.iter().enumerate() {
+        if value > first.1 {
+            second = first;
+            first = (index as u32, value);
+        } else if value > second.1 {
+            second = (index as u32, value);
+        }
+    }
+    (first.0, first.1, second.0, second.1)
+}
+
+fn check_greedy(name: &str, logits: &[f32]) -> bool {
+    let (token, logit, runner, runner_logit) = top_two(logits);
+    let margin = logit - runner_logit;
+    println!(
+        "{name}: token {token} logit {logit:.7}, runner {runner} logit {runner_logit:.7}, margin {margin:.7}"
+    );
+    let ok = token == EXPECTED_TOKEN
+        && runner == EXPECTED_RUNNER
+        && (logit - EXPECTED_LOGIT).abs() <= TOKEN_TOLERANCE
+        && (runner_logit - EXPECTED_RUNNER_LOGIT).abs() <= TOKEN_TOLERANCE
+        && (margin - EXPECTED_MARGIN).abs() <= TOKEN_TOLERANCE;
+    if !ok {
+        eprintln!(
+            "{name}: expected token {EXPECTED_TOKEN} logit {EXPECTED_LOGIT}, runner {EXPECTED_RUNNER} logit {EXPECTED_RUNNER_LOGIT}, margin {EXPECTED_MARGIN}"
+        );
+    }
+    ok
 }
 
 fn materialize<B: burn::tensor::backend::Backend>(
@@ -230,6 +269,9 @@ fn main() -> std::process::ExitCode {
         eprintln!("negative control did not move the final hidden: {control_gap}");
         return std::process::ExitCode::FAILURE;
     }
+    if !check_greedy("flex greedy", &flex_logits) {
+        return std::process::ExitCode::FAILURE;
+    }
 
     if let Some(directory) = oracle.as_deref() {
         let root = std::path::Path::new(directory);
@@ -321,6 +363,9 @@ fn main() -> std::process::ExitCode {
             eprintln!("{name}: gap {gap:.3e} exceeds {bound:.3e}");
             return std::process::ExitCode::FAILURE;
         }
+    }
+    if !check_greedy("tt greedy", &tt_logits) {
+        return std::process::ExitCode::FAILURE;
     }
     if let Some(directory) = oracle.as_deref() {
         let root = std::path::Path::new(directory);
