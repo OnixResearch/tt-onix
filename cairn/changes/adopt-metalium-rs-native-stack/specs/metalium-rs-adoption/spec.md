@@ -7,7 +7,7 @@ r[tenstorrent.rust_ml.metalium_fork_authority] The repository MUST pin one fork 
 
 #### Scenario: Fork revision is admitted
 r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- GIVEN fork commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5` based on upstream `b22a245`
+- GIVEN fork commit `dd5d316e3de31150fcee935ff321a6fc8ac863c2` based on upstream `b22a245`
 - AND the Apache-2.0 license file, the F16 capability test fix, and the `crates/rwkv7` gates
 - WHEN source admission runs
 - THEN it produces one deterministic fork authority
@@ -105,6 +105,14 @@ r[tenstorrent.rust_ml.metalium_migration.decode]
 - THEN token 1 is selected at every step
 - AND each logit stays within the recorded tolerance of the harness values
 - AND the result does not authorize a prompt endpoint, sampler, or serving claim
+
+#### Scenario: Prompt generation reproduces the fixed text
+r[tenstorrent.rust_ml.metalium_migration.prompt]
+- GIVEN the fixed rendered chat prompt and the exact wrapper tokenizer
+- WHEN three greedy tokens are generated with `TT_BATCH=0 TT_PIPELINE=0`
+- THEN the prompt ids and generated ids match the harness
+- AND the generated text is `" Hi, I"`
+- AND the batched GDDR exhaustion is recorded as an open allocator blocker
 
 #### Scenario: Model gates pass
 r[tenstorrent.rust_ml.metalium_migration.complete]

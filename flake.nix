@@ -74,6 +74,13 @@
               exec ${metaliumRs}/bin/rwkv7-generate-gate --checkpoint ${metaliumRsCheckpoint} "$@"
             '';
           };
+          metaliumRsPromptGate = pkgs.writeShellApplication {
+            name = "rwkv7-prompt-checkpoint";
+            text = ''
+              export TT_BATCH=0 TT_PIPELINE=0
+              exec ${metaliumRs}/bin/rwkv7-generate-gate --checkpoint ${metaliumRsCheckpoint} --vocab ${rwkv7Vocab} "$@"
+            '';
+          };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -119,6 +126,7 @@
             metalium-rs-rwkv7-model = metaliumRsModelGate;
             metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerGate;
             metalium-rs-rwkv7-generate = metaliumRsGenerateGate;
+            metalium-rs-rwkv7-prompt = metaliumRsPromptGate;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
@@ -170,6 +178,12 @@
             type = "app";
             program = "${metaliumRsGenerateGate}/bin/rwkv7-generate-checkpoint";
             meta.description = "Check the stateful RWKV-7 decode chain";
+          };
+
+          apps.metalium-rs-rwkv7-prompt = {
+            type = "app";
+            program = "${metaliumRsPromptGate}/bin/rwkv7-prompt-checkpoint";
+            meta.description = "Generate text from a prompt with the real RWKV-7 weights";
           };
 
           checks = {

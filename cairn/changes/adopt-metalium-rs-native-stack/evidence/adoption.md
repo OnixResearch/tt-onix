@@ -5,16 +5,17 @@ Date: 2026-10-19
 ## Fork identity
 
 - Fork: `https://github.com/brittonr/metalium-rs`
-- Commit: `ad37557d675913faaf3b144d2bc2cf48dc0212f5`
+- Commit: `dd5d316e3de31150fcee935ff321a6fc8ac863c2`
 - Upstream base: `Knight-Ops/metalium-rs` at `b22a245db18252b131679aca992dac85c9f7d812`
-- Fork tree BLAKE3: `ff3033894342f3bcc68a76e1921eda709dfedc7ee95b4005c9bece1b5c2726d9`
+- Fork tree BLAKE3: `8d82674236a37e5926f6ae30b11bfea7dca317eb4dcb2513ccb94928736ec188`
 - `Cargo.lock` SHA-256: `ef26d17c2994cecba303c91753f265c1e623531ec42a0585d9b130330909e088`
-- Nix source hash: `sha256-83BmTmV5yN0r+llip9Gg0NP/ztqsR6zU/W7LO/93wwU=`
+- Nix source hash: `sha256-ODUQl+0E2MTNf0pvnHkspmxRByYQdo77N+xJWJGm8rc=`
 - Fork delta: `LICENSE` (Apache-2.0 text), `crates/burn-tt/tests/essentials.rs` (F16 capability
   assertion now expects `Storage | Arithmetic`, without `Accelerated`), and `crates/rwkv7`
   (WKV reference/device gate, synthetic layer gate, real-checkpoint layer-zero loader, and the
   all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer, the greedy next-token
-  check, and the stateful decode chain). Fourteen files, +2,374/−2.
+  check, the stateful decode chain, and prompt generation with wrapper tokenization).
+  Fourteen files, +2,646/−2.
 
 ## Validation
 
@@ -37,15 +38,17 @@ simulated evidence. No physical device was opened.
 - MNIST: four CVDF files fetched with the upstream `PINS.toml` SHA-256 values and decompressed.
 - Excluded dev-only crates: `tt-tests`, `tt-ttsim`, `tt-ttsim-sys`, `burn-tt-conformance`,
   `tt-models`, `xtask`.
-- Output: `/nix/store/ym7xvsk3f22zi2zv0v55425q408y1rd7-metalium-rs-0.1.0-unstable-2026-10-19`
+- Output: `/nix/store/xqirzkrkidb62r414pwy31bk0g6l3pbg-metalium-rs-0.1.0-unstable-2026-10-19`
 - Installed artifacts: `bin/tt-mnist` (26 MiB), `bin/wkv7-gate` (4.4 MiB),
   `bin/rwkv7-layer-gate` (6.3 MiB), `bin/rwkv7-model-gate` (6.3 MiB),
-  `bin/rwkv7-tokenizer-gate` (892 KiB), and `bin/rwkv7-generate-gate` (6.3 MiB).
+  `bin/rwkv7-tokenizer-gate` (896 KiB), and `bin/rwkv7-generate-gate` (6.4 MiB).
 - Wrappers: `/nix/store/80ylgakhv481qb4zjwn1sdrpmkbz5cli-rwkv7-layer-checkpoint/bin/rwkv7-layer-checkpoint`,
   `/nix/store/4f58rghjjmjn17nf9alq30dvl5lplbfq-rwkv7-model-checkpoint/bin/rwkv7-model-checkpoint`,
   `/nix/store/9nydqg3zvb9aym8hgn4l5imnikhp4bl7-rwkv7-tokenizer/bin/rwkv7-tokenizer`, and
   `/nix/store/02lfdd67v5grrns504a6g8xv4fv19m5w-rwkv7-generate-checkpoint/bin/rwkv7-generate-checkpoint`,
-  bound to the pinned checkpoint and vocabulary.
+  and `/nix/store/iqiwk8vg1knpgymmd88y9i88fkw41y5j-rwkv7-prompt-checkpoint/bin/rwkv7-prompt-checkpoint`,
+  bound to the pinned checkpoint and vocabulary. The prompt wrapper sets
+  `TT_BATCH=0 TT_PIPELINE=0`.
 - The package check phase runs `cargo test --workspace --no-fail-fast` with the pinned specification,
   ttsim `v1.10.9`, MNIST, `cfg_defines.h`, and `ioctl.h`. It passes: 1,544 tests, 0 failures,
   46 ignored, 266 binaries, in about 21 minutes locally.
@@ -272,6 +275,32 @@ decode gate PASS
 Flex gaps are at most 2.2e-5; card 0 at most 1.1e-4. The gate compares generated token ids and
 logits only; it is not a prompt-generation endpoint, sampler, or serving result.
 
+## Prompt generation
+
+`rwkv7-generate-gate` now accepts `--vocab PATH --prompt TEXT --generate N`. Wrapper
+tokenization maps `<|rwkv_tokenizer_end_of_text|>` to id 0, `\n\n` to the wrapper EOS id 65530,
+and every other segment through the byte trie.
+
+Fixed harness prompt
+`<|rwkv_tokenizer_end_of_text|>User: Hi\n\nAssistant:`. The packaged path is
+`nix run .#metalium-rs-rwkv7-prompt -- --prompt '<fixed prompt>' --generate 3 --card 0`.
+
+```text
+prompt ids: [0, 24281, 59, 3880, 65530, 5585, 41693, 59]
+flex generated ids: [3880, 45, 308]
+flex generated text: " Hi, I"
+tt generated ids: [3880, 45, 308]
+tt generated text: " Hi, I"
+prompt gate PASS
+```
+
+The bundled app sets `TT_BATCH=0 TT_PIPELINE=0` because the batched path exhausted contiguous
+GDDR slots after the 8-token prompt. The same 8-token prompt with batching is blocked by that
+allocator limitation; record it as a known migration blocker, not a numerical difference.
+
+This is a bounded greedy generation, not a sampler, stop-policy-complete endpoint, or serving
+result.
+
 ## Card reset after a TT-Metal service
 
 The first native run after stopping `qwen38-p150x2.service` failed at
@@ -288,9 +317,9 @@ it as an operational gate, not as a source defect.
 - Simulated: the ttsim gates inside the fork validation tier.
 - Physical: one training step on card 0, one on the `1x2` mesh, a two-token WKV7 device gate, the
   synthetic full-layer gate, the real-checkpoint layer-zero gate, the all-12-layer final-hidden,
-  logits, and recurrent-state gate, one greedy next-token step, and a three-step stateful decode
-  chain. Logits match the Python equation reference and the harness decode values. No prompt
-  endpoint, sampler, serving, placement, long-run stability, or performance claim follows.
+  logits, and recurrent-state gate, one greedy next-token step, a three-step stateful decode chain,
+  and a bounded prompt generation producing `" Hi, I"`. No sampler, serving, placement, long-run
+  stability, or performance claim follows.
 
 ## Migration status
 

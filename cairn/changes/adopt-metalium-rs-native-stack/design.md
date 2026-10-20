@@ -1,6 +1,6 @@
 ## Context
 
-`brittonr/metalium-rs` at commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact tokenizer, the greedy next-token check, and the stateful decode chain.
+`brittonr/metalium-rs` at commit `dd5d316e3de31150fcee935ff321a6fc8ac863c2` is a fork of `Knight-Ops/metalium-rs` at `b22a245`. The fork adds `LICENSE` (Apache-2.0), fixes one test assertion, and adds `crates/rwkv7`: the WKV7 host reference, its composed device gate, a synthetic full-layer Flex/Tt differential gate, a real-checkpoint layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact tokenizer, the greedy next-token check, the stateful decode chain, and bounded prompt generation.
 
 The full fork validation tier passes: 1,540 tests, 0 failures, 46 ignored, 259 binaries. The Nix package builds the shipped crates and `tt-mnist`.
 
@@ -122,6 +122,17 @@ separate work.
 
 **Rationale:** One greedy step does not exercise state transitions between generated tokens. The
 three-step chain is the smallest gate that does.
+
+### Decision: Generate from text only after wrapper tokenization
+
+**Choice:** Add wrapper tokenization (special id 0, wrapper EOS 65530) and a bounded greedy
+generation from the fixed chat prompt. Expect `" Hi, I"`.
+
+The prompt app sets `TT_BATCH=0 TT_PIPELINE=0`: the batched path exhausts contiguous GDDR slots
+after the 8-token prompt. Treat that as an allocator limitation to fix, not a numerical difference.
+
+**Rationale:** Text generation is the first end-to-end path from bytes to the model and back.
+Running it unbatched keeps the migration gate honest while the allocator behavior is unresolved.
 
 ### Decision: Reset cards between TT-Metal and native execution
 

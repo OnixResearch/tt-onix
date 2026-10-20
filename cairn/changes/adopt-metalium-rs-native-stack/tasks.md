@@ -5,7 +5,7 @@
 - [x] [serial] A1 Fork `Knight-Ops/metalium-rs` to `brittonr/metalium-rs` and record the upstream base `b22a245`. r[tenstorrent.rust_ml.metalium_fork_authority]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A2 Add the Apache-2.0 license file and fix the stale F16 capability assertion. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
 - [x] [depends:tenstorrent.rust_ml.metalium_fork_authority] A3 Run the full upstream validation tier on the fork and record the counts. r[tenstorrent.rust_ml.metalium_fork_authority.valid]
-- [x] [serial] A4 Push the fork and pin commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5`. r[tenstorrent.rust_ml.metalium_fork_authority]
+- [x] [serial] A4 Push the fork and pin commit `dd5d316e3de31150fcee935ff321a6fc8ac863c2`. r[tenstorrent.rust_ml.metalium_fork_authority]
 
 ## Phase 2: Toolchain and package
 
@@ -28,6 +28,7 @@
 - [x] [serial] M3f Evaluate toks, record its refusal, and implement the exact byte-trie tokenizer with Python-derived vectors. r[tenstorrent.rust_ml.metalium_migration.tokenizer]
 - [x] [serial] M3g Rank the top two logits and match the harness token checkpoint (token 2, runner-up 33) on Flex and card 0. r[tenstorrent.rust_ml.metalium_migration.greedy]
 - [x] [serial] M3h Run the three-step stateful decode chain with carried matrices and token-shift state; match the harness tokens and logits on Flex and card 0. r[tenstorrent.rust_ml.metalium_migration.decode]
+- [x] [serial] M3i Add wrapper tokenization and bounded prompt generation; reproduce the fixed prompt ids and `" Hi, I"` with `TT_BATCH=0 TT_PIPELINE=0`. r[tenstorrent.rust_ml.metalium_migration.prompt]
 - [ ] [serial] M3 Blocked: Fuse the WKV7 recurrence into a Tensix kernel and re-verify against the host reference. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M4 Blocked: Implement and verify Qwen3.6/3.8 linear attention, MoE routing, and state carry on `burn-tt`. r[tenstorrent.rust_ml.metalium_migration.complete]
 - [ ] [serial] M5 Blocked: Admit each model only after its parity and physical gates pass. r[tenstorrent.rust_ml.metalium_migration.complete]
@@ -56,6 +57,7 @@
 - `Scenario: Exact tokenizer vectors pass` -> M3f
 - `Scenario: Greedy next token matches the harness` -> M3g
 - `Scenario: Stateful decode chain matches the harness` -> M3h
+- `Scenario: Prompt generation reproduces the fixed text` -> M3i
 - `Scenario: Model gates pass` -> M2, M3, M4, M5
 - `Scenario: Adoption evidence is recorded` -> D1, E1, V1
 - `Scenario: License scope is unresolved` -> L1

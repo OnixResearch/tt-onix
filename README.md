@@ -203,7 +203,7 @@ boundary and non-claims.
 
 ### Rust runtime references
 
-- [brittonr/metalium-rs](https://github.com/brittonr/metalium-rs) — fork of Knight-Ops/metalium-rs: native Rust Blackhole firmware, `tt-kmd` host transport, Tensix kernels, and a Burn backend, independent of TT-Metalium. The flake pins fork commit `ad37557d675913faaf3b144d2bc2cf48dc0212f5` as the `metalium-rs` package.
+- [brittonr/metalium-rs](https://github.com/brittonr/metalium-rs) — fork of Knight-Ops/metalium-rs: native Rust Blackhole firmware, `tt-kmd` host transport, Tensix kernels, and a Burn backend, independent of TT-Metalium. The flake pins fork commit `dd5d316e3de31150fcee935ff321a6fc8ac863c2` as the `metalium-rs` package.
 
 
 ### Tenstorrent operations references
