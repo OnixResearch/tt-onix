@@ -97,7 +97,7 @@ fn run_tt(
 fn main() -> std::process::ExitCode {
     let mut card = None;
     let mut checkpoint = None;
-    let mut fused = false;
+    let mut fused = true;
     let mut tiles = Some(12);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -116,6 +116,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
             "--fused" => fused = true,
+            "--composed" => fused = false,
             "--tiles" => {
                 let Some(value) = args.next() else {
                     eprintln!("--tiles needs a count");
@@ -138,15 +139,16 @@ fn main() -> std::process::ExitCode {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused] [--tiles N]"
+                    "usage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused | --composed] [--tiles N]"
                 );
-                println!("  --fused  the WKV7 recurrence through the fused kernel");
+                println!("  --fused  the WKV7 recurrence through the fused kernel (default)");
+                println!("  --composed  the Burn-op recurrence (the reference)");
                 println!("  --tiles  Tensix tiles to open (default 12, the model's heads)");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused] [--tiles N]"
+                    "unknown argument {other}\n\nusage: rwkv7-layer-gate [--checkpoint PATH] [--card N] [--fused | --composed] [--tiles N]"
                 );
                 return std::process::ExitCode::FAILURE;
             }

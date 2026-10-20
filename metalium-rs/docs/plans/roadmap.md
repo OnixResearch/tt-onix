@@ -341,13 +341,14 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   `wkv7-gate --card 0 --fused` passes with 1.5e-7/4.5e-8 on step 1 and 8.9e-8/2.2e-8 on the carried
   step). The layer's Goose recurrence has the same `S*w + (S@a)*b +
   v*k` form with `a = -key_key`, `b = key_key * adaptation`, `w = decay`, so `layer_step_fused`
-  (opt-in, `--fused` on the layer and model gates) routes it through the kernel. Card 0 with the
+  (the layer and model gates' default; `--composed` selects the Burn-op reference) routes it through
+  the kernel. Card 0 with the
   pinned checkpoint: the layer gate in accurate mode gives token1 hidden 3.6e-7, token2 2.4e-7,
   states 7.5e-8 and 1.7e-7; the 12-layer model gate passes with final hidden gap 1.671e-3 (relative
   2.245e-5), logits 2.708e-4 (relative 1.377e-5), recurrent state 4.168e-4 (relative 7.577e-6), and
   greedy token 2, about 19 s. `step188_wkv7_layer` runs the layer on ttsim and card 0 in the default
-  matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). The generate gate's `--fused`
-  path also passes on card 0: the three-step decode chain picks token 1 at every step; the fixed
+  matmul mode (4.95e-4, the TF32 products' rounding, not the kernel). The generate gate's fused
+  default also passes on card 0: the three-step decode chain picks token 1 at every step; the fixed
   prompt generates `" Hi, I"` (ids `[3880, 45, 308]`) and, at eight tokens,
   `" Hi, I'm sorry to hear that"` (ids `[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`), both
   equal to Flex and gate-pinned; the eight-token run is 3.96 s at twelve tiles. The 12-layer model
@@ -359,7 +360,7 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   submission instead of twelve and its state/output are one slice and reshape, not twelve `cat`s.
   The layer gate's run falls from about 3.3 s to 2 s. The layer, model and generate gates take
   `--tiles N` and default to 12 (the model's heads): the twelve head jobs (and every other op)
-  spread over a session's units. Card 0, `--fused`: the layer gate's run falls from 1.56 s on one
+  spread over a session's units. Card 0, fused: the layer gate's run falls from 1.56 s on one
   tile to 0.84 s on twelve, the 12-layer model gate from 18.47 s to 6.45 s, and fixed-prompt
   generation from 10.93 s to 2.83 s, with the same gaps, token and text. Pre-transposing the linear
   weights (or the `lm_head`) at load and using plain right operands was tried and is slower on card

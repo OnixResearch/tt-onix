@@ -18,6 +18,10 @@ const STEPS: usize = 3;
 const EXPECTED_TOKENS: [u32; STEPS] = [1, 1, 1];
 const EXPECTED_LOGITS: [f32; STEPS] = [0.044_930_69, 6.954_383_4, 6.486_726];
 const TOKEN_TOLERANCE: f32 = 1.0e-2;
+/// The fast matmul path's logit bound: the accurate path meets 1e-2, the fast
+/// one's largest measured step difference is 1.9e-2 (step 0, logit 0.026
+/// against 0.045), and its tokens are the same at every step.
+const FAST_TOLERANCE: f32 = 5.0e-2;
 const FIXED_PROMPT: &str = "<|rwkv_tokenizer_end_of_text|>User: Hi\n\nAssistant:";
 const EXPECTED_TEXT: &str = " Hi, I";
 const EXPECTED_STEPS: usize = 8;
@@ -193,6 +197,7 @@ fn run_flex(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_tt(
     checkpoint: &Checkpoint,
     specs: &[LayerSpec],
@@ -201,6 +206,7 @@ fn run_tt(
     card: u16,
     fused: bool,
     tiles: Option<usize>,
+    fast: bool,
 ) -> Result<Vec<(u32, f32)>, String> {
     let device = TtDevice::new(card);
     let config = match tiles {
@@ -213,7 +219,7 @@ fn run_tt(
     } else {
         layer_step::<TtBackend>
     };
-    accurate_matmul(|| {
+    let run = || {
         let (weights, norm_w, norm_b, head) =
             materialize::<TtBackend>(specs, norm, lm_head, &device);
         decode::<TtBackend>(
@@ -224,10 +230,15 @@ fn run_tt(
             &device,
             step,
         )
-    })
+    };
+    if fast {
+        run()
+    } else {
+        accurate_matmul(run)
+    }
 }
 
-fn check(name: &str, steps: &[(u32, f32)]) -> bool {
+fn check(name: &str, steps: &[(u32, f32)], tolerance: f32) -> bool {
     if steps.len() != STEPS {
         eprintln!("{name}: {} steps, expected {STEPS}", steps.len());
         return false;
@@ -239,7 +250,7 @@ fn check(name: &str, steps: &[(u32, f32)]) -> bool {
             "{name} step {index}: token {token} logit {logit:.8} (expected token {} logit {expected:.8})",
             EXPECTED_TOKENS[index]
         );
-        if token != EXPECTED_TOKENS[index] || (logit - expected).abs() > TOKEN_TOLERANCE {
+        if token != EXPECTED_TOKENS[index] || (logit - expected).abs() > tolerance {
             ok = false;
         }
     }
@@ -252,8 +263,9 @@ fn main() -> std::process::ExitCode {
     let mut vocab = None;
     let mut prompt = None;
     let mut steps = STEPS;
-    let mut fused = false;
+    let mut fused = true;
     let mut tiles = Some(12);
+    let mut fast = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -278,6 +290,8 @@ fn main() -> std::process::ExitCode {
                 checkpoint_path = Some(value);
             }
             "--fused" => fused = true,
+            "--composed" => fused = false,
+            "--fast" => fast = true,
             "--tiles" => {
                 let Some(value) = args.next() else {
                     eprintln!("--tiles needs a count");
@@ -320,15 +334,17 @@ fn main() -> std::process::ExitCode {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused] [--tiles N]"
+                    "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused | --composed] [--tiles N] [--fast]"
                 );
-                println!("  --fused  the WKV7 recurrence through the fused kernel");
+                println!("  --fused  the WKV7 recurrence through the fused kernel (default)");
+                println!("  --composed  the Burn-op recurrence (the reference)");
                 println!("  --tiles  Tensix tiles to open (default 12, the model's heads)");
+                println!("  --fast   decode with fast matmuls (the prompt path already does)");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused] [--tiles N]"
+                    "unknown argument {other}\n\nusage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused | --composed] [--tiles N] [--fast]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -495,7 +511,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    if !check("flex", &flex) {
+    if !check("flex", &flex, TOKEN_TOLERANCE) {
         return std::process::ExitCode::FAILURE;
     }
 
@@ -503,14 +519,28 @@ fn main() -> std::process::ExitCode {
         println!("flex decode PASS; pass --card N to run the device gate");
         return std::process::ExitCode::SUCCESS;
     };
-    let tt = match run_tt(&checkpoint, &specs, &norm, &lm_head, card, fused, tiles) {
+    let tt = match run_tt(
+        &checkpoint,
+        &specs,
+        &norm,
+        &lm_head,
+        card,
+        fused,
+        tiles,
+        fast,
+    ) {
         Ok(steps) => steps,
         Err(error) => {
             eprintln!("device decode: {error}");
             return std::process::ExitCode::FAILURE;
         }
     };
-    if !check("tt", &tt) {
+    let tolerance = if fast {
+        FAST_TOLERANCE
+    } else {
+        TOKEN_TOLERANCE
+    };
+    if !check("tt", &tt, tolerance) {
         return std::process::ExitCode::FAILURE;
     }
     println!("decode gate PASS");

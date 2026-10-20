@@ -2470,3 +2470,23 @@ Run `1792518725` (`cargo xtask bench --device 0 --filter step163_accurate_matmul
 
 The program is reverted. The right shape of this saving is a **multi-output** slice program: one chain, all four/five digits
 stored in one job, not one program per digit.
+
+## Fast matmuls on the RWKV production path (2026-10-20, card 0)
+
+The generate and model gates take `--fast`: the same layer graph without the `accurate_matmul` scope,
+so the projections and the 65536x768 head use the fast Matrix Unit path. The gates default to the
+fused recurrence; `--composed` selects the Burn-op reference.
+
+| Path | accurate | fast | agreement |
+|---|--:|--:|---|
+| three-step decode (12 tiles, fused) | 30.9 s | **5.5 s** | token 1 each step; logit differences 1.87e-2, 2.5e-4, 1.09e-2 (fast bound 5e-2) |
+| 12-layer model device run (12 tiles, fused) | 5.7-20.4 s (card-state variance) | **1.0-1.9 s** | greedy token 2; relative gaps 1.627e-3 hidden, 1.997e-3 logits, 5.503e-4 state; oracle 0.121 / 0.0393 / 0.0303 against bounds 0.5 / 1.0 / 1.0 |
+
+The fast mode is production; the accurate mode stays the numerical reference (relative 1e-4 for the
+model, 1e-2 for the decode logits).
+
+**On-device greedy, tried and reverted.** Replacing the 256 KiB logits download and host scan with
+`max_dim_with_indices(1)` on the 65,536-wide head made the eight-token prompt 9.7-11.9 s against
+3.96-9.74 s for the host path (card-state variance, but no run was faster). The device reduction of
+the whole vocabulary costs more than the transfer; a fused argmax in the matmul epilogue would be
+needed, not a separate reduction.

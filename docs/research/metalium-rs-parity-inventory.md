@@ -71,8 +71,9 @@ all-reduce or other collective.
    (`rwkv7::step_device_fused_attached`; card 0 run `1792505756`, 0.36 s, state 4.5e-8, output
    1.5e-7; `wkv7-gate --card 0 --fused` passes at 1.5e-7/4.5e-8 and 8.9e-8/2.2e-8 carried). Next:
    the layer and model now run on the fused recurrence: the layer's Goose form is the same update
-   with `a = -key_key`, `b = key_key * adaptation`, `w = decay`. `layer_step_fused` is opt-in
-   (`--fused` on the layer and model gates). Card 0, pinned checkpoint: layer gate in accurate mode
+   with `a = -key_key`, `b = key_key * adaptation`, `w = decay`. `layer_step_fused` is the layer and
+   model gates' default (`--composed` selects the Burn-op reference). Card 0, pinned checkpoint:
+   layer gate in accurate mode
    token1 hidden 3.6e-7 / token2 2.4e-7 / states 7.5e-8 and 1.7e-7; the 12-layer model gate passes
    with final hidden 1.671e-3 (relative 2.245e-5), logits 2.708e-4 (relative 1.377e-5), recurrent
    state 4.168e-4 (relative 7.577e-6), greedy token 2, about 19 s. `step188_wkv7_layer` runs a layer
@@ -80,8 +81,11 @@ all-reduce or other collective.
    gate's `--fused` path passes on card 0: the three-step decode chain picks token 1 at every step,
    and the fixed prompt generates `" Hi, I"` (ids `[3880, 45, 308]`) and at eight tokens
    `" Hi, I'm sorry to hear that"` (ids `[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`), equal
-   to Flex and gate-pinned (3.96 s at twelve tiles). The fused 12-layer model with `--oracle`
-   passes: hidden 1.619e-3 (bound 5.0e-1), logits 2.756e-4 (bound 1.0), states 4.101e-4 (bound 1.0),
+   to Flex and gate-pinned (3.96 s at twelve tiles). The gates take `--fast` (the production matmul
+   mode): the three-step decode falls from 30.9 s to 5.5 s with the same tokens (logit differences
+   up to 1.9e-2 against the fast bound 5e-2), and the model device run from 5.7-20.4 s to 1.0-1.9 s
+   with relative gaps 1.6e-3 hidden, 2.0e-3 logits and 5.5e-4 state and the same greedy token. The
+   fused 12-layer model with `--oracle` passes: hidden 1.619e-3 (bound 5.0e-1), logits 2.756e-4 (bound 1.0), states 4.101e-4 (bound 1.0),
    against the composed path's 1.614e-3/2.728e-4/3.939e-4. Cost work:
    `w`/`b` are shared by both row tiles (18 vector unpacks a head, down from 22), and the twelve
    heads are twelve jobs in one `Work` (`burn_tt::wkv7_step_batched`), one submission with one

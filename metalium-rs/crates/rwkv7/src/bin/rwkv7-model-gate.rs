@@ -16,6 +16,9 @@ use rwkv7::layer::{
 
 const LAYER_COUNT: usize = 12;
 const RELATIVE_TOLERANCE: f32 = 1.0e-4;
+/// The fast matmul path's relative bound, for `--fast`: the accurate path keeps
+/// 1e-4; the fast products' rounding is larger and is reported beside it.
+const FAST_RELATIVE_TOLERANCE: f32 = 5.0e-3;
 const EXPECTED_TOKEN: u32 = 2;
 const EXPECTED_LOGIT: f32 = 2.864_108_3;
 const EXPECTED_RUNNER: u32 = 33;
@@ -155,6 +158,7 @@ fn run_flex(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_tt(
     specs: &[LayerSpec],
     norm_values: &(Vec<f32>, Vec<f32>),
@@ -163,6 +167,7 @@ fn run_tt(
     card: u16,
     fused: bool,
     tiles: Option<usize>,
+    fast: bool,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let device = TtDevice::new(card);
     let config = match tiles {
@@ -176,7 +181,7 @@ fn run_tt(
         layer_step::<TtBackend>
     };
     let started = Instant::now();
-    let out = accurate_matmul(|| {
+    let run = || {
         let (weights, norm_w, norm_b, head) =
             materialize::<TtBackend>(specs, norm_values, lm_head, &device);
         run(
@@ -187,7 +192,8 @@ fn run_tt(
             &device,
             step,
         )
-    });
+    };
+    let out = if fast { run() } else { accurate_matmul(run) };
     println!("device run: {:.3} s", started.elapsed().as_secs_f64());
     out
 }
@@ -207,8 +213,9 @@ fn main() -> std::process::ExitCode {
     let mut card = None;
     let mut checkpoint_path = None;
     let mut oracle = None;
-    let mut fused = false;
+    let mut fused = true;
     let mut tiles = Some(12);
+    let mut fast = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -233,6 +240,8 @@ fn main() -> std::process::ExitCode {
                 checkpoint_path = Some(value);
             }
             "--fused" => fused = true,
+            "--composed" => fused = false,
+            "--fast" => fast = true,
             "--tiles" => {
                 let Some(value) = args.next() else {
                     eprintln!("--tiles needs a count");
@@ -255,15 +264,17 @@ fn main() -> std::process::ExitCode {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused] [--tiles N]"
+                    "usage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused | --composed] [--tiles N] [--fast]"
                 );
-                println!("  --fused  the WKV7 recurrence through the fused kernel");
+                println!("  --fused  the WKV7 recurrence through the fused kernel (default)");
+                println!("  --composed  the Burn-op recurrence (the reference)");
                 println!("  --tiles  Tensix tiles to open (default 12, the model's heads)");
+                println!("  --fast   fast matmuls (production) instead of accurate");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
                 eprintln!(
-                    "unknown argument {other}\n\nusage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused] [--tiles N]"
+                    "unknown argument {other}\n\nusage: rwkv7-model-gate --checkpoint PATH [--oracle DIR] [--card N] [--fused | --composed] [--tiles N] [--fast]"
                 );
                 return std::process::ExitCode::FAILURE;
             }
@@ -415,6 +426,7 @@ fn main() -> std::process::ExitCode {
         card,
         fused,
         tiles,
+        fast,
     );
     let scale = |values: &[f32]| values.iter().map(|v| v.abs()).fold(0.0, f32::max).max(1.0);
     let gaps = [
@@ -434,8 +446,13 @@ fn main() -> std::process::ExitCode {
             scale(&flex_states),
         ),
     ];
+    let relative = if fast {
+        FAST_RELATIVE_TOLERANCE
+    } else {
+        RELATIVE_TOLERANCE
+    };
     for (name, gap, scale) in gaps {
-        let bound = RELATIVE_TOLERANCE * scale;
+        let bound = relative * scale;
         println!(
             "card {card}: {name} gap {gap:.3e} (max {scale:.3e}, relative {:.3e})",
             gap / scale

@@ -198,11 +198,14 @@ byte-trie vocabulary, so `crates/rwkv7` implements the exact tokenizer directly.
 
 On 2026-10-20 the one-head WKV7 kernel passed on card 0: the raw role and GDDR-session gates
 (0.51 s each), the twelve-head job list on one and twelve tiles, the synthetic layer gate (accurate:
-token1 hidden 3.6e-7, states 7.5e-8), the 12-layer real checkpoint with `--fused` (hidden relative
-2.245e-5, logits 1.377e-5, states 7.577e-6), the Python oracle (hidden 1.619e-3, logits 2.756e-4,
-states 4.101e-4), and fixed-prompt generation at three and eight tokens (`" Hi, I"`,
-`" Hi, I'm sorry to hear that"`). The fused route is opt-in (`--fused`); the composed path remains
-the default in the library.
+token1 hidden 3.6e-7, states 7.5e-8), the 12-layer real checkpoint with the fused default (hidden
+relative 2.245e-5, logits 1.377e-5, states 7.577e-6), the Python oracle (hidden 1.619e-3, logits
+2.756e-4, states 4.101e-4), and fixed-prompt generation at three and eight tokens (`" Hi, I"`,
+`" Hi, I'm sorry to hear that"`). The gates default to the fused recurrence (`--composed` selects
+the Burn-op reference; the library's `layer_step` remains composed, with `layer_step_fused`). The
+gates also take `--fast`: the production matmul mode, 5.5 s against 30.9 s for the three-step
+decode with the same tokens, and 1.0-1.9 s against 5.7-20.4 s for the model device run, with the
+Python oracle still inside its bounds.
 
 Physical gates passed on 2026-10-19: one `tt-mnist` training step on card 0, one on the `1x2`
 mesh, a two-token WKV7 state-carry gate on card 0 (out gaps 1.19e-7 and 5.96e-8, state gaps
