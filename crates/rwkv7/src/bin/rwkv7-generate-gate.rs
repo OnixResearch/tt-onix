@@ -348,19 +348,17 @@ fn main() -> std::process::ExitCode {
                     let device = TtDevice::new(card);
                     burn_tt::init(device, TtConfig::default())
                         .map_err(|error| error.to_string())?;
-                    accurate_matmul(|| {
-                        let (weights, norm_w, norm_b, head) =
-                            materialize::<TtBackend>(&specs, &norm, &lm_head, &device);
-                        generate::<TtBackend>(
-                            &checkpoint,
-                            &weights,
-                            &(norm_w, norm_b),
-                            &head,
-                            &prompt_ids,
-                            steps,
-                            &device,
-                        )
-                    })
+                    let (weights, norm_w, norm_b, head) =
+                        materialize::<TtBackend>(&specs, &norm, &lm_head, &device);
+                    generate::<TtBackend>(
+                        &checkpoint,
+                        &weights,
+                        &(norm_w, norm_b),
+                        &head,
+                        &prompt_ids,
+                        steps,
+                        &device,
+                    )
                 }
             }
         };
