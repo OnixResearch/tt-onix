@@ -82,12 +82,14 @@ all-reduce or other collective.
    heads are twelve jobs in one `Work` (`burn_tt::wkv7_step_batched`), one submission with one
    state/output slice rather than twelve `cat`s. The layer gate's run falls from about 3.3 s to 2 s;
    the model gate stays about 19 s on one tile. The gates take `--tiles N`, so the head jobs and
-   every other op spread over the session's units: card 0 `--fused` drops the layer gate from 1.56 s
-   to 0.84 s on twelve tiles, the 12-layer model gate from 18.47 s to 6.45 s, and fixed-prompt
-   generation from 10.93 s to 2.83 s, with the same gaps, token and text. `step187` also gates the
-   twelve-head step on twelve tiles (card 0, 0.51 s for one token). Next: a head-batched kernel and
-   the 768x768 projections. The accurate-matmul path still fragments GDDR after an 8-token
-   prompt; fix that allocator limit separately. toks was
+   every other op spread over the session's units; the gates default to twelve tiles. Card 0
+   `--fused` drops the layer gate from 1.56 s to 0.84 s, the 12-layer model gate from 18.47 s to
+   6.45 s, and fixed-prompt generation from 10.93 s to 2.83 s, with the same gaps, token and text.
+   `step187` also gates the twelve-head step on twelve tiles (card 0, 0.51 s for one token).
+   Pre-transposing the linear weights or `lm_head` at load was tried and is slower (model gate 6.0 s
+   to 6.9-7.1 s), so the transposed-view matmul path stays. Next: a head-batched kernel.
+   The accurate-matmul path still fragments GDDR after an 8-token prompt; fix that allocator limit
+   separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
    model; compare against the existing CPU reference and the tt-metal path. Keep the service on
