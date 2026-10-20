@@ -77,7 +77,11 @@ all-reduce or other collective.
    state 4.168e-4 (relative 7.577e-6), greedy token 2, about 19 s. `step188_wkv7_layer` runs a layer
    on ttsim and card 0 (default matmul mode, 4.95e-4 -- TF32 rounding, not the kernel). The generate
    gate's `--fused` path passes on card 0: the three-step decode chain picks token 1 at every step,
-   and the fixed prompt generates `" Hi, I"` (ids `[3880, 45, 308]`, equal to Flex). Cost work:
+   and the fixed prompt generates `" Hi, I"` (ids `[3880, 45, 308]`) and at eight tokens
+   `" Hi, I'm sorry to hear that"` (ids `[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`), equal
+   to Flex and gate-pinned (3.96 s at twelve tiles). The fused 12-layer model with `--oracle`
+   passes: hidden 1.619e-3 (bound 5.0e-1), logits 2.756e-4 (bound 1.0), states 4.101e-4 (bound 1.0),
+   against the composed path's 1.614e-3/2.728e-4/3.939e-4. Cost work:
    `w`/`b` are shared by both row tiles (18 vector unpacks a head, down from 22), and the twelve
    heads are twelve jobs in one `Work` (`burn_tt::wkv7_step_batched`), one submission with one
    state/output slice rather than twelve `cat`s. The layer gate's run falls from about 3.3 s to 2 s;
@@ -87,9 +91,12 @@ all-reduce or other collective.
    6.45 s, and fixed-prompt generation from 10.93 s to 2.83 s, with the same gaps, token and text.
    `step187` also gates the twelve-head step on twelve tiles (card 0, 0.51 s for one token).
    Pre-transposing the linear weights or `lm_head` at load was tried and is slower (model gate 6.0 s
-   to 6.9-7.1 s), so the transposed-view matmul path stays. Next: a head-batched kernel.
-   The accurate-matmul path still fragments GDDR after an 8-token prompt; fix that allocator limit
-   separately. toks was
+   to 6.9-7.1 s), so the transposed-view matmul path stays. A model-gate breakdown (12 tiles, two
+   tokens, accurate matmuls): checkpoint 0.40 s, Flex 0.22 s plus a 0.23 s control, device 5.65 s of
+   7.1 s. The device time is the projections and the 65536x768 head; the recurrence is no longer the
+   critical path, so a head-batched kernel would move only a fraction and further cost work belongs
+   in the matmul path. The accurate-matmul path still fragments GDDR after an 8-token prompt; fix
+   that allocator limit separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
    model; compare against the existing CPU reference and the tt-metal path. Keep the service on
