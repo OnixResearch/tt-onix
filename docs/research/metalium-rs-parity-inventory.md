@@ -42,7 +42,7 @@ all-reduce or other collective.
 | Token shift | Composed from slice/cat | Required | Not used | None expected |
 | GroupNorm / norm | Burn composition over native ops | Required (RWKV norm) | RMSNorm | Verify numerics per model |
 | LoRA | Model-level matmul/add | Required | Not used | None expected |
-| **WKV7 recurrent update** | **One-head SFPU kernel, ttsim gate only** | **Required** | GDN is a related but distinct recurrence | Card-0 gate, burn-tt routing, then all heads |
+| **WKV7 recurrent update** | **One-head SFPU kernel, ttsim + card 0** | **Required** | GDN is a related but distinct recurrence | burn-tt routing, then all heads |
 | **Gated DeltaNet decode** | **Missing** | Not used | Required in 30 layers | Custom kernel, state carry, precision gate |
 | **MoE routing / top-k / expert dispatch** | **Missing as a fused path** | Not used | 256 routed + 1 shared expert | Routing, weight residency, BFP4/BFP8 expert formats |
 | **MTP / speculative verify** | **Missing** | Not used | Required for the serving profile | Verify/commit state contract |
@@ -59,11 +59,12 @@ all-reduce or other collective.
    generation (`" Hi, I"`, and an eight-token continuation) with fast matmuls and batching.
    One head of the recurrence is now a fused Tensix programme (`crates/tt-kernels/src/wkv7.rs` in
    the fork): four state tiles and two vector slots in `Dst`, in-tile SFPU column folds for `sa`
-   and `out`, replayed row loops for the update, and seven semaphores for the hand-offs. The ttsim
-   gate `step186_wkv7` holds it to `rwkv7::step` across a carried second token (max state gap
-   3.0e-8, output 7.5e-8, against a 1e-5 bound), and zeroing `a` moves the output 9.9e-2 as the
-   negative control. Next: the same gate on card 0, then routing a one-head step through `burn-tt`;
-   only then the layer and model. The accurate-matmul path still fragments GDDR after an 8-token
+   and `out`, row loops for the update, and seven semaphores for the hand-offs. Row vectors arrive
+   raw (`[1, 32]` images) and the unpacker lays them into the row-broadcast form; `v` is a `[64, 1]`
+   column the mover broadcasts. Gate `step186_wkv7` holds it to `rwkv7::step` across a carried second
+   token on ttsim and card 0 (both: max state gap 3.0e-8, output 7.5e-8, against a 1e-5 bound; card 0
+   run `1792472083`, 0.40 s), and zeroing `a` moves the output 9.9e-2 as the negative control. Next:
+   routing a one-head step through `burn-tt`; only then the layer and model. The accurate-matmul path still fragments GDDR after an 8-token
    prompt; fix that allocator limit separately. toks was
    evaluated and rejected for RWKV; see `docs/research/toks-rwkv-tokenizer.md`.
 2. **RWKV-7 layer and model.** Token shift, norms, LoRA, feed-forward, and the full 24-layer
