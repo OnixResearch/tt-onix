@@ -517,10 +517,6 @@ fn main() -> std::process::ExitCode {
                             chunk,
                         )
                     } else {
-                        if !fused && chunk > 1 {
-                            eprintln!("--chunk needs the fused recurrence");
-                            return Err("chunked prompt needs --fused".into());
-                        }
                         generate::<TtBackend>(
                             &checkpoint,
                             &weights,
