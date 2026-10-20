@@ -9,11 +9,14 @@
 //! out_i   = sum_j S'[i, j] * r[j]
 //! ```
 //!
-//! The head's state is four 32x32 tiles (`[64, 64]`), and every vector is two
-//! tiles wide. A vector enters as a tile the host has already broadcast: a
-//! row-vector tile has every row equal to one 32-value half, and a column
-//! vector tile has every column equal to one 32-value half. No arithmetic
-//! happens on the host and none is needed on the mover.
+//! The head's state is four 32x32 tiles (`[64, 64]`). Each row vector (`r`,
+//! `w`, `k`, `a`, `b`) arrives as two `[1, 32]` tile images, and the unpack
+//! role lays each half's first row into eight `Dst` rows (four for face 0,
+//! four for face 1) -- the row-broadcast form `sfpu::kernel::Operands::RowBroadcast`
+//! uses, so the math reads a row vector with one `SFPLOAD` per eight-column
+//! half and needs no pre-broadcast tile. The column vector `v` arrives as two
+//! full tiles the data mover has already broadcast across their columns
+//! (`tt_isa::dm::op::READ_BROADCAST_COL`). No arithmetic happens on the host.
 //!
 //! # Instruction programme
 //!
@@ -165,17 +168,46 @@ pub fn plan_layout() -> Result<Layout, PlanError> {
     })
 }
 
+/// Unpack a `[1, 32]` row-vector tile so every value is readable as a row:
+/// face 0's first row into `base..base + 4`, face 1's into
+/// `base + 4..base + 8`, each sixteen datums repeated down four `Dst` rows
+/// (`sfpu::kernel::Operands::RowBroadcast`).
+fn unpack_row_vector(l1: u64, base: u32) -> Vec<Instruction> {
+    let mut p = Vec::new();
+    for (first, at) in [(0u32, base), (256, base + 4)] {
+        for row in 0..4 {
+            p.extend(crate::datapath::unpack_datums_to_dst(
+                l1,
+                first,
+                16,
+                at + row,
+            ));
+        }
+    }
+    p
+}
+
 /// Each vector tile's `(row tile, column tile)` source, in the order the math
 /// role asks for them: the two halves of `a`, then for each state tile `w`,
 /// `b`, `k` and `v`, then the two halves of `r` twice, once per row tile.
-fn vector_sequence(l: &Layout) -> Vec<u64> {
-    let mut seq = vec![l.a[0], l.a[1]];
+fn vector_sequence(l: &Layout) -> Vec<(u64, bool)> {
+    let mut seq = vec![(l.a[0], false), (l.a[1], false)];
     for p in 0..2 {
         for t in 0..2 {
-            seq.extend([l.w[t], l.b[t], l.k[t], l.v[p]]);
+            seq.extend([
+                (l.w[t], false),
+                (l.b[t], false),
+                (l.k[t], false),
+                (l.v[p], true),
+            ]);
         }
     }
-    seq.extend([l.r[0], l.r[1], l.r[0], l.r[1]]);
+    seq.extend([
+        (l.r[0], false),
+        (l.r[1], false),
+        (l.r[0], false),
+        (l.r[1], false),
+    ]);
     seq
 }
 
@@ -200,11 +232,15 @@ pub fn roles(l: &Layout) -> [Vec<Instruction>; 3] {
         unpack.extend(unpack_tile_to_dst(*tile, row));
     }
     unpack.extend(sync::post_after(Unit::Unpacker0, s.state_ready));
-    for (index, tile) in sequence.iter().enumerate() {
+    for (index, (tile, columns)) in sequence.iter().enumerate() {
         let (ready, free) = slots(index);
         let row = SLOT_ROW[index % 2];
         unpack.extend(sync::take(*free, Before::UNPACKER));
-        unpack.extend(unpack_tile_to_dst(*tile, row));
+        unpack.extend(if *columns {
+            unpack_tile_to_dst(*tile, row)
+        } else {
+            unpack_row_vector(*tile, row)
+        });
         unpack.extend(sync::post_after(Unit::Unpacker0, *ready));
     }
     unpack.push(tt_isa::backend::wait_for_unpacker0(Before::EVERYTHING).unwrap());
@@ -239,7 +275,7 @@ pub fn roles(l: &Layout) -> [Vec<Instruction>; 3] {
         // `S*w + sa*b`, with the two vectors the unpacker brought.
         math.extend(sync::take(s.slot0_ready, Before::SFPU));
         math.extend(sync::take(s.slot1_ready, Before::SFPU));
-        let mut stage = Program::new();
+        let mut stage = Program::with_policy(crate::sfpu::LoopPolicy::Unrolled);
         update_ab(&mut stage, state, SLOT_ROW[0], SLOT_ROW[1], ACC_ROW[p]);
         math.extend(stage.finish());
         math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
@@ -247,7 +283,7 @@ pub fn roles(l: &Layout) -> [Vec<Instruction>; 3] {
         // `k*v + S`.
         math.extend(sync::take(s.slot0_ready, Before::SFPU));
         math.extend(sync::take(s.slot1_ready, Before::SFPU));
-        let mut stage = Program::new();
+        let mut stage = Program::with_policy(crate::sfpu::LoopPolicy::Unrolled);
         update_kv(&mut stage, state, SLOT_ROW[0], SLOT_ROW[1]);
         math.extend(stage.finish());
         math.extend(sync::post_after(Unit::Sfpu, s.slot0_free));
@@ -307,23 +343,27 @@ fn fold_pair(p: &mut Program, s0: u32, v0: u32, s1: u32, v1: u32, out: u32) {
             32 + 4 * (group - 4)
         };
         let quads = [q, q + 2, q + 16, q + 18];
+        // The row vector's four readable groups: face 0's even and odd
+        // eight-column halves, then face 1's.
+        let bias = [v0, v0 + 2, v0 + 4, v0 + 6];
+        let bias1 = [v1, v1 + 2, v1 + 4, v1 + 6];
         // S0 * V0 in L0, with L1 the vector and L2 the next tile element.
         p.load(LReg::L0, Format::Fp32, s0 + quads[0]);
-        p.load(LReg::L1, Format::Fp32, v0 + quads[0]);
+        p.load(LReg::L1, Format::Fp32, bias[0]);
         p.mul(LReg::L0, LReg::L1, LReg::L0);
-        for &at in &quads[1..] {
+        for (k, &at) in quads[1..].iter().enumerate() {
             p.load(LReg::L2, Format::Fp32, s0 + at);
-            p.load(LReg::L1, Format::Fp32, v0 + at);
+            p.load(LReg::L1, Format::Fp32, bias[k + 1]);
             p.mul(LReg::L2, LReg::L1, LReg::L2);
             p.add(LReg::L0, LReg::L2, LReg::L0);
         }
         // S1 * V1 in L3.
         p.load(LReg::L3, Format::Fp32, s1 + quads[0]);
-        p.load(LReg::L1, Format::Fp32, v1 + quads[0]);
+        p.load(LReg::L1, Format::Fp32, bias1[0]);
         p.mul(LReg::L3, LReg::L1, LReg::L3);
-        for &at in &quads[1..] {
+        for (k, &at) in quads[1..].iter().enumerate() {
             p.load(LReg::L2, Format::Fp32, s1 + at);
-            p.load(LReg::L1, Format::Fp32, v1 + at);
+            p.load(LReg::L1, Format::Fp32, bias1[k + 1]);
             p.mul(LReg::L2, LReg::L1, LReg::L2);
             p.add(LReg::L3, LReg::L2, LReg::L3);
         }
@@ -344,10 +384,13 @@ fn fold_pair(p: &mut Program, s0: u32, v0: u32, s1: u32, v1: u32, out: u32) {
 /// `S = S*W + SA*B`, with `W` and `B` in the two vector slots and `SA` in an
 /// accumulator tile. One replayed row loop over the tile's 32 quads.
 fn update_ab(p: &mut Program, state: u32, w: u32, b: u32, sa: u32) {
+    // Row vectors are read at their bias rows, whose address depends on the
+    // quad: unrolled, as `sfpu::ops` does for its row broadcast.
     p.for_each_row_group(64, |p, o| {
+        let at = if (o / 16) % 2 == 0 { 0 } else { 4 } + (o & 2);
         p.load(LReg::L0, Format::Fp32, state + o);
-        p.load(LReg::L1, Format::Fp32, w + o);
-        p.load(LReg::L2, Format::Fp32, b + o);
+        p.load(LReg::L1, Format::Fp32, w + at);
+        p.load(LReg::L2, Format::Fp32, b + at);
         p.load(LReg::L3, Format::Fp32, sa + o);
         p.mul(LReg::L0, LReg::L1, LReg::L0);
         p.mad(LReg::L3, LReg::L2, LReg::L0, LReg::L0);
@@ -358,8 +401,9 @@ fn update_ab(p: &mut Program, state: u32, w: u32, b: u32, sa: u32) {
 /// `S = K*V + S`, with `K` and `V` in the two vector slots.
 fn update_kv(p: &mut Program, state: u32, k: u32, v: u32) {
     p.for_each_row_group(64, |p, o| {
+        let at = if (o / 16) % 2 == 0 { 0 } else { 4 } + (o & 2);
         p.load(LReg::L0, Format::Fp32, state + o);
-        p.load(LReg::L1, Format::Fp32, k + o);
+        p.load(LReg::L1, Format::Fp32, k + at);
         p.load(LReg::L2, Format::Fp32, v + o);
         p.mad(LReg::L1, LReg::L2, LReg::L0, LReg::L0);
         p.store(LReg::L0, Format::Fp32, state + o);

@@ -322,11 +322,14 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   gates live in `crates/rwkv7`. A fused one-head kernel is now in
   [`wkv7.rs`](../../crates/tt-kernels/src/wkv7.rs): one Tensix programme computes `sa`, the state update
   and `out` with in-tile SFPU column folds and two replayed row loops, and `step186_wkv7` holds its
-  state and output to `rwkv7::step` across a carried second token (ttsim: max gap 2.2e-8 on the carried
-  state against a 1e-5 bound; zeroing `a` moves the output 9.9e-2, the negative control). Left: the
-  same gate on card 0, then routing a one-head step through `burn-tt`; only then the layer and model.
-  The kernel takes 22 vector unpacks per token because `Dst` holds just two vector slots beside the four
-  state tiles, so a later version should stage vectors in `Src` or fold two vectors per slot.
+  state and output to `rwkv7::step` across a carried second token (ttsim and card 0 have the same gaps:
+  max 3.0e-8 on the state, 7.5e-8 on the output, against a 1e-5 bound; zeroing `a` moves the output
+  9.9e-2, the negative control). Row vectors arrive raw (`[1, 64]`), and the unpacker lays them into
+  the row-broadcast form; `v` is a `[64, 1]` column the mover broadcasts. Card 0 run `1792472083`,
+  0.40 s. Left: routing a one-head step through `burn-tt`; only then the layer and model. The kernel
+  takes 22 vector unpacks per token because `Dst` holds just two vector slots beside the four state
+  tiles, so a later version should stage vectors in `Src` or reuse a vector across the four state
+  tiles.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

@@ -17,10 +17,9 @@
 //!   by more than `CONTROL_GAP` and the device follows the zeroed host
 //!   reference (a kernel that ignored `a` would fail both).
 //!
-//! ttsim only: the silicon card run and the burn-tt routing are the next
-//! gates, and neither is claimed here.
-
-#![cfg(not(feature = "silicon"))]
+//! The same gate runs on ttsim and on card 0 (`cargo xtask silicon --filter
+//! step186_wkv7`). The burn-tt routing is the next gate and is not claimed
+//! here.
 
 use tt_isa::dm::TILE_DATA;
 use tt_kernels::matmul::{detilize_packed, tilize_into, TILE_IMAGE_BYTES};
@@ -83,12 +82,6 @@ fn tiles(values: &[f32], rows: usize, cols: usize) -> Vec<u8> {
     out
 }
 
-/// A 32x32 tile with every row equal to `value`.
-fn row_tile(value: &[f32]) -> Vec<u8> {
-    let values: Vec<f32> = (0..1024).map(|i| value[i % 32]).collect();
-    tiles(&values, 32, 32)
-}
-
 /// A 32x32 tile with every column equal to `value`.
 fn column_tile(value: &[f32]) -> Vec<u8> {
     let values: Vec<f32> = (0..1024).map(|i| value[i / 32]).collect();
@@ -146,7 +139,8 @@ fn run_head(dev: &mut harness::Dev<'_>, layout: &Layout, head: &Head) -> Device 
                 if columns {
                     column_tile(part)
                 } else {
-                    row_tile(part)
+                    // A row vector: one tile with its 32 values in row 0.
+                    tiles(part, 1, 32)
                 },
             ));
         }
