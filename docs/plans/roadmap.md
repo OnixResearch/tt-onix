@@ -136,6 +136,12 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   1. **A slice kind**: `x` and the row or column power of two in, slice `s` out, already weighted. Today a slice is `trunc`, subtract,
      multiply by the radix, then a weight multiply (about 3 to 4 jobs a slice, 9 slices); one SFPU program can compute the earlier
      slices in registers and store only slice `s`. This also folds in the scaling `x * u * 2^k` (2 more jobs an operand).
+     **Status 2026-10-20: tried and reverted.** `kind_sfpu::SLICE` cut the slice work from 30 element-wise jobs to 9 and
+     `step163_accurate_matmul` passed unchanged, but each program recomputes the digit chain (ten `round` bodies instead of
+     four/five). Run `1792518725`: accurate `128x256x128`, `256^3`, `32x784x128` and `512^3` rose 30, 31, 62 and 31% against a
+     nearly unchanged fast matmul; `64x32x64` was 15% lower on both. The per-digit program was reverted. The saving needs **one
+     program that computes the chain once and stores all four/five digits** (a multi-output kernel), or a cheaper digit
+     extraction -- not one program per digit.
   2. **A cheaper NaN and infinity classification**: about 45 of the 127 jobs (15 an operand: `is_nan`, `is_inf`, `== 0`, three
      bool-to-float, `bool_not`, `mask_fill`, `sign`, `mul`, two `sub`, a `sum_dim`, a second `mask_fill`, `clamp`, then six 0/+-1
      matmuls and about a dozen combining ops). One kind per operand producing the encodings (`inf_sign`, `finite_sign`, the zero and

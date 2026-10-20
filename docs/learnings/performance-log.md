@@ -2448,3 +2448,25 @@ the model's agreement.
 `rwkv7-generate-gate --prompt <fixed> --generate 8 --card 0 --fused` (12 tiles): 3.96 s, ids
 `[3880, 45, 308, 459, 39743, 4811, 31063, 32227]`, text `" Hi, I'm sorry to hear that"`, equal to
 Flex.
+
+## Fused per-digit slice kind, tried and rejected (2026-10-20, card 0)
+
+`kind_sfpu::SLICE` computed one base-radix digit of the accurate mode's scaled operand per SFPU program, recomputing the
+earlier digits in registers, and replaced the `trunc`/subtract/multiply/scale composition around the slicing. It cut that work
+from 30 element-wise jobs to 9 and `step163_accurate_matmul` passed unchanged (10/10), but each program repeats the digit chain:
+ten `round` bodies instead of four or five.
+
+Run `1792518725` (`cargo xtask bench --device 0 --filter step163_accurate_matmul::benchmark`), median accurate (fast) against the
+2026-10-12 run `1791818553`:
+
+| `m x k x n` | accurate (us) | before (us) | change |
+|---|--:|--:|--:|
+| 64 x 32 x 64 | 1,189 (62) | 1,393 (73) | -15% (fast also -15%) |
+| 128 x 256 x 128 | 6,498 (115) | 4,996 (127) | +30% |
+| 256 x 256 x 256 | 14,383 (287) | 10,964 (277) | +31% |
+| 32 x 784 x 128 | 9,834 (100) | 6,081 (101) | +62% |
+| 512 x 512 x 512 | 64,773 (1,673) | 49,586 (1,546) | +31% |
+| 1024 x 1024 x 1024 | 346,258 (22,921) | 279,692 (14,922) | fast also +54%; not comparable across card states |
+
+The program is reverted. The right shape of this saving is a **multi-output** slice program: one chain, all four/five digits
+stored in one job, not one program per digit.
