@@ -376,6 +376,16 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   work belongs in the matmul path, not the recurrence. `step187` also runs the twelve-head step on a twelve-tile session
   (card 0, 0.51 s for one token; the session setup dominates a single step). Left: a head-batched
   kernel (more than one head per `Dst` pass) and the 768x768 projections, which dominate the layer.
+  **Chunked prompt (2026-10-20).** `rwkv7::layer::layer_step_chunk` batches the norms, token
+  shifts, 768x768 projections, LoRA and the FFN over a `[chunk, HIDDEN]` prompt chunk; the WKV7
+  recurrence stays sequential over rows with the batched head kernel. The generate gate takes
+  `--chunk N` (default 8, `--chunk 1` is the token path). The four-token gate is bit-identical to
+  four `layer_step_fused` calls on ttsim and card 0 (0.0 gap per row, matrix and shift vectors);
+  against Flex the rows are <=9.9e-4 and the four-fast-token matrix <=3.2e-3. Card 0 release, the
+  fixed five-token prompt plus eight generated tokens: 3.51-3.62 s token path, 2.46-2.67 s chunk 8,
+  the same ids and text. The generated tokens stay one at a time. The group norm tiles the
+  `[1, HEADS, HEAD_SIZE]` weight and bias along the chunk: a leading-1 broadcast of a 3-D view
+  hits the backend's unsupported-reshape path.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still
   staged through the host, `mean_dim`, gather/scatter/select, `slice_assign`/`cat`, conv
   acceptance, attention variants, `int_div`/`remainder` on card 1, ND indexing, GMPOOL

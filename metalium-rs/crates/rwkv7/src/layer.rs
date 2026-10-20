@@ -468,6 +468,219 @@ pub fn layer_step_with<B: Backend>(
     (next_hidden, next_state, anchor)
 }
 
+/// The token shift for a chunk: row zero is the previous token from the state;
+/// the remaining rows are the chunk's own preceding rows.
+fn shifted_chunk<B: Backend>(current: Tensor<B, 2>, previous: Tensor<B, 2>) -> Tensor<B, 2> {
+    let tokens = current.dims()[0];
+    if tokens == 1 {
+        return previous;
+    }
+    Tensor::cat(vec![previous, current.slice([0..tokens - 1, 0..HIDDEN])], 0)
+}
+
+/// Group norm over each head of a `[tokens, HEADS, HEAD_SIZE]` batch. The
+/// weight and bias are tiled along the token axis: a leading-1 broadcast of a
+/// `[1, HEADS, HEAD_SIZE]` view hits the backend's reshape path.
+fn group_norm_chunk(
+    x: Tensor<TtBackend, 3>,
+    weight: Tensor<TtBackend, 2>,
+    bias: Tensor<TtBackend, 2>,
+) -> Tensor<TtBackend, 3> {
+    let tokens = x.dims()[0];
+    let x = x.reshape([tokens * HEADS, HEAD_SIZE]);
+    let weight = Tensor::cat(vec![weight; tokens], 0);
+    let bias = Tensor::cat(vec![bias; tokens], 0);
+    group_norm(x, weight, bias).reshape([tokens, HEADS, HEAD_SIZE])
+}
+
+/// [`fused_tt_recurrence`] for a chunk: the state is carried down the rows, one
+/// batched head job per row. The surrounding projections are batch matmuls.
+fn fused_tt_chunk(
+    matrix: Tensor<TtBackend, 3>,
+    key_key: Tensor<TtBackend, 2>,
+    adaptation: Tensor<TtBackend, 2>,
+    decay: Tensor<TtBackend, 2>,
+    value: Tensor<TtBackend, 2>,
+    key: Tensor<TtBackend, 2>,
+    receptance: Tensor<TtBackend, 2>,
+) -> (Tensor<TtBackend, 3>, Tensor<TtBackend, 2>) {
+    let tokens = key_key.dims()[0];
+    let row = |tensor: &Tensor<TtBackend, 2>, index: usize| {
+        tensor.clone().slice([index..index + 1, 0..HIDDEN])
+    };
+    let mut matrix = matrix;
+    let mut outputs = Vec::with_capacity(tokens);
+    for index in 0..tokens {
+        let (next, output) = fused_tt_recurrence(
+            matrix,
+            row(&key_key, index),
+            row(&adaptation, index),
+            row(&decay, index),
+            row(&value, index),
+            row(&key, index),
+            row(&receptance, index),
+        );
+        matrix = next;
+        outputs.push(output.reshape([1, HIDDEN]));
+    }
+    (matrix, Tensor::cat(outputs, 0))
+}
+
+/// One layer for a chunk of prompt tokens: `hidden` is `[tokens, HIDDEN]`.
+/// Norms, token shifts, projections, LoRA and the FFN are batch matmuls; the
+/// WKV7 recurrence is sequential over rows with the batched head kernel.
+/// `anchor` is layer zero's value projection for each token on nonzero layers.
+pub fn layer_step_chunk(
+    weights: &LayerWeights<TtBackend>,
+    hidden: Tensor<TtBackend, 2>,
+    state: &LayerState<TtBackend>,
+    layer_zero: bool,
+    anchor: Option<Tensor<TtBackend, 2>>,
+) -> (
+    Tensor<TtBackend, 2>,
+    LayerState<TtBackend>,
+    Option<Tensor<TtBackend, 2>>,
+) {
+    let tokens = hidden.dims()[0];
+    let residual = if layer_zero {
+        layer_norm(
+            hidden,
+            weights.pre_norm_w.clone(),
+            weights.pre_norm_b.clone(),
+        )
+    } else {
+        hidden
+    };
+    let attention_input = layer_norm(
+        residual.clone(),
+        weights.attn_norm_w.clone(),
+        weights.attn_norm_b.clone(),
+    );
+
+    let previous_attention =
+        shifted_chunk(attention_input.clone(), state.attention_previous.clone());
+    let x_r = mixed(
+        attention_input.clone(),
+        previous_attention.clone(),
+        weights.x_r.clone(),
+    );
+    let x_w = mixed(
+        attention_input.clone(),
+        previous_attention.clone(),
+        weights.x_w.clone(),
+    );
+    let x_k = mixed(
+        attention_input.clone(),
+        previous_attention.clone(),
+        weights.x_k.clone(),
+    );
+    let x_v = mixed(
+        attention_input.clone(),
+        previous_attention.clone(),
+        weights.x_v.clone(),
+    );
+    let x_a = mixed(
+        attention_input.clone(),
+        previous_attention.clone(),
+        weights.x_a.clone(),
+    );
+    let x_g = mixed(
+        attention_input.clone(),
+        previous_attention,
+        weights.x_g.clone(),
+    );
+
+    let receptance = linear(x_r, weights.r_proj.clone());
+    let raw_key = linear(x_k.clone(), weights.k_proj.clone());
+    let projected_value = linear(x_v.clone(), weights.v_proj.clone());
+
+    let (value, anchor) = if layer_zero {
+        (projected_value.clone(), Some(projected_value))
+    } else {
+        let anchor = anchor.expect("a nonzero layer needs the layer-zero value anchor");
+        let value_hidden = linear(x_v, weights.v_lora0.clone());
+        let value_gate = activation::sigmoid(linear_b(
+            value_hidden,
+            weights.v_lora2.clone(),
+            weights.v_lora2_b.clone(),
+        ));
+        let value = projected_value.clone() + (anchor.clone() - projected_value) * value_gate;
+        (value, Some(anchor))
+    };
+
+    let decay_hidden = linear(x_w, weights.w_lora0.clone()).tanh();
+    let decay = (NEGATIVE_INVERSE_SQRT_E
+        * activation::sigmoid(linear_b(
+            decay_hidden,
+            weights.w_lora2.clone(),
+            weights.w_lora2_b.clone(),
+        )))
+    .exp();
+    let adaptation_hidden = linear(x_a, weights.a_lora0.clone());
+    let adaptation = activation::sigmoid(linear_b(
+        adaptation_hidden,
+        weights.a_lora2.clone(),
+        weights.a_lora2_b.clone(),
+    ));
+    let gate_hidden = activation::sigmoid(linear(x_g, weights.g_lora0.clone()));
+    let gate = linear(gate_hidden, weights.g_lora2.clone());
+
+    let key_key_heads: Tensor<TtBackend, 3> =
+        (raw_key.clone() * weights.k_k.clone()).reshape([tokens, HEADS, HEAD_SIZE]);
+    let key_key_norm = (key_key_heads.clone() * key_key_heads.clone())
+        .sum_dim(2)
+        .sqrt()
+        .clamp_min(NORMALIZATION_FLOOR);
+    let key_key = key_key_heads / key_key_norm;
+
+    let key: Tensor<TtBackend, 2> =
+        raw_key * (1.0 + (adaptation.clone() - 1.0) * weights.k_a.clone());
+    let receptance_heads: Tensor<TtBackend, 3> =
+        receptance.clone().reshape([tokens, HEADS, HEAD_SIZE]);
+    let key_heads: Tensor<TtBackend, 3> = key.clone().reshape([tokens, HEADS, HEAD_SIZE]);
+    let value_heads: Tensor<TtBackend, 3> = value.clone().reshape([tokens, HEADS, HEAD_SIZE]);
+    let key_key_flat: Tensor<TtBackend, 2> = key_key.reshape([tokens, HIDDEN]);
+    let (next_matrix, recurrent_output) = fused_tt_chunk(
+        state.matrix.clone(),
+        key_key_flat,
+        adaptation,
+        decay,
+        value.clone(),
+        key,
+        receptance.clone(),
+    );
+    let recurrent_heads = recurrent_output.reshape([tokens, HEADS, HEAD_SIZE]);
+    let normalized = group_norm_chunk(
+        recurrent_heads,
+        weights.g_norm_w.clone(),
+        weights.g_norm_b.clone(),
+    );
+    let r_k = Tensor::cat(vec![weights.r_k.clone(); tokens], 0).reshape([tokens, HEADS, HEAD_SIZE]);
+    let correction = (receptance_heads * key_heads * r_k).sum_dim(2);
+    let corrected = (normalized + correction * value_heads).reshape([tokens, HIDDEN]) * gate;
+    let attention_output = linear(corrected, weights.o_proj.clone());
+    let after_attention = residual + attention_output;
+
+    let ffn_input = layer_norm(
+        after_attention.clone(),
+        weights.ffn_norm_w.clone(),
+        weights.ffn_norm_b.clone(),
+    );
+    let previous_ffn = shifted_chunk(ffn_input.clone(), state.ffn_previous.clone());
+    let ffn_mixed = mixed(ffn_input.clone(), previous_ffn, weights.ffn_x_k.clone());
+    let ffn_key = activation::relu(linear(ffn_mixed, weights.ffn_key.clone()));
+    let ffn_key = ffn_key.clone() * ffn_key;
+    let ffn_output = linear(ffn_key, weights.ffn_value.clone());
+    let next_hidden = after_attention + ffn_output;
+
+    let next_state = LayerState {
+        attention_previous: attention_input.slice([tokens - 1..tokens, 0..HIDDEN]),
+        ffn_previous: ffn_input.slice([tokens - 1..tokens, 0..HIDDEN]),
+        matrix: next_matrix,
+    };
+    (next_hidden, next_state, anchor)
+}
+
 /// Deterministic synthetic weights for the differential gate.
 /// [`layer_step`] for `TtBackend` with the batched Tensix kernel as the
 /// recurrence (`fused_tt_recurrence`). Opt-in: the twelve head jobs are a

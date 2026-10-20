@@ -2499,3 +2499,13 @@ differed by 9.7e-4 and its recurrent matrix by 2.13e-3 (the eager path's second-
 3.66e-4 from Flex). The matrix state output was right after capture, so the likely gap is the
 attention/forget state vectors or the replay's state-copy ordering, not the matrix. The prototype
 was reverted; a trace needs the vector states observed and the copy order checked before it ships.
+
+### Chunked prompt, adopted (2026-10-20, card 0 release)
+
+`layer_step_chunk` batches the token-wise layer graph over a prompt chunk and loops the WKV7
+recurrence over rows. The fixed five-token prompt plus eight generated tokens at fast matmul:
+3.62 s / 3.51 s on the token path, 2.46 s / 2.67 s with `--chunk 8` (about 1.4x), same ids and
+text. The four-token gate is bit-identical to four `layer_step_fused` calls (0.0 gap on ttsim and
+card 0); Flex gaps are <=9.9e-4 per row and 3.2e-3 for the matrix after four fast tokens. A
+leading-1 broadcast of the group-norm weights was rejected by the backend's reshape path; the
+chunk tiles the weights along the token axis instead.

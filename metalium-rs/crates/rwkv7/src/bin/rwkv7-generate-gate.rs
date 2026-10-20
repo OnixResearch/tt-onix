@@ -8,7 +8,8 @@ use burn_flex::{Flex, FlexDevice};
 use burn_tt::{accurate_matmul, TileChoice, TtBackend, TtConfig, TtDevice};
 use rwkv7::checkpoint::Checkpoint;
 use rwkv7::layer::{
-    layer_norm, layer_step, layer_step_fused, LayerSpec, LayerState, LayerWeights, HIDDEN,
+    layer_norm, layer_step, layer_step_chunk, layer_step_fused, LayerSpec, LayerState,
+    LayerWeights, HIDDEN,
 };
 use rwkv7::tokenizer::Tokenizer;
 
@@ -146,6 +147,58 @@ fn generate<B: burn::tensor::backend::Backend>(
     Ok(generated)
 }
 
+/// The prompt as batch layer steps: every token-wise projection and the FFN is
+/// a `[chunk, HIDDEN]` matmul, the WKV7 recurrence stays sequential. The
+/// generated tokens then use the one-token fused step.
+#[allow(clippy::too_many_arguments)]
+fn generate_chunked(
+    checkpoint: &Checkpoint,
+    weights: &[LayerWeights<TtBackend>],
+    norm: &(Tensor<TtBackend, 2>, Tensor<TtBackend, 2>),
+    lm_head: &Tensor<TtBackend, 2>,
+    prompt_ids: &[u32],
+    steps: usize,
+    device: &TtDevice,
+    chunk: usize,
+) -> Result<Vec<u32>, String> {
+    let mut states: Vec<LayerState<TtBackend>> = (0..LAYER_COUNT)
+        .map(|_| LayerState::<TtBackend>::zeros(device))
+        .collect();
+    let mut last = None;
+    for group in prompt_ids.chunks(chunk) {
+        let mut values = Vec::with_capacity(group.len() * HIDDEN);
+        for &id in group {
+            values.extend(checkpoint.embedding(id as usize)?);
+        }
+        let mut hidden = Tensor::from_data(TensorData::new(values, [group.len(), HIDDEN]), device);
+        let mut anchor = None;
+        for (layer, layer_weights) in weights.iter().enumerate() {
+            let (next, state, next_anchor) =
+                layer_step_chunk(layer_weights, hidden, &states[layer], layer == 0, anchor);
+            hidden = next;
+            states[layer] = state;
+            anchor = next_anchor;
+        }
+        last = Some(hidden);
+    }
+    let Some(last) = last else {
+        return Err("prompt has no tokens".into());
+    };
+    let rows = last.dims()[0];
+    let mut hidden = last.slice([rows - 1..rows, 0..HIDDEN]);
+    let mut generated = Vec::with_capacity(steps);
+    for index in 0..steps {
+        let logits = eval_logits(hidden.clone(), norm, lm_head);
+        let (token, _, _, _) = top_two(&logits);
+        generated.push(token);
+        if index + 1 < steps {
+            let embedding = checkpoint.embedding(token as usize)?;
+            hidden = token_step(weights, &mut states, &embedding, device, layer_step_fused);
+        }
+    }
+    Ok(generated)
+}
+
 fn decode<B: burn::tensor::backend::Backend>(
     checkpoint: &Checkpoint,
     weights: &[LayerWeights<B>],
@@ -266,6 +319,7 @@ fn main() -> std::process::ExitCode {
     let mut fused = true;
     let mut tiles = Some(12);
     let mut fast = false;
+    let mut chunk = 8usize;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -292,6 +346,19 @@ fn main() -> std::process::ExitCode {
             "--fused" => fused = true,
             "--composed" => fused = false,
             "--fast" => fast = true,
+            "--chunk" => {
+                let Some(value) = args.next() else {
+                    eprintln!("--chunk needs a token count");
+                    return std::process::ExitCode::FAILURE;
+                };
+                match value.parse::<usize>() {
+                    Ok(value) if value > 0 => chunk = value,
+                    _ => {
+                        eprintln!("--chunk {value}: expected a positive count");
+                        return std::process::ExitCode::FAILURE;
+                    }
+                }
+            }
             "--tiles" => {
                 let Some(value) = args.next() else {
                     eprintln!("--tiles needs a count");
@@ -334,7 +401,7 @@ fn main() -> std::process::ExitCode {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused | --composed] [--tiles N] [--fast]"
+                    "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused | --composed] [--tiles N] [--fast] [--chunk N]"
                 );
                 println!("  --fused  the WKV7 recurrence through the fused kernel (default)");
                 println!("  --composed  the Burn-op recurrence (the reference)");
@@ -437,16 +504,36 @@ fn main() -> std::process::ExitCode {
                     } else {
                         layer_step::<TtBackend>
                     };
-                    generate::<TtBackend>(
-                        &checkpoint,
-                        &weights,
-                        &(norm_w, norm_b),
-                        &head,
-                        &prompt_ids,
-                        steps,
-                        &device,
-                        step,
-                    )
+                    let started = std::time::Instant::now();
+                    let result = if fused && chunk > 1 {
+                        generate_chunked(
+                            &checkpoint,
+                            &weights,
+                            &(norm_w, norm_b),
+                            &head,
+                            &prompt_ids,
+                            steps,
+                            &device,
+                            chunk,
+                        )
+                    } else {
+                        if !fused && chunk > 1 {
+                            eprintln!("--chunk needs the fused recurrence");
+                            return Err("chunked prompt needs --fused".into());
+                        }
+                        generate::<TtBackend>(
+                            &checkpoint,
+                            &weights,
+                            &(norm_w, norm_b),
+                            &head,
+                            &prompt_ids,
+                            steps,
+                            &device,
+                            step,
+                        )
+                    };
+                    println!("prompt generation: {:?} (chunk {chunk})", started.elapsed());
+                    result
                 }
             }
         };
