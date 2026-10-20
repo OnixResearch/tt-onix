@@ -347,10 +347,13 @@ Detail: [burn-backend-parity.md](burn-backend-parity.md) (B-numbers).
   down from twenty-two), and the twelve heads are twelve jobs in one `Work`, so the layer makes one
   submission instead of twelve and its state/output are one slice and reshape, not twelve `cat`s.
   The layer gate's run falls from about 3.3 s to 2 s. The layer, model and generate gates take
-  `--tiles N`: the twelve head jobs (and every other op) spread over a session's units. Card 0,
-  `--fused`: the layer gate's run falls from 1.56 s on one tile to 0.84 s on twelve, the 12-layer
-  model gate from 18.47 s to 6.45 s, and fixed-prompt generation from 10.93 s to 2.83 s, with the
-  same gaps, token and text. `step187` also runs the twelve-head step on a twelve-tile session
+  `--tiles N` and default to 12 (the model's heads): the twelve head jobs (and every other op)
+  spread over a session's units. Card 0, `--fused`: the layer gate's run falls from 1.56 s on one
+  tile to 0.84 s on twelve, the 12-layer model gate from 18.47 s to 6.45 s, and fixed-prompt
+  generation from 10.93 s to 2.83 s, with the same gaps, token and text. Pre-transposing the linear
+  weights (or the `lm_head`) at load and using plain right operands was tried and is slower on card
+  (the model gate rose from 6.0 s to 6.9 to 7.1 s), so the backend's transposed-view matmul path
+  stays; the per-token transpose copies are cheaper than a plain operand. `step187` also runs the twelve-head step on a twelve-tile session
   (card 0, 0.51 s for one token; the session setup dominates a single step). Left: a head-batched
   kernel (more than one head per `Dst` pass) and the 768x768 projections, which dominate the layer.
 - [ ] **Partial ops** (from the old coverage tracker): `float_matmul` edge shapes still

@@ -2410,3 +2410,15 @@ transfers as B-only lists; end to end from the host, medians):
 - Gates: full silicon suite 296/296 on card 0, `step60_streaming`, `step56`,
   `step62`, `step24` on card 1; `stress_noc_ownership` 137 s, `streaming_stress`
   242 s, `stress_pipeline` 122 s clean.
+
+## WKV7 kernel cost work (2026-10-20, card 0)
+
+- Twelve heads as twelve jobs in one `Work`, spread over a 12-tile session: the 12-layer model
+  gate falls from 18.47 s on one tile to 6.45 s on twelve; fixed-prompt generation from 10.93 s to
+  2.83 s; the synthetic layer gate from 1.56 s to 0.84 s. Gaps, token and text are unchanged.
+- `w`/`b` shared by both row tiles: 18 vector unpacks a head, down from 22.
+- Pre-transposing the linear weights (or the `lm_head`) at load so every token's matmul has a plain
+  right operand: the model gate rose from 6.0 s to 6.9-7.1 s. The transposed-view matmul path is
+  faster than a plain weight, so the views stay.
+- `step187`'s twelve-tile kernel gate is 0.51 s for one token; the session setup dominates a single
+  step, so the win is over a token stream.

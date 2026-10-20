@@ -251,7 +251,7 @@ fn main() -> std::process::ExitCode {
     let mut prompt = None;
     let mut steps = STEPS;
     let mut fused = false;
-    let mut tiles = None;
+    let mut tiles = Some(12);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -321,7 +321,7 @@ fn main() -> std::process::ExitCode {
                     "usage: rwkv7-generate-gate --checkpoint PATH [--vocab PATH --prompt TEXT --generate N] [--card N] [--fused] [--tiles N]"
                 );
                 println!("  --fused  the WKV7 recurrence through the fused kernel");
-                println!("  --tiles  Tensix tiles to open (default 1)");
+                println!("  --tiles  Tensix tiles to open (default 12, the model's heads)");
                 return std::process::ExitCode::SUCCESS;
             }
             other => {
