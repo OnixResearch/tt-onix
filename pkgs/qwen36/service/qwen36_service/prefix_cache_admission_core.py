@@ -33,6 +33,8 @@ POLICY_FIELDS = frozenset({
 })
 ROOT_POLICY_FIELDS = POLICY_FIELDS | {"shared_root_minimum_tokens", "state_slots"}
 TOOL_POLICY_FIELDS = ROOT_POLICY_FIELDS | {"workload_id", "require_changed_tool_miss"}
+# Schema 5 names the continuous-slot scheduler profile every root must have served.
+SCHEDULER_POLICY_FIELDS = POLICY_FIELDS | {"scheduler_profile_id"}
 GATE_FIELDS = frozenset({
     "require_matched_identity",
     "require_exact_parity",
@@ -82,6 +84,9 @@ class PrefixAdmissionPolicy:
     state_slots: int = 0
     workload_id: str | None = None
     require_changed_tool_miss: bool = False
+    # The continuous-slot profile every root must report; None for the older
+    # schemas, which do not bind the scheduler.
+    scheduler_profile_id: str | None = None
 
     @classmethod
     def from_mapping(cls, root: Mapping[str, Any]) -> PrefixAdmissionPolicy:
@@ -89,7 +94,7 @@ class PrefixAdmissionPolicy:
         if not isinstance(root, Mapping):
             raise error("policy must be a mapping")
         version = root.get("schema_version")
-        if isinstance(version, bool) or version not in (2, 3, 4):
+        if isinstance(version, bool) or version not in (2, 3, 4, 5):
             raise error("schema_version is unsupported")
         fields = (
             POLICY_FIELDS
@@ -97,6 +102,8 @@ class PrefixAdmissionPolicy:
             else ROOT_POLICY_FIELDS
             if version == 3
             else TOOL_POLICY_FIELDS
+            if version == 4
+            else SCHEDULER_POLICY_FIELDS
         )
         if set(root) != fields:
             raise error("policy fields differ from the closed schema")
@@ -139,7 +146,7 @@ class PrefixAdmissionPolicy:
             raise error("the DRAM budget must be a non-negative byte count")
         minimum = 0
         states = 0
-        if version >= 3:
+        if version in (3, 4):
             minimum = root["shared_root_minimum_tokens"]
             states = root["state_slots"]
             if (
@@ -172,9 +179,17 @@ class PrefixAdmissionPolicy:
                 raise error(
                     "a tool-change admission requires its workload_id and changed-tool miss gate"
                 )
+        scheduler_profile_id = None
+        if version == 5:
+            scheduler_profile_id = root["scheduler_profile_id"]
+            if not isinstance(scheduler_profile_id, str) or not scheduler_profile_id:
+                raise error(
+                    "a scheduler-bound admission needs its scheduler_profile_id"
+                )
         return cls(
             profile_id=str(root["profile_id"]),
             prefix_cache_profile_id=str(root["prefix_cache_profile_id"]),
+            scheduler_profile_id=scheduler_profile_id,
             root_order=ROOT_ORDER,
             workloads=workloads,
             maximum_startup_dram_drop_bytes=drop,
@@ -267,6 +282,9 @@ def root_from_mapping(mapping: Mapping[str, Any], *, expected_kind: str) -> Root
     for name in ("package", "execution_identity", "runtime_identity"):
         if not isinstance(identity.get(name), str) or not identity[name]:
             raise error(f"identity.{name} is missing")
+    scheduler = identity.get("scheduler_profile_id")
+    if scheduler is not None and (not isinstance(scheduler, str) or not scheduler):
+        raise error("identity.scheduler_profile_id must be a non-empty string")
     if not isinstance(workload.get("blake3"), str) or not workload["blake3"]:
         raise error("workload.blake3 is missing")
     started = _utc(measured_at.get("started_utc"), "measured_at.started_utc")
@@ -456,6 +474,10 @@ def _group_reasons(
             reasons.append("cache-profile-differs")
         if root.kind == "cold" and profile is not None:
             reasons.append("cold-root-used-a-cache")
+        if policy.scheduler_profile_id is not None:
+            served = root.identity.get("scheduler_profile_id")
+            if served != policy.scheduler_profile_id:
+                reasons.append("scheduler-profile-differs")
     if any(
         earlier.finished > later.started for earlier, later in zip(group, group[1:])
     ):

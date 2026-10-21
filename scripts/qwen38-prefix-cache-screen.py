@@ -384,6 +384,7 @@ def main() -> None:
             evidence["package_identity"],
             evidence["runtime_identity"],
             evidence.get("prefix_cache_profile_id"),
+            evidence.get("profile_id"),
         )
         if identity is None:
             identity = seen
@@ -398,6 +399,11 @@ def main() -> None:
             raise SystemExit(
                 "the listener's prefix cache profile differs from the requested policy"
             )
+        if (
+            not isinstance(evidence.get("profile_id"), str)
+            or not evidence["profile_id"]
+        ):
+            raise SystemExit("the listener did not report its continuous-slot profile")
         history[step["conversation"]] = messages + [
             {"role": "assistant", "content": record["text"]}
         ]
@@ -489,6 +495,7 @@ def main() -> None:
             "physical_pcie_device_ids": EXPECTED_DEVICE_IDS,
             "prefix_cache_profile_id": identity[2],
             "prefix_policy_blake3": policy_blake3,
+            "scheduler_profile_id": identity[3],
         },
         "workload": {
             "workload_id": (

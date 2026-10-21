@@ -3,6 +3,9 @@ let RatioC = std.contract.from_predicate (fun value => std.is_number value && va
 let IdC = std.contract.from_predicate (fun value =>
   std.is_string value && std.string.is_match "^[a-z0-9][a-z0-9-]*$" value
 ) in
+let SchedulerIdC = std.contract.from_predicate (fun value =>
+  std.is_string value && std.string.is_match "^[a-z0-9][a-z0-9_-]*$" value
+) in
 let TrueC = std.contract.from_predicate (fun value => value == true) in
 let CountC = std.contract.from_predicate (fun value =>
   std.is_number value && std.number.is_integer value && value >= 1 && value <= 16
@@ -26,6 +29,10 @@ let AbbaOrderC = std.contract.from_predicate (fun value => value == ["cold", "ca
     "schema_version", "profile_id", "prefix_cache_profile_id", "root_order",
     "workloads", "gates", "shared_root_minimum_tokens", "state_slots",
   ],
+  V5Closed = ClosedRecordC [
+    "schema_version", "profile_id", "prefix_cache_profile_id", "scheduler_profile_id",
+    "root_order", "workloads", "gates",
+  ],
   ToolClosed = ClosedRecordC [
     "schema_version", "profile_id", "prefix_cache_profile_id", "root_order",
     "workloads", "gates", "shared_root_minimum_tokens", "state_slots",
@@ -45,6 +52,24 @@ let AbbaOrderC = std.contract.from_predicate (fun value => value == ["cold", "ca
     schema_version | std.contract.from_predicate (fun value => value == 2),
     profile_id | IdC,
     prefix_cache_profile_id | IdC,
+    root_order | AbbaOrderC,
+    workloads | Array { conversations | CountC, turns | CountC },
+    gates | {
+      require_matched_identity | TrueC,
+      require_exact_parity | TrueC,
+      require_resumed_hits | TrueC,
+      maximum_hit_median_ttft_ratio | RatioC,
+      maximum_hit_median_wall_ratio | RatioC,
+      maximum_miss_median_wall_ratio | RatioC,
+      maximum_miss_wall_ratio | RatioC,
+      maximum_startup_dram_drop_bytes | BytesC,
+    },
+  },
+  V5Fields = {
+    schema_version | std.contract.from_predicate (fun value => value == 5),
+    profile_id | IdC,
+    prefix_cache_profile_id | IdC,
+    scheduler_profile_id | SchedulerIdC,
     root_order | AbbaOrderC,
     workloads | Array { conversations | CountC, turns | CountC },
     gates | {

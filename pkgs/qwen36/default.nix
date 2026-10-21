@@ -143,6 +143,7 @@ let
     (stableIdentityPath "qwen36-prefix-cache-root-policy.ncl" ./prefix-cache-root-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-policy.ncl" ./prefix-cache-admission-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-admission-contracts.ncl" ./prefix-cache-admission-contracts.ncl)
+    (stableIdentityPath "qwen36-prefix-cache-admission-policy-v5.ncl" ./prefix-cache-admission-policy-v5.ncl)
     (stableIdentityPath "qwen36-prefix-cache-root-admission-policy.ncl" ./prefix-cache-root-admission-policy.ncl)
     (stableIdentityPath "qwen36-prefix-cache-tool-admission-policy.ncl" ./prefix-cache-tool-admission-policy.ncl)
     (stableIdentityPath "qwen36-resident-trace-admission-policy.ncl" ./resident-trace-admission-policy.ncl)
@@ -339,6 +340,10 @@ stdenvNoCC.mkDerivation {
     cp continuous-slot-policy-export/prefix-cache-admission-*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/prefix-cache-admission-policy.ncl \
       > "$out/share/qwen36/prefix-cache-admission-policy.json"
+    cp ${./prefix-cache-admission-policy-v5.ncl} continuous-slot-policy-export/prefix-cache-admission-policy-v5.ncl
+    cp continuous-slot-policy-export/prefix-cache-admission-policy-v5.ncl "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/prefix-cache-admission-policy-v5.ncl \
+      > "$out/share/qwen36/prefix-cache-admission-policy-v5.json"
     cp ${./prefix-cache-root-admission-policy.ncl} continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl
     cp continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/prefix-cache-root-admission-policy.ncl \

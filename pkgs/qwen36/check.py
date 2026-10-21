@@ -4859,6 +4859,133 @@ def probe_prefix_cache_restore():
 
 
 # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+def probe_prefix_cache_scheduler_binding():
+    """A schema-5 prefix-cache admission binds the continuous-slot profile every root served:
+    a policy without the field is refused, roots that omit the profile or name another one
+    are rejected, and roots that served the named profile are admitted."""
+    import copy
+    from datetime import datetime, timedelta, timezone
+
+    from qwen36_service import prefix_cache_admission_core as admission
+
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-admission-policy-v5.json")
+        .open(encoding="utf-8")
+    ) as handle:
+        policy_mapping = json.load(handle)
+    policy = admission.PrefixAdmissionPolicy.from_mapping(policy_mapping)
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy-b8.json")
+        .open(encoding="utf-8")
+    ) as handle:
+        slot_mapping = json.load(handle)
+    require(
+        policy.scheduler_profile_id == slot_mapping["profile_id"],
+        "the schema-5 policy does not name the packaged eight-slot scheduler profile",
+    )
+    without = copy.deepcopy(policy_mapping)
+    del without["scheduler_profile_id"]
+    try:
+        admission.PrefixAdmissionPolicy.from_mapping(without)
+    except admission.PrefixAdmissionPolicyError:
+        pass
+    else:
+        require(
+            False,
+            "a scheduler-bound admission accepted a policy without the scheduler profile",
+        )
+
+    epoch = datetime(2026, 10, 21, 16, 0, tzinfo=timezone.utc)
+
+    def root(kind, position, shape, *, scheduler, hit=False):
+        conversations, turns = shape
+        requests = []
+        for turn in range(turns):
+            for conversation in range(conversations):
+                requests.append({
+                    "conversation": conversation,
+                    "turn": turn,
+                    "token_ids": [conversation, turn, 7],
+                    "ttft_seconds": 1.0 if hit else 3.0 + turn,
+                    "wall_seconds": 3.0 if hit else 5.0 + turn,
+                    "prefix_hit_tokens": 3072 if hit else 0,
+                })
+        started = epoch + timedelta(minutes=15 * position)
+        identity = {
+            "package": "/nix/store/p",
+            "execution_identity": "/nix/store/e",
+            "runtime_identity": "/nix/store/r",
+            "physical_pcie_device_ids": [0, 1],
+            "prefix_cache_profile_id": policy.prefix_cache_profile_id
+            if kind == "cached"
+            else None,
+            "prefix_policy_blake3": "a" * 64 if kind == "cached" else None,
+        }
+        if scheduler is not None:
+            identity["scheduler_profile_id"] = scheduler
+        return {
+            "schema_version": 2,
+            "root_kind": kind,
+            "simulated": False,
+            "identity": identity,
+            "workload": {
+                "workload_id": "w",
+                "blake3": f"{conversations}{turns}".ljust(64, "0"),
+                "conversations": conversations,
+                "turns": turns,
+            },
+            "measured_at": {
+                "started_utc": started.isoformat(),
+                "finished_utc": (started + timedelta(minutes=3)).isoformat(),
+            },
+            "startup": {
+                "device_dram_free_bytes": [
+                    9_500_000_000 if kind == "cached" else 9_900_000_000
+                ]
+            },
+            "requests": requests,
+        }
+
+    def judge(scheduler_for_cold, scheduler_for_cached):
+        groups = []
+        for index, shape in enumerate(policy.workloads):
+            group = [
+                root(
+                    kind,
+                    index * 4 + position,
+                    shape,
+                    scheduler=(
+                        scheduler_for_cached if kind == "cached" else scheduler_for_cold
+                    ),
+                    hit=kind == "cached",
+                )
+                for position, kind in enumerate(policy.root_order)
+            ]
+            groups.append([
+                admission.root_from_mapping(mapping, expected_kind=kind)
+                for mapping, kind in zip(group, policy.root_order)
+            ])
+        return admission.evaluate(policy, groups)
+
+    admitted = judge(policy.scheduler_profile_id, policy.scheduler_profile_id)
+    require(
+        admitted.admitted,
+        f"roots that served the named scheduler profile were rejected: {admitted.reasons}",
+    )
+    missing = judge(None, policy.scheduler_profile_id)
+    require(
+        not missing.admitted and "scheduler-profile-differs" in missing.reasons,
+        f"a root without the scheduler profile was accepted: {missing.reasons}",
+    )
+    other = judge("qwen38_p150x2-continuous-slot-b4-v1", policy.scheduler_profile_id)
+    require(
+        not other.admitted and "scheduler-profile-differs" in other.reasons,
+        f"a root that served another scheduler profile was accepted: {other.reasons}",
+    )
+
+
 def probe_prefix_cache_admission():
     """Prefix-cache admission over four ABBA roots: faster resumed turns with exact parity
     admit, and host load drifting linearly across the roots cancels; a parity loss in any
@@ -14555,6 +14682,7 @@ def main():
     probe("shared system root boundary", probe_shared_system_root_boundary)
     probe("prefix cache restore", probe_prefix_cache_restore)
     probe("prefix cache admission", probe_prefix_cache_admission)
+    probe("prefix cache scheduler binding", probe_prefix_cache_scheduler_binding)
     probe("resident trace admission", probe_resident_trace_admission)
     probe("batch admission policy", probe_batch_admission)
     probe("tensor binding identity", probe_tensor_binding_identity)

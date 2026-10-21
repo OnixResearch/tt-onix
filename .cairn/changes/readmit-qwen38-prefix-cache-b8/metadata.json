@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "qwen38-hybrid-prefix-cache",
+    "widen-qwen38-continuous-slots-b8"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}
