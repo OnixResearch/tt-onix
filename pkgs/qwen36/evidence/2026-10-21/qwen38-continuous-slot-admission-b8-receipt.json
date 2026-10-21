@@ -2,8 +2,8 @@
   "admission": {
     "admitted": true,
     "admitted_profile": {
-      "execution_identity": "/nix/store/fk8p9n0xdx62yx8hr1jnccgjfyp2j8s0-qwen36-execution-identity-0.1.0",
-      "package": "/nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0",
+      "execution_identity": "/nix/store/l4arf461kxbbns0nnlg2vd98anx943pc-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/wlsl6pnxllv9qhr6yqimnwv3si0qyz9k-qwen38-0.1.0",
       "scheduler_policy_blake3": "43d2110837561cfbe8e46bb9424883683ff06c0f52f6158c438e3d8e224a475d",
       "scheduler_profile_id": "qwen38-p150x2-continuous-slot-b8-v1"
     },
@@ -31,43 +31,43 @@
     },
     {
       "bound": 0.5,
-      "measured": 0.06515445307240379,
+      "measured": 0.06244057110290336,
       "name": "short_median_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.0,
-      "measured": 0.20660387251360796,
+      "measured": 0.20008063174614724,
       "name": "short_p95_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.3,
-      "measured": 1.2563178153022672,
+      "measured": 1.1874039432209373,
       "name": "long_p95_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.0,
-      "measured": 0.05553229960096063,
+      "measured": 0.06638645474338171,
       "name": "slowdown_ratio",
       "passed": true
     },
     {
       "bound": 1.25,
-      "measured": 1.0730637442673243,
+      "measured": 1.0723027865693282,
       "name": "median_inter_token_gap_ratio",
       "passed": true
     },
     {
       "bound": 6.0,
-      "measured": 5.474978202953935,
+      "measured": 5.542214444023557,
       "name": "inter_token_gap_seconds",
       "passed": true
     },
     {
       "bound": 0.95,
-      "measured": 1.061751258750721,
+      "measured": 1.111766067072816,
       "name": "delivered_throughput_ratio",
       "passed": true
     },
@@ -79,8 +79,8 @@
     }
   ],
   "identity": {
-    "execution_identity": "/nix/store/fk8p9n0xdx62yx8hr1jnccgjfyp2j8s0-qwen36-execution-identity-0.1.0",
-    "package": "/nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0",
+    "execution_identity": "/nix/store/l4arf461kxbbns0nnlg2vd98anx943pc-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/wlsl6pnxllv9qhr6yqimnwv3si0qyz9k-qwen38-0.1.0",
     "physical_pcie_device_ids": [
       0,
       1
@@ -93,26 +93,26 @@
     "continuous": [
       {
         "completed": true,
-        "delivered_throughput": 39.481471741715914,
-        "long_p95_wall": 60.05327685200609,
-        "maximum_inter_token_gap": 5.474978202953935,
-        "maximum_slowdown": 4.9683586449457,
-        "median_inter_token_gap": 0.046784717007540166,
+        "delivered_throughput": 38.95973447225778,
+        "long_p95_wall": 60.85672430798877,
+        "maximum_inter_token_gap": 5.542214444023557,
+        "maximum_slowdown": 6.433175283727767,
+        "median_inter_token_gap": 0.04677557747345418,
         "parity_mismatches": [],
-        "short_median_wall": 3.3018610475119203,
-        "short_p95_wall": 12.59562721697148,
+        "short_median_wall": 3.2456074424553663,
+        "short_p95_wall": 12.657723601907492,
         "trace_captures": 0
       },
       {
         "completed": true,
-        "delivered_throughput": 38.73138524040148,
-        "long_p95_wall": 61.21632652007975,
-        "maximum_inter_token_gap": 5.471954540000297,
-        "maximum_slowdown": 5.003245742353904,
-        "median_inter_token_gap": 0.04682549450080842,
+        "delivered_throughput": 39.48929975991,
+        "long_p95_wall": 60.041393987019546,
+        "maximum_inter_token_gap": 5.472771031898446,
+        "maximum_slowdown": 5.114186103114166,
+        "median_inter_token_gap": 0.0467837670003064,
         "parity_mismatches": [],
-        "short_median_wall": 3.3280160179710947,
-        "short_p95_wall": 12.619169426965527,
+        "short_median_wall": 3.2991557814530097,
+        "short_p95_wall": 12.572402494959533,
         "trace_captures": 0
       }
     ],
@@ -124,30 +124,30 @@
     "group": [
       {
         "completed": true,
-        "delivered_throughput": 34.162836792567,
-        "long_p95_wall": 51.8917937540682,
-        "maximum_inter_token_gap": 3.508973767980933,
-        "maximum_slowdown": 96.60526768962268,
-        "median_inter_token_gap": 0.04364235798129812,
+        "delivered_throughput": 33.25012376411764,
+        "long_p95_wall": 51.39883280801587,
+        "maximum_inter_token_gap": 3.6438210770720616,
+        "maximum_slowdown": 96.90493804188438,
+        "median_inter_token_gap": 0.04365916148526594,
         "parity_mismatches": [
           "s3"
         ],
-        "short_median_wall": 55.49194760550745,
-        "short_p95_wall": 65.49180282093585,
+        "short_median_wall": 57.39647297456395,
+        "short_p95_wall": 67.39642854209524,
         "trace_captures": 8
       },
       {
         "completed": true,
-        "delivered_throughput": 36.47877496841741,
-        "long_p95_wall": 48.7267837600084,
-        "maximum_inter_token_gap": 0.8852417810121551,
-        "maximum_slowdown": 90.09613825297728,
-        "median_inter_token_gap": 0.043637197464704514,
+        "delivered_throughput": 35.51943248626207,
+        "long_p95_wall": 50.56526410393417,
+        "maximum_inter_token_gap": 2.1034192909719422,
+        "maximum_slowdown": 90.34877140936965,
+        "median_inter_token_gap": 0.04362925060559064,
         "parity_mismatches": [
           "s3"
         ],
-        "short_median_wall": 51.078872755984776,
-        "short_p95_wall": 61.079055650974624,
+        "short_median_wall": 52.83673296350753,
+        "short_p95_wall": 62.83667931891978,
         "trace_captures": 8
       }
     ]
@@ -164,10 +164,10 @@
   "receipt_kind": "continuous-slot-admission",
   "roots": {
     "continuous": {
-      "blake3": "ea0a9d6a8612a1d6604519acc0d20aa2fb566404a640980d089212a1b7dbc406"
+      "blake3": "77ea9f671870944badbaa2814445b7f55f2ce1a8a70875104148069bc2af151e"
     },
     "group": {
-      "blake3": "1381414f9b086fceb6d318047bf515582ac819e46335319e2617179b56d11573"
+      "blake3": "f0b5c217edf53397b123725d0d221d11bdc7f4f8e2ed1b3678982da85482fbbb"
     }
   },
   "schema_version": 1,

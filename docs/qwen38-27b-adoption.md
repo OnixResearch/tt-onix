@@ -1274,9 +1274,9 @@ admits the profile against its predeclared gates:
 
 - Short requests finished in 3.3 s at the median instead of 51–55 s, and their p95
   fell from about 61–65 s to 12.6 s.
-- Delivered tokens/s rose 6 %.
-- The long requests took 20 % longer (p95 ratio 1.256 against a 1.3 bound), and the
-  longest pause was 5.475 s against a 6 s bound.
+- Delivered tokens/s rose 11 %.
+- The long requests took 19 % longer (p95 ratio 1.187 against a 1.3 bound), and the
+  longest pause was 5.542 s against a 6 s bound.
 - Every request decoded the same tokens as when it ran alone, and the width-8 trace
   stayed resident: no decode trace was captured during the measured passes.
 - Both roots left the same device DRAM free after startup.
@@ -1306,6 +1306,26 @@ unit is stopped after that check and starts on the B=8 profile when it is starte
 The change `.cairn/changes/widen-qwen38-continuous-slots-b8` records the admission
 evidence and `.cairn/changes/select-qwen38-continuous-slot-b8` records the
 deployment.
+
+The deployed configuration also keeps the hybrid prefix cache, whose own receipt
+covered neither that package nor the eight-slot profile. A schema-5 prefix-cache
+admission policy now names the scheduler profile every root must have served, and
+the root identity records the profile the service reported. On 2026-10-21 the
+four-root ABBA comparison ran again on the current package with the eight-slot
+profile at the served limits, and the receipt
+`pkgs/qwen36/evidence/2026-10-21/qwen38-prefix-cache-abba-admission-receipt.json`
+admits the cache profile `qwen38-p150x2-prefix-cache-v1`:
+
+- A resumed turn's first token took 0.41 of a cold turn's, and the whole request
+  took 0.57 of it.
+- A miss cost 1.006 of a cold turn at the median and 1.07 at the worst.
+- Every turn decoded the same tokens in all four roots, and both cached roots
+  resumed the same prefix on every turn.
+- The four saved states cost 364,904,448 B of device DRAM, inside the 512 MiB bound.
+
+The eight-slot scheduler admission was measured again on that same package, so one
+package carries both receipts. The change
+`.cairn/changes/readmit-qwen38-prefix-cache-b8` records the evidence.
 
 A request without `temperature` decodes greedily, including thinking. On
 2026-09-27, eight reasoning prompts with known answers were run at the

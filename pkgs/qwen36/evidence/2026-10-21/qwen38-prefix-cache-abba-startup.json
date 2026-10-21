@@ -1,0 +1,298 @@
+{
+ "a1": {
+  "kind": "cold",
+  "root": "a1",
+  "startup_events": [
+   {
+    "stage": "startup-warmup-started",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "elapsed_seconds": 46.687634240021,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23238960128,
+    "banks": 8,
+    "free_bytes": 9866029056,
+    "largest_free_bytes_per_bank": 1098079232,
+    "stage": "device-dram"
+   },
+   {
+    "batch_admission": false,
+    "decode_mode": "candidate",
+    "decode_profile": "qwen38-p150x2-traced-decode-v1",
+    "host": "127.0.0.1",
+    "host_timeline_profile": false,
+    "layer_count": 64,
+    "model": "Qwen3.8-27B",
+    "port": 8011,
+    "prefill_profile": false,
+    "simulated": false,
+    "stage": "ready",
+    "startup_warmup": {
+     "elapsed_seconds": 46.687634240021,
+     "required": true,
+     "widths": [
+      1,
+      4
+     ]
+    },
+    "systemd_notified": false,
+    "trace_reuse_admission": false,
+    "trace_reuse_profile": "qwen38-p150x2-same-width-trace-reuse-b4-v1"
+   }
+  ],
+  "workloads": {
+   "w3": {
+    "device_dram_free_bytes": [
+     9866029056
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:38:57.951690+00:00",
+     "started_utc": "2026-10-21T22:37:54.123123+00:00"
+    },
+    "workload_blake3": "7bdff9dbc3e4a36b11c7746255484b7d77a378a4bb58dd509c8ff954cfc175b8"
+   },
+   "w5": {
+    "device_dram_free_bytes": [
+     9866029056
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:39:42.896243+00:00",
+     "started_utc": "2026-10-21T22:38:58.007418+00:00"
+    },
+    "workload_blake3": "38038f5d8c1cba257d8ff2da181be0c3b4574daf7a3e715a34c7ab6e8236bbb6"
+   }
+  }
+ },
+ "a2": {
+  "kind": "cold",
+  "root": "a2",
+  "startup_events": [
+   {
+    "stage": "startup-warmup-started",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "elapsed_seconds": 70.913996487041,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23238960128,
+    "banks": 8,
+    "free_bytes": 9866029056,
+    "largest_free_bytes_per_bank": 1098079232,
+    "stage": "device-dram"
+   },
+   {
+    "batch_admission": false,
+    "decode_mode": "candidate",
+    "decode_profile": "qwen38-p150x2-traced-decode-v1",
+    "host": "127.0.0.1",
+    "host_timeline_profile": false,
+    "layer_count": 64,
+    "model": "Qwen3.8-27B",
+    "port": 8011,
+    "prefill_profile": false,
+    "simulated": false,
+    "stage": "ready",
+    "startup_warmup": {
+     "elapsed_seconds": 70.913996487041,
+     "required": true,
+     "widths": [
+      1,
+      4
+     ]
+    },
+    "systemd_notified": false,
+    "trace_reuse_admission": false,
+    "trace_reuse_profile": "qwen38-p150x2-same-width-trace-reuse-b4-v1"
+   }
+  ],
+  "workloads": {
+   "w3": {
+    "device_dram_free_bytes": [
+     9866029056
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:49:56.337886+00:00",
+     "started_utc": "2026-10-21T22:48:52.582183+00:00"
+    },
+    "workload_blake3": "7bdff9dbc3e4a36b11c7746255484b7d77a378a4bb58dd509c8ff954cfc175b8"
+   },
+   "w5": {
+    "device_dram_free_bytes": [
+     9866029056
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:50:41.277423+00:00",
+     "started_utc": "2026-10-21T22:49:56.401186+00:00"
+    },
+    "workload_blake3": "38038f5d8c1cba257d8ff2da181be0c3b4574daf7a3e715a34c7ab6e8236bbb6"
+   }
+  }
+ },
+ "b1": {
+  "kind": "cached",
+  "root": "b1",
+  "startup_events": [
+   {
+    "stage": "startup-warmup-started",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "elapsed_seconds": 73.65011507808231,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23603864576,
+    "banks": 8,
+    "free_bytes": 9501124608,
+    "largest_free_bytes_per_bank": 1098079232,
+    "stage": "device-dram"
+   },
+   {
+    "batch_admission": false,
+    "decode_mode": "candidate",
+    "decode_profile": "qwen38-p150x2-traced-decode-v1",
+    "host": "127.0.0.1",
+    "host_timeline_profile": false,
+    "layer_count": 64,
+    "model": "Qwen3.8-27B",
+    "port": 8011,
+    "prefill_profile": false,
+    "simulated": false,
+    "stage": "ready",
+    "startup_warmup": {
+     "elapsed_seconds": 73.65011507808231,
+     "required": true,
+     "widths": [
+      1,
+      4
+     ]
+    },
+    "systemd_notified": false,
+    "trace_reuse_admission": false,
+    "trace_reuse_profile": "qwen38-p150x2-same-width-trace-reuse-b4-v1"
+   }
+  ],
+  "workloads": {
+   "w3": {
+    "device_dram_free_bytes": [
+     9501124608
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:42:27.756902+00:00",
+     "started_utc": "2026-10-21T22:41:45.290611+00:00"
+    },
+    "workload_blake3": "7bdff9dbc3e4a36b11c7746255484b7d77a378a4bb58dd509c8ff954cfc175b8"
+   },
+   "w5": {
+    "device_dram_free_bytes": [
+     9501124608
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:43:13.294601+00:00",
+     "started_utc": "2026-10-21T22:42:27.826267+00:00"
+    },
+    "workload_blake3": "38038f5d8c1cba257d8ff2da181be0c3b4574daf7a3e715a34c7ab6e8236bbb6"
+   }
+  }
+ },
+ "b2": {
+  "kind": "cached",
+  "root": "b2",
+  "startup_events": [
+   {
+    "stage": "startup-warmup-started",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "elapsed_seconds": 53.55744322994724,
+    "stage": "startup-warmup-passed",
+    "widths": [
+     1,
+     4
+    ]
+   },
+   {
+    "allocated_bytes": 23603864576,
+    "banks": 8,
+    "free_bytes": 9501124608,
+    "largest_free_bytes_per_bank": 1098079232,
+    "stage": "device-dram"
+   },
+   {
+    "batch_admission": false,
+    "decode_mode": "candidate",
+    "decode_profile": "qwen38-p150x2-traced-decode-v1",
+    "host": "127.0.0.1",
+    "host_timeline_profile": false,
+    "layer_count": 64,
+    "model": "Qwen3.8-27B",
+    "port": 8011,
+    "prefill_profile": false,
+    "simulated": false,
+    "stage": "ready",
+    "startup_warmup": {
+     "elapsed_seconds": 53.55744322994724,
+     "required": true,
+     "widths": [
+      1,
+      4
+     ]
+    },
+    "systemd_notified": false,
+    "trace_reuse_admission": false,
+    "trace_reuse_profile": "qwen38-p150x2-same-width-trace-reuse-b4-v1"
+   }
+  ],
+  "workloads": {
+   "w3": {
+    "device_dram_free_bytes": [
+     9501124608
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:45:43.885467+00:00",
+     "started_utc": "2026-10-21T22:45:02.630570+00:00"
+    },
+    "workload_blake3": "7bdff9dbc3e4a36b11c7746255484b7d77a378a4bb58dd509c8ff954cfc175b8"
+   },
+   "w5": {
+    "device_dram_free_bytes": [
+     9501124608
+    ],
+    "measured_at": {
+     "finished_utc": "2026-10-21T22:46:28.981802+00:00",
+     "started_utc": "2026-10-21T22:45:43.943671+00:00"
+    },
+    "workload_blake3": "38038f5d8c1cba257d8ff2da181be0c3b4574daf7a3e715a34c7ab6e8236bbb6"
+   }
+  }
+ }
+}

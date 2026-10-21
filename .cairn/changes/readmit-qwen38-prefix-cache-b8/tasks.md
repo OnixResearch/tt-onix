@@ -15,10 +15,10 @@
 ## Phase 3: Verification
 
 - [x] [serial] V1 Run the device-free gates: the Qwen package check and the repository quality gate. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
-- [ ] [serial] V2 Run the ABBA comparison on the current package with the eight-slot profile at the served limits: four fresh processes per workload, cold, cached, cached, cold. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
-- [ ] [serial] V3 Re-run the B=8 scheduler admission on the same package, so the served package carries both receipts. r[tenstorrent.qwen38_p150x2.served_feature_receipts]
+- [x] [serial] V2 Run the ABBA comparison on the current package with the eight-slot profile at the served limits: four fresh processes per workload, cold, cached, cached, cold. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]  (evidence/prefix-cache-abba.md)
+- [x] [serial] V3 Re-run the B=8 scheduler admission on the same package, so the served package carries both receipts. r[tenstorrent.qwen38_p150x2.served_feature_receipts]  (evidence/prefix-cache-abba.md)
 
 ## Phase 4: Completion
 
-- [ ] [serial] D1 Record both receipts, the evidence, and every non-claim. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+- [x] [serial] D1 Record both receipts, the evidence, and every non-claim. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]  (evidence/prefix-cache-abba.md)
 - [ ] [serial] D2 Move the served profile to the package that carries both receipts; the step needs root and the profile service's `switch-policy` operation. r[tenstorrent.qwen38_p150x2.served_feature_receipts]
