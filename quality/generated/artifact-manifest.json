@@ -1388,6 +1388,12 @@
       "blake3": "2f456d0af7b8c8e4d000becfbcfa89f60ee822bc9802d6873b0e3b59afaa4470"
     },
     {
+      "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/step-kernel-scalar-staging.md",
+      "class": "portable_evidence",
+      "byte_count": 6444,
+      "blake3": "763ec11d93ddba741a6657d596b880ddb3c0cb5cd871dbe0cb3d229f3b2023aa"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/width-dependent-cost.md",
       "class": "portable_evidence",
       "byte_count": 6248,

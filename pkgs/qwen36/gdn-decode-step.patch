@@ -1001,7 +1001,7 @@ diff --git stepbase/q38src/models/demos/blackhole/qwen36/tt/gdn/kernels/step_rea
 new file mode 100644
 --- /dev/null
 +++ b/models/demos/blackhole/qwen36/tt/gdn/kernels/step_reader.cpp
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,175 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// GDN decode step reader. For instance (b, h) it copies batch row b of the fp32 prep tiles into row 0
 +// of zeroed CB tiles (q and k from key head h / rf, v and gate from value head h), places the
@@ -1032,12 +1032,15 @@ new file mode 100644
 +}
 +
 +template <typename Accessor>
-+FORCE_INLINE void read_element(const Accessor& src, uint32_t tile, uint32_t row, uint32_t col, uint32_t scratch_l1,
-+                               uint32_t dst_l1) {
++FORCE_INLINE void stage_element(const Accessor& src, uint32_t tile, uint32_t row, uint32_t col, uint32_t scratch_l1) {
 +    const uint32_t offset = element_offset(row, col);
 +    const uint32_t aligned = offset & ~63u;
 +    noc_async_read(src.get_noc_addr(tile) + aligned, scratch_l1, 64);
-+    noc_async_read_barrier();
++}
++
++FORCE_INLINE void store_element(uint32_t scratch_l1, uint32_t row, uint32_t col, uint32_t dst_l1) {
++    const uint32_t offset = element_offset(row, col);
++    const uint32_t aligned = offset & ~63u;
 +    *reinterpret_cast<volatile uint32_t*>(dst_l1) =
 +        *reinterpret_cast<volatile uint32_t*>(scratch_l1 + (offset - aligned));
 +}
@@ -1151,11 +1154,17 @@ new file mode 100644
 +        for (uint32_t tile = 0; tile < state_tiles; tile++) {
 +            noc_async_read(state.get_noc_addr(state_base + tile), state_l1 + tile * tile_bytes, tile_bytes);
 +        }
-+        read_element(prep, (a_column + head) / 32, batch, (a_column + head) % 32, scratch, get_write_ptr(cb_a));
-+        read_element(prep, (b_column + head) / 32, batch, (b_column + head) % 32, scratch, get_write_ptr(cb_b));
-+        read_element(dt, head / 32, 0, head % 32, scratch, get_write_ptr(cb_dt));
-+        read_element(na, head / 32, 0, head % 32, scratch, get_write_ptr(cb_na));
++        // Stage the four scalar reads behind the same barrier as the row and state reads; each
++        // scalar previously paid its own NOC round trip.
++        stage_element(prep, (a_column + head) / 32, batch, (a_column + head) % 32, scratch);
++        stage_element(prep, (b_column + head) / 32, batch, (b_column + head) % 32, scratch + 64);
++        stage_element(dt, head / 32, 0, head % 32, scratch + 128);
++        stage_element(na, head / 32, 0, head % 32, scratch + 192);
 +        noc_async_read_barrier();
++        store_element(scratch, batch, (a_column + head) % 32, get_write_ptr(cb_a));
++        store_element(scratch + 64, batch, (b_column + head) % 32, get_write_ptr(cb_b));
++        store_element(scratch + 128, 0, head % 32, get_write_ptr(cb_dt));
++        store_element(scratch + 192, 0, head % 32, get_write_ptr(cb_na));
 +
 +        cb_push_back(cb_q, key_tiles);
 +        cb_push_back(cb_k, key_tiles);

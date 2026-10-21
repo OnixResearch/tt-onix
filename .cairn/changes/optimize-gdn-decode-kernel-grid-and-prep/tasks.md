@@ -25,6 +25,17 @@
 - [ ] [serial] I5 Preserve the exact reader and compute numerics when the preparation ops move; verify the fold does not change the recurrence order. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [x] [serial] I6 Bind the kernel variant, the occupancy plan, and the profile into the package execution identity. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (occupancy policy is an identity input and fail-closed at not-measured)
 
+> **Served-route correction (2026-10-21).** The service now decodes GDN layers through the
+> `step` kernel in `pkgs/qwen36/gdn-decode-step.patch`, not the TT-Metal fused op this
+> change's proposal names. The instance-loop question was re-measured on that kernel.
+> Destination-register capacity is 4 tiles per sync round without full sync and 8 with it;
+> full sync costs more than the batching saves, and double-buffered prefetch is numerically
+> wrong at two instances per core. The one kept lever is the reader's staged scalar reads.
+> See `evidence/step-kernel-scalar-staging.md`.
+
+- [x] [serial] I7 Stage the four per-instance scalar reads behind the reader's existing NOC barrier in the served step kernel, leaving values and pages unchanged. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (evidence/step-kernel-scalar-staging.md)
+- [x] [serial] I8 Reject destination-register batching under full sync and double-buffered I/O prefetch with their measured reasons. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]  (evidence/step-kernel-scalar-staging.md)
+
 ## Phase 3: Verification
 
 - [x] [parallel] V1 Add positive device-free probes for valid state splits and head-group schedules. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
@@ -35,13 +46,14 @@
 - [x] [serial] V6 Run the matched physical screen and require exact decode and state parity before reading any timing. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (exact parity at B=8 for the reader-prefetch and batched-destination candidates; exact in the contaminated round as well)
 - [x] [serial] V7 Measure derived occupancy and the step-time ratio against the admitted kernel.  (batched-destination candidate: width-8 step 2.6% and 6.4% below the reference in two paired rounds; two of four frozen-protocol rounds admitted width 8, and the protocol spread exceeds the margin it decides -- evidence/protocol-measurement-power.md) r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (measured for the rejected candidate: no ratio win to claim. Acceptance target at width 8 is a 78.0 ms step or below, from the 0.75 retention bound; `scripts/qwen38-step-probe.sh` measures it with 480 samples in about three minutes)
 - [x] [serial] V8 Verify the disabled state keeps the admitted kernel as the served route. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]
+- [x] [serial] V11 Prove the staged scalar reads numerically transparent against the float64 reference at widths 1, 4, 3-of-8, 8, and 16; time the recurrence in two paired rounds; and compare 16 greedy tokens end to end. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (evidence/step-kernel-scalar-staging.md)
 
 ## Phase 4: Completion
 
 - [x] [serial] D1 Record the parity table, the occupancy derivation, the step-time result, and every non-claim. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
 - [ ] [serial] V9 Widen the admission protocol so it resolves a two percent difference: interleaved root order, per-user first-token statistics instead of the group maximum, and enough roots for a stable median. Blocks any further width-8 admission verdict; evidence/protocol-measurement-power.md. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
 - [x] [serial] D2 Reject the candidate on any failed gate and keep the admitted kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]
-- [ ] [serial] D3 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
+- [x] [serial] D3 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (`repository-quality-artifacts`, `repository-quality-cairn`, and `qwen38` all pass on the cleaned change; the artifact manifest carries the new evidence file)
 
 ## Verification Coverage
 

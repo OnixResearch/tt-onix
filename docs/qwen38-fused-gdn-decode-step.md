@@ -84,6 +84,28 @@ second. Under concurrent load the packaged service keeps 50 to 58 ms per token
 at widths 3 to 16. The composite route took 65 to 104 ms. The measurements are
 in `.cairn/changes/serve-qwen38-fused-gdn-decode-step/evidence/host-and-width.md`.
 
+### Recurrence reader scalar staging (2026-10-21)
+
+The recurrence reader resolved its four per-instance scalars (`a`, `b`,
+`dt_bias`, `-exp(A)`) with a 64-byte NOC read and a full NOC barrier each: four
+round trips on top of the row and state reads. The four reads now share one
+scratch page and the barrier that already covers the row and state reads. The
+values, offsets, and destination pages are unchanged.
+
+Traced in isolation, the recurrence falls from 54.1 to 51.2 µs at width 1,
+113.7 to 107.8 µs at width 8, and 198.8 to 186.5 µs at width 16 in paired
+rounds. Against the float64 reference the change is numerically transparent at
+widths 1, 4, 3-of-8, 8, and 16, and the first sixteen greedy tokens at width 1
+are identical to the previous package. The detail and the rejected levers are in
+`.cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/step-kernel-scalar-staging.md`.
+
+Two adjacent levers did not pay and are recorded rather than shipped. Batched
+destination registers need `dst_full_sync_en=True` to exceed four tiles per sync
+round, and full sync costs about 2.5 percent, more than the batching recovers.
+Double-buffering the reader and writer circular buffers is numerically wrong at
+two instances per core. This record makes no width-8 or width-16 admission
+claim; it changes the reader only.
+
 ## Prefill
 
 Time to first token comes almost entirely from host-side TT-NN operation
