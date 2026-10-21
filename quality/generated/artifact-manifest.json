@@ -3536,6 +3536,12 @@
       "blake3": "ad9a5f211d2ef0888e182a34018e422c2caa5db5efd51c5c0030a5a0cf51f38a"
     },
     {
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-p150x2-requalification.json",
+      "class": "portable_evidence",
+      "byte_count": 5725,
+      "blake3": "d13c91251406c72e80db7df47c0cb1f0bcac1d1404575bc3049ace73db8853e7"
+    },
+    {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
       "class": "large_fixture",
       "byte_count": 4981056,

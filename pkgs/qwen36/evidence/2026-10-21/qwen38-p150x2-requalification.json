@@ -1,0 +1,224 @@
+{
+  "schema": "onix.qwen38.p150x2-requalification.v1",
+  "date_utc": "2026-10-21",
+  "simulation": false,
+  "physical_pcie_device_ids": [
+    0,
+    1
+  ],
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package": "/nix/store/qxwnq7213yavfq3skr21vanwwfj03bk9-qwen38-0.1.0",
+  "package_identity": "/nix/store/9mm1yvljb8pj8jvgfd5r1prfgjvp0k21-qwen36-execution-identity-0.1.0",
+  "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "hardware": {
+    "device_count": 2,
+    "board_type": "p150a",
+    "driver": "TT-KMD 2.10.0",
+    "firmware_bundle": "19.11.0.0"
+  },
+  "server": {
+    "decode_mode": "candidate",
+    "max_sequence_length": 2048,
+    "max_generation_tokens": 32,
+    "environment": {
+      "QWEN35_GDN_DECODE_FUSION": "step",
+      "QWEN35_GROUPED_PREFILL": "1",
+      "QWEN36_TRACED_PREFILL": "1",
+      "QWEN36_GDN_FUSED_PREFILL": "0",
+      "QWEN36_GDN_BF4": "0",
+      "QWEN36_SAMPLED_FUSION": "0",
+      "QWEN36_MTP_SERVING": "0"
+    },
+    "startup_warmup_seconds": {
+      "b1": 490.56376495899167,
+      "b4": 91.03050494199852,
+      "b8": 95.22399654699257
+    },
+    "device_dram": {
+      "allocated_bytes": 23202524160,
+      "free_bytes": 9902465024,
+      "banks": 8
+    }
+  },
+  "b1": {
+    "command": "qwen38-p150x2-serve",
+    "requests": [
+      {
+        "route": "chat",
+        "prompt": "Say hello in five words.",
+        "max_tokens": 16,
+        "temperature": 0,
+        "enable_thinking": true,
+        "http_status": 200,
+        "wall_seconds": 2.471311,
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 58,
+          "completion_tokens": 16,
+          "total_tokens": 74
+        },
+        "content": "",
+        "reasoning_content": "We need to respond to user: \"Say hello in five words.\" Need final"
+      },
+      {
+        "route": "chat",
+        "prompt": "Reply with exactly: OK",
+        "max_tokens": 8,
+        "temperature": 0,
+        "enable_thinking": false,
+        "http_status": 200,
+        "wall_seconds": [
+          1.002669,
+          1.074386
+        ],
+        "finish_reason": "stop",
+        "usage": {
+          "prompt_tokens": 17,
+          "completion_tokens": 1,
+          "total_tokens": 18
+        },
+        "content": "OK"
+      },
+      {
+        "route": "chat",
+        "prompt": "Count from one to ten in words.",
+        "max_tokens": 16,
+        "temperature": 0,
+        "enable_thinking": false,
+        "http_status": 200,
+        "wall_seconds": [
+          1.916061,
+          1.974985
+        ],
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 20,
+          "completion_tokens": 16,
+          "total_tokens": 36
+        },
+        "content": "One, two, three, four, five, six, seven, eight,"
+      }
+    ]
+  },
+  "b4": {
+    "command": "qwen38-p150x2-batch-admission",
+    "batch_admission": true,
+    "requests_released": 4,
+    "usable_responses": 4,
+    "wall_seconds_coarse": 2,
+    "responses": [
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      }
+    ]
+  },
+  "b8": {
+    "command": "qwen38-p150x2-b8-admission",
+    "batch_admission": true,
+    "requests_released": 8,
+    "usable_responses": 8,
+    "wall_seconds_coarse": 4,
+    "responses": [
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      },
+      {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 16,
+          "total_tokens": 26
+        }
+      }
+    ]
+  },
+  "non_claims": [
+    "No training-correctness, convergence, or task-quality claim.",
+    "No throughput or latency benchmark claim; wall times are bounded smoke observations.",
+    "No continuous-slot scheduler or prefix-cache qualification.",
+    "No MTP, sampled-fusion, BF4, or fused-prefill qualification.",
+    "No claim that the failed production service has been restored."
+  ]
+}

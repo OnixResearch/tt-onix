@@ -81,8 +81,10 @@ See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
 metadata-only profile, bounded simulator verdict, and explicit non-claims.
 
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the historically
-validated P150x2 output and its guarded NixOS example. The current edited
-package requires a fresh physical qualification before serving.
+validated P150x2 output and its guarded NixOS example. A bounded B=1/B=4/B=8
+physical smoke of the current package passed on 2026-10-21; continuous-slot,
+prefix-cache, MTP, and production serving still require their own physical
+qualification.
 
 Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
 `qwen38` prefix, including `qwen38-check` and `qwen38-p150x2-serve`.
