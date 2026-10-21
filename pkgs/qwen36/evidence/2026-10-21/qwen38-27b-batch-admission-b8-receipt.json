@@ -34,14 +34,15 @@
     "generated_tokens": 64,
     "measured_runs": 3,
     "prompt_count": 8,
-    "simulated": false
+    "simulated": false,
+    "ttft_statistic": "per-user-median"
   },
   "identity": {
     "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
     "checkpoint_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
     "model_identity": "Qwen3.8-27B:1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
     "model_source_revision": "d102e7f4512060e09e580e40cf26a870bfa88c55",
-    "package_identity": "/nix/store/hmn4z5n63vlz7prlva2kispp8d6wlll5-qwen36-execution-identity-0.1.0",
+    "package_identity": "/nix/store/7bxzfg0q0hfkikriygh9wi049mdn7fbd-qwen36-execution-identity-0.1.0",
     "physical_pcie_device_ids": [
       0,
       1
@@ -50,42 +51,45 @@
     "tokenizer_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
   },
   "metrics": {
-    "aggregate_decode_speedup_ratio": 7.407716791277027,
+    "aggregate_decode_speedup_ratio": 7.40828096836077,
     "batch": {
-      "median_aggregate_decode_tokens_per_second": 174.60165013452982,
-      "median_cleanup_seconds": 0.013657047995366156,
-      "median_per_user_decode_tokens_per_second": 21.825206266816227,
-      "median_prefill_state_install_seconds": 0.0003041759773623198,
-      "median_tail_token_latency_seconds": 0.04602034448180348,
-      "median_trace_prepare_seconds": 0.43803638202371076,
-      "median_ttft_seconds": 1.687464373477269
+      "median_aggregate_decode_tokens_per_second": 174.605733931222,
+      "median_cleanup_seconds": 0.014888894511386752,
+      "median_group_first_token_seconds": 1.7125812055019196,
+      "median_per_user_decode_tokens_per_second": 21.82571674140275,
+      "median_prefill_state_install_seconds": 0.00021682199439965189,
+      "median_tail_token_latency_seconds": 0.04607152150128968,
+      "median_trace_prepare_seconds": 0.41805671650217846,
+      "median_ttft_seconds": 0.9572568679868709
     },
-    "per_user_decode_retention_ratio": 0.9259645989096283,
+    "per_user_decode_retention_ratio": 0.9260351210450962,
     "single": {
-      "median_aggregate_decode_tokens_per_second": 23.570238314203962,
-      "median_cleanup_seconds": 0.015341255028033629,
-      "median_per_user_decode_tokens_per_second": 23.570238314203962,
-      "median_prefill_state_install_seconds": 0.0004374315030872822,
-      "median_tail_token_latency_seconds": 0.042683364008553326,
-      "median_trace_prepare_seconds": 0.41012735999538563,
-      "median_ttft_seconds": 0.22001774350064807
+      "median_aggregate_decode_tokens_per_second": 23.568994572010276,
+      "median_cleanup_seconds": 0.012657068989938125,
+      "median_group_first_token_seconds": 0.22021501150447875,
+      "median_per_user_decode_tokens_per_second": 23.568994572010276,
+      "median_prefill_state_install_seconds": 0.0002851999888662249,
+      "median_tail_token_latency_seconds": 0.042670665483456105,
+      "median_trace_prepare_seconds": 0.379584658483509,
+      "median_ttft_seconds": 0.21171737648546696
     },
-    "tail_latency_ratio": 1.0781798846169073,
-    "ttft_ratio": 7.669674030050665
+    "tail_latency_ratio": 1.0797000932444356,
+    "ttft_group_max_ratio": 7.776859505634061,
+    "ttft_ratio": 4.521390184771066
   },
   "non_claims": [
     "this receipt admits only candidate width 8 on the recorded execution identity and does not admit any other width",
     "this receipt does not admit arbitrary continuous batching",
     "this receipt does not replace the single-stream eager-versus-traced gate"
   ],
-  "profile_id": "qwen38-p150x2-batched-throughput-b8-v1",
+  "profile_id": "qwen38-p150x2-batched-throughput-b8-v2",
   "response_hashes": {
     "batch": [
       {
         "root": "batch-1",
         "samples": [
           {
-            "blake3": "a23140258318a1da89d3ac182cc085e1a2c8e600bc0cf37777e8147af8a2d3e3",
+            "blake3": "2269bd275700375bc1cb92d43d3c6cb36946e8a4e746d0d68bdbabf9824fff75",
             "path": {
               "Unix": [
                 48,
@@ -113,7 +117,7 @@
             }
           },
           {
-            "blake3": "cb1f4a0a8b24beff91c94d76f71bb4eeadd9d9b85692b746a2dbd4caa1647aad",
+            "blake3": "ac121abc75bd2ca69d505949c5aee354bb70679df544d14dfd22c4d6562ced75",
             "path": {
               "Unix": [
                 48,
@@ -141,7 +145,7 @@
             }
           },
           {
-            "blake3": "8c596b7720b7c92ab9e4f1a66a799e30b165f00bf1d10b848232c417f25e3d1d",
+            "blake3": "4850808d0cd3b636b1df182915beee57e0b9ea7b0178daea308416ea06b2d575",
             "path": {
               "Unix": [
                 48,
@@ -169,7 +173,7 @@
             }
           },
           {
-            "blake3": "991f2070a90516efa588044c03532c3b3df3100153769a472dfdd5e2d604a9fe",
+            "blake3": "24095bdc9fd08362842fdb0a41c53906d6c7da6c20c088e090e7721769af1cdc",
             "path": {
               "Unix": [
                 48,
@@ -197,7 +201,7 @@
             }
           },
           {
-            "blake3": "9fe182e3ec2c491adc74298bfc533c7fb2f930019eafce63bced4e4ed18443ca",
+            "blake3": "b51b98a6f9ff8c4c977ecbd23258c96d2b0ae546d74c6a45ca575057330d073f",
             "path": {
               "Unix": [
                 48,
@@ -225,7 +229,7 @@
             }
           },
           {
-            "blake3": "38bdcebddd3dda3b28a8705d64a3ade1b2aa4a755f99efe13a2c6b4e6421fda9",
+            "blake3": "74aeb01acd6484d5ee95526fb185d2913386caad48c36bed2d8af61e01639542",
             "path": {
               "Unix": [
                 48,
@@ -253,7 +257,7 @@
             }
           },
           {
-            "blake3": "e5aa31c7cf0afc7be65d2068f468fbb90369282b49a893ead8a391dc7ed0a721",
+            "blake3": "83d5fc7dc0aeb6b00c3a6de7c25e26cafb80424bacb7409e174439b52d5e883e",
             "path": {
               "Unix": [
                 48,
@@ -281,7 +285,7 @@
             }
           },
           {
-            "blake3": "70f54e5afc620030bd3243f9cdb741a8811d2081bbfa32024f9cf91d50f1e7ca",
+            "blake3": "b4db1c2d8437a6a48cc42775c2f695e648d44b8aa9596b5f431d0d49bbef3dc9",
             "path": {
               "Unix": [
                 48,
@@ -309,7 +313,7 @@
             }
           },
           {
-            "blake3": "87a7591c4bbd948d6f4fee881a0595cf4c44e3c31525ed7c0526cd5309246278",
+            "blake3": "d3243337da70e5376328203289bb6f58d3f5b803df5fe11c4260a1ef3ca5d8ae",
             "path": {
               "Unix": [
                 48,
@@ -337,7 +341,7 @@
             }
           },
           {
-            "blake3": "8d73c7a0fff2beb530ccc40f23e227a83c558e4d76435d90e079f4de463d6ca4",
+            "blake3": "806a8d8206d577f9c6b9e41ffa455e8c3ad67d13d8295231ddcd448ef6a113ca",
             "path": {
               "Unix": [
                 48,
@@ -365,7 +369,7 @@
             }
           },
           {
-            "blake3": "2aa027cb9d09ffd8af4a5fce45fd559213905f4d9103d5b263fcbd921e38c9fc",
+            "blake3": "3d0592e84a60bc99ddfd81205ecf3d5000e9bb7962e16b9e09458a9a93fa6f9d",
             "path": {
               "Unix": [
                 48,
@@ -393,7 +397,7 @@
             }
           },
           {
-            "blake3": "9ae731045759a60138b06fddf390b6421911d94424e53adcbd9e4b8342f55077",
+            "blake3": "8399c9dc289b82d1b91b7f52007e0f7aa2bbf1b6de37c7e6c7c463ee83130b99",
             "path": {
               "Unix": [
                 48,
@@ -421,7 +425,7 @@
             }
           },
           {
-            "blake3": "a8a2fcd368b5d2290c6039307219f6c805b9a2e040bbe017520cebab0a0089e0",
+            "blake3": "06b57454c588fa0446dbb1b1ef29c168873ae4a1cec12e281c7796c13a4eceaf",
             "path": {
               "Unix": [
                 48,
@@ -449,7 +453,7 @@
             }
           },
           {
-            "blake3": "faec53e7b900f32bb905bc12d609f266818dc3c569459fe9d0359347e613ce72",
+            "blake3": "65ac927ffb633cecf114781afd04c9fa879340fffafd27d939d7407e213e80cf",
             "path": {
               "Unix": [
                 48,
@@ -477,7 +481,7 @@
             }
           },
           {
-            "blake3": "3a6ab5e641a034973863802f94851d66b7c54c0c269040567a914e92d8cdb5d4",
+            "blake3": "a0bf6a3fca590f6314152636aa00209c43edfb991edf914b39d001eeb42917f1",
             "path": {
               "Unix": [
                 48,
@@ -505,7 +509,7 @@
             }
           },
           {
-            "blake3": "de453103c86ea6acca5a433550b6c6664b7580c492030fed2c4eb63c7cdca166",
+            "blake3": "d9dee882c214f43d4cda9229c47cacb2d04d9e9c3f22d1204b509c3b848b46e0",
             "path": {
               "Unix": [
                 48,
@@ -533,7 +537,7 @@
             }
           },
           {
-            "blake3": "d01602344dc4d8c746311a43c3795d52d2ac09f6d1cd743012661668d2a8b356",
+            "blake3": "6feba982d26e949c50557913c1a70e4310046407edaf95696159faedc2abd741",
             "path": {
               "Unix": [
                 48,
@@ -561,7 +565,7 @@
             }
           },
           {
-            "blake3": "aba3d4e37a0853c1cb627d406de90e55448edadc05593654a5f2ad3cd6b8f46c",
+            "blake3": "c8053e874211a7c32e061bd1171227e5066667ba885c48c536b75a2b094de1fa",
             "path": {
               "Unix": [
                 48,
@@ -589,7 +593,7 @@
             }
           },
           {
-            "blake3": "bc53440644d6b1c91530b824450d7f17ebc8ce9e93832e3708652fbfa8cf1eda",
+            "blake3": "68dbf143511ce13e697609c4d850c583b939c1c1ba3e3654f3d436594a38303f",
             "path": {
               "Unix": [
                 48,
@@ -617,7 +621,7 @@
             }
           },
           {
-            "blake3": "bb8e82cb6fc2403b0f47636d19c7dc17a2dc1224e771bd1948381764f893bc3c",
+            "blake3": "2433fe338e89841af9bb8209f9f2127846f91ddfe5cd686873d3043a3ff5656c",
             "path": {
               "Unix": [
                 48,
@@ -645,7 +649,7 @@
             }
           },
           {
-            "blake3": "ad40d6f8f7abcf034020790904b0a041e6aefb61a35b4e12d8356cefeadd66a1",
+            "blake3": "19e9cb638d77a979f265d2bdc5c90e97b666b7f539d6f385f544dd0ccad36eea",
             "path": {
               "Unix": [
                 48,
@@ -673,7 +677,7 @@
             }
           },
           {
-            "blake3": "6ceba67ab4ce907e60cf56792bb546ccaeb37cb88ebfdc0310ae3f1871ebd2ed",
+            "blake3": "d301ed526ae4fc637717002cde7b5ba3c97ad6e036245502ccfe8d99fe8f29d9",
             "path": {
               "Unix": [
                 48,
@@ -701,7 +705,7 @@
             }
           },
           {
-            "blake3": "357358e2547a848ddc132ce4044675e72a0482c3dc61990d25228847fa667f82",
+            "blake3": "4a45fa1f324e743317d186e9288797a48c4973756748b38f8850f42fcd71ea3d",
             "path": {
               "Unix": [
                 48,
@@ -729,7 +733,7 @@
             }
           },
           {
-            "blake3": "5f4632a035f496357b54a818b9c5466d1cbd07a3b224526a11a4d8d0abd2b8e3",
+            "blake3": "d6a3ddc494d1cb2b39d318c03902d10d396ada8ef32a10a51399ddeecf7a2e70",
             "path": {
               "Unix": [
                 48,
@@ -762,7 +766,7 @@
         "root": "batch-2",
         "samples": [
           {
-            "blake3": "e50f5216a24f5199dac7e14dabdcf68ae9cbc69e6521fd4c2d335e562a9941ba",
+            "blake3": "040ad8de6d40a4889382ce4dcfc246f8b69642d727614abf4651a5f85a745a4c",
             "path": {
               "Unix": [
                 48,
@@ -790,7 +794,7 @@
             }
           },
           {
-            "blake3": "68e7457d00873575186fbf7839b1c5311d8d823b2f06d52878adb9b2cb95337b",
+            "blake3": "8c00122a974fe2f0f287e28be09229070b739d423219e498b8184d1c678d3943",
             "path": {
               "Unix": [
                 48,
@@ -818,7 +822,7 @@
             }
           },
           {
-            "blake3": "c65edde088e215a609ada108cf8e36d5693557a1a27e5538736c3ea702398883",
+            "blake3": "4aa79a04309ab4bc2a899bb6a7a513a69c45683019ee7f48cb3ae4f72d0d4754",
             "path": {
               "Unix": [
                 48,
@@ -846,7 +850,7 @@
             }
           },
           {
-            "blake3": "acf889c291219906193ed73310c1d367fac0d6c5394672e12a0f21aba3a7fb98",
+            "blake3": "1f94960f5297149de99b8f8501b0948e457e63aeccc1222b6512f59bf3e19a55",
             "path": {
               "Unix": [
                 48,
@@ -874,7 +878,7 @@
             }
           },
           {
-            "blake3": "64748c3fd19ffcf91745b791c7043f03bbe3187af6440898e7b75187ddb1d104",
+            "blake3": "a6ebf1836c0284e52f35f84307401e934a0c22983ce442ca0903e43bc5531508",
             "path": {
               "Unix": [
                 48,
@@ -902,7 +906,7 @@
             }
           },
           {
-            "blake3": "7b7b266f8dc9a971318b072bf15ca75efd3e0a37a6199f0aefadc0477b9b0518",
+            "blake3": "755c9d918778f16358cd86f9f4e6e033851847effd66cd20eaf271cd93787fee",
             "path": {
               "Unix": [
                 48,
@@ -930,7 +934,7 @@
             }
           },
           {
-            "blake3": "70d11ab3fb7f1d82c533d57d3647db28a9822b8d0db29666c895987c5ba5d679",
+            "blake3": "83b459f6a58453038923dd0c5324383278e2b5aea1a157acc63105e48993c697",
             "path": {
               "Unix": [
                 48,
@@ -958,7 +962,7 @@
             }
           },
           {
-            "blake3": "39100e1fc6e95cca2025c8fe18900b3e191faeba7a5d7959f2fc7da59ea5857e",
+            "blake3": "0e022d28aab5213f3379d73025f417930f2fdfa1dab1991cf454c747db71d833",
             "path": {
               "Unix": [
                 48,
@@ -986,7 +990,7 @@
             }
           },
           {
-            "blake3": "3b0d79e9af6ac8d294a8577607a82689c13aa23b2cdc5f07d7d8c6069dbcc751",
+            "blake3": "b0146ac589c8454a045d34688ed759414f57660dc0de60261792cc32a36b244f",
             "path": {
               "Unix": [
                 48,
@@ -1014,7 +1018,7 @@
             }
           },
           {
-            "blake3": "4ea481874384eae8368fe6b494638826d390e0dcdb1f4de4a62c02c6fa23b76d",
+            "blake3": "512aa51e4c6ad11a8be344fa4e8eb5a6bd4189cf2b077030f69370730af7039f",
             "path": {
               "Unix": [
                 48,
@@ -1042,7 +1046,7 @@
             }
           },
           {
-            "blake3": "c89c13c89d4015fb305a52187bf101798f546b42750e129985a1a3e88e89ae17",
+            "blake3": "74902e92ebaa5a59e4ea7e3515db279d8ef5290db4289cf3a865d10d3c047431",
             "path": {
               "Unix": [
                 48,
@@ -1070,7 +1074,7 @@
             }
           },
           {
-            "blake3": "47fc8ad863af057cee2607ea994273e96f5b9ef9e3f4ccdbcdd65add961b37df",
+            "blake3": "83264f44c53abc882ba089d93a34880e1fb9abda3ca7f983f94f6bfff6994224",
             "path": {
               "Unix": [
                 48,
@@ -1098,7 +1102,7 @@
             }
           },
           {
-            "blake3": "063d195360e321a5cdcf84897012163d85613af468105a89723276615388a1f6",
+            "blake3": "3b54051592f3a424175ba3b7726d794db3f6b4ffb828d37466a11463d1324a76",
             "path": {
               "Unix": [
                 48,
@@ -1126,7 +1130,7 @@
             }
           },
           {
-            "blake3": "f51e47ec847fe935a086eb54e885fd76e3e8c46fdf43bf7304055addf70a3b4b",
+            "blake3": "9e1ea8a4db4d502e94c0db4f8e6466221838107dbe5cd67a4c598d43dc09ac97",
             "path": {
               "Unix": [
                 48,
@@ -1154,7 +1158,7 @@
             }
           },
           {
-            "blake3": "a817edda6ee81d0d4e46bb604c15bcbef4c2c5aaf86fa00d22ff8d924fcd8d16",
+            "blake3": "c865fe506180e45c0b320c183c54811ee32db1a23a61974e5750d56ce399d1e4",
             "path": {
               "Unix": [
                 48,
@@ -1182,7 +1186,7 @@
             }
           },
           {
-            "blake3": "e8769fdd116643ca28f64aa0c394aea860c8d88e21ac156f3828c46388e92d89",
+            "blake3": "3af25056a1f2e4826466d935d645f774cd1212c60a223262cf270d168400e68c",
             "path": {
               "Unix": [
                 48,
@@ -1210,7 +1214,7 @@
             }
           },
           {
-            "blake3": "7f5f719d213649fdfeae3b09f35d1da9ae03c580c863793132f77d35f03e9843",
+            "blake3": "f0c80c37c1432352f36744b819a923d8ce9d6c183108c96bd0fc159ce336d7eb",
             "path": {
               "Unix": [
                 48,
@@ -1238,7 +1242,7 @@
             }
           },
           {
-            "blake3": "c2519ae6b9c777b9f5a0a7c0c4c615bbe1c28dac53ba205f14692f07956f385e",
+            "blake3": "677911e0f32d98084d16693db5019a2bda32a167917a53baa6b10cfc92f954a2",
             "path": {
               "Unix": [
                 48,
@@ -1266,7 +1270,7 @@
             }
           },
           {
-            "blake3": "b74ff7d4820d6c961dc76b919748775e56050b5c86a6ebf71dc2de01051d6743",
+            "blake3": "0b263048aadb57b89aa8b5f6a559c1df9307ded0c82070d02768a6ee6c7129ba",
             "path": {
               "Unix": [
                 48,
@@ -1294,7 +1298,7 @@
             }
           },
           {
-            "blake3": "11e829c9fe6718607863429e6bf312abb75a8fc709e9ab52df25776ccc85e2f8",
+            "blake3": "e4d9309367d5092ca5dd6cbf8966b97d5499387111cc33cb3c560206b2079c0d",
             "path": {
               "Unix": [
                 48,
@@ -1322,7 +1326,7 @@
             }
           },
           {
-            "blake3": "7a4a17fb3bc9e477a3a1805721927b9a9029d1a40bbcdc6972b7ec67720892ce",
+            "blake3": "81a8f00dced7b1ca9b7a2344c6c09049a12bb274f09b3df1a2ece3581ea399c7",
             "path": {
               "Unix": [
                 48,
@@ -1350,7 +1354,7 @@
             }
           },
           {
-            "blake3": "327f17118fabb3769ba9aa5d1533eadf72bb73e09bb52c80f85b558fffd8990d",
+            "blake3": "6bd8aecfe476c33e82303dc39d47eed3b8bf76ca4bfe9d8e1450809b065865a3",
             "path": {
               "Unix": [
                 48,
@@ -1378,7 +1382,7 @@
             }
           },
           {
-            "blake3": "530974850f36c51916e1da55690bc6c01092ee21491d81a5773c76b240abc81e",
+            "blake3": "8a6f349e14506e492634447d37e4aca8c9af2e4ec2db31c8c89ed9785fe2271c",
             "path": {
               "Unix": [
                 48,
@@ -1406,7 +1410,7 @@
             }
           },
           {
-            "blake3": "b5678748bb6ae41f69b29d0ad566bca416c56378fd47b92f09c6b05b860ec69f",
+            "blake3": "6bcd84aeac3b83b6b9b1ff85596f0af3d26e784ea8ac65f73363aaafa3c2833b",
             "path": {
               "Unix": [
                 48,
@@ -1441,7 +1445,7 @@
         "root": "single-1",
         "samples": [
           {
-            "blake3": "6a4ed7ea538e25d26ee3edadc0203ef49eba9c44dafc59f2e596f1c89951415b",
+            "blake3": "7dd59604150d569f7179af7d9fb20a02663831d12fac621699a4b07f5b5e66cd",
             "path": {
               "Unix": [
                 48,
@@ -1469,7 +1473,7 @@
             }
           },
           {
-            "blake3": "00083d283bc9d0065affba847b19db458c31fca199634da8c34fd78fea6598a9",
+            "blake3": "486aa27ef106631909b85f8655ed8fd956b713fd544da5bd16aa50fafafb1aaf",
             "path": {
               "Unix": [
                 48,
@@ -1497,7 +1501,7 @@
             }
           },
           {
-            "blake3": "9f7be7563bdefd9c12b76d7864b7dd489018f9fe431d49cceb20bc93bb0e6bee",
+            "blake3": "14cd4b8b3abda1cdfb3957bcc3d56278ebf6366a54306badce6586fcd3192514",
             "path": {
               "Unix": [
                 48,
@@ -1525,7 +1529,7 @@
             }
           },
           {
-            "blake3": "d7a37773aab7a358808666ff023af25ee9c191a54705187ec02647304a7fe38f",
+            "blake3": "f26b493a06f29e8b6760b3e7eda9b39c393b5e1e1f1a5b689ab9867bfd01bd5f",
             "path": {
               "Unix": [
                 48,
@@ -1553,7 +1557,7 @@
             }
           },
           {
-            "blake3": "c75f568c41482888d1851855c5842c0e2db4089120dbabd1d1cff291e6de0796",
+            "blake3": "98784a684d166fbb5019dbc9fc73f96dcb71c3c7a25cb6eb0df8757bbd549830",
             "path": {
               "Unix": [
                 48,
@@ -1581,7 +1585,7 @@
             }
           },
           {
-            "blake3": "58080b0507dbe082dece1fc783c950433b1f8e502a818e20e0ec343807407062",
+            "blake3": "ef6cb11d4306759c35e73e64c3a7e73208f8971b054079efd1a4b8c298b012f0",
             "path": {
               "Unix": [
                 48,
@@ -1609,7 +1613,7 @@
             }
           },
           {
-            "blake3": "776d92d92035ddba4ecfec5d989b4e5ed87a2ec89aeba76ea2031b3b5abc28af",
+            "blake3": "df3a50e9cbc6b67d6f3c76c351a788ed915767815fcdd338cb6f77c9f772e522",
             "path": {
               "Unix": [
                 48,
@@ -1637,7 +1641,7 @@
             }
           },
           {
-            "blake3": "0dc42efdf0f7f60c3296ae1685fd5f6b942cc6e3f1e34577d11bf55d6e27ad7a",
+            "blake3": "4b44b6a12108cc90aa1083150fdcba4ed5bafe472dd6ec038d18d03541267f2e",
             "path": {
               "Unix": [
                 48,
@@ -1665,7 +1669,7 @@
             }
           },
           {
-            "blake3": "48bb72631e4ba50ca1923559d0e6ea98af3d410bfe97efcb25c48f48d195edc2",
+            "blake3": "0043b933963b36151ee9ba0a22a3a2539b4bec8187e25df137f9d3c495ed8c91",
             "path": {
               "Unix": [
                 48,
@@ -1693,7 +1697,7 @@
             }
           },
           {
-            "blake3": "e4b59678f0f615dc5efbbbc6dfc24407a06f679ad9fbe02d1821ec1fc8e3c93c",
+            "blake3": "dc0a5b79405d96339f468a6f3a31a7db677d5ca1813aef7a91d6e9a9469c48ae",
             "path": {
               "Unix": [
                 48,
@@ -1721,7 +1725,7 @@
             }
           },
           {
-            "blake3": "8097b4fd3b90ff7ef0b4efb4f5d81ffa3bf63bb2dd0e07c68f48f5fa18fafd32",
+            "blake3": "967db569a119987d1a9530fc69f0b3ee499180963cf5714922a5f1e0859523d6",
             "path": {
               "Unix": [
                 48,
@@ -1749,7 +1753,7 @@
             }
           },
           {
-            "blake3": "e7c73ef65b5463e5e21758d37d486dc54dbc7d05d49822ade7d43a275a1208bd",
+            "blake3": "8b0fc65df76eb7bf3f6fbb64698686d20d23303132a7d02abfabd057d8433ef0",
             "path": {
               "Unix": [
                 48,
@@ -1777,7 +1781,7 @@
             }
           },
           {
-            "blake3": "ea68b0b7b231707fbc573e34b287ca64d183c8d3a8e23656c208e90f051876b2",
+            "blake3": "4d7e535eb05dd571ad34be4f7cb02c045a4c28d121402426c40003c902f70782",
             "path": {
               "Unix": [
                 48,
@@ -1805,7 +1809,7 @@
             }
           },
           {
-            "blake3": "0f3b96ad380e43ec07ab802fd73cde75cd65cc6a699572aac704b84c2f52912a",
+            "blake3": "ab1d90046f72574f067a19850e39e6c7b1b9b66eed270be0a3dac677932a2a7c",
             "path": {
               "Unix": [
                 48,
@@ -1833,7 +1837,7 @@
             }
           },
           {
-            "blake3": "5c6e4d3ecffaceb1743643c78d6242c37a6c3e096de43192492b18bb090573b4",
+            "blake3": "ad97328a185ff4e9be77f9353b183a4cc35de7db31a4be27991bad03fd6a08f8",
             "path": {
               "Unix": [
                 48,
@@ -1861,7 +1865,7 @@
             }
           },
           {
-            "blake3": "d7b532ed2532358bf26433afc2545b7f13d9788a4d961d92d3f2eaf179256faa",
+            "blake3": "63a40d4e971dadf56b6f7a3e1d9db32168fc73b1f0edf418ede363e628b6ee49",
             "path": {
               "Unix": [
                 48,
@@ -1889,7 +1893,7 @@
             }
           },
           {
-            "blake3": "ddc14a6ee9f693b9eab328e7a78cca5637f91f930180546a47a670c0b4caba0f",
+            "blake3": "9de84467b0113d0403ec9541b596692586d1559584192a292460fca3044e95cb",
             "path": {
               "Unix": [
                 48,
@@ -1917,7 +1921,7 @@
             }
           },
           {
-            "blake3": "e744c0b7fa9febe85c4d352f184d96c4155feffb22915321f5b56bf10c231485",
+            "blake3": "7a7d8ecda6cc16b4425f949f2aa8f2a4052411d459d70430ff72235f58536753",
             "path": {
               "Unix": [
                 48,
@@ -1945,7 +1949,7 @@
             }
           },
           {
-            "blake3": "0418b46ae4b1368c4baf2ae60199532f1e67dda24ac5d6b6106549759feea190",
+            "blake3": "4561f58fd3130994a96512ea99c81a9581f11db7c111e9e1c8a6a8121861f647",
             "path": {
               "Unix": [
                 48,
@@ -1973,7 +1977,7 @@
             }
           },
           {
-            "blake3": "01b17a8768353a1e7dd9e0e9b7b742fd889bf6bac5f2c98ae4f1445273c9090b",
+            "blake3": "7ce9c1e172764aef9ee3117d903b53cc862423d6a8b6a55593b960cbf6ca0c2e",
             "path": {
               "Unix": [
                 48,
@@ -2001,7 +2005,7 @@
             }
           },
           {
-            "blake3": "440551da1b78b27e4b882e741d589a800e3f424879b9eaf9c5633cfb99e199d8",
+            "blake3": "545860795d030a7eedebd029a149db5ce94cbf81f78c25de374a4289d4ecf4b0",
             "path": {
               "Unix": [
                 48,
@@ -2029,7 +2033,7 @@
             }
           },
           {
-            "blake3": "5893b0efb2b79c1f41245157fd17fee045f5ac6d20ce858805a40607a4db86e2",
+            "blake3": "411bef5d59cf1ea0f7b55c03837b95f4063a3bacffe9848dd5d136fe7004eebf",
             "path": {
               "Unix": [
                 48,
@@ -2057,7 +2061,7 @@
             }
           },
           {
-            "blake3": "478890be48cc9746d7504f019c80e41c4eb2cd73ea6256ab0581bc1303252070",
+            "blake3": "42a8d8b5038b0d83ac7e9e48a17d79a0836f1f7f0010939ea4505222c6968d15",
             "path": {
               "Unix": [
                 48,
@@ -2085,7 +2089,7 @@
             }
           },
           {
-            "blake3": "9954be9b7df75988c9796cd484b984ba7b771cbf62b588e73d6d2ebd8185729e",
+            "blake3": "4dfac13fcadc10c83eddea2326cb22a80d4fe5e60635f75a8b187c2e86dc869a",
             "path": {
               "Unix": [
                 48,
@@ -2118,7 +2122,7 @@
         "root": "single-2",
         "samples": [
           {
-            "blake3": "035b6ced87b4cba3382926b91fb943292e19a2356b0c60ef97e53591c2b2e692",
+            "blake3": "26eefc08af722f341b9336b775c8ad0dca84c803c6e53e1630cf5729deed5824",
             "path": {
               "Unix": [
                 48,
@@ -2146,7 +2150,7 @@
             }
           },
           {
-            "blake3": "a29625dd969d72e807affbfc684271b01a8c0090bed446db2c0c24cae998de7c",
+            "blake3": "325b1b7cc71f15d114c85f03ea37d1a5a1c7ec2168da9cdb8931d5d31092f28a",
             "path": {
               "Unix": [
                 48,
@@ -2174,7 +2178,7 @@
             }
           },
           {
-            "blake3": "91c1ec232baec976a7ecaa58f39deb389c9735cda308ff1a783f074225ee24f3",
+            "blake3": "0c7d983275bd4613d5e77437e376f8c88a7cf8cbc672ad208d5300d4b53afa05",
             "path": {
               "Unix": [
                 48,
@@ -2202,7 +2206,7 @@
             }
           },
           {
-            "blake3": "63b481c2e0215c6058dc5e9a6dffd30b56f124484dadf93af171b094346ea26d",
+            "blake3": "a65849abbf3d4a74b7f85acbbde751a3661307ebbba8f3c4c6f129b3290afb2d",
             "path": {
               "Unix": [
                 48,
@@ -2230,7 +2234,7 @@
             }
           },
           {
-            "blake3": "8b9ae99468482ba01b02dc3e9f528632e784d6e9ded327cd5b949d91a3ffc55b",
+            "blake3": "9f7c298c6fe278a03ffb399df5f0c6fac1de4d6ceec1192286ce819846c3db2b",
             "path": {
               "Unix": [
                 48,
@@ -2258,7 +2262,7 @@
             }
           },
           {
-            "blake3": "7dba29fb29fb450781177ceaeddd2187b81255d78b04029486ff19662ec0135d",
+            "blake3": "c48e6cb6920445a469cf78bead69cc27bdb0a06a22e58d2202cd69b6ec7c477e",
             "path": {
               "Unix": [
                 48,
@@ -2286,7 +2290,7 @@
             }
           },
           {
-            "blake3": "955b67e9fd122b96fb2e4df2fee608d7ea884f36138eb2987b1c9461739e5fb9",
+            "blake3": "c3896f78825aff9a95dea103c295198dc48b9b2951e7e2de328ffdfd7f847918",
             "path": {
               "Unix": [
                 48,
@@ -2314,7 +2318,7 @@
             }
           },
           {
-            "blake3": "76e3b5fad291dd5aae93a1a615d627c974fd492499149bd185228e1592b53d0a",
+            "blake3": "096729c05be3ee2b6f7011c335279df745e2968917f9617b906fd7a6cd8caabc",
             "path": {
               "Unix": [
                 48,
@@ -2342,7 +2346,7 @@
             }
           },
           {
-            "blake3": "76aad2ab9a3cb08cb1b3a87d7ce0592e93eeb8d02756093e1fcfdb62abb40157",
+            "blake3": "c264f0ac285ec6545807c5cbb74942ecdc9070b491567d7bbaea1497c489184f",
             "path": {
               "Unix": [
                 48,
@@ -2370,7 +2374,7 @@
             }
           },
           {
-            "blake3": "f4be1a8d620dad28f4f64b781a81e8d67542bcd3d1a0e22f965a3cc0a7ff3083",
+            "blake3": "461609f7627bbb0f1668f6bf27318618f00a0623443b46c4a6bdb23a8e45ef97",
             "path": {
               "Unix": [
                 48,
@@ -2398,7 +2402,7 @@
             }
           },
           {
-            "blake3": "0941209acd0cab0e134ac83123f7a3b86eb307e48b61ef570a574dc5e0a547c9",
+            "blake3": "0be73714c5b829e4476e7a77eea1ad4b6c892a246efde61b60a539fbae21f513",
             "path": {
               "Unix": [
                 48,
@@ -2426,7 +2430,7 @@
             }
           },
           {
-            "blake3": "858170e5cc02443701147f9e20fa22f5918dbe919c6e33637bd818fa9047bc18",
+            "blake3": "7e2db3546256df135f6c44e13c15acd75acf935828d80eba52f04c4ceac3ad16",
             "path": {
               "Unix": [
                 48,
@@ -2454,7 +2458,7 @@
             }
           },
           {
-            "blake3": "bcebe66afe864e5edd687d1b1362bdc3f83227081cdedfd0bdd94b4f2758cd16",
+            "blake3": "fe0252253e848c36b94642fa0990aeae8bd374f915777a716dc5045cb627fff0",
             "path": {
               "Unix": [
                 48,
@@ -2482,7 +2486,7 @@
             }
           },
           {
-            "blake3": "1be032963b20b82004a056f8059e78355359c98bb3c3deb9819d04845840ab13",
+            "blake3": "2f291845854cad2b0d0bd02a92d3190e8a29f35d0cbba2712ae025ff573f339a",
             "path": {
               "Unix": [
                 48,
@@ -2510,7 +2514,7 @@
             }
           },
           {
-            "blake3": "54379cc048cb18f7fba92e60fc2a84e93ad878212dbeb23f345c13b7152efaf7",
+            "blake3": "66021fe60a224678d57a124752550bfd42ced621a59f9200ab040e87b565ede4",
             "path": {
               "Unix": [
                 48,
@@ -2538,7 +2542,7 @@
             }
           },
           {
-            "blake3": "3649f03c86f876bc8d49e2ed950c9de3231820536f6eaee4cea1fdf62dba4c02",
+            "blake3": "3fdec3e799b184968e9d742fe33bf2d6980f53640b77fb3c13dcd958a22f9c68",
             "path": {
               "Unix": [
                 48,
@@ -2566,7 +2570,7 @@
             }
           },
           {
-            "blake3": "b67d4e8d60f2315c67bff193d78c5bff55f6300381f5c4c5535091e9bb518f1e",
+            "blake3": "39d17629cf999d49ddde242abfae907bf2ffbcaafc49538e4ccac20a95dffe8d",
             "path": {
               "Unix": [
                 48,
@@ -2594,7 +2598,7 @@
             }
           },
           {
-            "blake3": "57f7ead3cb697b4dfab6ff1fb543b8b9d65627928290cf9772294fd45f8daa6c",
+            "blake3": "efb04f2017fd9329a8677321596eeae27479ce82c819e335ae13a160b3a2296b",
             "path": {
               "Unix": [
                 48,
@@ -2622,7 +2626,7 @@
             }
           },
           {
-            "blake3": "50b8938412a5e68f3a9e32e987a0aa86784811685f4efda46cc580d718329c72",
+            "blake3": "4913eef11431c1f9a44510d997f7e574ff242721e54397c37bc08afd85f7929f",
             "path": {
               "Unix": [
                 48,
@@ -2650,7 +2654,7 @@
             }
           },
           {
-            "blake3": "8bfd418628fa94624e503a983bfb2d8bab4db5c1be3cfa947392d2c95ae48afd",
+            "blake3": "094656c447bf5d910d8f8a082413e78772588263dd8aa3ec16474a09e0715974",
             "path": {
               "Unix": [
                 48,
@@ -2678,7 +2682,7 @@
             }
           },
           {
-            "blake3": "92fa5d485e300a2234ce66f8a904048826a00a30b3d352dcf8904649dfbd0c4b",
+            "blake3": "c6122beaff5c64ff9d4f8a2b38d37c7e9da5fa7b767caa388e0fc331b9441c6e",
             "path": {
               "Unix": [
                 48,
@@ -2706,7 +2710,7 @@
             }
           },
           {
-            "blake3": "70965b3f3ac1527ea0e01c5d01ec42f2b1524ed86c4a640643471d3685c4e885",
+            "blake3": "0b4281dcaee7490941ab4115c8a1f51a8b4013a3a1cc0079b60685f5f71bd65b",
             "path": {
               "Unix": [
                 48,
@@ -2734,7 +2738,7 @@
             }
           },
           {
-            "blake3": "5f029e0486143134633e4076ada29142134a4485c21f0739652216d01b20704e",
+            "blake3": "367314c220cff421cd09c0db213f9d36f0a350e1ee2d03ccec8326e1f9e2053b",
             "path": {
               "Unix": [
                 48,
@@ -2762,7 +2766,7 @@
             }
           },
           {
-            "blake3": "28ab66e20702ea99225c49e7af87bc1a943e72ea7e1e14f46a9dbd99f20d9acd",
+            "blake3": "b0d50ca3c2c3bcd5846c29f854fb23dc0c95d8766d092060b610faf5bc1a3f24",
             "path": {
               "Unix": [
                 48,

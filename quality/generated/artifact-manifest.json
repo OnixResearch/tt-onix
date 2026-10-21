@@ -1472,6 +1472,12 @@
       "blake3": "e1bfb61d4bab4cf35fed69b27c0ee5db2d08caef2e5b0affdc00597e2faa0272"
     },
     {
+      "path": ".cairn/changes/qwen38-grouped-prefill-b8-rescreen/evidence/g9-b8-per-user-ttft-2026-10-21.md",
+      "class": "portable_evidence",
+      "byte_count": 2085,
+      "blake3": "df727da6e1b9dc2c3ea6a386f3821963b5f20a41e9e12f6a4f4550a447fc3748"
+    },
+    {
       "path": ".cairn/changes/qwen38-hybrid-prefix-cache/evidence/p5-snapshot-memory-and-simulator-blocker.md",
       "class": "portable_evidence",
       "byte_count": 2279,
@@ -3578,10 +3584,16 @@
       "blake3": "986f729b46bd24e11f6cf65cae613e50bb082ba2ef0e602f620c31ac71150dc2"
     },
     {
-      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json",
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt-v1-group-ttft.json",
       "class": "portable_evidence",
       "byte_count": 63217,
       "blake3": "f541b692a8a7696d60e0ffaf512b2861338439a49ad53d3356600f7def97eed9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 63426,
+      "blake3": "44960a77df0c7666624f4b0ae2e1f155f8b8861ad3de95b33886bcd358f398ab"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-p150x2-requalification.json",

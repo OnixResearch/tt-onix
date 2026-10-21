@@ -1354,9 +1354,17 @@ outside the protocol's run-to-run spread against the 0.75 bound. The
 protocol-widening task was therefore not needed for this verdict, and the frozen
 bounds were not edited.
 
+The width was later re-measured under the v2 per-user TTFT statistic (the same
+statistic B=16 uses): speedup 7.408, retention 0.926, per-user TTFT ratio 4.521
+against 9.0, group-max ratio 7.777 as a diagnostic, tail 1.080, with exact parity
+throughout. The admitted receipt is now
+`pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json`
+(BLAKE3 `44960a77df0c7666624f4b0ae2e1f155f8b8861ad3de95b33886bcd358f398ab`); the
+v1 group-readiness receipt remains at `…-b8-receipt-v1-group-ttft.json`.
+
 This admits candidate width 8 on the recorded execution identity only. It does
-not enable batched serving in production, does not admit B=16, and does not
-admit arbitrary continuous batching.
+not enable batched serving in production and does not admit arbitrary
+continuous batching.
 
 ### B=16 admission on the per-user TTFT statistic (2026-10-21)
 
@@ -1393,8 +1401,8 @@ rejection remains at `…-b16-receipt-v1-group-ttft.json`.
 The per-user ratio passes by 0.40. The group-max ratio remains above the bound because
 prefills are still serialized; a batched masked prefill replay is the proper performance
 fix and would remove that property. This admits width 16 only on the recorded identity and
-does not enable batched serving. The B=8 admitted receipt predates this statistic and used
-group readiness; a future B=8 measurement should use a v2 profile.
+does not enable batched serving. Both widths are now admitted under the same v2 per-user
+TTFT statistic.
 
 ## Managed root package profile (historical host, 2026-09-30)
 
