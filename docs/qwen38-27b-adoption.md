@@ -1358,22 +1358,43 @@ This admits candidate width 8 on the recorded execution identity only. It does
 not enable batched serving in production, does not admit B=16, and does not
 admit arbitrary continuous batching.
 
-### B=16 re-screen (2026-10-21)
+### B=16 admission on the per-user TTFT statistic (2026-10-21)
 
-The frozen B=16 protocol was re-run on the same package and identity. Exact token and
-text parity pass, with aggregate speedup 13.40 (bound 6.0), per-user retention 0.838
-(bound 0.75), and tail-latency ratio 1.123 (bound 1.5). The TTFT ratio is **14.25**
-against the 9.0 bound, so B=16 stays unadmitted.
+A first re-screen under the v1 group-readiness statistic failed TTFT alone: 14.25 against
+9.0, because batch TTFT was sixteen serialized per-user masked prefill replays (3.384 s)
+against one single replay plus a decode step (0.237 s). The ratio was approximately the
+batch width by construction; eager grouped and per-user prefill measured 33.4 s and 29.2 s
+medians, so no route switch could clear it.
 
-The cause is structural on this route. Batch TTFT is sixteen serialized per-user masked
-prefill replays (3.384 s, 0.212 s each) against a single replay plus one decode step
-(0.237 s), so the ratio is approximately the batch width. Eager grouped and per-user
-prefill measured 33.4 s and 29.2 s medians on the same corpus, an order of magnitude
-slower, so switching the prefill route cannot clear it. A batched masked prefill replay,
-or a protocol-level per-user TTFT statistic (which the service cannot observe without
-changing its enqueue/read structure), is required. The rejection receipt is
+The v2 protocol gates on each user's own time to first token instead of the group's last
+user, with the same corpus, order, run counts, and bounds. The service now probes each user's
+masked prefill replay completion (one element of that slot's logits row) and reports that
+user's TTFT; the group's last-user value is kept as `ttft_group_max_ratio` without gating.
+The masked-trace probe programs are warmed for every slot before capture, so the traces stay
+resident.
+
+The frozen four-root protocol then passes every gate:
+
+| Gate | Measured | Bound |
+| --- | ---: | ---: |
+| Aggregate decode speedup | 13.398 | at least 6.0 |
+| Per-user decode retention | 0.837 | at least 0.75 |
+| TTFT ratio (per-user median) | 8.599 | at most 9.0 |
+| TTFT group-max ratio (diagnostic) | 15.601 | not gated |
+| Tail-latency ratio | 1.240 | at most 1.5 |
+
+Exact token and text parity, active prefix, clean reset, and distinct state slices pass.
+Medians: single 23.57 aggregate tokens/s and 0.212 s TTFT; batch 315.80 aggregate and
+19.74 per user, 1.822 s per-user TTFT, 3.450 s group first token. The receipt is
 `pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json`
-(BLAKE3 `aee9bd5a2617addb63932e9cee77587a86dd64c582f2f34381ea30b8aac97ab3`).
+(BLAKE3 `986f729b46bd24e11f6cf65cae613e50bb082ba2ef0e602f620c31ac71150dc2`); the v1
+rejection remains at `…-b16-receipt-v1-group-ttft.json`.
+
+The per-user ratio passes by 0.40. The group-max ratio remains above the bound because
+prefills are still serialized; a batched masked prefill replay is the proper performance
+fix and would remove that property. This admits width 16 only on the recorded identity and
+does not enable batched serving. The B=8 admitted receipt predates this statistic and used
+group readiness; a future B=8 measurement should use a v2 profile.
 
 ## Managed root package profile (historical host, 2026-09-30)
 

@@ -168,6 +168,8 @@ struct Evidence {
     package_identity: String,
     physical_pcie_device_ids: Vec<i64>,
     prefill_first_token_seconds: f64,
+    #[serde(default)]
+    prefill_group_first_token_seconds: Option<f64>,
     prefill_state_install_seconds: f64,
     profile_id: String,
     queue_seconds: f64,
@@ -206,6 +208,7 @@ struct Metrics {
     aggregate_rates: Vec<f64>,
     per_user_rates: Vec<f64>,
     ttft: Vec<f64>,
+    ttft_group: Vec<f64>,
     tail: Vec<f64>,
     trace_prepare: Vec<f64>,
     state_install: Vec<f64>,
@@ -322,6 +325,9 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     let per_user_retention =
         median(&batch_metrics.per_user_rates)? / median(&single_metrics.per_user_rates)?;
     let ttft_ratio = median(&batch_metrics.ttft)? / median(&single_metrics.ttft)?;
+    // Diagnostic only: the same ratio computed from the group's last-user readiness.
+    let ttft_group_ratio =
+        median(&batch_metrics.ttft_group)? / median(&single_metrics.ttft_group)?;
     let tail_ratio = median(&batch_metrics.tail)? / median(&single_metrics.tail)?;
 
     let mut reasons = Vec::new();
@@ -367,6 +373,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "measured_runs": profile.workload.measured_runs,
             "generated_tokens": profile.workload.generated_tokens,
             "simulated": false,
+            "ttft_statistic": "per-user-median",
         },
         "correctness": {
             "exact_token_parity": token_parity,
@@ -381,6 +388,7 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
             "aggregate_decode_speedup_ratio": aggregate_speedup,
             "per_user_decode_retention_ratio": per_user_retention,
             "ttft_ratio": ttft_ratio,
+            "ttft_group_max_ratio": ttft_group_ratio,
             "tail_latency_ratio": tail_ratio,
         },
         "admission": {
@@ -678,6 +686,12 @@ fn metrics(samples: &[Sample]) -> Result<Metrics, String> {
             .per_user_rates
             .push(evidence.decode_tokens_per_second);
         result.ttft.push(evidence.ttft_seconds);
+        // v1 evidence has no group field: its ttft_seconds was already the group value.
+        result.ttft_group.push(
+            evidence
+                .prefill_group_first_token_seconds
+                .unwrap_or(evidence.ttft_seconds),
+        );
         result.tail.push(evidence.tail_token_latency_seconds);
         result.trace_prepare.push(evidence.trace_prepare_seconds);
         result
@@ -696,6 +710,7 @@ fn metric_json(metrics: &Metrics) -> Result<Value, String> {
         "median_aggregate_decode_tokens_per_second": median(&metrics.aggregate_rates)?,
         "median_per_user_decode_tokens_per_second": median(&metrics.per_user_rates)?,
         "median_ttft_seconds": median(&metrics.ttft)?,
+        "median_group_first_token_seconds": median(&metrics.ttft_group)?,
         "median_tail_token_latency_seconds": median(&metrics.tail)?,
         "median_trace_prepare_seconds": median(&metrics.trace_prepare)?,
         "median_prefill_state_install_seconds": median(&metrics.state_install)?,

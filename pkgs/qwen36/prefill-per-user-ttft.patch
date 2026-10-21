@@ -1,0 +1,68 @@
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -8,6 +8,7 @@
+ 
+ import math
+ import os
++import time
+ 
+ import torch
+ from loguru import logger
+@@ -1796,6 +1797,12 @@
+             for bufs in read_batches.values():
+                 ttnn.deallocate(self._forward_masked_read_batch_body(bufs))
+             ttnn.synchronize_device(self.device)
++            # Compile the per-user readiness probe for every slot before any capture: a
++            # first-time program compiled after a capture can own memory inside that trace's
++            # scratch, and the slice program's key carries the row offset.
++            for slot in range(32):
++                self._probe_masked_slot_logits(slot)
++            ttnn.synchronize_device(self.device)
+             for bucket, bufs in traces.items():
+                 trace_id = ttnn.begin_trace_capture(self.device, cq_id=0)
+                 bufs["output"] = self._forward_masked_prefill_body(bufs, batched)
+@@ -2214,6 +2221,23 @@
+             if save is not None and start + length == save_at:
+                 self._copy_prefix_state(save_index, to_saved=True)
+ 
++    def _probe_masked_slot_logits(self, slot):
++        """Block until `slot`'s masked-prefill logits row is written.
++
++        One-element read of the row's first column, not the [32, vocab] tile: a full
++        readback per user would copy megabytes and distort the per-user timing. The read is
++        enqueued after the replay on the same queue, so it completes only once that replay
++        has finished. The probe tensor is deallocated before the next replay, because an
++        allocation left alive across a replay can sit in that trace's scratch.
++        """
++        probe = ttnn.slice(
++            self._masked_slot_logits, (0, 0, slot, 0), (1, 1, slot + 1, 1)
++        )
++        try:
++            ttnn.to_torch(ttnn.get_device_tensors(probe)[0])
++        finally:
++            ttnn.deallocate(probe)
++
+     def masked_prefill_slot_logits(self, slots):
+         """Host next-token logits [1, 1, vocab] for each slot, after its replay."""
+         rows = ttnn.to_torch(ttnn.get_device_tensors(self._masked_slot_logits)[0]).float().reshape(32, -1)
+@@ -2662,6 +2686,7 @@
+         first_token_callback=None,
+         masked_traces=True,
+         prefixes=None,
++        per_user_first_token_callback=None,
+     ):
+         """vLLM continuous-batching TP prefill: prefill each new request into ITS decode slot.
+ 
+@@ -2743,6 +2768,12 @@
+                         int(empty_slots[u]),
+                         **(plans[u] or {}),
+                     )
++                    if per_user_first_token_callback is not None:
++                        # Wait for this replay's logits write before enqueueing the next one,
++                        # so the callback observes the user's own readiness rather than the
++                        # group's. The probe reads one element; the full tile is read once below.
++                        self._probe_masked_slot_logits(int(empty_slots[u]))
++                        per_user_first_token_callback(u, time.monotonic())
+                 rows = self.masked_prefill_slot_logits([int(empty_slots[u]) for u in traced])
+             finally:
+                 self._unbind_gdn_prefill_scratch(prev)

@@ -89,6 +89,10 @@ let
     ./cache-hit-fused-projections.patch
     ./cache-hit-output-weight.patch
     ./cache-hit-single-projections.patch
+    # Per-user first-token readiness for the masked prefill replays: the admission
+    # TTFT statistic becomes the user's own wait instead of the group's last user.
+    # Appended last because it patches the fully patched model tree.
+    ./prefill-per-user-ttft.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:

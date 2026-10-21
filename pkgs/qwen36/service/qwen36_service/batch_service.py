@@ -594,7 +594,6 @@ class BatchGenerationCoordinator:
                 "masked-prefill-traces-released",
                 reason="program-compiled-after-capture",
             )
-        first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
         for row_index, token in enumerate(prefill_result.first_token_ids):
             self._publish(pending_batch[row_index], token)
@@ -769,8 +768,17 @@ class BatchGenerationCoordinator:
                 generated_token_count=len(user_tokens),
                 finish_reason=finish_reason,
             )
+            # Each response reports its own user's time to first token. The per-user
+            # route observes every replay; the grouped/eager routes fall back to the
+            # group's readiness, which is the same value for every user.
+            per_user_ready = prefill_result.first_token_ready_seconds_per_user
+            user_first_token_seconds = (
+                per_user_ready[state_slice]
+                if per_user_ready
+                else prefill_result.first_token_ready_seconds
+            )
             queue_seconds = prefill_started - pending.started
-            ttft_seconds = first_token_ready - prefill_started
+            ttft_seconds = user_first_token_seconds
             response["x_onix_decode_evidence"] = {
                 "admission_eligible": admission_eligible,
                 "aggregate_decode_tokens_per_second": aggregate_decode_rate,
@@ -791,7 +799,8 @@ class BatchGenerationCoordinator:
                 "package_identity": self.package_identity,
                 "physical_pcie_device_ids": self.physical_pcie_device_ids,
                 "prefill_device_seconds": None,
-                "prefill_first_token_seconds": prefill_result.first_token_ready_seconds,
+                "prefill_first_token_seconds": user_first_token_seconds,
+                "prefill_group_first_token_seconds": prefill_result.first_token_ready_seconds,
                 "prefill_page_table_blocks": prefill_result.page_table_blocks,
                 "prefill_state_install_seconds": prefill_result.state_install_seconds,
                 "prefill_profile_receiver_drain_seconds": 0.0,

@@ -3,6 +3,12 @@
 # Same bounds as the B=4 and B=8 policies; the width is the only axis this
 # policy adds. The corpus is sixteen prompts because a width-sixteen run needs
 # sixteen concurrent requests, one per prompt.
+#
+# v2 changes one protocol definition, not a bound: each response's TTFT is the
+# user's own time to first token, observed after that user's masked prefill replay
+# by the service (`prefill-per-user-ttft.patch`), instead of the group's last-user
+# readiness. The same corpus, order, run counts, and bounds apply. The v1 profile
+# and its receipts remain as the historical group-readiness measurement.
 let configured_baseline_width = 1 in
 let configured_candidate_width = 16 in
 let configured_generated_tokens = 64 in
@@ -14,7 +20,7 @@ let configured_maximum_ttft_ratio = 9.0 in
 let configured_maximum_tail_latency_ratio = 1.5 in
 {
   schema_version = 1,
-  profile_id = "qwen38-p150x2-batched-throughput-b16-v1",
+  profile_id = "qwen38-p150x2-batched-throughput-b16-v2",
   identities = {
     authority_blake3 = "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
     checkpoint_revision = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",

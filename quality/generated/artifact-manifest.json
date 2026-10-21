@@ -1340,6 +1340,12 @@
       "blake3": "4143440be786b7110f984d9a28db9269dc307a68ef9c0b2d38f6428993c03dad"
     },
     {
+      "path": ".cairn/changes/enable-qwen38-p150x2-b16/evidence/v7-per-user-ttft-readmission-2026-10-21.md",
+      "class": "portable_evidence",
+      "byte_count": 4754,
+      "blake3": "8701ecc5c6a454c7788d3ee29692685c815f1b270217d4a3ca10b00c37fcac7e"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/a1-a4-attribution.md",
       "class": "portable_evidence",
       "byte_count": 6147,
@@ -3560,10 +3566,16 @@
       "blake3": "ad9a5f211d2ef0888e182a34018e422c2caa5db5efd51c5c0030a5a0cf51f38a"
     },
     {
-      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json",
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt-v1-group-ttft.json",
       "class": "portable_evidence",
       "byte_count": 122962,
       "blake3": "aee9bd5a2617addb63932e9cee77587a86dd64c582f2f34381ea30b8aac97ab3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 123138,
+      "blake3": "986f729b46bd24e11f6cf65cae613e50bb082ba2ef0e602f620c31ac71150dc2"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json",

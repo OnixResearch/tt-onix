@@ -6001,14 +6001,27 @@ def probe_batch_admission():
     batch_service_source = Path(
         __import__("qwen36_service.batch_service", fromlist=["__file__"]).__file__
     ).read_text()
-    first_token_index = batch_service_source.index("first_token_ready =")
-    trace_prepare_index = batch_service_source.index("trace_prepare_started =")
-    ttft_index = batch_service_source.index(
-        "ttft_seconds = first_token_ready - prefill_started"
+    adapter_source = Path(
+        __import__("qwen36_service.batch_decode_adapter", fromlist=["__file__"]).__file__
+    ).read_text()
+    require(
+        "first_token_ready_seconds_per_user" in adapter_source
+        and "per_user_first_token_callback=note_user_ready" in adapter_source,
+        "batch prefill does not collect per-user first-token readiness",
     )
     require(
-        first_token_index < trace_prepare_index < ttft_index,
-        "batch TTFT does not stay separate from trace preparation",
+        "per_user_first_token_callback" in model_source
+        and "_probe_masked_slot_logits" in model_source,
+        "masked prefill does not observe per-user replay completion",
+    )
+    require(
+        "prefill_result.first_token_ready_seconds_per_user" in batch_service_source
+        and "ttft_seconds = user_first_token_seconds" in batch_service_source,
+        "batch TTFT is not the user's own first-token time",
+    )
+    require(
+        '"prefill_group_first_token_seconds"' in batch_service_source,
+        "group first-token readiness is not retained as a diagnostic",
     )
 
     # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]

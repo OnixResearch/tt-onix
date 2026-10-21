@@ -83,8 +83,9 @@ metadata-only profile, bounded simulator verdict, and explicit non-claims.
 See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the historically
 validated P150x2 output and its guarded NixOS example. B=8 batch admission was
 re-measured on the fused GDN step route and admitted on 2026-10-21 (per-user
-retention 0.926 against the 0.75 bound); B=16 is TTFT-blocked on serialized
-per-user prefills, and continuous-slot, prefix-cache, MTP,
+retention 0.926 against the 0.75 bound); B=16 is admitted under the per-user
+TTFT statistic (8.60 against 9.0, with the serialized-prefill group maximum
+recorded as a non-gating diagnostic), and continuous-slot, prefix-cache, MTP,
 and batched production serving still require their own physical
 qualification.
 

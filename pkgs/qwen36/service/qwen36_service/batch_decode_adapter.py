@@ -98,6 +98,10 @@ class BatchPrefillResult:
     prefill_route: str = "per-user"
     prefill_route_reason: str | None = None
     masked_traces_released: bool = False
+    # Per active user, the time from prefill start to that user's own first token.
+    # Empty when the route observes only the group's readiness; consumers then use
+    # `first_token_ready_seconds` for every user.
+    first_token_ready_seconds_per_user: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -682,6 +686,10 @@ class BatchedTracedDecodeAdapter:
         started = time.monotonic()
         observed_first_tokens: tuple[int, ...] | None = None
         first_token_ready_seconds: float | None = None
+        per_user_ready: dict[int, float] = {}
+
+        def note_user_ready(user: int, observed: float) -> None:
+            per_user_ready[user] = observed - started
 
         def observe_first_tokens(host_logits: list[torch.Tensor]) -> None:
             nonlocal observed_first_tokens, first_token_ready_seconds
@@ -786,6 +794,10 @@ class BatchedTracedDecodeAdapter:
                 prefill_route=prefill_route,
                 prefill_route_reason=route_reason,
                 masked_traces_released=masked_traces_released,
+                first_token_ready_seconds_per_user=tuple(
+                    per_user_ready.get(user, first_token_ready_seconds)
+                    for user in range(width)
+                ),
             )
         traces_before = bool(self.model.masked_prefill_trace_buckets())
         logits = self.model.prefill_paged_slots(
@@ -795,6 +807,7 @@ class BatchedTracedDecodeAdapter:
             valid_lens=valid_lengths,
             first_token_callback=observe_first_tokens,
             masked_traces=use_masked_traces,
+            per_user_first_token_callback=note_user_ready,
         )
         # A mixed batch's eager users can compile a program, after which the model
         # releases the traces before any replay.
@@ -824,6 +837,10 @@ class BatchedTracedDecodeAdapter:
             prefill_route=prefill_route,
             prefill_route_reason=route_reason,
             masked_traces_released=masked_traces_released,
+            first_token_ready_seconds_per_user=tuple(
+                per_user_ready.get(user, first_token_ready_seconds)
+                for user in range(width)
+            ),
         )
 
     # r[impl tenstorrent.qwen38_p150x2.continuous_slot_effects]
