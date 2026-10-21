@@ -6035,7 +6035,9 @@ def probe_batch_admission():
         __import__("qwen36_service.batch_service", fromlist=["__file__"]).__file__
     ).read_text()
     adapter_source = Path(
-        __import__("qwen36_service.batch_decode_adapter", fromlist=["__file__"]).__file__
+        __import__(
+            "qwen36_service.batch_decode_adapter", fromlist=["__file__"]
+        ).__file__
     ).read_text()
     require(
         "first_token_ready_seconds_per_user" in adapter_source
