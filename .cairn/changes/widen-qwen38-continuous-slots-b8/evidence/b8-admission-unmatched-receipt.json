@@ -1,0 +1,172 @@
+{
+  "admission": {
+    "admitted": false,
+    "admitted_profile": null,
+    "evidence_error": null,
+    "reasons": [
+      "gate-failed:startup_dram_free_ratio"
+    ]
+  },
+  "gates": [
+    {
+      "bound": true,
+      "measured": true,
+      "name": "matched_identity",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "all_completed",
+      "passed": true
+    },
+    {
+      "bound": true,
+      "measured": true,
+      "name": "exact_candidate_parity",
+      "passed": true
+    },
+    {
+      "bound": 0.5,
+      "measured": 0.04930354802777135,
+      "name": "short_median_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.0,
+      "measured": 0.14684172737038723,
+      "name": "short_p95_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.3,
+      "measured": 1.047246729116158,
+      "name": "long_p95_wall_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.0,
+      "measured": 0.04286438962087761,
+      "name": "slowdown_ratio",
+      "passed": true
+    },
+    {
+      "bound": 1.25,
+      "measured": 1.0722202422328462,
+      "name": "median_inter_token_gap_ratio",
+      "passed": true
+    },
+    {
+      "bound": 6.0,
+      "measured": 0.610498936031945,
+      "name": "inter_token_gap_seconds",
+      "passed": true
+    },
+    {
+      "bound": 0.95,
+      "measured": 1.2740900851453782,
+      "name": "delivered_throughput_ratio",
+      "passed": true
+    },
+    {
+      "bound": 0.99,
+      "measured": 0.9631237901597626,
+      "name": "startup_dram_free_ratio",
+      "passed": false
+    }
+  ],
+  "identity": {
+    "execution_identity": "/nix/store/42xg767bwbmda4pp6kv41dkily10fm6p-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/39p6vlfkf15jy77lh9x8k2gzxqp7fnwx-qwen38-0.1.0",
+    "physical_pcie_device_ids": [
+      0,
+      1
+    ],
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "scheduler_policy_blake3": "43d2110837561cfbe8e46bb9424883683ff06c0f52f6158c438e3d8e224a475d",
+    "scheduler_profile_id": "qwen38-p150x2-continuous-slot-b8-v1"
+  },
+  "metrics": {
+    "continuous": [
+      {
+        "completed": true,
+        "delivered_throughput": 46.28644268579245,
+        "long_p95_wall": 51.22450251999544,
+        "maximum_inter_token_gap": 0.610498936031945,
+        "maximum_slowdown": 3.6855887041098936,
+        "median_inter_token_gap": 0.04677709500538185,
+        "parity_mismatches": [],
+        "short_median_wall": 2.543785547488369,
+        "short_p95_wall": 9.0177945959731,
+        "trace_captures": 0
+      },
+      {
+        "completed": true,
+        "delivered_throughput": 46.302273381169755,
+        "long_p95_wall": 51.20681408199016,
+        "maximum_inter_token_gap": 0.6085033300332725,
+        "maximum_slowdown": 3.65391562250911,
+        "median_inter_token_gap": 0.046787373517872766,
+        "parity_mismatches": [],
+        "short_median_wall": 2.530497836007271,
+        "short_p95_wall": 9.0050580240204,
+        "trace_captures": 0
+      }
+    ],
+    "cross_root_parity_mismatches": [
+      "l1",
+      "l2",
+      "s3"
+    ],
+    "group": [
+      {
+        "completed": true,
+        "delivered_throughput": 36.155737243675425,
+        "long_p95_wall": 49.18306971399579,
+        "maximum_inter_token_gap": 1.0595398099976592,
+        "maximum_slowdown": 85.98253087721058,
+        "median_inter_token_gap": 0.043633983499603346,
+        "parity_mismatches": [
+          "s3"
+        ],
+        "short_median_wall": 51.66026650299318,
+        "short_p95_wall": 61.660430793999694,
+        "trace_captures": 8
+      },
+      {
+        "completed": true,
+        "delivered_throughput": 36.34144392222195,
+        "long_p95_wall": 48.89660923095653,
+        "maximum_inter_token_gap": 0.9801686980063096,
+        "maximum_slowdown": 85.51468505196237,
+        "median_inter_token_gap": 0.04363597297924571,
+        "parity_mismatches": [
+          "s3"
+        ],
+        "short_median_wall": 51.32486275798874,
+        "short_p95_wall": 61.32492572296178,
+        "trace_captures": 8
+      }
+    ]
+  },
+  "non_claims": [
+    "The receipt compares one declared workload on one package; it is not a general latency or throughput claim.",
+    "Admission covers only the named scheduler profile and package; the group coordinator stays the served default until a deployment change selects the profile.",
+    "Trace capture counts are reported and never gated."
+  ],
+  "policy": {
+    "blake3": "4a63054752d830bff8075ff2ed7bea354c3ee43bc380815e2fc0ce58e44aa1f2",
+    "profile_id": "qwen38-p150x2-continuous-slot-admission-b8-v1"
+  },
+  "receipt_kind": "continuous-slot-admission",
+  "roots": {
+    "continuous": {
+      "blake3": "01237d530dc97231f10d7d199cdfee806e968e8b083e9cfaf86d153ea4905081"
+    },
+    "group": {
+      "blake3": "f85374458a93953846ee96c526ea93b1a0d7830dbafa647ed8278bbc5fc6382d"
+    }
+  },
+  "schema_version": 1,
+  "simulated": false
+}

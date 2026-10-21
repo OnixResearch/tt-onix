@@ -1,11 +1,14 @@
 {
   "admission": {
-    "admitted": false,
-    "admitted_profile": null,
+    "admitted": true,
+    "admitted_profile": {
+      "execution_identity": "/nix/store/fk8p9n0xdx62yx8hr1jnccgjfyp2j8s0-qwen36-execution-identity-0.1.0",
+      "package": "/nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0",
+      "scheduler_policy_blake3": "43d2110837561cfbe8e46bb9424883683ff06c0f52f6158c438e3d8e224a475d",
+      "scheduler_profile_id": "qwen38-p150x2-continuous-slot-b8-v1"
+    },
     "evidence_error": null,
-    "reasons": [
-      "gate-failed:startup_dram_free_ratio"
-    ]
+    "reasons": []
   },
   "gates": [
     {
@@ -28,56 +31,56 @@
     },
     {
       "bound": 0.5,
-      "measured": 0.04930354802777135,
+      "measured": 0.06515445307240379,
       "name": "short_median_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.0,
-      "measured": 0.14684172737038723,
+      "measured": 0.20660387251360796,
       "name": "short_p95_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.3,
-      "measured": 1.047246729116158,
+      "measured": 1.2563178153022672,
       "name": "long_p95_wall_ratio",
       "passed": true
     },
     {
       "bound": 1.0,
-      "measured": 0.04286438962087761,
+      "measured": 0.05553229960096063,
       "name": "slowdown_ratio",
       "passed": true
     },
     {
       "bound": 1.25,
-      "measured": 1.0722202422328462,
+      "measured": 1.0730637442673243,
       "name": "median_inter_token_gap_ratio",
       "passed": true
     },
     {
       "bound": 6.0,
-      "measured": 0.610498936031945,
+      "measured": 5.474978202953935,
       "name": "inter_token_gap_seconds",
       "passed": true
     },
     {
       "bound": 0.95,
-      "measured": 1.2740900851453782,
+      "measured": 1.061751258750721,
       "name": "delivered_throughput_ratio",
       "passed": true
     },
     {
       "bound": 0.99,
-      "measured": 0.9631237901597626,
+      "measured": 1.0,
       "name": "startup_dram_free_ratio",
-      "passed": false
+      "passed": true
     }
   ],
   "identity": {
-    "execution_identity": "/nix/store/42xg767bwbmda4pp6kv41dkily10fm6p-qwen36-execution-identity-0.1.0",
-    "package": "/nix/store/39p6vlfkf15jy77lh9x8k2gzxqp7fnwx-qwen38-0.1.0",
+    "execution_identity": "/nix/store/fk8p9n0xdx62yx8hr1jnccgjfyp2j8s0-qwen36-execution-identity-0.1.0",
+    "package": "/nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0",
     "physical_pcie_device_ids": [
       0,
       1
@@ -90,26 +93,26 @@
     "continuous": [
       {
         "completed": true,
-        "delivered_throughput": 46.28644268579245,
-        "long_p95_wall": 51.22450251999544,
-        "maximum_inter_token_gap": 0.610498936031945,
-        "maximum_slowdown": 3.6855887041098936,
-        "median_inter_token_gap": 0.04677709500538185,
+        "delivered_throughput": 39.481471741715914,
+        "long_p95_wall": 60.05327685200609,
+        "maximum_inter_token_gap": 5.474978202953935,
+        "maximum_slowdown": 4.9683586449457,
+        "median_inter_token_gap": 0.046784717007540166,
         "parity_mismatches": [],
-        "short_median_wall": 2.543785547488369,
-        "short_p95_wall": 9.0177945959731,
+        "short_median_wall": 3.3018610475119203,
+        "short_p95_wall": 12.59562721697148,
         "trace_captures": 0
       },
       {
         "completed": true,
-        "delivered_throughput": 46.302273381169755,
-        "long_p95_wall": 51.20681408199016,
-        "maximum_inter_token_gap": 0.6085033300332725,
-        "maximum_slowdown": 3.65391562250911,
-        "median_inter_token_gap": 0.046787373517872766,
+        "delivered_throughput": 38.73138524040148,
+        "long_p95_wall": 61.21632652007975,
+        "maximum_inter_token_gap": 5.471954540000297,
+        "maximum_slowdown": 5.003245742353904,
+        "median_inter_token_gap": 0.04682549450080842,
         "parity_mismatches": [],
-        "short_median_wall": 2.530497836007271,
-        "short_p95_wall": 9.0050580240204,
+        "short_median_wall": 3.3280160179710947,
+        "short_p95_wall": 12.619169426965527,
         "trace_captures": 0
       }
     ],
@@ -121,30 +124,30 @@
     "group": [
       {
         "completed": true,
-        "delivered_throughput": 36.155737243675425,
-        "long_p95_wall": 49.18306971399579,
-        "maximum_inter_token_gap": 1.0595398099976592,
-        "maximum_slowdown": 85.98253087721058,
-        "median_inter_token_gap": 0.043633983499603346,
+        "delivered_throughput": 34.162836792567,
+        "long_p95_wall": 51.8917937540682,
+        "maximum_inter_token_gap": 3.508973767980933,
+        "maximum_slowdown": 96.60526768962268,
+        "median_inter_token_gap": 0.04364235798129812,
         "parity_mismatches": [
           "s3"
         ],
-        "short_median_wall": 51.66026650299318,
-        "short_p95_wall": 61.660430793999694,
+        "short_median_wall": 55.49194760550745,
+        "short_p95_wall": 65.49180282093585,
         "trace_captures": 8
       },
       {
         "completed": true,
-        "delivered_throughput": 36.34144392222195,
-        "long_p95_wall": 48.89660923095653,
-        "maximum_inter_token_gap": 0.9801686980063096,
-        "maximum_slowdown": 85.51468505196237,
-        "median_inter_token_gap": 0.04363597297924571,
+        "delivered_throughput": 36.47877496841741,
+        "long_p95_wall": 48.7267837600084,
+        "maximum_inter_token_gap": 0.8852417810121551,
+        "maximum_slowdown": 90.09613825297728,
+        "median_inter_token_gap": 0.043637197464704514,
         "parity_mismatches": [
           "s3"
         ],
-        "short_median_wall": 51.32486275798874,
-        "short_p95_wall": 61.32492572296178,
+        "short_median_wall": 51.078872755984776,
+        "short_p95_wall": 61.079055650974624,
         "trace_captures": 8
       }
     ]
@@ -161,10 +164,10 @@
   "receipt_kind": "continuous-slot-admission",
   "roots": {
     "continuous": {
-      "blake3": "01237d530dc97231f10d7d199cdfee806e968e8b083e9cfaf86d153ea4905081"
+      "blake3": "ea0a9d6a8612a1d6604519acc0d20aa2fb566404a640980d089212a1b7dbc406"
     },
     "group": {
-      "blake3": "f85374458a93953846ee96c526ea93b1a0d7830dbafa647ed8278bbc5fc6382d"
+      "blake3": "1381414f9b086fceb6d318047bf515582ac819e46335319e2617179b56d11573"
     }
   },
   "schema_version": 1,

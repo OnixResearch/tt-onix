@@ -19,8 +19,9 @@
 - [x] [serial] V3 Run the package build, the device-free check, and the B4 profile export comparison (byte-identical). r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md)
 - [x] [serial] V4 Run a bounded physical B=8 scheduler smoke: open a width-8 group, refill beside active users, and verify exact candidate parity and a clean reset. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md)
 - [x] [serial] V5 Run the existing queue-inclusive admission comparison with the B=8 workload and record the receipt or the exact failing gate. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/b8-admission-verdict.md)
+- [x] [serial] V6 Correct the first campaign's unmatched roots, attribute the startup-DRAM difference, and rerun the same predeclared comparison on the package the tree builds. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/b8-admission-verdict.md)
 
 ## Phase 4: Completion
 
-- [x] [serial] D1 Record the capacity inventory, the smoke result, and every non-claim; move no served default. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md)
+- [x] [serial] D1 Record the capacity inventory, the smoke result, the admission receipt, and every non-claim; move no served default. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md, evidence/b8-admission-verdict.md)
 - [x] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md)

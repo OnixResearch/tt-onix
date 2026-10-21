@@ -1574,10 +1574,22 @@
       "blake3": "127f7d291b8e5cd907a7261fbcd5d297839b1b1a87a505b603d540ec89b18b57"
     },
     {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-prewiring-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5244,
+      "blake3": "41a08e10cda93c6eb01e93306e03253bc4faadcc6442d3ea2d83ef6cc707f887"
+    },
+    {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-unmatched-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4948,
+      "blake3": "63e8d5494ad8196a65d4ba86d6dd90bae517eff18823460cd269ba817696af81"
+    },
+    {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-verdict.md",
       "class": "portable_evidence",
-      "byte_count": 4009,
-      "blake3": "cb23b90c3bb7e91d0447aca85c8724813c37f7f845b4abe5db5bcd8b75b2ba57"
+      "byte_count": 5411,
+      "blake3": "9ef9b6b0fe7a9a74e5b4c2946eec1fbfee54cd7bdbdd842bcaa76b709df1a1e6"
     },
     {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/capacity-and-smoke.md",
@@ -3610,8 +3622,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 4948,
-      "blake3": "63e8d5494ad8196a65d4ba86d6dd90bae517eff18823460cd269ba817696af81"
+      "byte_count": 5237,
+      "blake3": "2689347235ed11105d39d284cd5f0a3b37e0809ae101bc22c31354f97edc2280"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-p150x2-requalification.json",

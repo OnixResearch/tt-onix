@@ -1263,6 +1263,32 @@ does select the continuous-slot policy, but that trial is not a new live
 throughput measurement. The change
 `.cairn/changes/qwen38-continuous-slot-scheduler` records the evidence.
 
+The scheduler also has a B=8 profile, exported as
+`continuous-slot-policy-b8.json` and selected with
+`--continuous-slot-policy $out/share/qwen36/continuous-slot-policy-b8.json`. Its
+closed capacity set is {4, 8}. On 2026-10-21 it was compared with the group
+coordinator on the same staggered workload, with configuration-matched roots. The
+receipt
+`pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json`
+admits the profile against its predeclared gates:
+
+- Short requests finished in 3.3 s at the median instead of 51–55 s, and their p95
+  fell from about 61–65 s to 12.6 s.
+- Delivered tokens/s rose 6 %.
+- The long requests took 20 % longer (p95 ratio 1.256 against a 1.3 bound), and the
+  longest pause was 5.475 s against a 6 s bound.
+- Every request decoded the same tokens as when it ran alone, and the width-8 trace
+  stayed resident: no decode trace was captured during the measured passes.
+- Both roots left the same device DRAM free after startup.
+
+A first attempt at that comparison was rejected by the startup-DRAM gate because
+the candidate root alone ran with the prefix-cache policy, whose saved state slots
+cost 365 MB; the gate was not changed and the matched rerun is the receipt above.
+The B=8 profile is admitted for the package and execution identity named in the
+receipt. The root profile still selects the B4 policy, and the comparison covered
+one workload without the prefix cache. The change
+`.cairn/changes/widen-qwen38-continuous-slots-b8` records the evidence.
+
 A request without `temperature` decodes greedily, including thinking. On
 2026-09-27, eight reasoning prompts with known answers were run at the
 template's default effort (`xhigh`) with `max_tokens` 8,192. Greedy (one
