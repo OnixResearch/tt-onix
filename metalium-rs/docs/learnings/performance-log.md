@@ -2507,6 +2507,8 @@ recurrence over rows. The fixed five-token prompt plus eight generated tokens at
 3.62 s / 3.51 s on the token path, 2.46 s / 2.67 s with `--chunk 8` (about 1.4x), same ids and
 text. The four-token gate is bit-identical to four `layer_step_fused` calls (0.0 gap on ttsim and
 card 0); Flex gaps are <=9.9e-4 per row and 3.2e-3 for the matrix after four fast tokens. A
+seven-token chain in 3+3+1 chunks is bit-identical to seven token steps, so the state carries
+across chunk calls. A
 leading-1 broadcast of the group-norm weights was rejected by the backend's reshape path; the
 chunk tiles the weights along the token axis instead.
 

@@ -224,7 +224,7 @@ not benchmarks. The numerical gates use `accurate_matmul` where noted; prompt ge
 fast matmuls. They do not establish a sampler, stop-policy-complete endpoint, serving,
 fused-kernel, or performance parity.
 On 2026-10-20 the chunked-prompt gate (`step190_wkv7_chunk`) is bit-identical to four
-token steps on card 0; `--chunk 8`, the generate prompt gate's default, runs the fixed prompt
+token steps on card 0 and to seven token steps in a 3+3+1 chunk chain; `--chunk 8`, the generate prompt gate's default, runs the fixed prompt
 plus eight generated tokens in 2.46-2.67 s against 3.51-3.62 s token-at-a-time.
 
 Run `tt-smi -r` after stopping a TT-Metal service and before native-stack execution. Without the

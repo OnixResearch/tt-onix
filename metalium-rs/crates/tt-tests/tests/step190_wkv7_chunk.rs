@@ -38,9 +38,9 @@ fn max_abs(left: &[f32], right: &[f32]) -> f32 {
 }
 
 /// Distinct, deterministic layer inputs for a prompt chunk.
-fn token_values(spec: &LayerSpec) -> Vec<f32> {
-    let mut values = Vec::with_capacity(TOKENS * HIDDEN);
-    for token in 0..TOKENS {
+fn token_values(spec: &LayerSpec, tokens: usize) -> Vec<f32> {
+    let mut values = Vec::with_capacity(tokens * HIDDEN);
+    for token in 0..tokens {
         let scale = 1.0 + 0.05 * token as f32;
         let offset = 0.002 * token as f32;
         for value in &spec.hidden {
@@ -60,12 +60,16 @@ fn row<B: Backend>(values: &[f32], token: usize, device: &B::Device) -> Tensor<B
     )
 }
 
-fn flex_tokens(spec: &LayerSpec, values: &[f32]) -> (Vec<Vec<f32>>, Vec<f32>, Vec<f32>, Vec<f32>) {
+fn flex_tokens(
+    spec: &LayerSpec,
+    values: &[f32],
+    tokens: usize,
+) -> (Vec<Vec<f32>>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let device = FlexDevice;
     let weights = spec.materialize::<Flex>(&device);
     let mut state = LayerState::<Flex>::zeros(&device);
-    let mut hidden = Vec::with_capacity(TOKENS);
-    for token in 0..TOKENS {
+    let mut hidden = Vec::with_capacity(tokens);
+    for token in 0..tokens {
         let (out, next, _) = layer_step(&weights, row(values, token, &device), &state, true, None);
         hidden.push(to_vec(out));
         state = next;
@@ -81,8 +85,8 @@ fn flex_tokens(spec: &LayerSpec, values: &[f32]) -> (Vec<Vec<f32>>, Vec<f32>, Ve
 #[test]
 fn four_token_chunk_matches_eager_tokens_and_flex() {
     let spec = synthetic_spec(29);
-    let values = token_values(&spec);
-    let (flex_hidden, flex_matrix, flex_attention, flex_ffn) = flex_tokens(&spec, &values);
+    let values = token_values(&spec, TOKENS);
+    let (flex_hidden, flex_matrix, flex_attention, flex_ffn) = flex_tokens(&spec, &values, TOKENS);
 
     with_device(Config::default(), |device| {
         let weights = spec.materialize::<TtBackend>(&device);
@@ -158,6 +162,100 @@ fn four_token_chunk_matches_eager_tokens_and_flex() {
             assert!(
                 flex_gap.is_finite() && flex_gap <= STATE_TOLERANCE,
                 "{name}: chunk differs from Flex by {flex_gap:.3e}"
+            );
+        }
+    });
+}
+
+#[test]
+fn chunks_carry_the_state_across_calls() {
+    let spec = synthetic_spec(31);
+    let tokens = 7usize;
+    let chunk = 3usize;
+    let values = token_values(&spec, tokens);
+    let (flex_hidden, flex_matrix, flex_attention, flex_ffn) = flex_tokens(&spec, &values, tokens);
+
+    with_device(Config::default(), |device| {
+        let weights = spec.materialize::<TtBackend>(&device);
+        let mut token_state = LayerState::<TtBackend>::zeros(&device);
+        let mut token_hidden = Vec::with_capacity(tokens);
+        for token in 0..tokens {
+            let (out, next, _) = layer_step_fused(
+                &weights,
+                row(&values, token, &device),
+                &token_state,
+                true,
+                None,
+            );
+            token_hidden.push(to_vec(out));
+            token_state = next;
+        }
+
+        let mut chunk_state = LayerState::<TtBackend>::zeros(&device);
+        let mut chunk_values = Vec::with_capacity(tokens * HIDDEN);
+        for start in (0..tokens).step_by(chunk) {
+            let count = chunk.min(tokens - start);
+            let input = Tensor::<TtBackend, 2>::from_data(
+                TensorData::new(
+                    values[start * HIDDEN..(start + count) * HIDDEN].to_vec(),
+                    [count, HIDDEN],
+                ),
+                &device,
+            );
+            let (out, next, _) = layer_step_chunk(&weights, input, &chunk_state, true, None);
+            chunk_values.extend(to_vec(out));
+            chunk_state = next;
+        }
+
+        let state = chunk_state;
+        for token in 0..tokens {
+            let got = &chunk_values[token * HIDDEN..(token + 1) * HIDDEN];
+            let token_gap = max_abs(got, &token_hidden[token]);
+            let flex_gap = max_abs(got, &flex_hidden[token]);
+            println!(
+                "chain token {token}: max |chunks - token path| {token_gap:.3e}, |chunks - Flex| {flex_gap:.3e}"
+            );
+            assert!(
+                token_gap.is_finite() && token_gap <= TOLERANCE,
+                "chain token {token}: chunks differ from the token path by {token_gap:.3e}"
+            );
+            assert!(
+                flex_gap.is_finite() && flex_gap <= STATE_TOLERANCE,
+                "chain token {token}: chunks differ from Flex by {flex_gap:.3e}"
+            );
+        }
+        for (name, got, token, flex) in [
+            (
+                "matrix",
+                to_vec(state.matrix),
+                to_vec(token_state.matrix),
+                flex_matrix,
+            ),
+            (
+                "attention_previous",
+                to_vec(state.attention_previous),
+                to_vec(token_state.attention_previous),
+                flex_attention,
+            ),
+            (
+                "ffn_previous",
+                to_vec(state.ffn_previous),
+                to_vec(token_state.ffn_previous),
+                flex_ffn,
+            ),
+        ] {
+            let token_gap = max_abs(&got, &token);
+            let flex_gap = max_abs(&got, &flex);
+            println!(
+                "chain {name}: max |chunks - token path| {token_gap:.3e}, |chunks - Flex| {flex_gap:.3e}"
+            );
+            assert!(
+                token_gap.is_finite() && token_gap <= TOLERANCE,
+                "chain {name}: chunks differ from the token path by {token_gap:.3e}"
+            );
+            assert!(
+                flex_gap.is_finite() && flex_gap <= STATE_TOLERANCE,
+                "chain {name}: chunks differ from Flex by {flex_gap:.3e}"
             );
         }
     });
