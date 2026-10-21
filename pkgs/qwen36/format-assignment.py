@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "service"))
-from qwen36_service.format_assignment_core import (  # noqa: E402
+from qwen36_service.format_assignment_core import (
     FormatAssignmentError,
     FormatGroup,
     FormatOption,

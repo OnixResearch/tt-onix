@@ -1,6 +1,6 @@
 """Device-free checks for the hybrid prefix checkpoint identity."""
 
-import importlib
+import hashlib
 import os
 import sys
 import unittest
@@ -9,8 +9,6 @@ from pathlib import Path
 SOURCE_ROOT = Path(__file__).parent / "service"
 if SOURCE_ROOT.is_dir():
     sys.path.insert(0, str(SOURCE_ROOT))
-
-import hashlib
 
 from qwen36_service.prefix_cache_core import (  # noqa: E402
     PREFIX_IDENTITY_ENVIRONMENT,
@@ -52,7 +50,9 @@ class PrefixIdentityTests(unittest.TestCase):
 
     def test_the_digest_key_binds_the_identity_fingerprint(self):
         tokens = list(range(2048))
-        digest = lambda data: hashlib.sha256(data).digest()
+
+        def digest(data):
+            return hashlib.sha256(data).digest()
         first = prefix_digests(
             tokens, identity="package|model|", tenant="tenant", blake3_digest=digest
         )
