@@ -19,6 +19,9 @@ driver 2.10.0). Package `39p6vlfkf15jy77lh9x8k2gzxqp7fnwx-qwen38-0.1.0`, runtime
   policy. Each root ran every request alone first, then two measured passes.
 - Receipt: `pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json`,
   BLAKE3 `63e8d5494ad8196a65d4ba86d6dd90bae517eff18823460cd269ba817696af81`.
+- The measured package (`39p6vlfk…`, execution identity `42xg767b…`) carries the B=8
+  scheduler policy but predates the B=8 admission-policy export. The tree's current
+  package adds that export only; no admitted claim depends on the difference.
 
 ## Result
 

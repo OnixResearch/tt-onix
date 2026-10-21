@@ -1576,8 +1576,8 @@
     {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-verdict.md",
       "class": "portable_evidence",
-      "byte_count": 3758,
-      "blake3": "384653c5fe3ee996cdf12b32e6d213c2a446b4f55e996b2b31c2e5624f103e27"
+      "byte_count": 4009,
+      "blake3": "cb23b90c3bb7e91d0447aca85c8724813c37f7f845b4abe5db5bcd8b75b2ba57"
     },
     {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/capacity-and-smoke.md",
