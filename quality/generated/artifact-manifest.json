@@ -1484,6 +1484,12 @@
       "blake3": "c10918590438446e7370f5fafedb78a17d15e895e6132ee672bbaf58fc8f14a4"
     },
     {
+      "path": ".cairn/changes/qwen38-tp2-collective-shape-tuning/evidence/step-attribution-2026-10-21.md",
+      "class": "portable_evidence",
+      "byte_count": 4492,
+      "blake3": "c6deafb50917fb8bb2d075072b8ce5f64a690aa67172418856039b18ccbfded5"
+    },
+    {
       "path": ".cairn/changes/serve-qwen38-fused-gdn-decode-step/evidence/attribution.md",
       "class": "portable_evidence",
       "byte_count": 4411,
