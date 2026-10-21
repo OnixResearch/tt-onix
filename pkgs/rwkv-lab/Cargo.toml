@@ -2,7 +2,7 @@
 name = "rwkv-lab"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Device-free bounded RWKV session plan and evidence receipts"
 
 [dependencies]

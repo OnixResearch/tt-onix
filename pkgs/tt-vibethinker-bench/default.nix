@@ -13,7 +13,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Validated VibeThinker benchmark matrix for two P150 cards";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "tt-vibethinker-bench";
     platforms = lib.platforms.linux;
   };

@@ -126,7 +126,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Device-free bounded RWKV session plan and evidence receipts";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "rwkv-lab";
     platforms = lib.platforms.linux;
   };

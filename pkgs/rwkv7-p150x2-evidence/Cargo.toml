@@ -2,7 +2,7 @@
 name = "rwkv7-p150x2-evidence"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Fail-closed classifier for full-device RWKV-7 P150x2 evidence"
 
 [dependencies]

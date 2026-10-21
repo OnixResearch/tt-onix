@@ -226,7 +226,7 @@ stdenvNoCC.mkDerivation {
 
   meta = {
     description = "Device-free prepared RWKV ttWKV7 dispatch session with isolated response transport";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = commandName;
     platforms = [ "x86_64-linux" ];
   };

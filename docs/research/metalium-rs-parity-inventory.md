@@ -120,8 +120,10 @@ A model moves only after operator coverage, state carry, numerical agreement, to
 physical evidence pass for that exact model revision. A package build, a simulator pass, or a
 single MNIST step is not model support.
 
-## License gate
+## License
 
-The repository declares LGPL-2.1-only for its own code; the in-tree `metalium-rs/` is Apache-2.0
-(its `LICENSE` is kept). The `metalium-rs` package remains a separate derivation; linking its
-crates into repository binaries still needs the owner's combined-work license decision.
+The repository's own code, including the in-tree `metalium-rs/` native stack, is LGPL-2.1-only
+(owner decision 2026-10-20). The Apache-2.0-marked TT-Metal/Qwen patch portions and the
+`pkgs/ttwkv7/architecture-check-descriptors.h` fixture retain Apache-2.0; the full text is under
+`LICENSES/Apache-2.0.txt`. Revisions of the fork before 2026-10-20 were Apache-2.0 and that grant
+remains for those revisions. Fetched upstream packages and model artifacts retain their own terms.

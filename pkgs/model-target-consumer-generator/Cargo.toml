@@ -2,7 +2,7 @@
 name = "model-target-consumer-generator"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Deterministic model-target identity projection generator"
 
 [dependencies]

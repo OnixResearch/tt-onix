@@ -12,7 +12,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Device-free validator for persistent ttWKV7 host receipts";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "rwkv-ttwkv7-persistent-receipt-validator";
     platforms = [ "x86_64-linux" ];
   };

@@ -19,7 +19,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Deterministic model-target consumer identity generator";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "model-target-consumer-generator";
     platforms = lib.platforms.linux;
   };

@@ -2,7 +2,7 @@
 name = "training-platform-core"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Pure dual-P150A TT-XLA training-platform admission core"
 
 [dependencies]

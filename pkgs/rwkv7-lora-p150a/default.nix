@@ -34,7 +34,7 @@ let
     doCheck = true;
     meta = {
       description = "Pure single-P150A RWKV-7 LoRA bring-up admission core";
-      license = lib.licenses.mit;
+      license = lib.licenses.lgpl21Only;
       mainProgram = "rwkv7-lora-p150a-core";
       platforms = lib.platforms.linux;
     };

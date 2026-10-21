@@ -152,7 +152,9 @@ Read `metalium-rs/` (the in-tree fork) before you change the repository's Rust d
 Burn backend work. The reviewed upstream remains `Knight-Ops/metalium-rs` at commit
 `b22a245db18252b131679aca992dac85c9f7d812`.
 The fork is merged into this repository at `metalium-rs/` (fork main `0fb0802`; the last code
-commit is `522b7fd`). It adds the Apache-2.0 license file, fixes the stale F16 capability test, and
+commit is `522b7fd`). It added the Apache-2.0 license file at that revision; on 2026-10-20 the repository
+relicensed its own code, including this in-tree subtree, to LGPL-2.1-only. Revisions
+before that date retain their Apache-2.0 grant. It fixes the stale F16 capability test, and
 adds `crates/rwkv7` (the WKV7 reference, composed and synthetic layer gates, the real-checkpoint
 layer-zero loader, the all-12-layer gate, logits/oracle comparison, the exact byte-trie tokenizer,
 the greedy next-token check, the stateful decode chain, and bounded prompt generation). It also

@@ -4,6 +4,19 @@ A standalone private Nix flake for using Tenstorrent hardware with Nix/NixOS.
 The `OnixResearch/tenstorrent.nix` `main` branch is the sole repository
 authority; no external upstream remote is configured.
 
+## License
+
+Repository-authored code, documentation and Nix recipes without a separate
+license notice are offered under [GNU LGPL version 2.1 only](LICENSE)
+(`LGPL-2.1-only`).
+Existing Apache-2.0-marked TT-Metal/Qwen patch portions and the
+`pkgs/ttwkv7/architecture-check-descriptors.h` fixture retain their
+[Apache-2.0 terms](LICENSES/Apache-2.0.txt). Fetched upstream packages,
+dependencies, model artifacts, and saved binary fixtures retain their own
+terms; this repository license does not grant redistribution rights to them.
+See the [publication review](docs/publication-review.md) before distributing
+the current tree or its Git history.
+
 ## Overlay
 
 ```nix

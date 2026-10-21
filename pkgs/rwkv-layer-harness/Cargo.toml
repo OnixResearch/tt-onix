@@ -2,7 +2,7 @@
 name = "rwkv-layer-harness"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Device-free real-weight RWKV-7 references and observed ttWKV7 layer replay"
 
 [dependencies]

@@ -8,7 +8,7 @@ name = "tt-firmware"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-license = "Apache-2.0"
+license = "LGPL-2.1-only"
 description = "Bare-metal Rust for the Blackhole baby RISC-V cores."
 
 # Off by default. `ttinsn-experiment` builds the `ttinsn_t1` image and the hooks it

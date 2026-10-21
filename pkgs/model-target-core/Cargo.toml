@@ -2,7 +2,7 @@
 name = "model-target-core"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Pure model-target identity, evidence, and candidate-report core"
 
 [dependencies]

@@ -2,7 +2,7 @@
 name = "ttsim-runtime-validator"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "LGPL-2.1-only"
 description = "Bounded TTsim smoke classifier and simulated-receipt validator"
 
 [dependencies]

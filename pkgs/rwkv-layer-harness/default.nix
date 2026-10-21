@@ -1558,7 +1558,7 @@ let
 
     meta = {
       description = "Device-free real-weight RWKV-7 references and observed ttWKV7 layer replay";
-      license = lib.licenses.mit;
+      license = lib.licenses.lgpl21Only;
       mainProgram = "rwkv-layer-harness";
       platforms = lib.platforms.linux;
     };

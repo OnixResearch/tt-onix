@@ -143,7 +143,7 @@ rustPlatform.buildRustPackage {
   meta = {
     description = "Native Rust stack for Tenstorrent Blackhole";
     homepage = "https://github.com/brittonr/metalium-rs";
-    license = lib.licenses.asl20;
+    license = lib.licenses.lgpl21Only;
     platforms = lib.platforms.linux;
   };
 }

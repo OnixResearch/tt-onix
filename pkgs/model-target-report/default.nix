@@ -88,7 +88,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Deterministic device-free model candidate report";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "model-target-report";
     platforms = lib.platforms.linux;
   };

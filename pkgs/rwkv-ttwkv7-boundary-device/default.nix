@@ -255,7 +255,7 @@ stdenvNoCC.mkDerivation {
 
   meta = {
     description = "Prepared exact-fixture ttWKV7 boundary device harness and session plan";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = commandName;
     platforms = [ "x86_64-linux" ];
   };

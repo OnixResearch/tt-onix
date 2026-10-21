@@ -45,7 +45,7 @@ let
     doCheck = true;
     meta = {
       description = "Pure dual-P150A RWKV-7 LoRA data-parallel admission core";
-      license = lib.licenses.mit;
+      license = lib.licenses.lgpl21Only;
       mainProgram = "rwkv7-lora-dual-p150a-core";
       platforms = lib.platforms.linux;
     };

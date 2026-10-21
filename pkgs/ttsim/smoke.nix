@@ -60,7 +60,7 @@ stdenvNoCC.mkDerivation {
 
   meta = {
     description = "Bounded Blackhole 1x1 TT-NN smoke on TTsim";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "ttsim-blackhole-smoke";
     platforms = [
       "aarch64-linux"

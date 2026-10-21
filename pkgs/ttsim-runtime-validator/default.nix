@@ -12,7 +12,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Bounded TTsim smoke classifier and simulated-receipt validator";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "ttsim-runtime-validator";
     platforms = [
       "aarch64-linux"

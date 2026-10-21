@@ -676,7 +676,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Fail-closed raw evidence classifier for RWKV-7 generation on P150x2";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     platforms = [ "x86_64-linux" ];
     mainProgram = "rwkv7-p150x2-evidence";
   };

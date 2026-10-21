@@ -187,7 +187,7 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Pinned full-model RWKV-7 TT-NN runtime for the P150x2 mesh";
-    license = lib.licenses.mit;
+    license = lib.licenses.lgpl21Only;
     mainProgram = "rwkv7-p150x2-runtime";
     platforms = [ "x86_64-linux" ];
   };

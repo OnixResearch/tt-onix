@@ -30,7 +30,7 @@ let
     doCheck = true;
     meta = {
       description = "Pure dual-P150A TT-XLA training-platform admission core";
-      license = lib.licenses.mit;
+      license = lib.licenses.lgpl21Only;
       mainProgram = "training-platform-core";
       platforms = lib.platforms.linux;
     };
