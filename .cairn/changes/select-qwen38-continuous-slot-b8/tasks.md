@@ -16,8 +16,8 @@
 
 - [x] [serial] V1 Run the device-free gates: the NixOS service check, the Qwen package check, and the repository quality gate. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)
 - [x] [serial] V2 Verify the served profile on devices 0 and 1 at the served limits: the listener reports the B=8 profile, the admitted execution identity, eight live requests, and a slot refill. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)
-- [ ] [serial] V3 Install the admitted package into the managed profile and make the systemd unit serve the B=8 policy. This step needs root on the host: the profile directory and the managed drop-in are root-owned, and this session's passwordless sudo covers only the unit's stop and start. The profile service's `switch-policy` operation performs it. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)
+- [x] [serial] V3 Install the admitted package into the managed profile and make the systemd unit serve the B=8 policy. The owner ran the profile service's `switch-policy` operation, which needed root: the profile directory and the managed drop-in are root-owned. The named profile now holds the admitted package, the drop-in names the B=8 policy, and the live unit reported the admitted identity and the B=8 profile under eight concurrent requests. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)
 
 ## Phase 4: Completion
 
-- [x] [serial] D1 Record the served-profile evidence, the remaining host step, and every non-claim; move no served default until V3 runs. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)
+- [x] [serial] D1 Record the served-profile evidence, the switch, and every non-claim. r[tenstorrent.qwen38_p150x2.continuous_slot_served_profile]  (evidence/served-profile.md)

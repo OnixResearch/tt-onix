@@ -42,34 +42,51 @@ no queueing behind a batch, and one slot refill inside the same run.
   served configuration keeps the prefix cache, whose saved state slots account for the
   difference from the admission measurement's 9,530,484,736 B.
 
-## The remaining host step
+## The managed profile switch, performed
 
-The served *unit* still runs the managed drop-in that names the B=4 policy, and the
-named profile still holds the September package. Moving both needs root, which this
-session does not have: `nix profile` and the drop-in directory are root-owned, and the
-passwordless sudo rules on this host cover only `systemctl stop/start` for the Qwen
-unit, `lsof` on the device, and the tracing tools.
-
-The profile service grew a `switch-policy` operation for exactly this move. It
-swaps the profile to the target package, writes the checked-in drop-in so the served
-command names the B=8 policy, restarts the unit, and restores the previous profile
-generation, the previous drop-in bytes, and the previous owner command if the service
-does not become ready. The owner runs:
+The profile and the systemd unit are root-owned on this host, so the move was made by
+the owner with the profile service's `switch-policy` operation:
 
 ```text
 sudo scripts/qwen38-profile-service switch-policy \
   /nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0
 ```
 
-The verification above used the same package, the same policy file, the same prefix
-cache, and the same limits as that command's result; it did not use the systemd unit,
-because the unit's command is root-owned.
+The first attempt failed before any change: the owner-control helper isolates an
+*active* owner only, and the unit was stopped. The operation was corrected to start the
+current owner when it is not active, and the second attempt completed:
+
+- The named profile now holds `/nix/store/inkfvsjqchqp7bki76asdib3b57nw6kj-qwen38-0.1.0`.
+- The managed drop-in names
+  `/nix/var/nix/profiles/qwen38-p150x2/share/qwen36/continuous-slot-policy-b8.json`.
+- The unit restarted with `NRestarts = 0` and reported ready after a 475.3 s startup
+  warmup over widths 1 and 4.
+
+The live unit on `127.0.0.1:8000` was then verified with the same eight concurrent
+requests:
+
+| Observation | Value |
+| --- | --- |
+| Requests sent concurrently | 8 |
+| Failed requests | 0 |
+| Scheduler profile | `qwen38_p150x2-continuous-slot-b8-v1` |
+| Decode path | `continuous-slot` |
+| Distinct slot indices | 0, 1, 2, 3, 4, 5 (one slot refilled inside the run) |
+| Execution identity | `/nix/store/fk8p9n0xdx62yx8hr1jnccgjfyp2j8s0-qwen36-execution-identity-0.1.0` |
+| Runtime identity | `/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0` |
+| Devices | physical PCIe 0 and 1, `simulated: false` |
+| Client-observed walls | 1.274 s to 2.921 s |
+| Answers | Paris, Red, 4, Iron, 7, Mars, Two hydrogens one oxygen, Summer |
+
+The unit was then stopped, as agreed: it is `inactive` with no process holding either
+device node, and the owner-control capability validation passes.
 
 ## Non-claims
 
-- The managed profile and the systemd unit were not changed. The served unit still
-  names the B=4 policy until the command above runs.
-- The verification is one bounded concurrent workload at the served limits. It is not
-  a throughput, latency, or stability claim.
+- The verification is one bounded concurrent workload at the served limits, twice:
+  once against a direct run of the admitted package and once against the live unit.
+  It is not a throughput, latency, or stability claim.
+- The unit is stopped after the verification. The switch is in place; the service
+  starts on the B=8 profile when it is started.
 - The admission receipt is the authority for the profile's bounds; this file only
   records that the admitted identity serves that profile as configured.

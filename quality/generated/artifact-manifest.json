@@ -1516,8 +1516,8 @@
     {
       "path": ".cairn/changes/select-qwen38-continuous-slot-b8/evidence/served-profile.md",
       "class": "portable_evidence",
-      "byte_count": 3702,
-      "blake3": "dc7268a1d2aea1ec9674f91100bb3e65dc9e06feb8ec10aa5e24ca917c666375"
+      "byte_count": 4425,
+      "blake3": "fd90362484c7f1555b67e47fde354dd514fc140e4a597cd5a2ef5bb9d3abccbd"
     },
     {
       "path": ".cairn/changes/serve-qwen38-fused-gdn-decode-step/evidence/attribution.md",

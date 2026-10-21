@@ -1297,10 +1297,15 @@ limits (131,072 context, the prefix cache enabled) on devices 0 and 1: eight
 concurrent requests were answered, the service reported the admitted execution
 identity and the `qwen38_p150x2-continuous-slot-b8-v1` profile, one slot was
 refilled inside the same run, and the client-observed walls were 0.77 s to 2.73 s.
-The managed profile and the systemd unit were not moved in that session: both are
-root-owned, and the move is the profile service's `switch-policy` operation. Until
-that runs, the served unit still names the B=4 policy. The change
-`.cairn/changes/select-qwen38-continuous-slot-b8` records the evidence.
+The managed profile and the systemd unit were moved to the B=8 policy with the
+profile service's `switch-policy` operation: the named profile holds the admitted
+package, the managed drop-in names `continuous-slot-policy-b8.json`, and the live
+unit on `127.0.0.1:8000` reported the admitted execution identity and the
+`qwen38_p150x2-continuous-slot-b8-v1` profile under eight concurrent requests. The
+unit is stopped after that check and starts on the B=8 profile when it is started.
+The change `.cairn/changes/widen-qwen38-continuous-slots-b8` records the admission
+evidence and `.cairn/changes/select-qwen38-continuous-slot-b8` records the
+deployment.
 
 A request without `temperature` decodes greedily, including thinking. On
 2026-09-27, eight reasoning prompts with known answers were run at the
