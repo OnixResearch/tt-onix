@@ -70,6 +70,29 @@ eleven gates pass (short median wall ratio 0.0624, short p95 0.2001, long p95 1.
 worst slowdown 0.0664, longest pause 5.542 s, delivered throughput 1.1118, startup
 DRAM free ratio 1.0).
 
+## The admitted package, served in the deployed configuration
+
+The package that carries both receipts was then served in the deployed
+configuration: the eight-slot policy and the prefix-cache policy together, at the
+served limits, on devices 0 and 1.
+
+| Observation | Value |
+| --- | --- |
+| Readiness | 466 s |
+| Device DRAM after startup | 9,501,091,840 B free of 23,603,897,344 B allocated |
+| Requests sent concurrently | 8 |
+| Failed requests | 0 |
+| Scheduler profile | `qwen38-p150x2-continuous-slot-b8-v1` |
+| Decode path | `continuous-slot` |
+| Distinct slot indices | 0, 1, 2, 3, 4, 5, 6 (one slot refilled inside the run) |
+| Execution identity | `/nix/store/l4arf461kxbbns0nnlg2vd98anx943pc-qwen36-execution-identity-0.1.0` |
+| Runtime identity | `/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0` |
+| Devices | physical PCIe 0 and 1, `simulated: false` |
+| Client-observed walls | 1.389 s to 3.421 s |
+| Answers | Paris, Red, 4, Iron, 7, Mars, Two hydrogens one oxygen, Summer |
+
+The instance was stopped afterwards; no process holds either device node.
+
 ## The first schema-5 policy was defective, and the receipt said so
 
 The first version of the schema-5 policy named the scheduler profile with an
@@ -93,6 +116,8 @@ carries the same eight gates with the same bounds.
   separate receipt named above.
 - The served profile still points at the earlier package until the switch runs. The
   switch needs root: the profile directory and the managed drop-in are root-owned.
+  The package itself was served directly in the deployed configuration above, which
+  is the same command line the switch ends up running.
 - The host's other work drifts during the campaign. The ABBA order cancels that
   drift, which is what the protocol is for, and the miss ratios above are close to
   one.
