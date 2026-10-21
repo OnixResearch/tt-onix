@@ -5,8 +5,9 @@ repository visibility, push another ref, publish a source archive, or
 distribute a build output based on this checklist alone. This review covers
 the working branch as inspected on 2026-10-12; `origin/main`, other branches
 and tags require their own release-boundary review. Nothing here changes an
-evidence receipt, Git history, or a deployed service. Local license metadata
-now matches the existing LGPL-2.1 root license; upstream rights are unchanged.
+evidence receipt, Git history, or a deployed service. The repository's own
+code, including the in-tree `metalium-rs` native stack, is LGPL-2.1-only
+(commit `4d862d6`, owner decision 2026-10-20); upstream rights are unchanged.
 
 ## What the local audit established
 
@@ -27,14 +28,15 @@ now matches the existing LGPL-2.1 root license; upstream rights are unchanged.
   private key. Both still identify a real host configuration.
 - Receipts, binary transports and two `adapter.safetensors` fixtures are tracked. An evidence digest establishes byte identity, not permission to publish private conversations or model-derived weights. The captured request/response content and binary payloads need human review. The artifact gate in `docs/repository-quality.md` checks only narrow private markers in evidence; it does not certify publication safety or audit Git history.
 - `LICENSE` retains the full LGPL-2.1 text. Thirteen repository-owned Cargo
-  declarations and fifteen local Nix output labels previously claimed MIT;
-  they now say `LGPL-2.1-only`. This aligns current metadata but does not
-  retroactively relicense past revisions or establish ownership of imported
-  work. Apache-2.0-marked TT-Metal/Qwen patch portions and a ttWKV7 descriptor
-  fixture retain their upstream-style notices and a separate full license
-  text. `pkgs/ttwkv7/runtime.nix` correctly marks its pinned upstream unfree:
-  no upstream license was declared. Publishing its Nix recipe is a separate
-  rights question from distributing the upstream source or binary.
+  declarations and fifteen local Nix output labels now say `LGPL-2.1-only`;
+  commit `4d862d6` also moves `metalium-rs` to LGPL-2.1-only. Revisions
+  distributed before that commit retain the MIT or Apache-2.0 grant they
+  received; the change does not retroactively relicense them. Apache-2.0-marked
+  TT-Metal/Qwen patch portions and a ttWKV7 descriptor fixture retain their
+  upstream-style notices and a separate full license text. `pkgs/ttwkv7/runtime.nix`
+  correctly marks its pinned upstream unfree: no upstream license was declared.
+  Publishing its Nix recipe is a separate rights question from distributing the
+  upstream source or binary.
 - A fresh public Nix build is not yet established. `flake.nix` directly pins `OnixResearch/cairn`; `flake.lock` also pins `OnixResearch/onix-artifact` through an SSH-only URL and transitively pins `OnixResearch/slotcar`. Anonymous GitHub API requests for those three repositories returned 404 on 2026-10-12 (private, removed, or otherwise unavailable anonymously); the local Nix cache can mask that problem. The pinned `OnixResearch/nickel-export` repository was visible anonymously. Publish the required dependencies at the pinned revisions or replace them with publicly fetchable equivalents before claiming a reproducible public flake.
 - Device-free `nix run .#quality` now evaluates both Linux systems and reaches
   the aggregate build with ignored `generated/` present. The focused Python,
@@ -94,11 +96,15 @@ to make this private working tree look release-ready.
    including compressed archives and the historical generated log. Re-scan
    the exact export before making any ref, archive or output public.
 2. **Classify disclosure and remediate at the source.** Review every retained hardware log/receipt, SSH metadata, host-specific runbook, model output and binary fixture with the owner. Retain only approved portable evidence; otherwise replace it with a truthful sanitized summary or omit it from the release. If evidence changes, update its manifest and any consumer tests/docs, preserving the distinction between an original physical result and a redacted account. Re-scan the exact release tree and all release-bound refs afterward. If a real credential is found, revoke/rotate it immediately; deleting a commit is not rotation. If a historical blob cannot be public, use an owner-approved clean-history export or rewrite **every published ref and tag** containing it before publication. Do not force-push this operational repository as an incidental cleanup.
-3. **Resolve rights and dependencies.** Confirm that the LGPL-2.1 grant covers
-   retained `onix-core` contributions and reconcile historical MIT-labeled
-   revisions, original patches and Apache-2.0-marked upstream portions.
-   Changing package metadata does not grant rights to external code. Check
-   pinned upstream terms and notices at their exact revisions. Decide whether
+3. **Resolve dependencies and external rights.** The owner recorded on
+   2026-10-20 that the repository's own code, including the in-tree
+   `metalium-rs` and retained `onix-core` contributions, is LGPL-2.1-only.
+   Revisions distributed before that decision keep their MIT or Apache-2.0
+   grants. The Apache-2.0-marked TT-Metal/Qwen patch portions, the ttWKV7
+   fixture, and fetched upstream or model artifacts are external and keep
+   their own terms. Changing package metadata does not grant rights to
+   external code. Check pinned upstream terms and notices at their exact
+   revisions. Decide whether
    ttWKV7 can be referenced, built or distributed in each intended channel;
    do not infer permission from `allowUnfree` or a URL. Verify provenance and
    redistribution terms for the two saved LoRA adapters and the recorded
