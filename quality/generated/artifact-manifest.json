@@ -1574,6 +1574,12 @@
       "blake3": "127f7d291b8e5cd907a7261fbcd5d297839b1b1a87a505b603d540ec89b18b57"
     },
     {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-verdict.md",
+      "class": "portable_evidence",
+      "byte_count": 3758,
+      "blake3": "384653c5fe3ee996cdf12b32e6d213c2a446b4f55e996b2b31c2e5624f103e27"
+    },
+    {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/capacity-and-smoke.md",
       "class": "portable_evidence",
       "byte_count": 3653,
@@ -3600,6 +3606,12 @@
       "class": "portable_evidence",
       "byte_count": 63426,
       "blake3": "44960a77df0c7666624f4b0ae2e1f155f8b8861ad3de95b33886bcd358f398ab"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4948,
+      "blake3": "63e8d5494ad8196a65d4ba86d6dd90bae517eff18823460cd269ba817696af81"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-p150x2-requalification.json",
