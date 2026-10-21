@@ -1454,6 +1454,12 @@
       "blake3": "6c58c344bf3229e0dc27bf2cfb1f51cdd3e38c19717a1bc849009f27da5c029c"
     },
     {
+      "path": ".cairn/changes/qwen38-grouped-prefill-b8-rescreen/evidence/g8-step-route-readmission.md",
+      "class": "portable_evidence",
+      "byte_count": 3196,
+      "blake3": "e1bfb61d4bab4cf35fed69b27c0ee5db2d08caef2e5b0affdc00597e2faa0272"
+    },
+    {
       "path": ".cairn/changes/qwen38-hybrid-prefix-cache/evidence/p5-snapshot-memory-and-simulator-blocker.md",
       "class": "portable_evidence",
       "byte_count": 2279,
@@ -3546,6 +3552,12 @@
       "class": "portable_evidence",
       "byte_count": 16853,
       "blake3": "ad9a5f211d2ef0888e182a34018e422c2caa5db5efd51c5c0030a5a0cf51f38a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 63217,
+      "blake3": "f541b692a8a7696d60e0ffaf512b2861338439a49ad53d3356600f7def97eed9"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-p150x2-requalification.json",

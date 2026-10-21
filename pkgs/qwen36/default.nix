@@ -1359,7 +1359,7 @@ stdenvNoCC.mkDerivation {
         # equal what that receipt's own admission block says. A rejection receipt
         # cannot sit behind an admitted binding, and a pass cannot be exported while
         # the tracked receipt records a failure.
-        b8_receipt=${./evidence/2026-09-12/qwen38-27b-batch-admission-b8-receipt.json}
+        b8_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json}
         b8_receipt_blake3=$(b3sum "$b8_receipt" | cut -d' ' -f1)
         grep -F "\"receipt_blake3\": \"$b8_receipt_blake3\"" batch-admission-b8-profile-first.json
         if grep -F '"admitted": true' "$b8_receipt"; then

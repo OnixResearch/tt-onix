@@ -1323,6 +1323,41 @@ were stopped while Qwen owned the devices, and a live 64-token request passed.
 The current owner is the root native NixOS service with a managed package
 profile, documented next.
 
+## B=8 batch admission on the fused step route (2026-10-21)
+
+The frozen four-root B=8 protocol was re-run unchanged on the current package
+(`5jk1x79sd33a5mfgdvvny8kzsbsm97ql-qwen38-0.1.0`, execution identity
+`hmn4z5n63vlz7prlva2kispp8d6wlll5-qwen36-execution-identity-0.1.0`) with the
+`step` GDN decode route. Every correctness gate passed and all four performance
+bounds passed:
+
+| Gate | Measured | Bound |
+| --- | ---: | ---: |
+| Aggregate decode speedup | 7.408 | at least 6.0 |
+| Per-user decode retention | 0.9260 | at least 0.75 |
+| TTFT ratio | 7.670 | at most 9.0 |
+| Tail-latency ratio | 1.078 | at most 1.5 |
+
+The protocol was the existing frozen one: roots in `single,batch,batch,single`
+order, the eight-prompt corpus, one warmup plus three measured runs per prompt,
+64 generated tokens, and physical PCIe devices 0 and 1. Exact token parity,
+exact text parity, distinct state slices, active prefix, and clean reset all
+report true. The receipt is
+`pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json`
+(BLAKE3 `f541b692a8a7696d60e0ffaf512b2861338439a49ad53d3356600f7def97eed9`);
+the binding is admitted and the install phase pins the exported profile to that
+receipt.
+
+The route is what changed. The 2026-09-12 rejection measured retention 0.737 on
+the fused TT-Metal operation path; the step route's retention is 0.926, far
+outside the protocol's run-to-run spread against the 0.75 bound. The
+protocol-widening task was therefore not needed for this verdict, and the frozen
+bounds were not edited.
+
+This admits candidate width 8 on the recorded execution identity only. It does
+not enable batched serving in production, does not admit B=16, and does not
+admit arbitrary continuous batching.
+
 ## Managed root package profile (historical host, 2026-09-30)
 
 The live `qwen38-p150x2.service` remains the **enabled, unmasked native
