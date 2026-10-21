@@ -1,4 +1,4 @@
-"""Continuous-slot coordinator: one device worker refilling B4 decode slots.
+"""Continuous-slot coordinator: one device worker refilling the profile's decode slots.
 
 r[impl tenstorrent.qwen38_p150x2.continuous_slot_effects]
 

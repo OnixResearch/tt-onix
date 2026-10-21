@@ -1348,8 +1348,8 @@ def probe_read_batch_kv_lanes():
 
 # r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
 def probe_continuous_slot_policy():
-    """Continuous slots: B4 admission, staggered refill, stale events, cancellation, deadlines,
-    capacity, fairness, refill budgets, and quarantine, all on explicit inputs."""
+    """Continuous slots: closed-set capacity, staggered refill, stale events, cancellation,
+    deadlines, fairness, refill budgets, and quarantine, all on explicit inputs."""
     import dataclasses
 
     from qwen36_service import continuous_slot_core as core
@@ -1363,9 +1363,42 @@ def probe_continuous_slot_policy():
         mapping = json.load(handle)
     policy = core.ContinuousSlotPolicy.from_mapping(mapping)
     require(policy.slot_capacity == 4, "the packaged policy is not B4")
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy-b8.json")
+        .open(encoding="utf-8") as handle
+    ):
+        b8_mapping = json.load(handle)
+    b8_policy = core.ContinuousSlotPolicy.from_mapping(b8_mapping)
+    require(b8_policy.slot_capacity == 8, "the packaged B8 candidate is not B8")
+    require(
+        b8_policy.profile_id == "qwen38-p150x2-continuous-slot-b8-v1",
+        "the B8 candidate profile id changed",
+    )
+    require(
+        len(core.initial_schedule(b8_policy).slots) == 8,
+        "a B8 policy did not open eight slots",
+    )
+    require(
+        {
+            field: value
+            for field, value in b8_mapping.items()
+            if field not in ("profile_id", "slot_capacity")
+        }
+        == {
+            field: value
+            for field, value in mapping.items()
+            if field not in ("profile_id", "slot_capacity")
+        },
+        "the B8 candidate changed a scheduler bound",
+    )
+    core.ContinuousSlotPolicy.from_mapping({**mapping, "slot_capacity": 8})
     for change, reason in (
         ({"extra": 1}, "an extra policy field was accepted"),
-        ({"slot_capacity": 8}, "a B8 slot capacity was accepted"),
+        ({"slot_capacity": 1}, "capacity 1 was accepted"),
+        ({"slot_capacity": 5}, "capacity 5 was accepted"),
+        ({"slot_capacity": 6}, "capacity 6 was accepted"),
+        ({"slot_capacity": 16}, "capacity 16 was accepted"),
         (
             {"refills_per_boundary": 5},
             "more refills per boundary than slots were accepted",

@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "qwen38-continuous-slot-scheduler",
+    "qwen38-resident-slot-trace"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}

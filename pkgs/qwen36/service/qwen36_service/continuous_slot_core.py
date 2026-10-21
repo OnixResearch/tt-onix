@@ -61,7 +61,10 @@ from .prefix_cache_core import (
 )
 
 PROFILE_SCHEMA_VERSION = 1
-SLOT_CAPACITY = 4
+# The resident decode trace and the KV pool are sized per profile, so accepted
+# capacities are a closed set. B4 remains the served default; B8 is a candidate.
+SUPPORTED_SLOT_CAPACITIES = (4, 8)
+MAXIMUM_SLOT_CAPACITY = max(SUPPORTED_SLOT_CAPACITIES)
 MAXIMUM_QUEUE_CAPACITY = 256
 MAXIMUM_DECODE_WINDOW_STEPS = 256
 MAXIMUM_REFILL_PROMPT_TOKEN_BUDGET = 65536
@@ -158,8 +161,10 @@ class ContinuousSlotPolicy:
     def __post_init__(self) -> None:
         if not isinstance(self.profile_id, str) or not self.profile_id:
             raise ContinuousSlotPolicyError("profile_id must be a non-empty string")
-        if self.slot_capacity != SLOT_CAPACITY:
-            raise ContinuousSlotPolicyError(f"slot_capacity must be {SLOT_CAPACITY}")
+        if self.slot_capacity not in SUPPORTED_SLOT_CAPACITIES:
+            raise ContinuousSlotPolicyError(
+                f"slot_capacity must be one of {SUPPORTED_SLOT_CAPACITIES}"
+            )
         _require_int(self.queue_capacity, "queue_capacity", 1, MAXIMUM_QUEUE_CAPACITY)
         _require_int(
             self.decode_window_steps,
@@ -201,7 +206,7 @@ class ContinuousSlotPolicy:
         return cls(
             profile_id=root["profile_id"],
             slot_capacity=_require_int(
-                root["slot_capacity"], "slot_capacity", 1, SLOT_CAPACITY
+                root["slot_capacity"], "slot_capacity", 1, MAXIMUM_SLOT_CAPACITY
             ),
             queue_capacity=root["queue_capacity"],
             decode_window_steps=root["decode_window_steps"],

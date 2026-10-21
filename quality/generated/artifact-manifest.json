@@ -1574,6 +1574,12 @@
       "blake3": "127f7d291b8e5cd907a7261fbcd5d297839b1b1a87a505b603d540ec89b18b57"
     },
     {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/capacity-and-smoke.md",
+      "class": "portable_evidence",
+      "byte_count": 3653,
+      "blake3": "0493ac2ab1cc9c0c5a818985d57fcfa0566f1c0664152071424fd84f860aea61"
+    },
+    {
       "path": "cairn/changes/adopt-metalium-rs-native-stack/evidence/adoption.md",
       "class": "portable_evidence",
       "byte_count": 15688,

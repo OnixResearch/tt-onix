@@ -133,6 +133,8 @@ let
     (stableIdentityPath "qwen36-gdn-occupancy-policy.ncl" ./gdn-occupancy-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-policy.ncl" ./continuous-slot-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-contracts.ncl" ./continuous-slot-contracts.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-policy-b8.ncl" ./continuous-slot-policy-b8.ncl)
+    (stableIdentityPath "qwen36-continuous-slot-contracts-b8.ncl" ./continuous-slot-contracts-b8.ncl)
     (stableIdentityPath "qwen36-continuous-slot-admission-policy.ncl" ./continuous-slot-admission-policy.ncl)
     (stableIdentityPath "qwen36-continuous-slot-admission-contracts.ncl" ./continuous-slot-admission-contracts.ncl)
     (stableIdentityPath "qwen36-prefix-cache-policy.ncl" ./prefix-cache-policy.ncl)
@@ -308,6 +310,12 @@ stdenvNoCC.mkDerivation {
     cp continuous-slot-policy-export/*.ncl "$out/share/qwen36/"
     nickel export --format json continuous-slot-policy-export/continuous-slot-policy.ncl \
       > "$out/share/qwen36/continuous-slot-policy.json"
+    cp ${./continuous-slot-policy-b8.ncl} continuous-slot-policy-export/continuous-slot-policy-b8.ncl
+    cp ${./continuous-slot-contracts-b8.ncl} continuous-slot-policy-export/continuous-slot-contracts-b8.ncl
+    cp continuous-slot-policy-export/continuous-slot-policy-b8.ncl continuous-slot-policy-export/continuous-slot-contracts-b8.ncl \
+      "$out/share/qwen36/"
+    nickel export --format json continuous-slot-policy-export/continuous-slot-policy-b8.ncl \
+      > "$out/share/qwen36/continuous-slot-policy-b8.json"
     cp ${./continuous-slot-admission-policy.ncl} continuous-slot-policy-export/continuous-slot-admission-policy.ncl
     cp ${./continuous-slot-admission-contracts.ncl} continuous-slot-policy-export/continuous-slot-admission-contracts.ncl
     cp continuous-slot-policy-export/continuous-slot-admission-*.ncl "$out/share/qwen36/"
