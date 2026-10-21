@@ -29,8 +29,11 @@ shift
 widths=("$@")
 if (( ${#widths[@]} == 0 )); then widths=(3 4 5 8); fi
 
-model=/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
-corpus=/home/brittonr/git/tenstorrent.nix/.pi/evidence/qwen38/b8-admission-20260826
+# Host paths stay outside the repository. Supply the exact admitted model,
+# request corpus and package-matched TT-Metal Python directory before probing.
+model=${QWEN38_PROBE_MODEL:?set QWEN38_PROBE_MODEL to the model snapshot path}
+corpus=${QWEN38_PROBE_CORPUS:?set QWEN38_PROBE_CORPUS to the request corpus path}
+tt_metal_python=${QWEN38_PROBE_TT_METAL_SITE_PACKAGES:?set QWEN38_PROBE_TT_METAL_SITE_PACKAGES to the matched TT-Metal site-packages path}
 work=/tmp/gdn-k5
 listen_url=http://127.0.0.1:8000
 maximum_sequence_length=2048
@@ -43,7 +46,7 @@ group_retry_maximum=4
 group_retry_interval_seconds=2
 active_server_pid=
 
-export PYTHONPATH="$package/lib/python3.13/site-packages:/nix/store/6ccynlvv46p54pmp2lb7dbs65hkyj5w9-tt-metal-0.77.0/lib/python3.13/site-packages"
+export PYTHONPATH="$package/lib/python3.13/site-packages:$tt_metal_python"
 export TT_METAL_HOME="$package/libexec/tt-metalium"
 export TT_METAL_RUNTIME_ROOT="$package/libexec/tt-metalium"
 export MESH_DEVICE=P150x2

@@ -63,7 +63,9 @@ class OccupancyPlan:
     reason: str
 
 
-def instance_coordinates(flat: object, *, heads: object, split: object) -> tuple[int, int, int]:
+def instance_coordinates(
+    flat: object, *, heads: object, split: object
+) -> tuple[int, int, int]:
     """Map a flat instance index to ``(batch, head, block)``, batch-major.
 
     The launch enumerates ``batch * heads * split`` instances in that order, so a
@@ -102,7 +104,9 @@ def candidate_splits(value_tiles: object) -> tuple[int, ...]:
     """Split factors that divide the value width exactly, ascending."""
     tiles = _require_positive(value_tiles, "value_tiles")
     return tuple(
-        factor for factor in range(MINIMUM_SPLIT_FACTOR, tiles + 1) if tiles % factor == 0
+        factor
+        for factor in range(MINIMUM_SPLIT_FACTOR, tiles + 1)
+        if tiles % factor == 0
     )
 
 
@@ -143,18 +147,26 @@ def plan_occupancy(
     batch_count = _require_positive(batch, "batch")
     tiles = _require_positive(value_tiles, "value_tiles")
     core_count = _require_positive(cores, "cores")
-    if not isinstance(fixed_cost_share, (int, float)) or isinstance(fixed_cost_share, bool):
+    if not isinstance(fixed_cost_share, (int, float)) or isinstance(
+        fixed_cost_share, bool
+    ):
         raise GdnOccupancyPolicyError(
             f"fixed_cost_share must be a number, got {type(fixed_cost_share).__name__}"
         )
     share = float(fixed_cost_share)
     if not 0.0 <= share < 1.0:
-        raise GdnOccupancyPolicyError(f"fixed_cost_share must be in [0, 1), got {share}")
-    if not isinstance(minimum_occupancy, (int, float)) or isinstance(minimum_occupancy, bool):
+        raise GdnOccupancyPolicyError(
+            f"fixed_cost_share must be in [0, 1), got {share}"
+        )
+    if not isinstance(minimum_occupancy, (int, float)) or isinstance(
+        minimum_occupancy, bool
+    ):
         raise GdnOccupancyPolicyError("minimum_occupancy must be a number")
     floor = float(minimum_occupancy)
     if not 0.0 < floor <= 1.0:
-        raise GdnOccupancyPolicyError(f"minimum_occupancy must be in (0, 1], got {floor}")
+        raise GdnOccupancyPolicyError(
+            f"minimum_occupancy must be in (0, 1], got {floor}"
+        )
 
     head_instances = head_count * batch_count
     looping = head_instances > core_count
@@ -182,7 +194,9 @@ def plan_occupancy(
             occupancy=active_cores / core_count,
             fixed_cost_share=share,
             estimated_relative_cost=_estimate_relative_cost(
-                instances_per_core=instances_per_core, split=split, fixed_cost_share=share
+                instances_per_core=instances_per_core,
+                split=split,
+                fixed_cost_share=share,
             ),
             per_core_instances=tuple(per_core),
             reason=reason,
@@ -261,11 +275,17 @@ def validate_plan(plan: OccupancyPlan) -> None:
                 flat, heads=plan.heads, split=plan.split
             )
             if batch_index >= plan.batch:
-                raise GdnOccupancyPolicyError(f"instance {flat} is outside the batch bound")
+                raise GdnOccupancyPolicyError(
+                    f"instance {flat} is outside the batch bound"
+                )
             if head >= plan.heads:
-                raise GdnOccupancyPolicyError(f"instance {flat} is outside the head bound")
+                raise GdnOccupancyPolicyError(
+                    f"instance {flat} is outside the head bound"
+                )
             if block >= plan.split:
-                raise GdnOccupancyPolicyError(f"instance {flat} is outside the block bound")
+                raise GdnOccupancyPolicyError(
+                    f"instance {flat} is outside the block bound"
+                )
             if flat in seen:
                 raise GdnOccupancyPolicyError(f"instance {flat} appears twice")
             seen.add(flat)
@@ -283,4 +303,6 @@ def validate_plan(plan: OccupancyPlan) -> None:
         fixed_cost_share=plan.fixed_cost_share,
     )
     if abs(plan.estimated_relative_cost - expected_cost) > 0:
-        raise GdnOccupancyPolicyError("recorded cost disagrees with the plan's own numbers")
+        raise GdnOccupancyPolicyError(
+            "recorded cost disagrees with the plan's own numbers"
+        )

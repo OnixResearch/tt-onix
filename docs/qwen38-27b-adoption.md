@@ -1099,14 +1099,16 @@ production numerical admission.
 
 ### Reviewed read-lane NixOS deployment (host generation not switched)
 
-`nixosModules.qwen38-p150x2-read-lanes` is a host-specific example to import
+`nixosModules.qwen38-p150x2-read-lanes` is a guarded example to import
 **alongside** `nixosModules.default` in a reviewed host generation. It selects
-`pkgs.qwen38`, the existing model snapshot, 131,072 combined tokens, grouped
-and traced prefill, sampled fusion, continuous slots, and prefix cache. The
-module's service already requires device nodes 0 and 1, starts the serialized
-P150x2 executable, and reads both scheduler policies from that same package.
-This example does not import or switch the dirty `onix-core` checkout, and
-does not replace the running service. That host configuration masks Qwen and
+`pkgs.qwen38`, 131,072 combined tokens, grouped and traced prefill, sampled
+fusion, continuous slots, and prefix cache. The host must separately supply
+its own absolute `modelPath` and `conflictingUnits`; the example does not
+publish either machine-specific value. The module's service still requires
+device nodes 0 and 1, starts the serialized P150x2 executable, and reads both
+scheduler policies from that same package.
+Importing the example alone does not switch the host generation or replace
+the running service. That host configuration masks Qwen and
 sets 2,048/64 tokens; its lock pins `tenstorrent-nix` at `cbfcab9`, not a
 revision containing both the reviewed read-lane source and the qualified
 han2 profile guard (`e3cfded` alone retains the stale y58 guard). The source
@@ -1119,8 +1121,7 @@ firmware and OMP separately. The earlier 65,536-token boot command and
 service after reboot; the separately managed han2 package profile below now
 provides a persistent effective command under the *current* native unit.
 
-For `onix-core/machines/britton-desktop/configuration.nix`, the smallest
-reviewable integration is:
+For a host NixOS configuration, the smallest reviewable integration is:
 
 1. Pin the final reviewed `tenstorrent-nix` flake revision containing this
    requalified package **and** updated profile guard; update the host lock
@@ -1131,12 +1132,12 @@ reviewable integration is:
    beside the existing default module. Replace the host's explicit
    `hardware.tenstorrent.qwen38` attrset (including its
    `package = tenstorrentPackages.qwen36`, 2,048/64 limits) with that
-   profile; retain the host's unrelated Tenstorrent driver, descriptor,
-   mesh and access settings. The example already carries this host's
-   model snapshot, owner conflicts, and current sampled/grouped/traced
-   scheduling flags. Set the host's `qwenMaximumSequenceLength` and
-   `qwenMaximumGenerationTokens` constants used in its
-   `/etc/tenstorrent/README.md` text to 131072 and 8192.
+   profile while setting `modelPath` to the host's reviewed snapshot and
+   `conflictingUnits` to the existing competing owner services in the host
+   configuration. The profile fails closed if either the model path or
+   competing-owner list is absent. Retain the host's unrelated Tenstorrent
+   driver, descriptor, mesh and access settings. Update the host's
+   maximum-sequence and maximum-generation documentation to 131072 and 8192.
 3. Remove `systemd.services.${qwenServiceName}.enable = false` and the
    stale host README text saying Qwen is masked or greedy-only. The
    profile now asserts against a masked unit or effective 2,048/64
@@ -1174,6 +1175,13 @@ package fails closed. A flake export and local evaluation are not a pinned
 host input, a rendered host generation or an activation. Future source
 changes that alter the output require their own paired physical gate before
 the guard can change again.
+
+In the current publication-prep worktree, formatting and import-order fixes
+change the Qwen package's source identity. With a host model path and competing
+units supplied, evaluation still rejects the package at the exact-output
+assertion. That is intentional: the historical han2 receipt does not qualify
+the modified output. Requalify the new package physically before changing the
+guard or selecting it in a host generation.
 
 Before a privileged activation, evaluate/build the **reviewed host generation**
 and inspect its rendered `qwen38-p150x2.service`, not just this example. For
@@ -1315,7 +1323,7 @@ were stopped while Qwen owned the devices, and a live 64-token request passed.
 The current owner is the root native NixOS service with a managed package
 profile, documented next.
 
-## Managed root package profile on britton-desktop (2026-09-30)
+## Managed root package profile (historical host, 2026-09-30)
 
 The live `qwen38-p150x2.service` remains the **enabled, unmasked native
 NixOS service** at `/etc/systemd/system/qwen38-p150x2.service`, inheriting
@@ -1338,21 +1346,13 @@ generation link still exists before relying on it for rollback; weekly
 [2026-10-01 admission receipt](../pkgs/qwen36/evidence/2026-10-01/qwen38-han2-profile-admission.json)
 records the switch without a host-generation change.
 
-The checked-in `scripts/qwen38-profile-99.conf` is installed by the
-privileged `scripts/qwen38-profile-service` command. The following exact
-old-package commands are a **rollback only while han2 is healthy**, not a
-failed-start recovery:
+The exact root-only profile manager and systemd 99 drop-in used for this
+cutover are host-specific operational files, not distributed as public
+repository tools. They remain in the owner's local checkout. Their historical
+commands are **rollback only while han2 is healthy**, not a failed-start
+recovery procedure; do not reconstruct them from this account on another host.
 
-```sh
-ssh -o BatchMode=yes root@britton-desktop \
-  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check /nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0'
-ssh -o BatchMode=yes root@britton-desktop \
-  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install /nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0'
-ssh -o BatchMode=yes root@britton-desktop \
-  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status'
-```
-
-The script checks the current owner, pinned package, model and devices,
+The private manager checks the current owner, pinned package, model and devices,
 stages the candidate profile before isolating the owner, serializes the
 switch, waits for systemd notify and HTTP `/healthz`, and rolls back to the
 previous profile generation and owner if admission fails. The separate
@@ -1367,18 +1367,10 @@ failed-start or quarantined service; its readiness preflight rejects the
 current owner before touching the profile. A host switch that masks or
 changes the native unit instead needs a reviewed host-generation correction.
 
-For a future qualified update, build from a reviewed immutable source,
-not the dirty host checkout:
-
-```sh
-# Replace <reviewed-commit> with an immutable reviewed Git revision first.
-OUT=$(nix build --offline --no-link --print-out-paths \
-  'git+file:///home/brittonr/git/tenstorrent.nix?rev=<reviewed-commit>#qwen38')
-ssh -o BatchMode=yes root@britton-desktop \
-  "/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check $OUT"
-ssh -o BatchMode=yes root@britton-desktop \
-  "/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install $OUT"
-```
+For a future qualified update, build from a reviewed immutable source, not
+the dirty host checkout. Use the owner's private manager to check and install
+that exact output only after a fresh physical qualification; the public flake
+does not ship the host-specific migration or rollback tool.
 
 Do not rebuild `onix-core`. The exact han2 output was admitted through the
 named package profile, **not** through a new NixOS host generation. Future
@@ -1415,14 +1407,9 @@ command and device ownership. Do not assume a missing generation can be
 rolled back into existence. If the native unit is masked, revert/fix the
 reviewed host generation first.
 
-While the original `/run` rollback drop-ins still exist, the bounded native
-`restore` can temporarily select the `/run`96 gfvk owner **only from a healthy
-service**:
-
-```sh
-ssh -o BatchMode=yes root@britton-desktop \
-  '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore'
-```
+While the original `/run` rollback drop-ins still exist, the bounded private
+`restore` operation can temporarily select the `/run`96 gfvk owner **only from
+a healthy service**. This is not a public deployment command.
 
 The manager's restored-owner admission check permits `install` of the same
 han2 package (or the verified old gfvk package) from a healthy native `/run`96

@@ -157,7 +157,9 @@ def render_prompt(request: CompletionRequest, tokenizer: Any) -> str:
         )
     except (TemplateError, TypeError) as error:
         # The template's raise_exception and its `|items` over a non-mapping are request errors.
-        raise RequestValidationError(f"the chat template rejected the messages: {error}") from error
+        raise RequestValidationError(
+            f"the chat template rejected the messages: {error}"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -255,7 +257,9 @@ class QwenEngine:
                 profile=decode_profile,
                 maximum_width=MAXIMUM_BATCH_WIDTH,
                 prefix_states=(
-                    prefix_cache_policy.state_slots if prefix_cache_policy is not None else 0
+                    prefix_cache_policy.state_slots
+                    if prefix_cache_policy is not None
+                    else 0
                 ),
             )
             if candidate_requested or admitted_requested
@@ -318,7 +322,9 @@ class QwenEngine:
             else None
         )
         if continuous_slot_policy is not None and self._batch_coordinator is None:
-            raise ValueError("continuous slots require the batch decode worker (candidate mode)")
+            raise ValueError(
+                "continuous slots require the batch decode worker (candidate mode)"
+            )
 
     def cancel(self, request_id: str) -> bool:
         """Withdraw a request whose client left; only the continuous-slot worker can."""
@@ -393,7 +399,9 @@ class QwenEngine:
             fields = {
                 "allocated_bytes": banks * int(view.total_bytes_allocated_per_bank),
                 "free_bytes": banks * int(view.total_bytes_free_per_bank),
-                "largest_free_bytes_per_bank": int(view.largest_contiguous_bytes_free_per_bank),
+                "largest_free_bytes_per_bank": int(
+                    view.largest_contiguous_bytes_free_per_bank
+                ),
                 "banks": banks,
             }
         except (AttributeError, RuntimeError, TypeError) as error:
@@ -522,7 +530,10 @@ class QwenEngine:
 
         decode_durations = []
         position = prompt_token_count
-        while len(generated) < maximum_generation_tokens and generated[-1] not in self.stop_token_ids:
+        while (
+            len(generated) < maximum_generation_tokens
+            and generated[-1] not in self.stop_token_ids
+        ):
             decode_started = time.monotonic()
             device_inputs = self.model.prepare_inputs_decode(
                 torch.tensor([[next_token]], dtype=torch.int32),
@@ -582,7 +593,10 @@ class QwenEngine:
         fallback_reason = None if use_trace else eligibility.reason
         decode_path = "traced" if use_trace else DECODE_MODE_EAGER
         decode_durations = []
-        while len(generated) < maximum_generation_tokens and generated[-1] not in self.stop_token_ids:
+        while (
+            len(generated) < maximum_generation_tokens
+            and generated[-1] not in self.stop_token_ids
+        ):
             if request_deadline_expired(time.monotonic(), request_deadline):
                 raise DecodeAdapterError("request timeout exceeded")
             decode_started = time.monotonic()
@@ -726,7 +740,9 @@ class QwenEngine:
         token_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
         prompt_token_count = token_ids.shape[1]
         return PreparedGeneration(
-            request=admit_prompt(request, prompt, prompt_token_count, self.max_sequence_length),
+            request=admit_prompt(
+                request, prompt, prompt_token_count, self.max_sequence_length
+            ),
             token_ids=token_ids,
             prompt_token_count=prompt_token_count,
         )
@@ -834,7 +850,9 @@ class QwenEngine:
                     token_ids,
                     request.max_tokens,
                 )
-                generated, finish_reason = finish_generation(generated, self.stop_token_ids)
+                generated, finish_reason = finish_generation(
+                    generated, self.stop_token_ids
+                )
                 generated_text = self.tokenizer.decode(
                     generated,
                     skip_special_tokens=True,
@@ -905,20 +923,29 @@ class QwenEngine:
         """Structured reads run on the batch worker; serialized eager mode has none."""
         return self._batch_coordinator is not None
 
-    def _structured_read_ports(self, deadline: float, maximum_think_tokens: int) -> ReadPorts:
+    def _structured_read_ports(
+        self, deadline: float, maximum_think_tokens: int
+    ) -> ReadPorts:
         coordinator = self._batch_coordinator
         assert coordinator is not None
         tokenizer = self.tokenizer
 
         def encode(text: str) -> list[int]:
-            return [int(token) for token in tokenizer.encode(text, add_special_tokens=False)]
+            return [
+                int(token) for token in tokenizer.encode(text, add_special_tokens=False)
+            ]
 
         def chat_prompt(system: str, user: str, thinking: bool) -> list[int]:
             template_arguments: dict[str, Any] = {"enable_thinking": thinking}
             if thinking:
-                template_arguments["reasoning_effort"] = STRUCTURED_THINK_REASONING_EFFORT
+                template_arguments["reasoning_effort"] = (
+                    STRUCTURED_THINK_REASONING_EFFORT
+                )
             rendered = tokenizer.apply_chat_template(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
                 add_generation_prompt=True,
                 tokenize=True,
                 **template_arguments,
@@ -929,19 +956,26 @@ class QwenEngine:
         def read(requests: tuple[Any, ...]) -> tuple[DeviceRead, ...]:
             rows = coordinator.read(
                 requests=tuple(
-                    (torch.tensor([request.token_ids], dtype=torch.int32), request.positions)
+                    (
+                        torch.tensor([request.token_ids], dtype=torch.int32),
+                        request.positions,
+                    )
                     for request in requests
                 ),
                 deadline=deadline,
             )
             return tuple(
-                DeviceRead(logits=row.logits, seconds=row.elapsed_seconds, route=row.route)
+                DeviceRead(
+                    logits=row.logits, seconds=row.elapsed_seconds, route=row.route
+                )
                 for row in rows
             )
 
         def think(prompt_ids: list[int], budget: int) -> list[int]:
             if budget > maximum_think_tokens:
-                raise SchemaError(f"think: at most {maximum_think_tokens} tokens on this service")
+                raise SchemaError(
+                    f"think: at most {maximum_think_tokens} tokens on this service"
+                )
             if len(prompt_ids) + budget > self.max_sequence_length:
                 raise SchemaError(
                     f"the thought needs {len(prompt_ids) + budget} tokens; the service holds "
@@ -962,7 +996,10 @@ class QwenEngine:
                 started=time.monotonic(),
                 deadline=deadline,
             )
-            return [int(token) for token in response["x_onix_decode_evidence"]["generated_token_ids"]]
+            return [
+                int(token)
+                for token in response["x_onix_decode_evidence"]["generated_token_ids"]
+            ]
 
         return ReadPorts(
             encode=encode,
@@ -976,9 +1013,13 @@ class QwenEngine:
             maximum_sequence_length=self.max_sequence_length,
         )
 
-    def structured_decide(self, payload: Any, maximum_think_tokens: int) -> dict[str, Any]:
+    def structured_decide(
+        self, payload: Any, maximum_think_tokens: int
+    ) -> dict[str, Any]:
         """One Jev ``/v1/systemone`` decision from structured reads."""
-        schema, state, seed = parse_jev_request(payload, maximum_think_tokens=maximum_think_tokens)
+        schema, state, seed = parse_jev_request(
+            payload, maximum_think_tokens=maximum_think_tokens
+        )
         started = time.monotonic()
         ports = self._structured_read_ports(
             started + self.decode_profile.request_timeout_seconds, maximum_think_tokens
@@ -1118,7 +1159,11 @@ def make_handler(
                     {"error": {"message": str(error), "type": "validation_error"}},
                 )
             except (AssertionError, OSError, RuntimeError, ValueError) as error:
-                emit("request-failed", endpoint=SYSTEMONE_PATH, error_type=type(error).__name__)
+                emit(
+                    "request-failed",
+                    endpoint=SYSTEMONE_PATH,
+                    error_type=type(error).__name__,
+                )
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": {"message": "inference failed", "type": "server_error"}},
@@ -1179,7 +1224,9 @@ def make_handler(
                     self._write_error(HTTPStatus.BAD_REQUEST, str(value))
                 else:
                     emit("request-failed", error_type=type(value).__name__)
-                    self._write_error(HTTPStatus.INTERNAL_SERVER_ERROR, "inference failed")
+                    self._write_error(
+                        HTTPStatus.INTERNAL_SERVER_ERROR, "inference failed"
+                    )
                 return
             self.send_response(HTTPStatus.OK.value)
             self.send_header("Content-Type", "text/event-stream")
@@ -1188,7 +1235,9 @@ def make_handler(
             self.end_headers()
             self.close_connection = True
             detokenizer = IncrementalDetokenizer(
-                lambda token_ids: engine.tokenizer.decode(token_ids, skip_special_tokens=True),
+                lambda token_ids: engine.tokenizer.decode(
+                    token_ids, skip_special_tokens=True
+                ),
                 engine.stop_token_ids,
             )
             chat = request.endpoint is Endpoint.CHAT_COMPLETIONS
@@ -1211,7 +1260,10 @@ def make_handler(
                 if chat:
                     send(
                         stream_chunk(
-                            request, request_id, created, delta={"content": "", "role": "assistant"}
+                            request,
+                            request_id,
+                            created,
+                            delta={"content": "", "role": "assistant"},
                         )
                     )
                 while kind == "token":
@@ -1220,8 +1272,12 @@ def make_handler(
                         send_text(text)
                     kind, value = events.get()
                 if kind == "error":
-                    emit("request-failed", error_type=type(value).__name__, streamed=True)
-                    send({"error": {"message": "inference failed", "type": "server_error"}})
+                    emit(
+                        "request-failed", error_type=type(value).__name__, streamed=True
+                    )
+                    send({
+                        "error": {"message": "inference failed", "type": "server_error"}
+                    })
                     return
                 response = value
                 # Reconcile with the tokens the complete response decoded, not its parsed message.
@@ -1235,11 +1291,15 @@ def make_handler(
                     send_events(parser.finish())
                     # The streamed calls decide, so the finish reason matches what was sent.
                     finish_reason = chat_finish_reason(
-                        FINISH_LENGTH if finish_reason == FINISH_LENGTH else FINISH_STOP,
+                        FINISH_LENGTH
+                        if finish_reason == FINISH_LENGTH
+                        else FINISH_STOP,
                         parser.completed_call_count,
                         parser.open_call,
                     )
-                final = stream_chunk(request, request_id, created, finish_reason=finish_reason)
+                final = stream_chunk(
+                    request, request_id, created, finish_reason=finish_reason
+                )
                 if "x_onix_decode_evidence" in response:
                     final["x_onix_decode_evidence"] = response["x_onix_decode_evidence"]
                 send(final)
@@ -1362,16 +1422,22 @@ def main() -> None:
         if args.decode_mode != DECODE_MODE_CANDIDATE:
             raise SystemExit("--continuous-slot-policy requires candidate decode mode")
         if args.batch_admission or args.trace_reuse_admission:
-            raise SystemExit("--continuous-slot-policy conflicts with admission measurements")
+            raise SystemExit(
+                "--continuous-slot-policy conflicts with admission measurements"
+            )
         continuous_slot_policy_path = Path(args.continuous_slot_policy).expanduser()
         if (
             not continuous_slot_policy_path.is_absolute()
             or not continuous_slot_policy_path.is_file()
         ):
-            raise SystemExit("--continuous-slot-policy must be an existing absolute file")
+            raise SystemExit(
+                "--continuous-slot-policy must be an existing absolute file"
+            )
         try:
             with continuous_slot_policy_path.open(encoding="utf-8") as policy_file:
-                continuous_slot_policy = ContinuousSlotPolicy.from_mapping(json.load(policy_file))
+                continuous_slot_policy = ContinuousSlotPolicy.from_mapping(
+                    json.load(policy_file)
+                )
         except (ContinuousSlotPolicyError, OSError, json.JSONDecodeError) as error:
             raise SystemExit(f"continuous slot policy is invalid: {error}") from error
     prefix_cache_policy = None
@@ -1379,11 +1445,16 @@ def main() -> None:
         if continuous_slot_policy is None:
             raise SystemExit("--prefix-cache-policy requires --continuous-slot-policy")
         prefix_cache_policy_path = Path(args.prefix_cache_policy).expanduser()
-        if not prefix_cache_policy_path.is_absolute() or not prefix_cache_policy_path.is_file():
+        if (
+            not prefix_cache_policy_path.is_absolute()
+            or not prefix_cache_policy_path.is_file()
+        ):
             raise SystemExit("--prefix-cache-policy must be an existing absolute file")
         try:
             with prefix_cache_policy_path.open(encoding="utf-8") as policy_file:
-                prefix_cache_policy = PrefixCachePolicy.from_mapping(json.load(policy_file))
+                prefix_cache_policy = PrefixCachePolicy.from_mapping(
+                    json.load(policy_file)
+                )
         except (PrefixCachePolicyError, OSError, json.JSONDecodeError) as error:
             raise SystemExit(f"prefix cache policy is invalid: {error}") from error
     if not model_path.is_absolute() or not model_path.is_dir():

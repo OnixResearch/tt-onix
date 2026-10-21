@@ -120,13 +120,11 @@ def solve_assignment(
             for index, option in enumerate(group.options):
                 next_cost = cost + group.parameters * Fraction(option.effective_bits)
                 if next_cost <= budget_units:
-                    candidates.append(
-                        (
-                            next_cost,
-                            sensitivity + option.sensitivity,
-                            choices + (index,),
-                        )
-                    )
+                    candidates.append((
+                        next_cost,
+                        sensitivity + option.sensitivity,
+                        choices + (index,),
+                    ))
         if not candidates:
             raise FormatAssignmentError(
                 f"no assignment fits {budget_effective_bits} effective bits"

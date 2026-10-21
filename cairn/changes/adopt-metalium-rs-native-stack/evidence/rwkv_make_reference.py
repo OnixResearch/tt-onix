@@ -4,8 +4,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.insert(0, "/home/brittonr/git/tenstorrent.nix/pkgs/rwkv-layer-harness/reference")
-from rwkv7_torch_equation_reference import run_reference  # noqa: E402
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[4] / "pkgs/rwkv-layer-harness/reference")
+)
+from rwkv7_torch_equation_reference import run_reference
 
 model = Path(sys.argv[1])
 out = Path(sys.argv[2])

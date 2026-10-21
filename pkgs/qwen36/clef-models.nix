@@ -1,22 +1,39 @@
 # Cloudflare Clef released artifacts; URLs and content hashes are pinned at the two revisions.
-{ lib, fetchurl, runCommand }:
+{
+  lib,
+  fetchurl,
+  runCommand,
+}:
 let
-  mkModel = { variant, revision, files }:
+  mkModel =
+    {
+      variant,
+      revision,
+      files,
+    }:
     let
       base = "https://huggingface.co/Cloudflare/${variant}/resolve/${revision}";
-      fetched = lib.mapAttrs (filename: hash: fetchurl {
-        url = "${base}/${filename}";
-        name = "${variant}-${filename}";
-        inherit hash;
-      }) files;
+      fetched = lib.mapAttrs (
+        filename: hash:
+        fetchurl {
+          url = "${base}/${filename}";
+          name = "${variant}-${filename}";
+          inherit hash;
+        }
+      ) files;
     in
-    runCommand "cloudflare-${variant}-${builtins.substring 0 12 revision}" { } (''
-      mkdir -p "$out"
-    '' + lib.concatStringsSep "\n" (lib.mapAttrsToList (filename: source:
-      "ln -s ${source} \"$out/${filename}\""
-    ) fetched) + "\n" + ''
-      printf '%s\n' '${revision}' > "$out/revision"
-    '');
+    runCommand "cloudflare-${variant}-${builtins.substring 0 12 revision}" { } (
+      ''
+        mkdir -p "$out"
+      ''
+      + lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (filename: source: "ln -s ${source} \"$out/${filename}\"") fetched
+      )
+      + "\n"
+      + ''
+        printf '%s\n' '${revision}' > "$out/revision"
+      ''
+    );
 in
 {
   clef = mkModel {

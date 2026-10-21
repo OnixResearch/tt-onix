@@ -179,7 +179,10 @@ def traced_prefill_enabled(env: Any = None) -> bool:
     """Return whether the caller opted into masked prefill traces."""
     if env is None:
         env = os.environ
-    return env.get(TRACED_PREFILL_ENV, "").strip().lower() in GROUPED_PREFILL_ENABLED_VALUES
+    return (
+        env.get(TRACED_PREFILL_ENV, "").strip().lower()
+        in GROUPED_PREFILL_ENABLED_VALUES
+    )
 
 
 def grouped_prefill_enabled(env: Any = None) -> bool:
@@ -192,7 +195,9 @@ def grouped_prefill_enabled(env: Any = None) -> bool:
     return value.strip().lower() in GROUPED_PREFILL_ENABLED_VALUES
 
 
-def load_runtime_capability_record(package_root: Path | None = None) -> RuntimeCapabilityRecord:
+def load_runtime_capability_record(
+    package_root: Path | None = None,
+) -> RuntimeCapabilityRecord:
     """Read the package's own runtime capability record, failing closed.
 
     A missing or malformed record yields the one-instance-per-core reading, so
@@ -205,7 +210,10 @@ def load_runtime_capability_record(package_root: Path | None = None) -> RuntimeC
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return RuntimeCapabilityRecord(False, NON_CHUNKED_CAPABILITY_SOURCE)
-    if not isinstance(record, dict) or record.get("schema_version") != CAPABILITY_SCHEMA_VERSION:
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != CAPABILITY_SCHEMA_VERSION
+    ):
         return RuntimeCapabilityRecord(False, NON_CHUNKED_CAPABILITY_SOURCE)
     chunked = record.get("gdn_scan_chunked_instances")
     if not isinstance(chunked, bool):
@@ -274,12 +282,12 @@ class BatchedTracedDecodeAdapter:
                 row_blocks=self.blocks_per_user,
                 kv_block_size=profile.kv_block_size,
             )
-            if (
-                int(model.READ_BATCH_WIDTH) != self.kv_pool.batch_read_width
-                or tuple(model.READ_BATCH_BUCKETS)
-                != (READ_BATCH_MIN_BUCKET_TOKENS, READ_BATCH_MAX_BUCKET_TOKENS)
-            ):
-                raise KvPoolError("model batched read traces do not match reserved KV lanes")
+            if int(model.READ_BATCH_WIDTH) != self.kv_pool.batch_read_width or tuple(
+                model.READ_BATCH_BUCKETS
+            ) != (READ_BATCH_MIN_BUCKET_TOKENS, READ_BATCH_MAX_BUCKET_TOKENS):
+                raise KvPoolError(
+                    "model batched read traces do not match reserved KV lanes"
+                )
             startup_rows = self.kv_pool.startup_rows(width=maximum_width)
         except KvPoolError as error:
             raise BatchDecodeAdapterError(str(error)) from error
@@ -751,7 +759,8 @@ class BatchedTracedDecodeAdapter:
             # The grouped path returns replicated device logits, so read them back
             # the same way the model does for its own per-user logits.
             host_logits = [
-                ttnn.to_torch(logit, mesh_composer=self._mesh_reader)
+                ttnn
+                .to_torch(logit, mesh_composer=self._mesh_reader)
                 .reshape(1, 1, -1)[:, :, : self.vocabulary_size]
                 .clone()
                 for logit in host_logits
@@ -834,7 +843,9 @@ class BatchedTracedDecodeAdapter:
     #   the page table, is restaged from the host before the next replay.
 
     def _scratch_row(self) -> torch.Tensor:
-        return torch.full((self.blocks_per_user,), self.kv_pool.scratch_block, dtype=torch.int32)
+        return torch.full(
+            (self.blocks_per_user,), self.kv_pool.scratch_block, dtype=torch.int32
+        )
 
     def _require_slot_group(self) -> int:
         self._require_open()
@@ -860,7 +871,9 @@ class BatchedTracedDecodeAdapter:
         plan = plan_slot_group_trace(
             width=width,
             resident_widths=tuple(self._traces),
-            binding_stable=all(self._binding_matches(trace) for trace in self._traces.values()),
+            binding_stable=all(
+                self._binding_matches(trace) for trace in self._traces.values()
+            ),
             masked_prefill_ready=bool(self.model.masked_prefill_trace_buckets())
             and not self.model.masked_prefill_traces_stale(),
         )
@@ -915,29 +928,47 @@ class BatchedTracedDecodeAdapter:
         if token_ids.shape[0] != MINIMUM_ACTIVE_BATCH_WIDTH or token_ids.shape[1] < 1:
             raise BatchDecodeAdapterError("prefill tokens must contain one prompt")
         prompt_tokens = int(token_ids.shape[1])
-        prefix_blocks = [block for start, count in prefix_ranges for block in range(start, start + count)]
+        prefix_blocks = [
+            block
+            for start, count in prefix_ranges
+            for block in range(start, start + count)
+        ]
         if len(prefix_blocks) * self.profile.kv_block_size != prefix_tokens:
-            raise BatchDecodeAdapterError("the prefix blocks must cover exactly the prefix tokens")
+            raise BatchDecodeAdapterError(
+                "the prefix blocks must cover exactly the prefix tokens"
+            )
         if (resume_state is None) != (prefix_tokens == 0):
-            raise BatchDecodeAdapterError("a prefix needs a saved state to resume from, and only then")
+            raise BatchDecodeAdapterError(
+                "a prefix needs a saved state to resume from, and only then"
+            )
         if prefix_tokens >= prompt_tokens:
-            raise BatchDecodeAdapterError("a prefix hit must leave prompt tokens to prefill")
+            raise BatchDecodeAdapterError(
+                "a prefix hit must leave prompt tokens to prefill"
+            )
         if save_state is not None and not prefix_tokens < save_at < prompt_tokens:
-            raise BatchDecodeAdapterError("a save point must lie past the prefix inside the prompt")
+            raise BatchDecodeAdapterError(
+                "a save point must lie past the prefix inside the prompt"
+            )
         needed = self.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=1)
         if block_count + len(prefix_blocks) < needed:
-            raise BatchDecodeAdapterError("the KV run does not cover the prompt's prefill")
+            raise BatchDecodeAdapterError(
+                "the KV run does not cover the prompt's prefill"
+            )
         block_end = block_start + block_count
         if (
             block_start < self.kv_pool.reserved_prefix_blocks
             or block_end > self.kv_pool.generation_end_block
             or block_count + len(prefix_blocks) > self.blocks_per_user
             or any(
-                not self.kv_pool.reserved_prefix_blocks <= block < self.kv_pool.generation_end_block
+                not self.kv_pool.reserved_prefix_blocks
+                <= block
+                < self.kv_pool.generation_end_block
                 for block in prefix_blocks
             )
         ):
-            raise BatchDecodeAdapterError("the KV run leaves the generation block range")
+            raise BatchDecodeAdapterError(
+                "the KV run leaves the generation block range"
+            )
         if any(block_start <= block < block_end for block in prefix_blocks):
             raise BatchDecodeAdapterError("the KV run overlaps its own prefix blocks")
         for owner, (start, count) in self._slot_runs.items():
@@ -957,7 +988,9 @@ class BatchedTracedDecodeAdapter:
         if save_state is not None:
             plan["save"] = (save_state, save_at)
         if plan and not self.prefix_cache_available():
-            raise BatchDecodeAdapterError("prefix restore and save need the masked prefill traces")
+            raise BatchDecodeAdapterError(
+                "prefix restore and save need the masked prefill traces"
+            )
 
         row = self._scratch_row()
         own = torch.arange(block_start, block_end, dtype=torch.int32)
@@ -974,9 +1007,14 @@ class BatchedTracedDecodeAdapter:
 
         def observe_first_token(host_logits: list[torch.Tensor]) -> None:
             if first or len(host_logits) != 1:
-                raise BatchDecodeAdapterError("a slot prefill reported the wrong first tokens")
+                raise BatchDecodeAdapterError(
+                    "a slot prefill reported the wrong first tokens"
+                )
             logits = host_logits[0].float().reshape(-1, self.vocabulary_size)
-            first.append((int(torch.argmax(logits[0]).item()), time.monotonic() - started))
+            first.append((
+                int(torch.argmax(logits[0]).item()),
+                time.monotonic() - started,
+            ))
 
         self.model.prefill_paged_slots(
             [token_ids],
@@ -990,13 +1028,18 @@ class BatchedTracedDecodeAdapter:
         ttnn.synchronize_device(self.mesh)
         elapsed_seconds = time.monotonic() - started
         if not first:
-            raise BatchDecodeAdapterError("a slot prefill did not report its first token")
+            raise BatchDecodeAdapterError(
+                "a slot prefill did not report its first token"
+            )
         if use_masked_traces and not self.model.masked_prefill_trace_buckets():
             masked_traces_released = True
         decode_trace_released = False
         if trace is not None:
             self._require_binding(trace)
-            if masked_traces_released or self.mesh.num_program_cache_entries() != programs_before:
+            if (
+                masked_traces_released
+                or self.mesh.num_program_cache_entries() != programs_before
+            ):
                 self._release_traces()
                 decode_trace_released = True
         first_token_id, first_token_ready_seconds = first[0]
@@ -1030,7 +1073,9 @@ class BatchedTracedDecodeAdapter:
         self._release_traces()
         self.reset_all()
 
-    def _slot_trace(self, token_ids: tuple[int, ...], positions: tuple[int, ...]) -> None:
+    def _slot_trace(
+        self, token_ids: tuple[int, ...], positions: tuple[int, ...]
+    ) -> None:
         """Capture the slot trace, or restage every input of the resident one if stale."""
         width = self._require_slot_group()
         if len(token_ids) != width or len(positions) != width:
@@ -1045,7 +1090,9 @@ class BatchedTracedDecodeAdapter:
         self._require_binding(trace)
         if self._slot_inputs_stale:
             host_inputs = self.model.prepare_decode_inputs_host(
-                torch.tensor(token_ids, dtype=torch.int32).reshape(width, MINIMUM_ACTIVE_BATCH_WIDTH),
+                torch.tensor(token_ids, dtype=torch.int32).reshape(
+                    width, MINIMUM_ACTIVE_BATCH_WIDTH
+                ),
                 torch.tensor(positions, dtype=torch.int32),
                 page_table=self.page_table[:width].contiguous(),
             )
@@ -1061,7 +1108,9 @@ class BatchedTracedDecodeAdapter:
     ) -> Iterator[tuple[int, ...]]:
         """A greedy stream over every slot row; inactive rows pass token 0 at position 0."""
         self._slot_trace(token_ids, positions)
-        return self.decode_greedy_stream(token_ids=token_ids, positions=positions, steps=steps)
+        return self.decode_greedy_stream(
+            token_ids=token_ids, positions=positions, steps=steps
+        )
 
     def decode_slots_sampled(
         self,
@@ -1117,7 +1166,9 @@ class BatchedTracedDecodeAdapter:
         )
         elapsed_seconds = time.monotonic() - started
         if tuple(logits.shape) != (len(ordered), self.vocabulary_size):
-            raise BatchDecodeAdapterError("structured read returned the wrong logit shape")
+            raise BatchDecodeAdapterError(
+                "structured read returned the wrong logit shape"
+            )
         if not traced:
             route = READ_ROUTE_EAGER
         elif reused_tokens:
@@ -1144,7 +1195,10 @@ class BatchedTracedDecodeAdapter:
         and logit rows; the rest read alone. When a captured batch row would overwrite
         protected generation KV, use the disjoint single-read row instead. Each result
         reports its share of its replay."""
-        validated = [self._validated_read(token_ids, positions) for token_ids, positions in requests]
+        validated = [
+            self._validated_read(token_ids, positions)
+            for token_ids, positions in requests
+        ]
         masked_traces_released = self._prepare_read()
         captured = self.model.masked_read_batch_buckets()
         groups = plan_read_batches(
@@ -1157,7 +1211,9 @@ class BatchedTracedDecodeAdapter:
                 if bucket in captured
                 and (
                     not protected_blocks
-                    or self._batch_read_written_blocks(bucket).isdisjoint(protected_blocks)
+                    or self._batch_read_written_blocks(bucket).isdisjoint(
+                        protected_blocks
+                    )
                 )
             },
             maximum_rows=int(self.model.MASKED_LOGIT_ROWS),
@@ -1171,11 +1227,16 @@ class BatchedTracedDecodeAdapter:
                     logits=single.logits,
                     elapsed_seconds=single.elapsed_seconds,
                     route=single.route,
-                    masked_traces_released=masked_traces_released or single.masked_traces_released,
+                    masked_traces_released=masked_traces_released
+                    or single.masked_traces_released,
                     kv_written_blocks=single.kv_written_blocks,
                 )
                 continue
-            bucket = next(bucket for bucket in captured if bucket >= max(validated[index][0] for index in group))
+            bucket = next(
+                bucket
+                for bucket in captured
+                if bucket >= max(validated[index][0] for index in group)
+            )
             written = self._batch_read_written_blocks(bucket)
             started = time.monotonic()
             rows = self.model.prefill_masked_read_batch(
@@ -1184,8 +1245,13 @@ class BatchedTracedDecodeAdapter:
             )
             share = (time.monotonic() - started) / len(group)
             for index, logits in zip(group, rows, strict=True):
-                if tuple(logits.shape) != (len(validated[index][1]), self.vocabulary_size):
-                    raise BatchDecodeAdapterError("batched read returned the wrong logit shape")
+                if tuple(logits.shape) != (
+                    len(validated[index][1]),
+                    self.vocabulary_size,
+                ):
+                    raise BatchDecodeAdapterError(
+                        "batched read returned the wrong logit shape"
+                    )
                 results[index] = StructuredReadRows(
                     logits=logits,
                     elapsed_seconds=share,
@@ -1207,10 +1273,14 @@ class BatchedTracedDecodeAdapter:
             raise BatchDecodeAdapterError("read tokens must contain one sequence")
         length = int(token_ids.shape[1])
         if not 1 <= length <= self.profile.maximum_sequence_length:
-            raise BatchDecodeAdapterError("read length is outside the admitted sequence length")
+            raise BatchDecodeAdapterError(
+                "read length is outside the admitted sequence length"
+            )
         ordered = tuple(int(position) for position in positions)
         if not ordered or ordered != tuple(sorted(set(ordered))):
-            raise BatchDecodeAdapterError("read positions must be ascending and distinct")
+            raise BatchDecodeAdapterError(
+                "read positions must be ascending and distinct"
+            )
         if ordered[0] < MINIMUM_POSITION or ordered[-1] >= length:
             raise BatchDecodeAdapterError("read positions must lie inside the sequence")
         return length, ordered
@@ -1316,7 +1386,10 @@ class BatchedTracedDecodeAdapter:
         ):
             raise BatchDecodeAdapterError("batch token is outside the vocabulary")
         last_position = max(positions) + steps - 1
-        if min(positions) < MINIMUM_POSITION or last_position >= self.profile.maximum_sequence_length:
+        if (
+            min(positions) < MINIMUM_POSITION
+            or last_position >= self.profile.maximum_sequence_length
+        ):
             raise BatchDecodeAdapterError("batch position is outside the profile bound")
 
         winner_replica = ttnn.get_device_tensors(trace.indices)[0]
@@ -1324,8 +1397,12 @@ class BatchedTracedDecodeAdapter:
         try:
             for step in range(steps):
                 host_inputs = self.model.prepare_decode_inputs_host(
-                    torch.tensor(token_ids, dtype=torch.int32).reshape(width, MINIMUM_ACTIVE_BATCH_WIDTH),
-                    torch.tensor([position + step for position in positions], dtype=torch.int32),
+                    torch.tensor(token_ids, dtype=torch.int32).reshape(
+                        width, MINIMUM_ACTIVE_BATCH_WIDTH
+                    ),
+                    torch.tensor(
+                        [position + step for position in positions], dtype=torch.int32
+                    ),
                     page_table=None,
                 )
                 first_input = 0 if step == 0 else GREEDY_FED_BACK_INPUT_COUNT
@@ -1340,8 +1417,13 @@ class BatchedTracedDecodeAdapter:
                     blocking=TRACE_BLOCKING_REPLAY,
                 )
                 # Queued behind this replay and ahead of the next one on the same queue.
-                host = ttnn.from_device(winner_replica, blocking=False, queue_id=TRACE_COMMAND_QUEUE_ID)
-                pending.append((host, ttnn.record_event(self.mesh, cq_id=TRACE_COMMAND_QUEUE_ID)))
+                host = ttnn.from_device(
+                    winner_replica, blocking=False, queue_id=TRACE_COMMAND_QUEUE_ID
+                )
+                pending.append((
+                    host,
+                    ttnn.record_event(self.mesh, cq_id=TRACE_COMMAND_QUEUE_ID),
+                ))
                 if len(pending) > GREEDY_STREAM_DEPTH:
                     yield self._settle_winners(pending.pop(0), width)
             while pending:
@@ -1408,12 +1490,16 @@ class BatchedTracedDecodeAdapter:
         token = ttnn.add(index0, ttnn.multiply(take_second, offset))
         for tensor in (value0, index0, value1, index1, take_second, offset):
             ttnn.deallocate(tensor)
-        winners = ttnn.to_layout(ttnn.typecast(token, ttnn.uint32), ttnn.ROW_MAJOR_LAYOUT)
+        winners = ttnn.to_layout(
+            ttnn.typecast(token, ttnn.uint32), ttnn.ROW_MAJOR_LAYOUT
+        )
         ttnn.deallocate(token)
         return ttnn.reshape(winners, (width, MINIMUM_ACTIVE_BATCH_WIDTH))
 
     @staticmethod
-    def _feed_back_winners(winners: Any, values: Any, device_inputs: tuple[Any, ...]) -> None:
+    def _feed_back_winners(
+        winners: Any, values: Any, device_inputs: tuple[Any, ...]
+    ) -> None:
         """Greedy tails write their tokens into the next step's token input."""
         if values is None:
             ttnn.copy(winners, device_inputs[0])
@@ -1690,7 +1776,9 @@ class BatchedTracedDecodeAdapter:
     ) -> tuple[int, ...]:
         """Read the combined greedy tokens from one replica."""
         if values is not None:
-            raise BatchDecodeAdapterError("greedy readback needs the combined winner tail")
+            raise BatchDecodeAdapterError(
+                "greedy readback needs the combined winner tail"
+            )
         host = ttnn.to_torch(
             ttnn.get_device_tensors(winners)[0],
             cq_id=TRACE_COMMAND_QUEUE_ID,
@@ -1700,7 +1788,9 @@ class BatchedTracedDecodeAdapter:
     def _winner_tuple(self, host: Any, width: int) -> tuple[int, ...]:
         tokens = host.reshape(-1)
         if tokens.numel() != width:
-            raise BatchDecodeAdapterError("batch winner count differs from active width")
+            raise BatchDecodeAdapterError(
+                "batch winner count differs from active width"
+            )
         result = tuple(int(token) for token in tokens.tolist())
         if any(not 0 <= token < self.vocabulary_size for token in result):
             raise BatchDecodeAdapterError("batch winner is outside the vocabulary")
@@ -1796,7 +1886,9 @@ class BatchedTracedDecodeAdapter:
                 for width in range(MINIMUM_ACTIVE_BATCH_WIDTH, self.maximum_width + 1):
                     if not self.decode_width_supported(width):
                         continue
-                    if route == ROUTE_SAMPLED and not self.sampled_width_supported(width):
+                    if route == ROUTE_SAMPLED and not self.sampled_width_supported(
+                        width
+                    ):
                         continue
                     self.reset_all()
                     self.prepare_width(

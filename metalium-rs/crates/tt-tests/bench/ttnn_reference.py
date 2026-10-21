@@ -19,6 +19,7 @@ the host; the check is recorded (exactness or the measured error), never used to
 tolerance. Results go to stdout as `BENCH {json}` lines in the shape `tt_tests::bench`
 emits, and to `target/silicon/bench/ttnn-<stamp>.jsonl`.
 """
+
 import argparse
 import json
 import os
@@ -36,8 +37,16 @@ BATCH = 16
 
 def stats(us):
     s = sorted(us)
-    pick = lambda q: s[min(len(s) - 1, int(q * (len(s) - 1) + 0.5))]
-    return {"median": statistics.median(s), "p10": pick(0.10), "p90": pick(0.90), "n": len(s)}
+
+    def pick(q):
+        return s[min(len(s) - 1, int(q * (len(s) - 1) + 0.5))]
+
+    return {
+        "median": statistics.median(s),
+        "p10": pick(0.10),
+        "p90": pick(0.90),
+        "n": len(s),
+    }
 
 
 class Out:
@@ -45,7 +54,14 @@ class Out:
         self.f = open(path, "w")
 
     def emit(self, key, unit, timed, st, **extra):
-        rec = {"kind": "result", "key": key, "unit": unit, "timed": timed, **st, **extra}
+        rec = {
+            "kind": "result",
+            "key": key,
+            "unit": unit,
+            "timed": timed,
+            **st,
+            **extra,
+        }
         line = json.dumps(rec)
         print("BENCH " + line, flush=True)
         self.f.write(line + "\n")
@@ -110,7 +126,7 @@ def time_modes(dev, out, name, op, check):
         out.note(name + " trace check", **check(ttnn.to_torch(traced)))
         ttnn.release_trace(dev, tid)
         out.emit(name + " trace", "us", "host", stats(us))
-    except Exception as e:  # a trace that cannot be captured is a result too
+    except Exception as e:  # noqa: BLE001 - a trace that cannot be captured is a result too
         out.note(name + " trace", skipped=str(e).splitlines()[0][:200])
 
 
@@ -122,7 +138,9 @@ def exact_or_error(ref):
         return {
             "bit_exact": bool(torch.equal(got.to(ref.dtype), ref)),
             "max_abs_err": float(diff.max()),
-            "max_rel_err_of_max": float(diff.max() / refd.abs().max().clamp_min(1e-300)),
+            "max_rel_err_of_max": float(
+                diff.max() / refd.abs().max().clamp_min(1e-300)
+            ),
         }
 
     return check
@@ -145,15 +163,27 @@ def main():
     os.makedirs(os.path.join(root, "target", "silicon", "bench"), exist_ok=True)
     out = Out(os.path.join(root, "target", "silicon", "bench", f"ttnn-{stamp}.jsonl"))
     sha = subprocess.run(
-        ["git", "rev-parse", "--short=12", "HEAD"], cwd=root, capture_output=True, text=True
+        ["git", "rev-parse", "--short=12", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
-    out.note("conditions", card=a.device, git=sha, warmup=WARMUP, samples=SAMPLES, batch=BATCH,
-             torch=torch.__version__)
+    out.note(
+        "conditions",
+        card=a.device,
+        git=sha,
+        warmup=WARMUP,
+        samples=SAMPLES,
+        batch=BATCH,
+        torch=torch.__version__,
+    )
 
     dev = ttnn.open_device(device_id=a.device, trace_region_size=64 << 20)
     try:
         g = torch.Generator().manual_seed(7)
-        want = lambda n: a.only in n
+
+        def want(n):
+            return a.only in n
 
         # element-wise add, F32 (what the firmware benches add)
         for side in (64, 2048):
@@ -179,15 +209,19 @@ def main():
                     x, y = x.bfloat16().float(), y.bfloat16().float()
                 tx, ty = to_dev(dev, x, tdt), to_dev(dev, y, tdt)
                 ref = x.double() @ y.double()
-                time_modes(dev, out, name, lambda: ttnn.matmul(tx, ty), exact_or_error(ref))
+                time_modes(
+                    dev, out, name, lambda: ttnn.matmul(tx, ty), exact_or_error(ref)
+                )
                 ttnn.deallocate(tx)
                 ttnn.deallocate(ty)
 
         # one-token embedding lookup from SmolLM2's table shape
         name = "ttnn embedding 49152x576 1 token"
         if want(name):
-            for label, tdt, ttorch in (("f32", ttnn.float32, torch.float32),
-                                       ("bf16", ttnn.bfloat16, torch.bfloat16)):
+            for label, tdt, ttorch in (
+                ("f32", ttnn.float32, torch.float32),
+                ("bf16", ttnn.bfloat16, torch.bfloat16),
+            ):
                 try:
                     table = torch.randn(49152, 576, generator=g).to(ttorch)
                     ids = torch.tensor([[1234]], dtype=torch.int32)
@@ -195,13 +229,17 @@ def main():
                     tt_ids = to_dev(dev, ids, ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT)
                     ref = table[1234].reshape(1, 1, 576)
                     time_modes(
-                        dev, out, f"{name} {label}",
+                        dev,
+                        out,
+                        f"{name} {label}",
                         lambda: ttnn.embedding(tt_ids, tt_table),
-                        lambda got: exact_or_error(ref)(got.reshape(1, 1, -1)[..., :576]),
+                        lambda got: exact_or_error(ref)(
+                            got.reshape(1, 1, -1)[..., :576]
+                        ),
                     )
                     ttnn.deallocate(tt_table)
                     ttnn.deallocate(tt_ids)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - a skipped case is a result too
                     out.note(f"{name} {label}", skipped=str(e).splitlines()[0][:200])
     finally:
         ttnn.close_device(dev)

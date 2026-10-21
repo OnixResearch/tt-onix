@@ -36,7 +36,11 @@ def stream_chunk(
 ) -> dict[str, Any]:
     """A chunk with a chat delta or completion text, or the finish reason."""
     if request.endpoint is Endpoint.CHAT_COMPLETIONS:
-        choice: dict[str, Any] = {"delta": delta or {}, "finish_reason": finish_reason, "index": 0}
+        choice: dict[str, Any] = {
+            "delta": delta or {},
+            "finish_reason": finish_reason,
+            "index": 0,
+        }
     else:
         choice = {"finish_reason": finish_reason, "index": 0, "text": text or ""}
     return {
@@ -98,9 +102,13 @@ class IncrementalDetokenizer:
         return self._advance(final=False)
 
     def _advance(self, *, final: bool) -> str:
-        prefix_text = self._decode(self._tokens[self._prefix_offset : self._read_offset])
+        prefix_text = self._decode(
+            self._tokens[self._prefix_offset : self._read_offset]
+        )
         text = self._decode(self._tokens[self._prefix_offset :])
-        if len(text) <= len(prefix_text) or (not final and text.endswith(REPLACEMENT_CHARACTER)):
+        if len(text) <= len(prefix_text) or (
+            not final and text.endswith(REPLACEMENT_CHARACTER)
+        ):
             return ""
         self._prefix_offset = self._read_offset
         self._read_offset = len(self._tokens)

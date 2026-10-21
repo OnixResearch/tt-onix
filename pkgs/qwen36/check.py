@@ -816,10 +816,16 @@ def probe_kv_pool():
 
     pool_blocks = 4096
     row_blocks = 1024
-    pool = KvPoolLayout(pool_blocks=pool_blocks, row_blocks=row_blocks, kv_block_size=64)
+    pool = KvPoolLayout(
+        pool_blocks=pool_blocks, row_blocks=row_blocks, kv_block_size=64
+    )
     prefix = set(range(pool.reserved_prefix_blocks))
-    lanes = set().union(*(set(row) - {pool.scratch_block} for row in pool.batch_read_rows()))
-    require(pool.scratch_block == pool_blocks - 1, "the scratch block is not the last block")
+    lanes = set().union(
+        *(set(row) - {pool.scratch_block} for row in pool.batch_read_rows())
+    )
+    require(
+        pool.scratch_block == pool_blocks - 1, "the scratch block is not the last block"
+    )
     require(
         pool.group_capacity_blocks == pool_blocks - len(prefix | lanes) - 1,
         "the group capacity counts a reserved read block or the scratch block",
@@ -833,13 +839,16 @@ def probe_kv_pool():
         (65536 - 8192, 8192, row_blocks, "a full-length request did not fit one row"),
     ):
         require(
-            pool.request_blocks(prompt_tokens=prompt, generation_tokens=generation) == blocks,
+            pool.request_blocks(prompt_tokens=prompt, generation_tokens=generation)
+            == blocks,
             reason,
         )
     try:
         pool.request_blocks(prompt_tokens=65536, generation_tokens=1)
     except KvPoolError as error:
-        require("a row holds" in str(error), f"wrong oversized-request diagnostic: {error}")
+        require(
+            "a row holds" in str(error), f"wrong oversized-request diagnostic: {error}"
+        )
     else:
         require(False, "a request longer than one row was accepted")
 
@@ -864,7 +873,9 @@ def probe_kv_pool():
         "a group row took a read-prefix, batched-read, or scratch block",
     )
     require(
-        all(set(row[count:]) <= {pool.scratch_block} for row, count in zip(rows, counts))
+        all(
+            set(row[count:]) <= {pool.scratch_block} for row, count in zip(rows, counts)
+        )
         and all(set(row) == {pool.scratch_block} for row in rows[len(counts) :]),
         "entries past a row's run do not point at the scratch block",
     )
@@ -881,11 +892,15 @@ def probe_kv_pool():
             require(False, f"an invalid group was assigned: {block_counts!r}")
 
     startup = pool.startup_rows(width=16)
-    require(startup[-1] == list(range(row_blocks)), "the read row is not a full run from block 0")
+    require(
+        startup[-1] == list(range(row_blocks)),
+        "the read row is not a full run from block 0",
+    )
     generation_rows = [set(row) - {pool.scratch_block} for row in startup[:-1]]
     require(
         all(len(row) >= 16 for row in generation_rows)
-        and sum(len(row) for row in generation_rows) == len(set().union(*generation_rows))
+        and sum(len(row) for row in generation_rows)
+        == len(set().union(*generation_rows))
         and not any(row & (set(startup[-1]) | lanes) for row in generation_rows)
         and max(max(row) for row in generation_rows) < pool.generation_end_block,
         "startup rows overlap the read rows, exceed generation, or cannot hold one prefill bucket",
@@ -893,24 +908,36 @@ def probe_kv_pool():
     try:
         KvPoolLayout(pool_blocks=row_blocks, row_blocks=row_blocks, kv_block_size=64)
     except KvPoolError as error:
-        require("one full-length row" in str(error), f"wrong small-pool diagnostic: {error}")
+        require(
+            "one full-length row" in str(error), f"wrong small-pool diagnostic: {error}"
+        )
     else:
-        require(False, "a pool without room for one row, the prefix and scratch was accepted")
+        require(
+            False,
+            "a pool without room for one row, the prefix and scratch was accepted",
+        )
 
     # The candidate 128k row fits the unchanged pool alongside a short request,
     # but two full rows would consume the reserved read prefix and scratch block.
-    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as profile_file:
+    with (
+        Path(__file__)
+        .with_name("decode-profile.json")
+        .open(encoding="utf-8") as profile_file
+    ):
         buffers = json.load(profile_file)["buffers"]
     sequence_limit = buffers["maximum_sequence_length"]
     extended = KvPoolLayout(
         pool_blocks=buffers["kv_pool_blocks"],
-        row_blocks=(sequence_limit + buffers["kv_block_size"] - 1) // buffers["kv_block_size"],
+        row_blocks=(sequence_limit + buffers["kv_block_size"] - 1)
+        // buffers["kv_block_size"],
         kv_block_size=buffers["kv_block_size"],
     )
     require(sequence_limit == 131072, "the 128k context candidate is not configured")
     require(
         extended.request_blocks(prompt_tokens=65536, generation_tokens=1) > row_blocks
-        and extended.request_blocks(prompt_tokens=sequence_limit - 1, generation_tokens=1)
+        and extended.request_blocks(
+            prompt_tokens=sequence_limit - 1, generation_tokens=1
+        )
         == extended.row_blocks,
         "a request beyond the old context or at the 128k boundary did not fit",
     )
@@ -927,7 +954,9 @@ def probe_kv_pool():
         except KvPoolError:
             pass
         else:
-            require(False, "an oversized long-context group consumed reserved KV blocks")
+            require(
+                False, "an oversized long-context group consumed reserved KV blocks"
+            )
     try:
         extended.request_blocks(prompt_tokens=sequence_limit, generation_tokens=1)
     except KvPoolError:
@@ -1006,7 +1035,9 @@ def probe_read_batch_kv_lanes():
     from qwen36_service.continuous_slot_service import ContinuousSlotCoordinator
     from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
 
-    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle
+    ):
         buffers = json.load(handle)["buffers"]
     block_tokens = buffers["kv_block_size"]
     layout = KvPoolLayout(
@@ -1015,22 +1046,36 @@ def probe_read_batch_kv_lanes():
         kv_block_size=block_tokens,
     )
     kv = core.KvBlockRange(
-        layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, block_tokens
+        layout.reserved_prefix_blocks,
+        layout.generation_end_block,
+        layout.row_blocks,
+        block_tokens,
     )
     width = Qwen36Model.READ_BATCH_WIDTH
 
     def written_by_batch(table, bucket):
         """Blocks each captured user row writes in one replay of `bucket`, used or not."""
-        return [frozenset(int(block) for block in row[: bucket // block_tokens]) for row in table[:width]]
+        return [
+            frozenset(int(block) for block in row[: bucket // block_tokens])
+            for row in table[:width]
+        ]
 
     # The physical receipt's scenario through the real planner: A caches a near-full
     # 130,048-token prefix, then B a 16,384-token prefix beside it.
     def digest(data):
         return hashlib.blake2b(data, digest_size=32).digest()
 
-    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
-    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         prefix_policy = prefix.PrefixCachePolicy.from_mapping(json.load(handle))
 
     def turn(schedule, name, prompt, now):
@@ -1039,24 +1084,45 @@ def probe_read_batch_kv_lanes():
             prompt_tokens=len(prompt),
             max_tokens=16,
             route="step",
-            blocks=layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=16),
+            blocks=layout.request_blocks(
+                prompt_tokens=len(prompt), generation_tokens=16
+            ),
             arrival_seconds=now,
             deadline_seconds=now + 1000.0,
             prefix_digests=prefix.prefix_digests(
-                prompt, identity="qwen38", tenant=prefix_policy.tenant, blake3_digest=digest
+                prompt,
+                identity="qwen38",
+                tenant=prefix_policy.tenant,
+                blake3_digest=digest,
             ),
             shared_root_tokens=0,
         )
         schedule, _ = core.submit(schedule, slot_policy, kv, request)
         schedule, effects = core.plan_boundary(
-            schedule, slot_policy, kv, now=now, prefix_policy=prefix_policy, prefix_available=True
+            schedule,
+            slot_policy,
+            kv,
+            now=now,
+            prefix_policy=prefix_policy,
+            prefix_available=True,
         )
-        (prefill,) = [effect for effect in effects if isinstance(effect, core.PrefillSlot)]
+        (prefill,) = [
+            effect for effect in effects if isinstance(effect, core.PrefillSlot)
+        ]
         schedule = core.observe_prefill(
-            schedule, slot=prefill.slot, generation=prefill.generation, token_id=5, stopped=True
+            schedule,
+            slot=prefill.slot,
+            generation=prefill.generation,
+            token_id=5,
+            stopped=True,
         )
         schedule, _ = core.plan_boundary(
-            schedule, slot_policy, kv, now=now + 0.5, prefix_policy=prefix_policy, prefix_available=True
+            schedule,
+            slot_policy,
+            kv,
+            now=now + 0.5,
+            prefix_policy=prefix_policy,
+            prefix_available=True,
         )
         return schedule, prefill
 
@@ -1085,12 +1151,24 @@ def probe_read_batch_kv_lanes():
 
         def __init__(self):
             state = torch.zeros(1)
-            self.args = SimpleNamespace(max_batch_size=16, vocab_size=8, n_local_kv_heads=1, head_dim=32)
+            self.args = SimpleNamespace(
+                max_batch_size=16, vocab_size=8, n_local_kv_heads=1, head_dim=32
+            )
             self.mesh_device = SimpleNamespace()
-            self.layers = [SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(
-                rec_state=state, conv_states=[state], conv_carry=state, _zero_rec=state,
-                _zero_conv0=state, _zero_conv_carry=state, _decode_fusion_mode="step",
-            ))]
+            self.layers = [
+                SimpleNamespace(
+                    is_full_attention=False,
+                    attention=SimpleNamespace(
+                        rec_state=state,
+                        conv_states=[state],
+                        conv_carry=state,
+                        _zero_rec=state,
+                        _zero_conv0=state,
+                        _zero_conv_carry=state,
+                        _decode_fusion_mode="step",
+                    ),
+                )
+            ]
             self.read_table = None
             self.device_writes = set()
             self.replays = []
@@ -1101,7 +1179,9 @@ def probe_read_batch_kv_lanes():
         def warm_serving_programs(self, page_table):
             pass
 
-        def capture_masked_prefill_traces(self, page_table_row, read_page_table=None, **_states):
+        def capture_masked_prefill_traces(
+            self, page_table_row, read_page_table=None, **_states
+        ):
             self.read_table = read_page_table.clone()
 
         def masked_prefill_trace_buckets(self):
@@ -1113,7 +1193,9 @@ def probe_read_batch_kv_lanes():
         def masked_prefill_traces_stale(self):
             return False
 
-        def prefill_masked_read(self, token_ids, page_table_row, length, slot, positions):
+        def prefill_masked_read(
+            self, token_ids, page_table_row, length, slot, positions
+        ):
             self.replays.append("single")
             return torch.zeros(len(positions), self.args.vocab_size), 0
 
@@ -1124,7 +1206,9 @@ def probe_read_batch_kv_lanes():
             for lane in written_by_batch(self.read_table, bucket):
                 self.device_writes |= lane
             self.replays.append(bucket)
-            return [torch.zeros(len(rows), self.args.vocab_size) for rows in positions_list]
+            return [
+                torch.zeros(len(rows), self.args.vocab_size) for rows in positions_list
+            ]
 
     fake_ttnn = SimpleNamespace(
         ConcatMeshToTensor=lambda mesh, dim: None,
@@ -1144,7 +1228,10 @@ def probe_read_batch_kv_lanes():
     worker._effect_started = None
     worker._schedule = schedule
     worker.emitter = lambda *_args, **_fields: None
-    with mock.patch.object(adapter_module, "ttnn", fake_ttnn), mock.patch.dict(os.environ, {TRACED_PREFILL_ENV: "1"}):
+    with (
+        mock.patch.object(adapter_module, "ttnn", fake_ttnn),
+        mock.patch.dict(os.environ, {TRACED_PREFILL_ENV: "1"}),
+    ):
         worker.adapter = BatchedTracedDecodeAdapter(model=model, profile=profile)
         worker.adapter.reset_all = lambda: None  # zeroing GDN state is device work
         worker.adapter.prepare_masked_prefill_traces(7, ())
@@ -1155,7 +1242,9 @@ def probe_read_batch_kv_lanes():
             model.replays.clear()
             reads = tuple(
                 _PendingRead(
-                    requests=((torch.zeros(1, length, dtype=torch.int32), (length - 1,)),),
+                    requests=(
+                        (torch.zeros(1, length, dtype=torch.int32), (length - 1,)),
+                    ),
                     deadline=time.monotonic() + 3600.0,
                 )
                 for _ in range(count)
@@ -1169,7 +1258,9 @@ def probe_read_batch_kv_lanes():
                 f"{count} {length}-token reads beside cached prefixes left the batched route: "
                 f"{model.replays} {sorted({result.route for result in results})}",
             )
-            reported = frozenset().union(*(result.kv_written_blocks for result in results))
+            reported = frozenset().union(
+                *(result.kv_written_blocks for result in results)
+            )
             require(
                 model.device_writes <= reported,
                 f"a {bucket}-token batch wrote KV blocks the service was not told about",
@@ -1183,10 +1274,13 @@ def probe_read_batch_kv_lanes():
 
     # Both conversations still resume from their own KV and carried state.
     schedule = worker._schedule
-    for now, (name, prompt, saved) in enumerate((
-        ("A-continued", a_prompt + list(range(300000, 300015)), cached[130048]),
-        ("B-continued", b_prompt + list(range(400000, 400015)), cached[16384]),
-    ), start=5):
+    for now, (name, prompt, saved) in enumerate(
+        (
+            ("A-continued", a_prompt + list(range(300000, 300015)), cached[130048]),
+            ("B-continued", b_prompt + list(range(400000, 400015)), cached[16384]),
+        ),
+        start=5,
+    ):
         schedule, resumed = turn(schedule, name, prompt, float(now))
         require(
             resumed.hit_entry == saved.entry_id
@@ -1196,9 +1290,14 @@ def probe_read_batch_kv_lanes():
         )
 
     # A replay's rows, padding included, leave the saved single-read prefix in place.
-    saved_read = SimpleNamespace(_read_prefix=(None, None, frozenset(range(layout.reserved_prefix_blocks))))
+    saved_read = SimpleNamespace(
+        _read_prefix=(None, None, frozenset(range(layout.reserved_prefix_blocks)))
+    )
     Qwen36Model._invalidate_read_prefix(saved_read, model.read_table)
-    require(saved_read._read_prefix is not None, "a batched read replay dropped the saved single-read prefix")
+    require(
+        saved_read._read_prefix is not None,
+        "a batched read replay dropped the saved single-read prefix",
+    )
 
     # Generation keeps room for two near-full prefixes and one continuation in a group, and
     # the continuous-slot range is exactly the set of blocks a full group can be assigned.
@@ -1206,12 +1305,18 @@ def probe_read_batch_kv_lanes():
     try:
         layout.assign_group((near_full, near_full, 16), width=16)
     except KvPoolError as error:
-        require(False, f"two near-full prefixes and a continuation no longer fit one group: {error}")
+        require(
+            False,
+            f"two near-full prefixes and a continuation no longer fit one group: {error}",
+        )
     capacity = layout.group_capacity_blocks
     full = [layout.row_blocks] * (capacity // layout.row_blocks)
     full += [capacity % layout.row_blocks] if capacity % layout.row_blocks else []
     generation = frozenset().union(
-        *(frozenset(row[:count]) for row, count in zip(layout.assign_group(full, width=16), full))
+        *(
+            frozenset(row[:count])
+            for row, count in zip(layout.assign_group(full, width=16), full)
+        )
     )
     reserved = frozenset(range(layout.reserved_prefix_blocks)) | {layout.scratch_block}
     require(
@@ -1230,11 +1335,13 @@ def probe_read_batch_kv_lanes():
             lanes = written_by_batch(table, bucket)
             written = frozenset().union(*lanes)
             require(
-                len(lanes) == width and len(written) == width * (bucket // block_tokens),
+                len(lanes) == width
+                and len(written) == width * (bucket // block_tokens),
                 f"{source}: {bucket}-token batch users share KV blocks",
             )
             require(
-                written.isdisjoint(generation | reserved) and max(written) < layout.pool_blocks,
+                written.isdisjoint(generation | reserved)
+                and max(written) < layout.pool_blocks,
                 f"{source}: a {bucket}-token batch writes generation, read-prefix, or scratch KV",
             )
 
@@ -1248,14 +1355,21 @@ def probe_continuous_slot_policy():
     from qwen36_service import continuous_slot_core as core
     from qwen36_service.kv_pool_core import KvPoolLayout
 
-    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         mapping = json.load(handle)
     policy = core.ContinuousSlotPolicy.from_mapping(mapping)
     require(policy.slot_capacity == 4, "the packaged policy is not B4")
     for change, reason in (
         ({"extra": 1}, "an extra policy field was accepted"),
         ({"slot_capacity": 8}, "a B8 slot capacity was accepted"),
-        ({"refills_per_boundary": 5}, "more refills per boundary than slots were accepted"),
+        (
+            {"refills_per_boundary": 5},
+            "more refills per boundary than slots were accepted",
+        ),
         ({"worker_stall_seconds": 0}, "a zero worker stall bound was accepted"),
         ({"queue_capacity": True}, "a boolean queue capacity was accepted"),
     ):
@@ -1268,16 +1382,23 @@ def probe_continuous_slot_policy():
 
     layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
     kv = core.KvBlockRange(
-        layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, layout.kv_block_size
+        layout.reserved_prefix_blocks,
+        layout.generation_end_block,
+        layout.row_blocks,
+        layout.kv_block_size,
     )
 
-    def request(request_id, prompt, max_tokens, *, route="step", arrival=0.0, deadline=1000.0):
+    def request(
+        request_id, prompt, max_tokens, *, route="step", arrival=0.0, deadline=1000.0
+    ):
         return core.SlotRequest(
             request_id=request_id,
             prompt_tokens=prompt,
             max_tokens=max_tokens,
             route=route,
-            blocks=layout.request_blocks(prompt_tokens=prompt, generation_tokens=max_tokens),
+            blocks=layout.request_blocks(
+                prompt_tokens=prompt, generation_tokens=max_tokens
+            ),
             arrival_seconds=arrival,
             deadline_seconds=deadline,
         )
@@ -1294,7 +1415,11 @@ def probe_continuous_slot_policy():
     def prefill_all(schedule, effects, token=7):
         for effect in kinds(effects, core.PrefillSlot):
             schedule = core.observe_prefill(
-                schedule, slot=effect.slot, generation=effect.generation, token_id=token, stopped=False
+                schedule,
+                slot=effect.slot,
+                generation=effect.generation,
+                token_id=token,
+                stopped=False,
             )
         return schedule
 
@@ -1333,7 +1458,10 @@ def probe_continuous_slot_policy():
         and all(a[1] <= b[0] for a, b in zip(runs, runs[1:])),
         f"KV runs overlap or leave the generation range: {runs}",
     )
-    require([q.request.request_id for q in schedule.queue] == ["r4", "r5"], "the queue lost order")
+    require(
+        [q.request.request_id for q in schedule.queue] == ["r4", "r5"],
+        "the queue lost order",
+    )
 
     # Staggered, unequal lengths: A finishes after 4 tokens while B runs on. C arrives
     # later and refills A's slot under a new generation; B's identity, position and
@@ -1345,15 +1473,24 @@ def probe_continuous_slot_policy():
     schedule = prefill_all(schedule, effects)
     schedule, window = run_window(schedule)
     require(window.steps == 3, f"the window ran past A's bound: {window.steps}")
-    require(schedule.slots[0].state == core.SLOT_COMPLETE, "A did not complete at its bound")
-    require(schedule.slots[0].finish_reason == core.FINISH_LENGTH, "A's finish reason is wrong")
+    require(
+        schedule.slots[0].state == core.SLOT_COMPLETE, "A did not complete at its bound"
+    )
+    require(
+        schedule.slots[0].finish_reason == core.FINISH_LENGTH,
+        "A's finish reason is wrong",
+    )
     b_before = schedule.slots[1]
-    require(b_before.position == 3003 and b_before.generated == 4, f"B advanced wrongly: {b_before}")
+    require(
+        b_before.position == 3003 and b_before.generated == 4,
+        f"B advanced wrongly: {b_before}",
+    )
     a_generation = schedule.slots[0].generation
     schedule = queue_all(schedule, [request("C", 200, 8, arrival=2.0)])
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.5)
     require(
-        kinds(effects, core.RetireSlot) == [core.RetireSlot(0, a_generation, "A", core.FINISH_LENGTH)],
+        kinds(effects, core.RetireSlot)
+        == [core.RetireSlot(0, a_generation, "A", core.FINISH_LENGTH)],
         f"A was not retired once: {effects}",
     )
     refill = kinds(effects, core.PrefillSlot)
@@ -1361,8 +1498,14 @@ def probe_continuous_slot_policy():
         len(refill) == 1 and refill[0].slot == 0 and refill[0].request_id == "C",
         f"C did not refill A's slot: {refill}",
     )
-    require(refill[0].generation > b_before.generation, "the refill reused an old generation")
-    require(not kinds(effects, core.StartGroup), "a refill beside an active user restarted the group")
+    require(
+        refill[0].generation > b_before.generation,
+        "the refill reused an old generation",
+    )
+    require(
+        not kinds(effects, core.StartGroup),
+        "a refill beside an active user restarted the group",
+    )
     require(schedule.slots[1] == b_before, "the refill changed B's slot")
     b_run = (b_before.block_start, b_before.block_start + b_before.request.blocks)
     c_run = (refill[0].block_start, refill[0].block_start + refill[0].block_count)
@@ -1370,14 +1513,38 @@ def probe_continuous_slot_policy():
 
     # Stale and out-of-order events are rejected and change nothing.
     for event, reason in (
-        (lambda: core.observe_step(schedule, slot=0, generation=a_generation, token_id=1, stopped=False),
-         "a token for A's old generation reached C's slot"),
-        (lambda: core.observe_step(schedule, slot=0, generation=refill[0].generation, token_id=1, stopped=False),
-         "a decode token was accepted before C's prefill completed"),
-        (lambda: core.observe_prefill(schedule, slot=1, generation=b_before.generation, token_id=1, stopped=False),
-         "a second prefill completion was accepted for B"),
-        (lambda: core.observe_step(schedule, slot=7, generation=1, token_id=1, stopped=False),
-         "an event for a slot outside the schedule was accepted"),
+        (
+            lambda: core.observe_step(
+                schedule, slot=0, generation=a_generation, token_id=1, stopped=False
+            ),
+            "a token for A's old generation reached C's slot",
+        ),
+        (
+            lambda: core.observe_step(
+                schedule,
+                slot=0,
+                generation=refill[0].generation,
+                token_id=1,
+                stopped=False,
+            ),
+            "a decode token was accepted before C's prefill completed",
+        ),
+        (
+            lambda: core.observe_prefill(
+                schedule,
+                slot=1,
+                generation=b_before.generation,
+                token_id=1,
+                stopped=False,
+            ),
+            "a second prefill completion was accepted for B",
+        ),
+        (
+            lambda: core.observe_step(
+                schedule, slot=7, generation=1, token_id=1, stopped=False
+            ),
+            "an event for a slot outside the schedule was accepted",
+        ),
     ):
         snapshot = schedule
         try:
@@ -1392,32 +1559,49 @@ def probe_continuous_slot_policy():
         schedule, slot=0, generation=refill[0].generation, token_id=9, stopped=False
     )
     try:
-        core.observe_step(refilled, slot=0, generation=a_generation, token_id=1, stopped=False)
+        core.observe_step(
+            refilled, slot=0, generation=a_generation, token_id=1, stopped=False
+        )
     except core.SlotEventRejected:
         pass
     else:
         require(False, "a token from A's generation was applied to C's active slot")
 
     # A first token that ends a request completes it without a decode window.
-    schedule = queue_all(core.initial_schedule(policy), [request("one", 50, 1), request("eos", 50, 9)])
+    schedule = queue_all(
+        core.initial_schedule(policy), [request("one", 50, 1), request("eos", 50, 9)]
+    )
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
     one, eos = kinds(effects, core.PrefillSlot)
-    schedule = core.observe_prefill(schedule, slot=one.slot, generation=one.generation, token_id=5, stopped=False)
-    schedule = core.observe_prefill(schedule, slot=eos.slot, generation=eos.generation, token_id=2, stopped=True)
+    schedule = core.observe_prefill(
+        schedule, slot=one.slot, generation=one.generation, token_id=5, stopped=False
+    )
+    schedule = core.observe_prefill(
+        schedule, slot=eos.slot, generation=eos.generation, token_id=2, stopped=True
+    )
     require(
-        [slot.finish_reason for slot in schedule.slots[:2]] == [core.FINISH_LENGTH, core.FINISH_STOP],
+        [slot.finish_reason for slot in schedule.slots[:2]]
+        == [core.FINISH_LENGTH, core.FINISH_STOP],
         "first-token completions were not recorded",
     )
-    require(core.plan_window(schedule, policy) is None, "a window was planned with no active slot")
+    require(
+        core.plan_window(schedule, policy) is None,
+        "a window was planned with no active slot",
+    )
 
     # An end-of-sequence token mid-window completes that row only.
-    schedule = queue_all(core.initial_schedule(policy), [request("x", 50, 40), request("y", 50, 40)])
+    schedule = queue_all(
+        core.initial_schedule(policy), [request("x", 50, 40), request("y", 50, 40)]
+    )
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
     schedule = prefill_all(schedule, effects)
     schedule, window = run_window(schedule, stop_slots=frozenset({1}))
-    require(window.steps == policy.decode_window_steps, "the window ignored its step bound")
     require(
-        schedule.slots[1].finish_reason == core.FINISH_STOP and schedule.slots[1].generated == 2,
+        window.steps == policy.decode_window_steps, "the window ignored its step bound"
+    )
+    require(
+        schedule.slots[1].finish_reason == core.FINISH_STOP
+        and schedule.slots[1].generated == 2,
         "the stopped row kept generating",
     )
     require(
@@ -1433,20 +1617,34 @@ def probe_continuous_slot_policy():
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
     schedule = prefill_all(schedule, effects)
     schedule, refused = core.cancel(schedule, "c5")
-    require(refused == core.RejectRequest("c5", core.REJECT_CANCELLED), "a queued cancel was not refused")
-    require([q.request.request_id for q in schedule.queue] == ["c4"], "the cancelled request stayed queued")
+    require(
+        refused == core.RejectRequest("c5", core.REJECT_CANCELLED),
+        "a queued cancel was not refused",
+    )
+    require(
+        [q.request.request_id for q in schedule.queue] == ["c4"],
+        "the cancelled request stayed queued",
+    )
     schedule, refused = core.cancel(schedule, "c2")
-    require(refused is None and schedule.slots[2].finish_reason == core.FINISH_CANCELLED, "a running cancel failed")
+    require(
+        refused is None and schedule.slots[2].finish_reason == core.FINISH_CANCELLED,
+        "a running cancel failed",
+    )
     unchanged = schedule
     schedule, refused = core.cancel(schedule, "missing")
-    require(refused is None and schedule == unchanged, "an unknown cancel changed the schedule")
+    require(
+        refused is None and schedule == unchanged,
+        "an unknown cancel changed the schedule",
+    )
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.0)
     require(
-        [(r.slot, r.finish_reason) for r in kinds(effects, core.RetireSlot)] == [(2, core.FINISH_CANCELLED)],
+        [(r.slot, r.finish_reason) for r in kinds(effects, core.RetireSlot)]
+        == [(2, core.FINISH_CANCELLED)],
         f"the cancelled slot was not retired: {effects}",
     )
     require(
-        [(p.slot, p.request_id) for p in kinds(effects, core.PrefillSlot)] == [(2, "c4")],
+        [(p.slot, p.request_id) for p in kinds(effects, core.PrefillSlot)]
+        == [(2, "c4")],
         "the cancelled slot was not refilled",
     )
 
@@ -1455,7 +1653,10 @@ def probe_continuous_slot_policy():
     schedule = queue_all(
         core.initial_schedule(policy),
         [request(f"d{i}", 64, 64, deadline=50.0) for i in range(4)]
-        + [request("late", 64, 8, deadline=10.0), request("stale", 64, 8, deadline=5000.0)],
+        + [
+            request("late", 64, 8, deadline=10.0),
+            request("stale", 64, 8, deadline=5000.0),
+        ],
     )
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
     schedule = prefill_all(schedule, effects)
@@ -1468,7 +1669,8 @@ def probe_continuous_slot_policy():
         f"queued deadlines were not enforced: {effects}",
     )
     require(
-        {r.finish_reason for r in kinds(effects, core.RetireSlot)} == {core.FINISH_TIMEOUT}
+        {r.finish_reason for r in kinds(effects, core.RetireSlot)}
+        == {core.FINISH_TIMEOUT}
         and len(kinds(effects, core.RetireSlot)) == 4,
         "active requests past their deadline were not retired",
     )
@@ -1477,18 +1679,28 @@ def probe_continuous_slot_policy():
     # without changing the schedule; a request waits while no KV run fits it.
     schedule = core.initial_schedule(policy)
     for index in range(policy.queue_capacity):
-        schedule, refused = core.submit(schedule, policy, kv, request(f"q{index}", 64, 8))
+        schedule, refused = core.submit(
+            schedule, policy, kv, request(f"q{index}", 64, 8)
+        )
     before = schedule
     for item, reason in (
         (request("overflow", 64, 8), core.REJECT_QUEUE_FULL),
         (request("q0", 64, 8), core.REJECT_DUPLICATE),
     ):
         schedule, refused = core.submit(schedule, policy, kv, item)
-        require(refused == core.RejectRequest(item.request_id, reason), f"{item.request_id}: {refused}")
+        require(
+            refused == core.RejectRequest(item.request_id, reason),
+            f"{item.request_id}: {refused}",
+        )
         require(schedule == before, "a refused request changed the schedule")
     oversized = dataclasses.replace(request("huge", 64, 8), blocks=kv.row_blocks + 1)
-    schedule, refused = core.submit(core.initial_schedule(policy), policy, kv, oversized)
-    require(refused == core.RejectRequest("huge", core.REJECT_EXCEEDS_KV_ROW), "an oversized row was queued")
+    schedule, refused = core.submit(
+        core.initial_schedule(policy), policy, kv, oversized
+    )
+    require(
+        refused == core.RejectRequest("huge", core.REJECT_EXCEEDS_KV_ROW),
+        "an oversized row was queued",
+    )
     full = 65536 - 8192
     # Three full-length rows leave less than one row free; a fourth full row waits.
     schedule = queue_all(
@@ -1497,10 +1709,18 @@ def probe_continuous_slot_policy():
     )
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=1.0)
     admitted = [p.request_id for p in kinds(effects, core.PrefillSlot)]
-    require(admitted[:3] == ["f0", "f1", "f2"] and "f3" not in admitted, f"KV admission: {admitted}")
-    require("small" in admitted, "a small request did not pass a head that no KV run fits")
-    require(schedule.queue[0].request.request_id == "f3" and schedule.queue[0].bypassed == 1,
-            "the blocked head's bypass was not counted")
+    require(
+        admitted[:3] == ["f0", "f1", "f2"] and "f3" not in admitted,
+        f"KV admission: {admitted}",
+    )
+    require(
+        "small" in admitted, "a small request did not pass a head that no KV run fits"
+    )
+    require(
+        schedule.queue[0].request.request_id == "f3"
+        and schedule.queue[0].bypassed == 1,
+        "the blocked head's bypass was not counted",
+    )
 
     # Fairness: while a sampled head waits for the greedy group, later greedy requests
     # pass it at most maximum_head_bypasses times; then admission stops, the group
@@ -1510,7 +1730,8 @@ def probe_continuous_slot_policy():
     schedule = prefill_all(schedule, effects)
     schedule = queue_all(
         schedule,
-        [request("sampled", 64, 4, route="full")] + [request(f"g{i}", 64, 60) for i in range(1, 6)],
+        [request("sampled", 64, 4, route="full")]
+        + [request(f"g{i}", 64, 60) for i in range(1, 6)],
     )
     passed = []
     for boundary in range(40):
@@ -1526,7 +1747,8 @@ def probe_continuous_slot_policy():
         if core.plan_window(schedule, policy) is not None:
             schedule, _ = run_window(schedule)
     require(
-        passed[: policy.maximum_head_bypasses] == ["g1", "g2"][: policy.maximum_head_bypasses]
+        passed[: policy.maximum_head_bypasses]
+        == ["g1", "g2"][: policy.maximum_head_bypasses]
         and passed[policy.maximum_head_bypasses] == "sampled",
         f"the blocked head was passed more than the policy allows: {passed}",
     )
@@ -1534,12 +1756,16 @@ def probe_continuous_slot_policy():
     # Refill budgets beside active users: at most refills_per_boundary prefills, and the
     # prompt-token budget delays (never skips) the next request; the first refill at a
     # boundary is always allowed.
-    wide = dataclasses.replace(policy, refills_per_boundary=3, refill_prompt_token_budget=4096)
+    wide = dataclasses.replace(
+        policy, refills_per_boundary=3, refill_prompt_token_budget=4096
+    )
     schedule = queue_all(core.initial_schedule(wide), [request("long", 64, 400)], wide)
     schedule, effects = core.plan_boundary(schedule, wide, kv, now=1.0)
     schedule = prefill_all(schedule, effects)
     schedule = queue_all(
-        schedule, [request("big", 6000, 8), request("mid", 3000, 8), request("tiny", 50, 8)], wide
+        schedule,
+        [request("big", 6000, 8), request("mid", 3000, 8), request("tiny", 50, 8)],
+        wide,
     )
     schedule, effects = core.plan_boundary(schedule, wide, kv, now=2.0)
     require(
@@ -1557,11 +1783,19 @@ def probe_continuous_slot_policy():
     schedule = prefill_all(schedule, effects)
     schedule = queue_all(schedule, [request("m", 64, 8), request("n", 64, 8)])
     schedule, effects = core.plan_boundary(schedule, policy, kv, now=2.0)
-    require(len(kinds(effects, core.PrefillSlot)) == policy.refills_per_boundary, "refill count bound broken")
+    require(
+        len(kinds(effects, core.PrefillSlot)) == policy.refills_per_boundary,
+        "refill count bound broken",
+    )
 
     # A waiting structured read admits nothing, so the group drains for it.
-    schedule, effects = core.plan_boundary(schedule, policy, kv, now=3.0, reads_waiting=True)
-    require(not kinds(effects, core.PrefillSlot), "a refill was admitted while a read waited")
+    schedule, effects = core.plan_boundary(
+        schedule, policy, kv, now=3.0, reads_waiting=True
+    )
+    require(
+        not kinds(effects, core.PrefillSlot),
+        "a refill was admitted while a read waited",
+    )
 
     # Draining and quarantine: nothing is admitted until the group is empty and reset.
     schedule = prefill_all(schedule, effects)
@@ -1577,14 +1811,23 @@ def probe_continuous_slot_policy():
     quarantined, effects = core.plan_boundary(quarantined, policy, kv, now=5.0)
     require(not effects, f"a quarantined group retired or admitted work: {effects}")
     released = core.release_quarantine(quarantined)
-    require(released.route is None and not released.draining, "the released schedule kept its group")
+    require(
+        released.route is None and not released.draining,
+        "the released schedule kept its group",
+    )
     released, effects = core.plan_boundary(released, policy, kv, now=6.0)
     require(
-        kinds(effects, core.StartGroup) and [p.request_id for p in kinds(effects, core.PrefillSlot)] == ["n"],
+        kinds(effects, core.StartGroup)
+        and [p.request_id for p in kinds(effects, core.PrefillSlot)] == ["n"],
         "a released schedule did not start a new group",
     )
-    released, refused = core.drain_queue(queue_all(released, [request("z", 64, 8)]), "closed")
-    require(refused == (core.RejectRequest("z", "closed"),) and not released.queue, "drain_queue kept work")
+    released, refused = core.drain_queue(
+        queue_all(released, [request("z", 64, 8)]), "closed"
+    )
+    require(
+        refused == (core.RejectRequest("z", "closed"),) and not released.queue,
+        "drain_queue kept work",
+    )
 
 
 # r[verify tenstorrent.qwen38_p150x2.continuous_slot_effects]
@@ -1601,7 +1844,11 @@ def probe_continuous_slot_worker():
         SlotRefillResult,
         TraceBindingDriftError,
     )
-    from qwen36_service.batch_decode_core import TRACE_REUSE_REASON_MISSING, TracePrefillAction, TracePrefillPlan
+    from qwen36_service.batch_decode_core import (
+        TRACE_REUSE_REASON_MISSING,
+        TracePrefillAction,
+        TracePrefillPlan,
+    )
     from qwen36_service.continuous_slot_service import (
         ContinuousSlotCoordinator,
         EngineQuarantinedError,
@@ -1634,7 +1881,9 @@ def probe_continuous_slot_worker():
         maximum_width = 16
 
         def __init__(self):
-            self.kv_pool = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+            self.kv_pool = KvPoolLayout(
+                pool_blocks=4096, row_blocks=1024, kv_block_size=64
+            )
             self.fusion_mode = "step"
             self.lock = threading.Lock()
             self.log = []
@@ -1685,19 +1934,41 @@ def probe_continuous_slot_worker():
             self.fusion_mode = route
             self._exit()
             # The fake holds no trace, so every group starts without one.
-            return TracePrefillPlan(TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING)
+            return TracePrefillPlan(
+                TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING
+            )
 
         def refill_slot(self, *, slot, token_ids, block_start, block_count, **prefix):
-            if any(prefix.get(key) for key in ("prefix_ranges", "prefix_tokens", "resume_state", "save_state")):
-                raise BatchDecodeAdapterError("a prefix plan reached an adapter without a prefix cache")
-            self._enter("refill_slot", slot=slot, block_start=block_start, block_count=block_count)
+            if any(
+                prefix.get(key)
+                for key in (
+                    "prefix_ranges",
+                    "prefix_tokens",
+                    "resume_state",
+                    "save_state",
+                )
+            ):
+                raise BatchDecodeAdapterError(
+                    "a prefix plan reached an adapter without a prefix cache"
+                )
+            self._enter(
+                "refill_slot",
+                slot=slot,
+                block_start=block_start,
+                block_count=block_count,
+            )
             try:
                 if self.width is None:
-                    raise BatchDecodeAdapterError("refill before the slot group was reset")
+                    raise BatchDecodeAdapterError(
+                        "refill before the slot group was reset"
+                    )
                 if slot in self.owned:
                     raise BatchDecodeAdapterError("slot already owned")
                 for other in self.owned.values():
-                    if block_start < other["end"] and other["start"] < block_start + block_count:
+                    if (
+                        block_start < other["end"]
+                        and other["start"] < block_start + block_count
+                    ):
                         raise BatchDecodeAdapterError("KV runs overlap")
                 seed = int(token_ids.sum())
                 first = expected_token(seed, 0)
@@ -1739,7 +2010,9 @@ def probe_continuous_slot_worker():
                 raise BatchDecodeAdapterError("decode inputs do not cover every row")
             for row in range(self.width):
                 state = self.owned.get(row)
-                expected = (0, 0) if state is None else (state["last"], state["position"])
+                expected = (
+                    (0, 0) if state is None else (state["last"], state["position"])
+                )
                 if (token_ids[row], positions[row]) != expected:
                     raise BatchDecodeAdapterError(
                         f"row {row} input {(token_ids[row], positions[row])} != {expected}"
@@ -1782,7 +2055,10 @@ def probe_continuous_slot_worker():
             try:
                 self._check_inputs(token_ids, positions)
                 return tuple(
-                    (ShardCandidates((0.0,), (token,)), ShardCandidates((-1000.0,), (token + 1,)))
+                    (
+                        ShardCandidates((0.0,), (token,)),
+                        ShardCandidates((-1000.0,), (token + 1,)),
+                    )
                     for token in self._advance()
                 )
             finally:
@@ -1793,16 +2069,25 @@ def probe_continuous_slot_worker():
         def decode(tokens, skip_special_tokens=True):
             return " ".join(str(token) for token in tokens)
 
-    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         mapping = json.load(handle)
-    policy = core.ContinuousSlotPolicy.from_mapping({**mapping, "decode_window_steps": 4})
+    policy = core.ContinuousSlotPolicy.from_mapping({
+        **mapping,
+        "decode_window_steps": 4,
+    })
 
     def make(adapter, *, stall_seconds=None, sampled=False):
         use_policy = policy
         if stall_seconds is not None:
-            use_policy = core.ContinuousSlotPolicy.from_mapping(
-                {**mapping, "decode_window_steps": 4, "worker_stall_seconds": stall_seconds}
-            )
+            use_policy = core.ContinuousSlotPolicy.from_mapping({
+                **mapping,
+                "decode_window_steps": 4,
+                "worker_stall_seconds": stall_seconds,
+            })
         emitted = []
         coordinator = ContinuousSlotCoordinator(
             slot_policy=use_policy,
@@ -1829,7 +2114,17 @@ def probe_continuous_slot_worker():
         tokens[0, 0] = seed - (length - 1)
         return tokens
 
-    def submit(coordinator, name, seed, length, max_tokens, results, *, temperature=None, deadline=60.0):
+    def submit(
+        coordinator,
+        name,
+        seed,
+        length,
+        max_tokens,
+        results,
+        *,
+        temperature=None,
+        deadline=60.0,
+    ):
         sink = []
         request = CompletionRequest(
             endpoint=Endpoint.COMPLETIONS,
@@ -1904,17 +2199,25 @@ def probe_continuous_slot_worker():
         response, sink = outcome[1], outcome[2]
         expected = reference(seed, max_tokens)
         tokens = response["x_onix_decode_evidence"]["generated_token_ids"]
-        require(tokens == expected, f"{name} decoded {tokens}, alone it decodes {expected}")
-        require(sink[: len(expected)] == expected, f"{name} streamed tokens out of order")
         require(
-            response["choices"][0]["finish_reason"] == ("stop" if len(expected) < max_tokens else "length"),
+            tokens == expected, f"{name} decoded {tokens}, alone it decodes {expected}"
+        )
+        require(
+            sink[: len(expected)] == expected, f"{name} streamed tokens out of order"
+        )
+        require(
+            response["choices"][0]["finish_reason"]
+            == ("stop" if len(expected) < max_tokens else "length"),
             f"{name} finish reason is wrong",
         )
         require(
             response["x_onix_decode_evidence"]["decode_path"] == "continuous-slot",
             "the response does not name the continuous-slot path",
         )
-    require(len(adapter.threads) == 1, f"device calls came from {len(adapter.threads)} threads")
+    require(
+        len(adapter.threads) == 1,
+        f"device calls came from {len(adapter.threads)} threads",
+    )
     require(not adapter.overlapped, "two device effects overlapped")
     refills = [fields for name, fields in adapter.log if name == "refill_slot"]
     require(len(refills) == len(plan), "a request was prefilled more or less than once")
@@ -1922,7 +2225,9 @@ def probe_continuous_slot_worker():
         sum(1 for name, _ in adapter.log if name == "begin_slots") == 1,
         "the group restarted although slots stayed busy",
     )
-    first_window = next(i for i, (name, _) in enumerate(adapter.log) if name == "decode_window")
+    first_window = next(
+        i for i, (name, _) in enumerate(adapter.log) if name == "decode_window"
+    )
     require(
         any(name == "refill_slot" for name, _ in adapter.log[first_window:]),
         "no slot was refilled beside a running decode",
@@ -1950,7 +2255,8 @@ def probe_continuous_slot_worker():
         require(
             outcome is not None
             and outcome[0] == "ok"
-            and outcome[1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(seed, max_tokens)
+            and outcome[1]["x_onix_decode_evidence"]["generated_token_ids"]
+            == reference(seed, max_tokens)
             and outcome[1]["x_onix_decode_evidence"]["serving_route"] == "full",
             f"sampled {name} failed: {outcome}",
         )
@@ -1986,15 +2292,20 @@ def probe_continuous_slot_worker():
     names = [name for name, _ in adapter.log]
     require("abandon_slots" in names, "the failed group was not reset")
     require(
-        names.index("abandon_slots") < len(names) - 1 - names[::-1].index("begin_slots"),
+        names.index("abandon_slots")
+        < len(names) - 1 - names[::-1].index("begin_slots"),
         "a new group began before the failed one was reset",
     )
     require(
         after.get("after", ("missing",))[0] == "ok"
-        and after["after"][1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(1203, 8),
+        and after["after"][1]["x_onix_decode_evidence"]["generated_token_ids"]
+        == reference(1203, 8),
         f"the worker did not serve after a reset: {after}",
     )
-    require(coordinator.quarantine_reason is None, "a recoverable failure quarantined the engine")
+    require(
+        coordinator.quarantine_reason is None,
+        "a recoverable failure quarantined the engine",
+    )
 
     # An unsafe refill (decode trace released) drains the group: nothing else is admitted
     # until it is empty, and its live users still finish exactly.
@@ -2017,7 +2328,8 @@ def probe_continuous_slot_worker():
         f"a draining group lost a request: {results}",
     )
     require(
-        results["d1"][1]["x_onix_decode_evidence"]["generated_token_ids"] == reference(1301, 24),
+        results["d1"][1]["x_onix_decode_evidence"]["generated_token_ids"]
+        == reference(1301, 24),
         "a draining group's live user diverged",
     )
     require(len(begins) == 2, "a request was refilled into a draining group")
@@ -2037,8 +2349,13 @@ def probe_continuous_slot_worker():
         time.sleep(0.05)
         queued = submit(coordinator, "withdrawn", 1602, 64, 4, results)
         time.sleep(0.05)
-        require(coordinator.cancel("withdrawn"), "a queued request could not be cancelled")
-        require(not coordinator.cancel("unknown"), "an unknown request was reported cancelled")
+        require(
+            coordinator.cancel("withdrawn"), "a queued request could not be cancelled"
+        )
+        require(
+            not coordinator.cancel("unknown"),
+            "an unknown request was reported cancelled",
+        )
         gate.set()
         for thread in (blocker, queued):
             thread.join(timeout=10)
@@ -2047,7 +2364,9 @@ def probe_continuous_slot_worker():
         coordinator.close()
     outcome = results.get("withdrawn")
     require(
-        outcome is not None and isinstance(outcome[1], SlotRequestRefused) and outcome[1].reason == "cancelled",
+        outcome is not None
+        and isinstance(outcome[1], SlotRequestRefused)
+        and outcome[1].reason == "cancelled",
         f"the cancelled request did not fail as cancelled: {outcome}",
     )
     require(
@@ -2071,7 +2390,9 @@ def probe_continuous_slot_worker():
     adapter.hooks["decode_step"] = lambda **_fields: time.sleep(0.01)
     results = {}
     try:
-        threads = [submit(coordinator, f"q{i}", 1701 + i, 64, 30, results) for i in range(3)]
+        threads = [
+            submit(coordinator, f"q{i}", 1701 + i, 64, 30, results) for i in range(3)
+        ]
         for thread in threads:
             thread.join(timeout=10)
         calls_after_drift = len(adapter.log)
@@ -2083,13 +2404,24 @@ def probe_continuous_slot_worker():
         )
     finally:
         coordinator.close()
-    require(coordinator.quarantine_reason == "trace-binding-drift", "drift did not quarantine the engine")
     require(
-        all(isinstance(results[name][1], BatchDecodeAdapterError) for name in ("q0", "q1", "q2")),
+        coordinator.quarantine_reason == "trace-binding-drift",
+        "drift did not quarantine the engine",
+    )
+    require(
+        all(
+            isinstance(results[name][1], BatchDecodeAdapterError)
+            for name in ("q0", "q1", "q2")
+        ),
         f"requests survived trace drift: {results}",
     )
-    require(len(adapter.log) == calls_after_drift, "the device was used after quarantine")
-    require(not any(name == "abandon_slots" for name, _ in adapter.log), "a drifted engine reused the device")
+    require(
+        len(adapter.log) == calls_after_drift, "the device was used after quarantine"
+    )
+    require(
+        not any(name == "abandon_slots" for name, _ in adapter.log),
+        "a drifted engine reused the device",
+    )
 
     # A device effect that outlives the stall bound quarantines the engine from the waiting
     # caller; the worker touches the device no more once the effect returns.
@@ -2112,8 +2444,14 @@ def probe_continuous_slot_worker():
         outcome is not None and isinstance(outcome[1], EngineQuarantinedError),
         f"a stalled worker did not fail its caller: {outcome}",
     )
-    require(coordinator.quarantine_reason == "worker-stalled", "the stall did not quarantine the engine")
-    require(len(adapter.log) == stalled_calls, "the worker used the device after a stall quarantine")
+    require(
+        coordinator.quarantine_reason == "worker-stalled",
+        "the stall did not quarantine the engine",
+    )
+    require(
+        len(adapter.log) == stalled_calls,
+        "the worker used the device after a stall quarantine",
+    )
     require(
         any(stage == "engine-quarantined" for stage, _ in emitted),
         "the quarantine was not reported",
@@ -2174,7 +2512,8 @@ def probe_continuous_slot_adapter():
             self.layers = [
                 SimpleNamespace(is_full_attention=True, attention=None),
                 SimpleNamespace(
-                    is_full_attention=False, attention=SimpleNamespace(_decode_fusion_mode="step")
+                    is_full_attention=False,
+                    attention=SimpleNamespace(_decode_fusion_mode="step"),
                 ),
             ]
             self.prefills = []
@@ -2192,8 +2531,21 @@ def probe_continuous_slot_adapter():
         def masked_prefill_trace_buckets(self):
             return self.buckets
 
-        def prefill_paged_slots(self, tokens, page_table, slots, valid_lens, first_token_callback, masked_traces):
-            self.prefills.append((page_table.clone(), list(slots), list(valid_lens), masked_traces))
+        def prefill_paged_slots(
+            self,
+            tokens,
+            page_table,
+            slots,
+            valid_lens,
+            first_token_callback,
+            masked_traces,
+        ):
+            self.prefills.append((
+                page_table.clone(),
+                list(slots),
+                list(valid_lens),
+                masked_traces,
+            ))
             logits = torch.zeros((1, 1, vocabulary))
             logits[0, 0, first_token] = 1.0
             first_token_callback([logits])
@@ -2256,7 +2608,11 @@ def probe_continuous_slot_adapter():
         return torch.ones((1, length), dtype=torch.int64)
 
     def rejects(action, reason):
-        before = (adapter.page_table.clone(), dict(adapter._slot_runs), len(model.prefills))
+        before = (
+            adapter.page_table.clone(),
+            dict(adapter._slot_runs),
+            len(model.prefills),
+        )
         try:
             action()
         except BatchDecodeAdapterError:
@@ -2265,7 +2621,9 @@ def probe_continuous_slot_adapter():
             require(False, reason)
         after = (adapter.page_table, adapter._slot_runs, len(model.prefills))
         require(
-            torch.equal(before[0], after[0]) and before[1] == after[1] and before[2] == after[2],
+            torch.equal(before[0], after[0])
+            and before[1] == after[1]
+            and before[2] == after[2],
             f"a rejected slot action changed adapter state: {reason}",
         )
 
@@ -2276,26 +2634,49 @@ def probe_continuous_slot_adapter():
         release_trace=lambda _mesh, trace_id: released.append(trace_id),
         deallocate=lambda _tensor: None,
     )
-    adapter_module.copy_host_to_device = lambda host, device_tensors=None, mesh_device=None: copies.append(
-        (host, device_tensors)
+    adapter_module.copy_host_to_device = (
+        lambda host, device_tensors=None, mesh_device=None: copies.append((
+            host,
+            device_tensors,
+        ))
     )
     try:
         rejects(
-            lambda: adapter.refill_slot(slot=0, token_ids=prompt(10), block_start=16, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=0, token_ids=prompt(10), block_start=16, block_count=16
+            ),
             "a refill ran without an open slot group",
         )
         adapter.begin_slots(width=4, route="full")
-        require(model.layers[1].attention._decode_fusion_mode == "full", "the group route was not selected")
-        require(resets, "the slot group began without a reset")
-        require(bool((adapter.page_table == scratch).all()), "a new group's rows are not all inactive")
-
-        result = adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=16, block_count=16)
-        page_table, prefill_slots, lengths, masked = model.prefills[-1]
-        require(prefill_slots == [1] and lengths == [100] and masked, f"wrong slot prefill: {model.prefills[-1]}")
-        require(page_table.tolist() == [list(range(16, 32))], "the prefill saw another row")
-        require(adapter.page_table[1].tolist() == list(range(16, 32)), "the slot row was not installed")
         require(
-            all(adapter.page_table[row].tolist() == [scratch] * 16 for row in (0, 2, 3)),
+            model.layers[1].attention._decode_fusion_mode == "full",
+            "the group route was not selected",
+        )
+        require(resets, "the slot group began without a reset")
+        require(
+            bool((adapter.page_table == scratch).all()),
+            "a new group's rows are not all inactive",
+        )
+
+        result = adapter.refill_slot(
+            slot=1, token_ids=prompt(100), block_start=16, block_count=16
+        )
+        page_table, prefill_slots, lengths, masked = model.prefills[-1]
+        require(
+            prefill_slots == [1] and lengths == [100] and masked,
+            f"wrong slot prefill: {model.prefills[-1]}",
+        )
+        require(
+            page_table.tolist() == [list(range(16, 32))], "the prefill saw another row"
+        )
+        require(
+            adapter.page_table[1].tolist() == list(range(16, 32)),
+            "the slot row was not installed",
+        )
+        require(
+            all(
+                adapter.page_table[row].tolist() == [scratch] * 16 for row in (0, 2, 3)
+            ),
             "a refill touched another slot's row",
         )
         require(
@@ -2305,60 +2686,100 @@ def probe_continuous_slot_adapter():
 
         # Ownership and the KV run contract.
         rejects(
-            lambda: adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=40, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=1, token_ids=prompt(100), block_start=40, block_count=16
+            ),
             "an owned slot was refilled",
         )
         rejects(
-            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=20, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=2, token_ids=prompt(100), block_start=20, block_count=16
+            ),
             "overlapping KV runs were accepted",
         )
         rejects(
-            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=0, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=2, token_ids=prompt(100), block_start=0, block_count=16
+            ),
             "a KV run in the reserved read prefix was accepted",
         )
         rejects(
             lambda: adapter.refill_slot(
-                slot=2, token_ids=prompt(100), block_start=layout.generation_end_block - 8, block_count=16
+                slot=2,
+                token_ids=prompt(100),
+                block_start=layout.generation_end_block - 8,
+                block_count=16,
             ),
             "a KV run reaching the batched-read lanes was accepted",
         )
         rejects(
-            lambda: adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=40, block_count=4),
+            lambda: adapter.refill_slot(
+                slot=2, token_ids=prompt(100), block_start=40, block_count=4
+            ),
             "a KV run shorter than the prompt's prefill was accepted",
         )
         rejects(
-            lambda: adapter.refill_slot(slot=4, token_ids=prompt(100), block_start=40, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=4, token_ids=prompt(100), block_start=40, block_count=16
+            ),
             "a slot outside the group was accepted",
         )
 
         # The first window captures; an unchanged group replays without restaging.
         tokens, positions = (0, first_token, 0, 0), (0, 100, 0, 0)
         adapter.decode_slots_greedy(token_ids=tokens, positions=positions, steps=4)
-        require(len(captures) == 1 and not copies, "the first window did not capture exactly once")
+        require(
+            len(captures) == 1 and not copies,
+            "the first window did not capture exactly once",
+        )
         adapter.decode_slots_greedy(token_ids=tokens, positions=(0, 104, 0, 0), steps=4)
-        require(len(captures) == 1 and not copies, "an unchanged group recaptured or restaged")
+        require(
+            len(captures) == 1 and not copies,
+            "an unchanged group recaptured or restaged",
+        )
         require(adapter.slot_trace_captures == 1, "the slot capture was not counted")
 
         # A refill beside the live row keeps the trace and restages every input.
-        adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=32, block_count=16)
+        adapter.refill_slot(
+            slot=2, token_ids=prompt(100), block_start=32, block_count=16
+        )
         require(not released, "a clean refill released the decode trace")
-        adapter.decode_slots_greedy(token_ids=(0, 7, first_token, 0), positions=(0, 108, 100, 0), steps=4)
-        require(len(captures) == 1 and len(copies) == 1, "a refill did not restage the resident trace")
-        host, device_tensors = copies[-1]
-        require(len(host) == 4 and device_tensors == adapter._traces[4].device_inputs, "a partial restage")
+        adapter.decode_slots_greedy(
+            token_ids=(0, 7, first_token, 0), positions=(0, 108, 100, 0), steps=4
+        )
         require(
-            host[3][2].tolist() == list(range(32, 48)) and host[3][1].tolist() == list(range(16, 32)),
+            len(captures) == 1 and len(copies) == 1,
+            "a refill did not restage the resident trace",
+        )
+        host, device_tensors = copies[-1]
+        require(
+            len(host) == 4 and device_tensors == adapter._traces[4].device_inputs,
+            "a partial restage",
+        )
+        require(
+            host[3][2].tolist() == list(range(32, 48))
+            and host[3][1].tolist() == list(range(16, 32)),
             "the restaged page table does not hold both live rows",
         )
 
         # Retirement points the row at scratch and restages.
         adapter.retire_slot(slot=1)
-        require(adapter.page_table[1].tolist() == [scratch] * 16, "a retired row kept its KV run")
-        adapter.decode_slots_greedy(token_ids=(0, 0, 9, 0), positions=(0, 0, 104, 0), steps=4)
-        require(len(copies) == 2 and copies[-1][0][3][1].tolist() == [scratch] * 16, "retirement was not restaged")
+        require(
+            adapter.page_table[1].tolist() == [scratch] * 16,
+            "a retired row kept its KV run",
+        )
+        adapter.decode_slots_greedy(
+            token_ids=(0, 0, 9, 0), positions=(0, 0, 104, 0), steps=4
+        )
+        require(
+            len(copies) == 2 and copies[-1][0][3][1].tolist() == [scratch] * 16,
+            "retirement was not restaged",
+        )
         rejects(lambda: adapter.retire_slot(slot=1), "an unowned slot was retired")
         rejects(
-            lambda: adapter.decode_slots_greedy(token_ids=(0, 0, 9), positions=(0, 0, 104), steps=4),
+            lambda: adapter.decode_slots_greedy(
+                token_ids=(0, 0, 9), positions=(0, 0, 104), steps=4
+            ),
             "a window that omits a row was accepted",
         )
 
@@ -2366,12 +2787,17 @@ def probe_continuous_slot_adapter():
         binding["value"] = ("inputs@2", "kv@1", "gdn@1", "logits@1")
         prefills_before = len(model.prefills)
         try:
-            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=48, block_count=16)
+            adapter.refill_slot(
+                slot=0, token_ids=prompt(100), block_start=48, block_count=16
+            )
         except TraceBindingDriftError:
             pass
         else:
             require(False, "a drifted trace accepted a refill")
-        require(len(model.prefills) == prefills_before, "a refill ran against a drifted trace")
+        require(
+            len(model.prefills) == prefills_before,
+            "a refill ran against a drifted trace",
+        )
         binding["value"] = adapter._traces[4].binding
 
         def drift_during_prefill():
@@ -2379,7 +2805,9 @@ def probe_continuous_slot_adapter():
 
         model.on_prefill = drift_during_prefill
         try:
-            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=48, block_count=16)
+            adapter.refill_slot(
+                slot=0, token_ids=prompt(100), block_start=48, block_count=16
+            )
         except TraceBindingDriftError:
             pass
         else:
@@ -2387,26 +2815,48 @@ def probe_continuous_slot_adapter():
         binding["value"] = adapter._traces[4].binding
         model.on_prefill = None
         adapter.abandon_slots()
-        require(adapter._slot_width is None and not adapter._traces, "abandoned slots kept a trace")
+        require(
+            adapter._slot_width is None and not adapter._traces,
+            "abandoned slots kept a trace",
+        )
 
         # A refill that compiles a program releases the trace instead of replaying it.
         adapter.begin_slots(width=4, route="step")
-        adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=16, block_count=16)
-        adapter.decode_slots_greedy(token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2)
+        adapter.refill_slot(
+            slot=0, token_ids=prompt(100), block_start=16, block_count=16
+        )
+        adapter.decode_slots_greedy(
+            token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2
+        )
         trace_id = adapter._traces[4].trace_id
-        model.on_prefill = lambda: setattr(adapter.mesh, "programs", adapter.mesh.programs + 1)
-        result = adapter.refill_slot(slot=1, token_ids=prompt(100), block_start=32, block_count=16)
+        model.on_prefill = lambda: setattr(
+            adapter.mesh, "programs", adapter.mesh.programs + 1
+        )
+        result = adapter.refill_slot(
+            slot=1, token_ids=prompt(100), block_start=32, block_count=16
+        )
         model.on_prefill = None
-        require(result.decode_trace_released and trace_id in released, "a compiling refill kept the trace")
+        require(
+            result.decode_trace_released and trace_id in released,
+            "a compiling refill kept the trace",
+        )
         captured = len(captures)
-        adapter.decode_slots_greedy(token_ids=(5, first_token, 0, 0), positions=(102, 100, 0, 0), steps=2)
-        require(len(captures) == captured + 1, "the next window replayed a released trace")
+        adapter.decode_slots_greedy(
+            token_ids=(5, first_token, 0, 0), positions=(102, 100, 0, 0), steps=2
+        )
+        require(
+            len(captures) == captured + 1, "the next window replayed a released trace"
+        )
 
         # Stale masked traces are dropped before the refill, which then runs eagerly.
         model.stale = True
-        result = adapter.refill_slot(slot=2, token_ids=prompt(100), block_start=48, block_count=16)
+        result = adapter.refill_slot(
+            slot=2, token_ids=prompt(100), block_start=48, block_count=16
+        )
         require(
-            result.masked_traces_released and not result.masked_traces_used and result.decode_trace_released,
+            result.masked_traces_released
+            and not result.masked_traces_used
+            and result.decode_trace_released,
             f"stale masked traces were not handled: {result}",
         )
 
@@ -2418,8 +2868,12 @@ def probe_continuous_slot_adapter():
 
         def resident_group(route):
             adapter.begin_slots(width=4, route=route)
-            adapter.refill_slot(slot=0, token_ids=prompt(100), block_start=16, block_count=16)
-            adapter.decode_slots_greedy(token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2)
+            adapter.refill_slot(
+                slot=0, token_ids=prompt(100), block_start=16, block_count=16
+            )
+            adapter.decode_slots_greedy(
+                token_ids=(first_token, 0, 0, 0), positions=(100, 0, 0, 0), steps=2
+            )
             adapter.retire_slot(slot=0)
             return adapter._traces[4].trace_id
 
@@ -2427,30 +2881,44 @@ def probe_continuous_slot_adapter():
         captured, copied, reset_count = len(captures), len(copies), len(resets)
         plan = adapter.begin_slots(width=4, route="step")
         require(
-            plan.reuse_after_prefill and plan.reason is None and trace_id not in released
+            plan.reuse_after_prefill
+            and plan.reason is None
+            and trace_id not in released
             and adapter._traces[4].trace_id == trace_id,
             f"a new same-route group dropped a stable trace: {plan}",
         )
         require(
-            len(resets) == reset_count + 1 and bool((adapter.page_table == scratch).all()),
+            len(resets) == reset_count + 1
+            and bool((adapter.page_table == scratch).all()),
             "a kept trace skipped the new group's reset",
         )
-        adapter.refill_slot(slot=3, token_ids=prompt(100), block_start=64, block_count=16)
-        adapter.decode_slots_greedy(token_ids=(0, 0, 0, first_token), positions=(0, 0, 0, 100), steps=2)
+        adapter.refill_slot(
+            slot=3, token_ids=prompt(100), block_start=64, block_count=16
+        )
+        adapter.decode_slots_greedy(
+            token_ids=(0, 0, 0, first_token), positions=(0, 0, 0, 100), steps=2
+        )
         require(
-            len(captures) == captured and len(copies) == copied + 1 and adapter.slot_trace_captures == len(captures),
+            len(captures) == captured
+            and len(copies) == copied + 1
+            and adapter.slot_trace_captures == len(captures),
             "the kept trace recaptured, or replayed without a restage",
         )
         page = copies[-1][0][3]
         require(
-            page[3].tolist() == list(range(64, 80)) and all(page[row].tolist() == [scratch] * 16 for row in (0, 1, 2)),
+            page[3].tolist() == list(range(64, 80))
+            and all(page[row].tolist() == [scratch] * 16 for row in (0, 1, 2)),
             "the kept trace would replay the previous group's rows",
         )
         adapter.retire_slot(slot=3)
 
         # Drift, refills that would run eagerly, or a route change release it instead.
         for change, route, reason in (
-            (lambda: binding.update(value=("inputs@3", "kv@1", "gdn@1", "logits@1")), "step", "binding-drift"),
+            (
+                lambda: binding.update(value=("inputs@3", "kv@1", "gdn@1", "logits@1")),
+                "step",
+                "binding-drift",
+            ),
             (lambda: setattr(model, "stale", True), "step", "eager-prefill-next"),
             (lambda: None, "full", "no-resident-trace"),
         ):
@@ -2458,7 +2926,10 @@ def probe_continuous_slot_adapter():
             change()
             plan = adapter.begin_slots(width=4, route=route)
             require(
-                not plan.reuse_after_prefill and plan.reason == reason and trace_id in released and not adapter._traces,
+                not plan.reuse_after_prefill
+                and plan.reason == reason
+                and trace_id in released
+                and not adapter._traces,
                 f"an unsafe trace survived a new group ({reason}): {plan}",
             )
             model.stale = False
@@ -2466,7 +2937,9 @@ def probe_continuous_slot_adapter():
         # A structured read closes the slot group.
         adapter._prepare_read()
         rejects(
-            lambda: adapter.refill_slot(slot=3, token_ids=prompt(10), block_start=64, block_count=16),
+            lambda: adapter.refill_slot(
+                slot=3, token_ids=prompt(10), block_start=64, block_count=16
+            ),
             "a slot group survived a structured read",
         )
     finally:
@@ -2484,14 +2957,26 @@ def probe_continuous_slot_admission():
     from qwen36_service import continuous_slot_admission_core as admission
     from qwen36_service.continuous_slot_receipt import build_receipt
 
-    with Path(__file__).with_name("continuous-slot-admission-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-admission-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         policy_mapping = json.load(handle)
     policy = admission.AdmissionPolicy.from_mapping(policy_mapping)
     require(policy.repetitions == 2, "the packaged policy does not require two passes")
     for path, value, reason in (
-        (("gates", "require_exact_candidate_parity"), False, "an admission without parity was accepted"),
+        (
+            ("gates", "require_exact_candidate_parity"),
+            False,
+            "an admission without parity was accepted",
+        ),
         (("gates", "extra"), 1.0, "an undeclared gate was accepted"),
-        (("workload", "long_class"), "short", "equal short and long classes were accepted"),
+        (
+            ("workload", "long_class"),
+            "short",
+            "equal short and long classes were accepted",
+        ),
     ):
         broken = copy.deepcopy(policy_mapping)
         broken[path[0]][path[1]] = value
@@ -2518,10 +3003,23 @@ def probe_continuous_slot_admission():
         times = [first + index * gap for index in range(count)]
         if stall is not None:
             at, seconds = stall
-            times = [time if index < at else time + seconds for index, time in enumerate(times)]
+            times = [
+                time if index < at else time + seconds
+                for index, time in enumerate(times)
+            ]
         return times
 
-    def root(kind, done, *, gap, stall=None, captures=1, identity=None, simulated=False, drop=None):
+    def root(
+        kind,
+        done,
+        *,
+        gap,
+        stall=None,
+        captures=1,
+        identity=None,
+        simulated=False,
+        drop=None,
+    ):
         requests = []
         for name, arrival in {**longs, **shorts}.items():
             if name in longs:
@@ -2537,7 +3035,9 @@ def probe_continuous_slot_admission():
                 "arrival_seconds": arrival,
                 "first_event_seconds": first,
                 "done_seconds": done[name],
-                "content_event_seconds": events(first, count, gap, stall if name == "l1" else None),
+                "content_event_seconds": events(
+                    first, count, gap, stall if name == "l1" else None
+                ),
                 "token_ids": tokens_for(name),
                 "finish_reason": "length" if name in longs else "stop",
                 "trace_captures": captures,
@@ -2552,14 +3052,18 @@ def probe_continuous_slot_admission():
                 "execution_identity": "/nix/store/identity",
                 "runtime_identity": "/nix/store/tt-metal",
                 "physical_pcie_device_ids": [0, 1],
-                "scheduler_profile_id": policy.scheduler_profile_id if kind == "continuous" else None,
+                "scheduler_profile_id": policy.scheduler_profile_id
+                if kind == "continuous"
+                else None,
                 "scheduler_policy_blake3": "a" * 64 if kind == "continuous" else None,
                 **(identity or {}),
             },
             "workload": {
                 "workload_id": policy.workload_id,
                 "blake3": "b" * 64,
-                "requests": [{"name": r["name"], "class": r["class"]} for r in requests],
+                "requests": [
+                    {"name": r["name"], "class": r["class"]} for r in requests
+                ],
             },
             "startup": {"device_dram_free_bytes": [9_800_000_000, 9_800_000_000]},
             "solo": [
@@ -2567,14 +3071,32 @@ def probe_continuous_slot_admission():
                 for name, wall in solo_walls.items()
                 if name != drop
             ],
-            "repetitions": [{"requests": copy.deepcopy(requests)} for _ in range(policy.repetitions)],
+            "repetitions": [
+                {"requests": copy.deepcopy(requests)} for _ in range(policy.repetitions)
+            ],
         }
         return mapping
 
-    baseline_done = {"l1": 50.0, "l2": 50.0, "s1": 63.0, "s2": 63.0, "s3": 63.0, "s4": 63.0}
-    candidate_done = {"l1": 58.0, "l2": 57.0, "s1": 6.0, "s2": 10.0, "s3": 17.0, "s4": 18.0}
+    baseline_done = {
+        "l1": 50.0,
+        "l2": 50.0,
+        "s1": 63.0,
+        "s2": 63.0,
+        "s3": 63.0,
+        "s4": 63.0,
+    }
+    candidate_done = {
+        "l1": 58.0,
+        "l2": 57.0,
+        "s1": 6.0,
+        "s2": 10.0,
+        "s3": 17.0,
+        "s4": 18.0,
+    }
     baseline = root("group", baseline_done, gap=0.045, captures=2)
-    candidate = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5), captures=1)
+    candidate = root(
+        "continuous", candidate_done, gap=0.05, stall=(100, 3.5), captures=1
+    )
 
     def judge(candidate_mapping, baseline_mapping=baseline):
         return admission.evaluate(
@@ -2584,9 +3106,13 @@ def probe_continuous_slot_admission():
         )
 
     result = judge(candidate)
-    require(result.admitted, f"a complete, better candidate was rejected: {result.reasons}")
+    require(
+        result.admitted, f"a complete, better candidate was rejected: {result.reasons}"
+    )
     gate_names = {gate.name for gate in result.gates}
-    require(not any("capture" in name for name in gate_names), "trace captures were gated")
+    require(
+        not any("capture" in name for name in gate_names), "trace captures were gated"
+    )
     receipt = build_receipt(
         policy_mapping=policy_mapping,
         baseline_mapping=baseline,
@@ -2597,25 +3123,40 @@ def probe_continuous_slot_admission():
     )
     require(
         receipt["admission"]["admitted"]
-        and receipt["admission"]["admitted_profile"]["scheduler_profile_id"] == policy.scheduler_profile_id
+        and receipt["admission"]["admitted_profile"]["scheduler_profile_id"]
+        == policy.scheduler_profile_id
         and receipt["simulated"] is False,
         "the admitted receipt does not name the measured profile",
     )
 
     def rejected(mapping, reason, message, baseline_mapping=baseline):
         verdict = judge(mapping, baseline_mapping)
-        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+        require(
+            not verdict.admitted and reason in verdict.reasons,
+            f"{message}: {verdict.reasons}",
+        )
 
     # Fewer captures cannot admit a candidate whose short requests got no faster.
     rejected(
-        root("continuous", {**baseline_done, "l1": 50.0, "l2": 50.0}, gap=0.05, captures=0),
+        root(
+            "continuous",
+            {**baseline_done, "l1": 50.0, "l2": 50.0},
+            gap=0.05,
+            captures=0,
+        ),
         "gate-failed:short_median_wall_ratio",
         "fewer captures admitted a candidate without a latency benefit",
     )
     # Every matched pair must pass: one good pass cannot carry a bad one.
     mixed = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
-    mixed["repetitions"][1] = root("continuous", baseline_done, gap=0.05)["repetitions"][1]
-    rejected(mixed, "gate-failed:short_median_wall_ratio", "a lucky pass admitted an unlucky one")
+    mixed["repetitions"][1] = root("continuous", baseline_done, gap=0.05)[
+        "repetitions"
+    ][1]
+    rejected(
+        mixed,
+        "gate-failed:short_median_wall_ratio",
+        "a lucky pass admitted an unlucky one",
+    )
     # A request left far behind its solo time fails the starvation guard.
     rejected(
         root("continuous", {**candidate_done, "s1": 200.0}, gap=0.05, stall=(100, 3.5)),
@@ -2626,7 +3167,9 @@ def probe_continuous_slot_admission():
     starved = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
     starved["repetitions"][0]["requests"][4]["finish_reason"] = None
     starved_result = judge(starved)
-    throughput_gate = next(g for g in starved_result.gates if g.name == "delivered_throughput_ratio")
+    throughput_gate = next(
+        g for g in starved_result.gates if g.name == "delivered_throughput_ratio"
+    )
     require(
         throughput_gate.passed
         and not starved_result.admitted
@@ -2642,10 +3185,17 @@ def probe_continuous_slot_admission():
     # A candidate row that no longer matches its solo reference.
     lost = root("continuous", candidate_done, gap=0.05, stall=(100, 3.5))
     lost["repetitions"][1]["requests"][2]["token_ids"][3] += 1
-    rejected(lost, "gate-failed:exact_candidate_parity", "a parity mismatch was admitted")
+    rejected(
+        lost, "gate-failed:exact_candidate_parity", "a parity mismatch was admitted"
+    )
     # Identity drift, simulation, and a different workload.
     rejected(
-        root("continuous", candidate_done, gap=0.05, identity={"package": "/nix/store/other"}),
+        root(
+            "continuous",
+            candidate_done,
+            gap=0.05,
+            identity={"package": "/nix/store/other"},
+        ),
         "identity-differs:package",
         "roots from different packages were compared",
     )
@@ -2659,10 +3209,15 @@ def probe_continuous_slot_admission():
     rejected(other_workload, "workload-differs", "different workloads were compared")
     single_pass = root("continuous", candidate_done, gap=0.05)
     single_pass["repetitions"] = single_pass["repetitions"][:1]
-    rejected(single_pass, "repetition-count:continuous", "one measured pass was accepted")
+    rejected(
+        single_pass, "repetition-count:continuous", "one measured pass was accepted"
+    )
     # Incomplete roots fail with a specific evidence error, and the receipt keeps them.
     for broken, fragment in (
-        (root("continuous", candidate_done, gap=0.05, drop="s3"), "solo references cover"),
+        (
+            root("continuous", candidate_done, gap=0.05, drop="s3"),
+            "solo references cover",
+        ),
         ({**candidate, "simulated": None}, "simulated"),
     ):
         try:
@@ -2702,13 +3257,23 @@ def probe_prefix_cache_policy():
     def digest(data):
         return hashlib.blake2b(data, digest_size=32).digest()
 
-    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         mapping = json.load(handle)
     policy = prefix.PrefixCachePolicy.from_mapping(mapping)
-    require(policy.tenant == "local" and policy.state_slots >= 1, "the packaged policy changed shape")
+    require(
+        policy.tenant == "local" and policy.state_slots >= 1,
+        "the packaged policy changed shape",
+    )
     for change, reason in (
         ({"extra": 1}, "an undeclared policy field was accepted"),
-        ({"minimum_prefix_tokens": 1500}, "a minimum prefix off the chunk boundary was accepted"),
+        (
+            {"minimum_prefix_tokens": 1500},
+            "a minimum prefix off the chunk boundary was accepted",
+        ),
         ({"state_slots": 0}, "a cache without state buffers was accepted"),
         ({"tenant": ""}, "an empty tenant scope was accepted"),
     ):
@@ -2721,37 +3286,65 @@ def probe_prefix_cache_policy():
 
     # Keys: exact token ids under one identity and tenant, prefixes strictly inside the prompt.
     tokens = list(range(5000))
-    base = prefix.prefix_digests(tokens, identity="model-a", tenant="local", blake3_digest=digest)
-    require(len(base) == 4, f"a 5,000-token prompt should have 4 chunk prefixes, got {len(base)}")
+    base = prefix.prefix_digests(
+        tokens, identity="model-a", tenant="local", blake3_digest=digest
+    )
     require(
-        prefix.prefix_digests(tokens[:4097], identity="model-a", tenant="local", blake3_digest=digest)
+        len(base) == 4,
+        f"a 5,000-token prompt should have 4 chunk prefixes, got {len(base)}",
+    )
+    require(
+        prefix.prefix_digests(
+            tokens[:4097], identity="model-a", tenant="local", blake3_digest=digest
+        )
         == base,
         "the same prefixes of a longer prompt changed digest",
     )
     require(
-        prefix.prefix_digests(tokens[:1024], identity="model-a", tenant="local", blake3_digest=digest) == (),
+        prefix.prefix_digests(
+            tokens[:1024], identity="model-a", tenant="local", blake3_digest=digest
+        )
+        == (),
         "a prompt no longer than one chunk got a prefix digest",
     )
     drifted = tokens[:]
     drifted[1500] += 1
-    drift = prefix.prefix_digests(drifted, identity="model-a", tenant="local", blake3_digest=digest)
-    require(drift[0] == base[0] and all(a != b for a, b in zip(drift[1:], base[1:])),
-            "a changed token id did not change every digest from its chunk on")
+    drift = prefix.prefix_digests(
+        drifted, identity="model-a", tenant="local", blake3_digest=digest
+    )
+    require(
+        drift[0] == base[0] and all(a != b for a, b in zip(drift[1:], base[1:])),
+        "a changed token id did not change every digest from its chunk on",
+    )
     for identity, tenant, reason in (
         ("model-b", "local", "another model or precision matched"),
         ("model-a", "other", "another tenant matched"),
     ):
-        other = prefix.prefix_digests(tokens, identity=identity, tenant=tenant, blake3_digest=digest)
+        other = prefix.prefix_digests(
+            tokens, identity=identity, tenant=tenant, blake3_digest=digest
+        )
         require(not set(other) & set(base), reason)
 
     # Entries must name KV and state; a KV-only or mis-sized entry is invalid.
     good = prefix.PrefixEntry(1, "a" * 64, 2048, ((16, 32),), 0, True, 0, 0.0)
     good.validate(64, policy.state_slots)
     for broken, reason in (
-        (copy.replace(good, block_ranges=()), "an entry without KV blocks was accepted"),
-        (copy.replace(good, block_ranges=((16, 31),)), "an entry whose blocks miss part of its prefix was accepted"),
-        (copy.replace(good, state_index=policy.state_slots), "an entry without a state buffer was accepted"),
-        (copy.replace(good, prefix_tokens=2000), "an entry off the chunk boundary was accepted"),
+        (
+            copy.replace(good, block_ranges=()),
+            "an entry without KV blocks was accepted",
+        ),
+        (
+            copy.replace(good, block_ranges=((16, 31),)),
+            "an entry whose blocks miss part of its prefix was accepted",
+        ),
+        (
+            copy.replace(good, state_index=policy.state_slots),
+            "an entry without a state buffer was accepted",
+        ),
+        (
+            copy.replace(good, prefix_tokens=2000),
+            "an entry off the chunk boundary was accepted",
+        ),
     ):
         try:
             broken.validate(64, policy.state_slots)
@@ -2761,33 +3354,65 @@ def probe_prefix_cache_policy():
             require(False, reason)
 
     layout = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
-    kv = core.KvBlockRange(layout.reserved_prefix_blocks, layout.generation_end_block, layout.row_blocks, 64)
-    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+    kv = core.KvBlockRange(
+        layout.reserved_prefix_blocks,
+        layout.generation_end_block,
+        layout.row_blocks,
+        64,
+    )
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
 
-    def request(name, prompt, *, max_tokens=64, identity="model-a", tenant="local", arrival=0.0, root=0, row_layout=layout):
+    def request(
+        name,
+        prompt,
+        *,
+        max_tokens=64,
+        identity="model-a",
+        tenant="local",
+        arrival=0.0,
+        root=0,
+        row_layout=layout,
+    ):
         return core.SlotRequest(
             request_id=name,
             prompt_tokens=len(prompt),
             max_tokens=max_tokens,
             route="step",
-            blocks=row_layout.request_blocks(prompt_tokens=len(prompt), generation_tokens=max_tokens),
+            blocks=row_layout.request_blocks(
+                prompt_tokens=len(prompt), generation_tokens=max_tokens
+            ),
             arrival_seconds=arrival,
             deadline_seconds=1000.0,
-            prefix_digests=prefix.prefix_digests(prompt, identity=identity, tenant=tenant, blake3_digest=digest),
+            prefix_digests=prefix.prefix_digests(
+                prompt, identity=identity, tenant=tenant, blake3_digest=digest
+            ),
             shared_root_tokens=root,
         )
 
     def boundary(schedule, now, *, use=policy, available=True, row_range=kv):
         return core.plan_boundary(
-            schedule, slot_policy, row_range, now=now, prefix_policy=use, prefix_available=available
+            schedule,
+            slot_policy,
+            row_range,
+            now=now,
+            prefix_policy=use,
+            prefix_available=available,
         )
 
     def run_to_completion(schedule, effects, now):
         for effect in effects:
             if isinstance(effect, core.PrefillSlot):
                 schedule = core.observe_prefill(
-                    schedule, slot=effect.slot, generation=effect.generation, token_id=5, stopped=True
+                    schedule,
+                    slot=effect.slot,
+                    generation=effect.generation,
+                    token_id=5,
+                    stopped=True,
                 )
         return boundary(schedule, now)
 
@@ -2803,14 +3428,24 @@ def probe_prefix_cache_policy():
     schedule, _ = core.submit(schedule, slot_policy, kv, request("t1", turn1))
     schedule, effects = boundary(schedule, 1.0)
     (p1,) = prefills(effects)
-    require(p1.save_at == 4096 and p1.save_state is not None and p1.resume_state is None,
-            f"turn 1 did not plan its donation: {p1}")
-    require(not schedule.prefix_entries[0].ready, "a donation was ready before its prefill ran")
+    require(
+        p1.save_at == 4096 and p1.save_state is not None and p1.resume_state is None,
+        f"turn 1 did not plan its donation: {p1}",
+    )
+    require(
+        not schedule.prefix_entries[0].ready,
+        "a donation was ready before its prefill ran",
+    )
     schedule, effects = run_to_completion(schedule, effects, 2.0)
     (entry1,) = schedule.prefix_entries
-    require(entry1.ready and entry1.prefix_tokens == 4096 and entry1.pins == 0, f"turn 1's entry: {entry1}")
-    require(entry_blocks(schedule) == frozenset(range(p1.block_start, p1.block_start + 64)),
-            "the entry did not keep exactly the donor's first 64 blocks")
+    require(
+        entry1.ready and entry1.prefix_tokens == 4096 and entry1.pins == 0,
+        f"turn 1's entry: {entry1}",
+    )
+    require(
+        entry_blocks(schedule) == frozenset(range(p1.block_start, p1.block_start + 64)),
+        "the entry did not keep exactly the donor's first 64 blocks",
+    )
 
     # Turn 2 extends turn 1: it resumes from the entry, owns blocks only past the prefix,
     # and donates a longer chained entry.
@@ -2826,54 +3461,95 @@ def probe_prefix_cache_policy():
         f"turn 2 did not resume from turn 1's entry: {p2}",
     )
     full = layout.request_blocks(prompt_tokens=len(turn2), generation_tokens=64)
-    require(p2.block_count == full - 64, "a hit still reserved KV for the cached prefix")
+    require(
+        p2.block_count == full - 64, "a hit still reserved KV for the cached prefix"
+    )
     require(
         not set(range(p2.block_start, p2.block_start + p2.block_count))
         & prefix.cached_blocks([entry1]),
         "a live request's own run overlaps the cached prefix it reads",
     )
-    require(p2.save_at == 7168 and p2.save_state == entry1.state_index, f"turn 2's donation: {p2}")
+    require(
+        p2.save_at == 7168 and p2.save_state == entry1.state_index,
+        f"turn 2's donation: {p2}",
+    )
     (chained,) = schedule.prefix_entries
-    require(chained.entry_id == p2.donation_entry, "turn 2's entry did not supersede turn 1's")
-    require(chained.block_ranges == entry1.block_ranges + ((p2.block_start, 48),),
-            f"the superseding entry does not reuse the prefix blocks: {chained.block_ranges}")
-    require(chained.pins == 1, "the superseding entry did not take over its reader's pin")
+    require(
+        chained.entry_id == p2.donation_entry,
+        "turn 2's entry did not supersede turn 1's",
+    )
+    require(
+        chained.block_ranges == entry1.block_ranges + ((p2.block_start, 48),),
+        f"the superseding entry does not reuse the prefix blocks: {chained.block_ranges}",
+    )
+    require(
+        chained.pins == 1, "the superseding entry did not take over its reader's pin"
+    )
     schedule, effects = run_to_completion(schedule, effects, 4.0)
-    require(all(entry.pins == 0 for entry in schedule.prefix_entries), "retirement left an entry pinned")
+    require(
+        all(entry.pins == 0 for entry in schedule.prefix_entries),
+        "retirement left an entry pinned",
+    )
     # Turn 3 resumes from the longest cached prefix, the chained one.
     turn3 = turn2 + list(range(30000, 30000 + 1500))
     turn3_schedule, _ = core.submit(schedule, slot_policy, kv, request("t3", turn3))
     turn3_schedule, effects = boundary(turn3_schedule, 4.5)
-    require(prefills(effects)[0].hit_entry == chained.entry_id and prefills(effects)[0].prefix_tokens == 7168,
-            f"turn 3 did not resume from the longest prefix: {prefills(effects)[0]}")
+    require(
+        prefills(effects)[0].hit_entry == chained.entry_id
+        and prefills(effects)[0].prefix_tokens == 7168,
+        f"turn 3 did not resume from the longest prefix: {prefills(effects)[0]}",
+    )
 
     # A 128K row retains its last whole chunk; one extra KV pool block lets a
     # second cold full row run without evicting the first 2,032-block prefix.
-    with Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__).with_name("decode-profile.json").open(encoding="utf-8") as handle
+    ):
         long_pool_blocks = json.load(handle)["buffers"]["kv_pool_blocks"]
-    long_layout = KvPoolLayout(pool_blocks=long_pool_blocks, row_blocks=2048, kv_block_size=64)
-    require(long_layout.group_capacity_blocks >= 2032 + long_layout.row_blocks,
-            "one cold full row cannot fit beside an existing near-full prefix")
+    long_layout = KvPoolLayout(
+        pool_blocks=long_pool_blocks, row_blocks=2048, kv_block_size=64
+    )
+    require(
+        long_layout.group_capacity_blocks >= 2032 + long_layout.row_blocks,
+        "one cold full row cannot fit beside an existing near-full prefix",
+    )
     long_kv = core.KvBlockRange(
-        long_layout.reserved_prefix_blocks, long_layout.generation_end_block, long_layout.row_blocks, 64
+        long_layout.reserved_prefix_blocks,
+        long_layout.generation_end_block,
+        long_layout.row_blocks,
+        64,
     )
     long_prompt = list(range(130545))
     long_request = request("long", long_prompt, max_tokens=16, row_layout=long_layout)
-    long_schedule, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
+    long_schedule, _ = core.submit(
+        core.initial_schedule(slot_policy), slot_policy, long_kv, long_request
+    )
     long_schedule, effects = boundary(long_schedule, 1.0, row_range=long_kv)
     (first_long,) = prefills(effects)
-    require(first_long.prefix_tokens == 0 and first_long.save_at == 130048,
-            f"a cold 128K turn did not save its longest prefix: {first_long}")
+    require(
+        first_long.prefix_tokens == 0 and first_long.save_at == 130048,
+        f"a cold 128K turn did not save its longest prefix: {first_long}",
+    )
     long_schedule = core.observe_prefill(
-        long_schedule, slot=first_long.slot, generation=first_long.generation, token_id=5, stopped=True
+        long_schedule,
+        slot=first_long.slot,
+        generation=first_long.generation,
+        token_id=5,
+        stopped=True,
     )
     long_schedule, _ = boundary(long_schedule, 2.0, row_range=long_kv)
     (long_entry,) = long_schedule.prefix_entries
-    require(long_entry.ready and len(entry_blocks(long_schedule)) == 2032,
-            "the long turn did not retain exactly 2,032 KV blocks with its state")
+    require(
+        long_entry.ready and len(entry_blocks(long_schedule)) == 2032,
+        "the long turn did not retain exactly 2,032 KV blocks with its state",
+    )
     extended = long_prompt + list(range(200000, 200020))
-    extended_request = request("longer", extended, max_tokens=16, row_layout=long_layout)
-    long_schedule, _ = core.submit(long_schedule, slot_policy, long_kv, extended_request)
+    extended_request = request(
+        "longer", extended, max_tokens=16, row_layout=long_layout
+    )
+    long_schedule, _ = core.submit(
+        long_schedule, slot_policy, long_kv, extended_request
+    )
     long_schedule, effects = boundary(long_schedule, 3.0, row_range=long_kv)
     (continued,) = prefills(effects)
     require(
@@ -2886,7 +3562,9 @@ def probe_prefix_cache_policy():
         f"a later 128K turn did not reuse the near-full KV and carried state: {continued}",
     )
     require(
-        not set(range(continued.block_start, continued.block_start + continued.block_count))
+        not set(
+            range(continued.block_start, continued.block_start + continued.block_count)
+        )
         & entry_blocks(long_schedule),
         "a continued long turn overwrote its saved prefix KV",
     )
@@ -2894,31 +3572,61 @@ def probe_prefix_cache_policy():
     # The quota remains configurable: the old quarter-pool budget must still
     # reuse a shorter prefix, rather than silently reserving the full row.
     quarter = copy.replace(policy, maximum_cached_blocks=1024)
-    quarter_schedule, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
-    quarter_schedule, effects = boundary(quarter_schedule, 1.0, use=quarter, row_range=long_kv)
-    (quarter_first,) = prefills(effects)
-    require(quarter_first.save_at == 65536, "the smaller budget did not cap the saved prefix")
-    quarter_schedule = core.observe_prefill(
-        quarter_schedule, slot=quarter_first.slot, generation=quarter_first.generation, token_id=5, stopped=True
+    quarter_schedule, _ = core.submit(
+        core.initial_schedule(slot_policy), slot_policy, long_kv, long_request
     )
-    quarter_schedule, _ = boundary(quarter_schedule, 2.0, use=quarter, row_range=long_kv)
-    quarter_schedule, _ = core.submit(quarter_schedule, slot_policy, long_kv, extended_request)
-    quarter_schedule, effects = boundary(quarter_schedule, 3.0, use=quarter, row_range=long_kv)
-    require(prefills(effects)[0].prefix_tokens == 65536 and prefills(effects)[0].resume_state is not None,
-            "a budget-limited continuation failed to reuse its shorter state and KV")
+    quarter_schedule, effects = boundary(
+        quarter_schedule, 1.0, use=quarter, row_range=long_kv
+    )
+    (quarter_first,) = prefills(effects)
+    require(
+        quarter_first.save_at == 65536,
+        "the smaller budget did not cap the saved prefix",
+    )
+    quarter_schedule = core.observe_prefill(
+        quarter_schedule,
+        slot=quarter_first.slot,
+        generation=quarter_first.generation,
+        token_id=5,
+        stopped=True,
+    )
+    quarter_schedule, _ = boundary(
+        quarter_schedule, 2.0, use=quarter, row_range=long_kv
+    )
+    quarter_schedule, _ = core.submit(
+        quarter_schedule, slot_policy, long_kv, extended_request
+    )
+    quarter_schedule, effects = boundary(
+        quarter_schedule, 3.0, use=quarter, row_range=long_kv
+    )
+    require(
+        prefills(effects)[0].prefix_tokens == 65536
+        and prefills(effects)[0].resume_state is not None,
+        "a budget-limited continuation failed to reuse its shorter state and KV",
+    )
 
     # A pinned reader cannot be displaced by a foreign full row. With one
     # additional KV block, that row fits without evicting either prefix after
     # the reader retires; both independent continuations must then hit.
     foreign_prompt = long_prompt[:]
     foreign_prompt[0] += 1
-    foreign_request = request("foreign-long", foreign_prompt, max_tokens=16, row_layout=long_layout)
+    foreign_request = request(
+        "foreign-long", foreign_prompt, max_tokens=16, row_layout=long_layout
+    )
     long_schedule, _ = core.submit(long_schedule, slot_policy, long_kv, foreign_request)
     long_schedule, effects = boundary(long_schedule, 3.5, row_range=long_kv)
-    require(not prefills(effects) and len(long_schedule.queue) == 1 and long_schedule.prefix_entries[0].pins == 1,
-            "a foreign full row displaced a pinned prefix")
+    require(
+        not prefills(effects)
+        and len(long_schedule.queue) == 1
+        and long_schedule.prefix_entries[0].pins == 1,
+        "a foreign full row displaced a pinned prefix",
+    )
     long_schedule = core.observe_prefill(
-        long_schedule, slot=continued.slot, generation=continued.generation, token_id=5, stopped=True
+        long_schedule,
+        slot=continued.slot,
+        generation=continued.generation,
+        token_id=5,
+        stopped=True,
     )
     long_schedule, effects = boundary(long_schedule, 4.0, row_range=long_kv)
     (foreign_effect,) = prefills(effects)
@@ -2926,34 +3634,67 @@ def probe_prefix_cache_policy():
         foreign_effect.hit_entry is None
         and foreign_effect.block_count == long_layout.row_blocks
         and foreign_effect.save_at == 130048
-        and any(entry.entry_id == long_entry.entry_id for entry in long_schedule.prefix_entries),
+        and any(
+            entry.entry_id == long_entry.entry_id
+            for entry in long_schedule.prefix_entries
+        ),
         "a cold foreign full row evicted the first near-full prefix or failed to save its own",
     )
     long_schedule = core.observe_prefill(
-        long_schedule, slot=foreign_effect.slot, generation=foreign_effect.generation, token_id=5, stopped=True
+        long_schedule,
+        slot=foreign_effect.slot,
+        generation=foreign_effect.generation,
+        token_id=5,
+        stopped=True,
     )
     long_schedule, _ = boundary(long_schedule, 5.0, row_range=long_kv)
-    require(len(long_schedule.prefix_entries) == 2
-            and all(entry.ready and entry.prefix_tokens == 130048 for entry in long_schedule.prefix_entries)
-            and len({entry.state_index for entry in long_schedule.prefix_entries}) == 2
-            and len(entry_blocks(long_schedule)) == 4064,
-            "both long prefixes and distinct carried states did not remain resident")
+    require(
+        len(long_schedule.prefix_entries) == 2
+        and all(
+            entry.ready and entry.prefix_tokens == 130048
+            for entry in long_schedule.prefix_entries
+        )
+        and len({entry.state_index for entry in long_schedule.prefix_entries}) == 2
+        and len(entry_blocks(long_schedule)) == 4064,
+        "both long prefixes and distinct carried states did not remain resident",
+    )
     for name, prompt, prior in (
         ("first-return", extended, long_entry),
-        ("foreign-return", foreign_prompt + list(range(300000, 300020)),
-         next(entry for entry in long_schedule.prefix_entries if entry.entry_id != long_entry.entry_id)),
+        (
+            "foreign-return",
+            foreign_prompt + list(range(300000, 300020)),
+            next(
+                entry
+                for entry in long_schedule.prefix_entries
+                if entry.entry_id != long_entry.entry_id
+            ),
+        ),
     ):
         long_schedule, _ = core.submit(
-            long_schedule, slot_policy, long_kv, request(name, prompt, max_tokens=16, row_layout=long_layout)
+            long_schedule,
+            slot_policy,
+            long_kv,
+            request(name, prompt, max_tokens=16, row_layout=long_layout),
         )
         long_schedule, effects = boundary(long_schedule, 6.0, row_range=long_kv)
         (resumed,) = prefills(effects)
-        require(resumed.hit_entry == prior.entry_id and resumed.prefix_tokens == 130048
-                and resumed.resume_state == prior.state_index and resumed.block_count == 16,
-                f"{name} did not reuse its own near-full KV and carried state")
-        require(len(long_schedule.prefix_entries) == 2, f"{name} evicted the other conversation")
+        require(
+            resumed.hit_entry == prior.entry_id
+            and resumed.prefix_tokens == 130048
+            and resumed.resume_state == prior.state_index
+            and resumed.block_count == 16,
+            f"{name} did not reuse its own near-full KV and carried state",
+        )
+        require(
+            len(long_schedule.prefix_entries) == 2,
+            f"{name} evicted the other conversation",
+        )
         long_schedule = core.observe_prefill(
-            long_schedule, slot=resumed.slot, generation=resumed.generation, token_id=5, stopped=True
+            long_schedule,
+            slot=resumed.slot,
+            generation=resumed.generation,
+            token_id=5,
+            stopped=True,
         )
         long_schedule, _ = boundary(long_schedule, 7.0, row_range=long_kv)
 
@@ -2962,105 +3703,186 @@ def probe_prefix_cache_policy():
     third_prompt = long_prompt[:]
     third_prompt[0] += 2
     long_schedule, _ = core.submit(
-        long_schedule, slot_policy, long_kv,
+        long_schedule,
+        slot_policy,
+        long_kv,
         request("third-long", third_prompt, max_tokens=16, row_layout=long_layout),
     )
     long_schedule, effects = boundary(long_schedule, 8.0, row_range=long_kv)
     (third,) = prefills(effects)
-    require(third.hit_entry is None and third.block_count == long_layout.row_blocks
-            and third.save_at == 130048 and third.block_start == 2048
-            and {entry.entry_id for entry in long_schedule.prefix_entries}
-            == {long_entry.entry_id, third.donation_entry},
-            "third full row evicted both long prefixes instead of one contiguous-space victim")
+    require(
+        third.hit_entry is None
+        and third.block_count == long_layout.row_blocks
+        and third.save_at == 130048
+        and third.block_start == 2048
+        and {entry.entry_id for entry in long_schedule.prefix_entries}
+        == {long_entry.entry_id, third.donation_entry},
+        "third full row evicted both long prefixes instead of one contiguous-space victim",
+    )
     long_schedule = core.observe_prefill(
-        long_schedule, slot=third.slot, generation=third.generation, token_id=5, stopped=True
+        long_schedule,
+        slot=third.slot,
+        generation=third.generation,
+        token_id=5,
+        stopped=True,
     )
     long_schedule, _ = boundary(long_schedule, 9.0, row_range=long_kv)
-    third_entry = next(entry for entry in long_schedule.prefix_entries if entry.entry_id != long_entry.entry_id)
-    require(len(long_schedule.prefix_entries) == 2 and all(e.ready for e in long_schedule.prefix_entries)
-            and len({e.state_index for e in long_schedule.prefix_entries}) == 2
-            and len(entry_blocks(long_schedule)) == 4064,
-            "third conversation did not retain its own state beside the first conversation")
+    third_entry = next(
+        entry
+        for entry in long_schedule.prefix_entries
+        if entry.entry_id != long_entry.entry_id
+    )
+    require(
+        len(long_schedule.prefix_entries) == 2
+        and all(e.ready for e in long_schedule.prefix_entries)
+        and len({e.state_index for e in long_schedule.prefix_entries}) == 2
+        and len(entry_blocks(long_schedule)) == 4064,
+        "third conversation did not retain its own state beside the first conversation",
+    )
     for name, prompt, prior in (
         ("first-after-third", extended, long_entry),
         ("third-return", third_prompt + list(range(400000, 400020)), third_entry),
     ):
         long_schedule, _ = core.submit(
-            long_schedule, slot_policy, long_kv, request(name, prompt, max_tokens=16, row_layout=long_layout)
+            long_schedule,
+            slot_policy,
+            long_kv,
+            request(name, prompt, max_tokens=16, row_layout=long_layout),
         )
         long_schedule, effects = boundary(long_schedule, 10.0, row_range=long_kv)
         (resumed,) = prefills(effects)
-        require(resumed.hit_entry == prior.entry_id and resumed.prefix_tokens == 130048
-                and resumed.resume_state == prior.state_index and resumed.block_count == 16
-                and {e.entry_id for e in long_schedule.prefix_entries}
-                == {long_entry.entry_id, third_entry.entry_id},
-                f"{name} did not retain and resume its own KV and carried state")
+        require(
+            resumed.hit_entry == prior.entry_id
+            and resumed.prefix_tokens == 130048
+            and resumed.resume_state == prior.state_index
+            and resumed.block_count == 16
+            and {e.entry_id for e in long_schedule.prefix_entries}
+            == {long_entry.entry_id, third_entry.entry_id},
+            f"{name} did not retain and resume its own KV and carried state",
+        )
         long_schedule = core.observe_prefill(
-            long_schedule, slot=resumed.slot, generation=resumed.generation, token_id=5, stopped=True
+            long_schedule,
+            slot=resumed.slot,
+            generation=resumed.generation,
+            token_id=5,
+            stopped=True,
         )
         long_schedule, _ = boundary(long_schedule, 11.0, row_range=long_kv)
 
     # The old 4,096-block geometry, which had no batched-read lanes, was short by one
     # block and had to evict the unused first prefix to admit the second full row.
-    old_layout = KvPoolLayout(pool_blocks=4096, row_blocks=2048, kv_block_size=64, batch_read_width=0)
-    old_kv = core.KvBlockRange(old_layout.reserved_prefix_blocks, old_layout.generation_end_block, 2048, 64)
+    old_layout = KvPoolLayout(
+        pool_blocks=4096, row_blocks=2048, kv_block_size=64, batch_read_width=0
+    )
+    old_kv = core.KvBlockRange(
+        old_layout.reserved_prefix_blocks, old_layout.generation_end_block, 2048, 64
+    )
     old_quota = copy.replace(policy, maximum_cached_blocks=2048)
     old_schedule, _ = core.submit(
-        core.initial_schedule(slot_policy), slot_policy, old_kv,
+        core.initial_schedule(slot_policy),
+        slot_policy,
+        old_kv,
         request("old-first", long_prompt, max_tokens=16, row_layout=old_layout),
     )
     old_schedule, effects = boundary(old_schedule, 1.0, use=old_quota, row_range=old_kv)
     old_schedule = core.observe_prefill(
-        old_schedule, slot=prefills(effects)[0].slot, generation=prefills(effects)[0].generation,
-        token_id=5, stopped=True,
+        old_schedule,
+        slot=prefills(effects)[0].slot,
+        generation=prefills(effects)[0].generation,
+        token_id=5,
+        stopped=True,
     )
     old_schedule, _ = boundary(old_schedule, 2.0, use=old_quota, row_range=old_kv)
     old_first_id = old_schedule.prefix_entries[0].entry_id
     old_schedule, _ = core.submit(
-        old_schedule, slot_policy, old_kv,
+        old_schedule,
+        slot_policy,
+        old_kv,
         request("old-second", foreign_prompt, max_tokens=16, row_layout=old_layout),
     )
     old_schedule, effects = boundary(old_schedule, 3.0, use=old_quota, row_range=old_kv)
-    require(len(prefills(effects)) == 1
-            and all(entry.entry_id != old_first_id for entry in old_schedule.prefix_entries),
-            "the old pool unexpectedly held a full cold row beside a near-full prefix")
+    require(
+        len(prefills(effects)) == 1
+        and all(
+            entry.entry_id != old_first_id for entry in old_schedule.prefix_entries
+        ),
+        "the old pool unexpectedly held a full cold row beside a near-full prefix",
+    )
 
     too_small = copy.replace(policy, maximum_cached_blocks=15)
-    insufficient, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, long_request)
-    insufficient, effects = boundary(insufficient, 1.0, use=too_small, row_range=long_kv)
-    require(prefills(effects)[0].save_state is None and not insufficient.prefix_entries,
-            "a sub-chunk KV budget saved an invalid prefix")
-    oversized_root = copy.replace(policy, maximum_cached_blocks=1024, shared_root_minimum_tokens=69632)
+    insufficient, _ = core.submit(
+        core.initial_schedule(slot_policy), slot_policy, long_kv, long_request
+    )
+    insufficient, effects = boundary(
+        insufficient, 1.0, use=too_small, row_range=long_kv
+    )
+    require(
+        prefills(effects)[0].save_state is None and not insufficient.prefix_entries,
+        "a sub-chunk KV budget saved an invalid prefix",
+    )
+    oversized_root = copy.replace(
+        policy, maximum_cached_blocks=1024, shared_root_minimum_tokens=69632
+    )
     root_request = copy.replace(long_request, shared_root_tokens=69632)
-    rooted, _ = core.submit(core.initial_schedule(slot_policy), slot_policy, long_kv, root_request)
+    rooted, _ = core.submit(
+        core.initial_schedule(slot_policy), slot_policy, long_kv, root_request
+    )
     rooted, effects = boundary(rooted, 1.0, use=oversized_root, row_range=long_kv)
-    require(prefills(effects)[0].save_state is None and not rooted.prefix_entries,
-            "an oversized shared root was silently truncated to another digest")
+    require(
+        prefills(effects)[0].save_state is None and not rooted.prefix_entries,
+        "an oversized shared root was silently truncated to another digest",
+    )
 
     # Another tenant or identity never hits.
-    for name, identity, tenant in (("other-tenant", "model-a", "other"), ("other-model", "model-b", "local")):
-        probe_schedule, _ = core.submit(schedule, slot_policy, kv, request(name, turn2, identity=identity, tenant=tenant))
+    for name, identity, tenant in (
+        ("other-tenant", "model-a", "other"),
+        ("other-model", "model-b", "local"),
+    ):
+        probe_schedule, _ = core.submit(
+            schedule,
+            slot_policy,
+            kv,
+            request(name, turn2, identity=identity, tenant=tenant),
+        )
         probe_schedule, effects = boundary(probe_schedule, 5.0)
-        require(prefills(effects)[0].hit_entry is None, f"{name} hit another scope's entry")
+        require(
+            prefills(effects)[0].hit_entry is None, f"{name} hit another scope's entry"
+        )
 
     # No prefix plans while the device cannot restore or save.
-    unavailable, _ = core.submit(schedule, slot_policy, kv, request("t3", turn2 + [1] * 2000))
+    unavailable, _ = core.submit(
+        schedule, slot_policy, kv, request("t3", turn2 + [1] * 2000)
+    )
     unavailable, effects = boundary(unavailable, 5.0, available=False)
     (p3,) = prefills(effects)
-    require(p3.hit_entry is None and p3.save_state is None, "a prefix was planned while unavailable")
+    require(
+        p3.hit_entry is None and p3.save_state is None,
+        "a prefix was planned while unavailable",
+    )
 
     # State buffers run out: the least recently used unpinned entry is evicted.
     small = copy.replace(policy, state_slots=1)
     schedule = core.initial_schedule(slot_policy)
     for index, now in ((0, 1.0), (1, 3.0)):
         prompt = list(range(20000 * (index + 1), 20000 * (index + 1) + 3000))
-        schedule, _ = core.submit(schedule, slot_policy, kv, request(f"s{index}", prompt))
+        schedule, _ = core.submit(
+            schedule, slot_policy, kv, request(f"s{index}", prompt)
+        )
         schedule, effects = boundary(schedule, now, use=small)
         schedule, _ = run_to_completion(schedule, effects, now + 1)
-    require(len(schedule.prefix_entries) == 1 and schedule.prefix_entries[0].prefix_tokens == 2048,
-            "a donation beyond the state buffers did not evict the older entry")
-    require(entry_blocks(schedule) == frozenset(expand for expand in prefix.expand_blocks(schedule.prefix_entries[0].block_ranges)),
-            "an evicted entry kept its blocks")
+    require(
+        len(schedule.prefix_entries) == 1
+        and schedule.prefix_entries[0].prefix_tokens == 2048,
+        "a donation beyond the state buffers did not evict the older entry",
+    )
+    require(
+        entry_blocks(schedule)
+        == frozenset(
+            expand
+            for expand in prefix.expand_blocks(schedule.prefix_entries[0].block_ranges)
+        ),
+        "an evicted entry kept its blocks",
+    )
 
     # The KV budget evicts, and a pinned entry is never evicted.
     tight = copy.replace(policy, maximum_cached_blocks=40)
@@ -3070,90 +3892,188 @@ def probe_prefix_cache_policy():
     schedule, effects = boundary(schedule, 1.0, use=tight)
     schedule, _ = run_to_completion(schedule, effects, 2.0)
     reader = first + list(range(70000, 70000 + 2000))
-    schedule, _ = core.submit(schedule, slot_policy, kv, request("reader", reader, max_tokens=500))
+    schedule, _ = core.submit(
+        schedule, slot_policy, kv, request("reader", reader, max_tokens=500)
+    )
     schedule, effects = boundary(schedule, 3.0, use=tight)
     (hit,) = prefills(effects)
-    require(hit.hit_entry is not None and hit.save_state is None,
-            "a donation over the block budget was planned while the only victim was pinned")
-    schedule = core.observe_prefill(schedule, slot=hit.slot, generation=hit.generation, token_id=5, stopped=False)
+    require(
+        hit.hit_entry is not None and hit.save_state is None,
+        "a donation over the block budget was planned while the only victim was pinned",
+    )
+    schedule = core.observe_prefill(
+        schedule, slot=hit.slot, generation=hit.generation, token_id=5, stopped=False
+    )
     before = schedule.prefix_entries
-    schedule, _ = core.submit(schedule, slot_policy, kv, request("other", list(range(90000, 93000))))
+    schedule, _ = core.submit(
+        schedule, slot_policy, kv, request("other", list(range(90000, 93000)))
+    )
     schedule, effects = boundary(schedule, 4.0, use=tight)
-    require(any(entry.entry_id == hit.hit_entry for entry in schedule.prefix_entries),
-            "a pinned entry was evicted")
-    require(schedule.prefix_entries == before, "an over-budget donation displaced a pinned entry")
+    require(
+        any(entry.entry_id == hit.hit_entry for entry in schedule.prefix_entries),
+        "a pinned entry was evicted",
+    )
+    require(
+        schedule.prefix_entries == before,
+        "an over-budget donation displaced a pinned entry",
+    )
 
     # A live request takes an unused entry's blocks back when nothing else fits.
     small_kv = core.KvBlockRange(16, 16 + layout.row_blocks + 20, layout.row_blocks, 64)
 
     def small_boundary(schedule, now):
         return core.plan_boundary(
-            schedule, slot_policy, small_kv, now=now, prefix_policy=policy, prefix_available=True
+            schedule,
+            slot_policy,
+            small_kv,
+            now=now,
+            prefix_policy=policy,
+            prefix_available=True,
         )
 
     crowded = core.initial_schedule(slot_policy)
-    crowded, _ = core.submit(crowded, slot_policy, small_kv, request("seed", list(range(3000))))
+    crowded, _ = core.submit(
+        crowded, slot_policy, small_kv, request("seed", list(range(3000)))
+    )
     crowded, effects = small_boundary(crowded, 1.0)
     for effect in prefills(effects):
         crowded = core.observe_prefill(
-            crowded, slot=effect.slot, generation=effect.generation, token_id=5, stopped=True
+            crowded,
+            slot=effect.slot,
+            generation=effect.generation,
+            token_id=5,
+            stopped=True,
         )
     crowded, _ = small_boundary(crowded, 2.0)
     held = entry_blocks(crowded)
     (seed_entry,) = crowded.prefix_entries
     require(len(held) == 32, f"the seed entry should hold 32 blocks, held {len(held)}")
     long_max = layout.row_blocks * 64 - 60000
-    crowded, _ = core.submit(crowded, slot_policy, small_kv, request("big", [7] * 60000, max_tokens=long_max))
+    crowded, _ = core.submit(
+        crowded, slot_policy, small_kv, request("big", [7] * 60000, max_tokens=long_max)
+    )
     crowded, effects = small_boundary(crowded, 3.0)
     (admitted,) = prefills(effects)
     run = set(range(admitted.block_start, admitted.block_start + admitted.block_count))
-    require(admitted.block_count == layout.row_blocks, "the full-length request was not admitted whole")
     require(
-        all(entry.entry_id != seed_entry.entry_id for entry in crowded.prefix_entries) and run & held,
+        admitted.block_count == layout.row_blocks,
+        "the full-length request was not admitted whole",
+    )
+    require(
+        all(entry.entry_id != seed_entry.entry_id for entry in crowded.prefix_entries)
+        and run & held,
         "an unused entry kept blocks a live request needed",
     )
 
     # Conservative invalidation retains only pinned entries when written blocks are unknown.
     schedule2 = core.invalidate_prefix_cache(schedule)
-    require(all(entry.pins for entry in schedule2.prefix_entries), "invalidation kept an unpinned entry")
+    require(
+        all(entry.pins for entry in schedule2.prefix_entries),
+        "invalidation kept an unpinned entry",
+    )
     failed, _ = core.quarantine_group(schedule)
     require(failed.prefix_entries == (), "a device failure kept cached prefixes")
 
     # A successful read invalidates only entries whose physical KV blocks it wrote,
     # including a pinned or not-yet-ready entry; gaps in discontiguous ranges are safe.
-    shared_root = copy.replace(good, entry_id=11, block_ranges=((16, 16), (80, 16)),
-                               last_used=1.0, root=True)
-    suffix = copy.replace(good, entry_id=12, prefix_tokens=3072,
-                          block_ranges=((16, 16), (80, 16), (160, 16)),
-                          state_index=1, last_used=2.0)
-    unrelated = copy.replace(good, entry_id=13, block_ranges=((256, 16), (320, 16)),
-                             state_index=2, last_used=3.0)
-    pinned = copy.replace(good, entry_id=14, block_ranges=((400, 16), (480, 16)),
-                          state_index=3, ready=False, pins=1, last_used=4.0)
-    cached = copy.replace(core.initial_schedule(slot_policy),
-                          prefix_entries=(shared_root, suffix, unrelated, pinned), next_entry_id=15)
-    require(core.invalidate_written_prefixes(cached, frozenset()) is cached,
-            "an empty read changed the cache")
-    require(core.invalidate_written_prefixes(
-        cached, frozenset({15, 32, 79, 96, 159, 176, 255, 272, 319, 336, 399, 416, 479, 496})
-    ) is cached, "writes outside entry ranges discarded a prefix")
-    require(core.invalidate_written_prefixes(cached, frozenset({175})).prefix_entries
-            == (shared_root, unrelated, pinned), "a suffix write discarded a disjoint root")
-    require(core.invalidate_written_prefixes(cached, frozenset({95})).prefix_entries
-            == (unrelated, pinned), "a shared root write left a dependent suffix or discarded unrelated entries")
-    require(core.invalidate_written_prefixes(cached, frozenset({256})).prefix_entries
-            == (shared_root, suffix, pinned), "a write in an unrelated entry discarded the root or suffix")
-    require(core.invalidate_written_prefixes(cached, frozenset({495})).prefix_entries
-            == (shared_root, suffix, unrelated), "an overwritten pinned, unready entry survived")
-    require(core.invalidate_written_prefixes(cached, frozenset({95, 495})).prefix_entries
-            == (unrelated,), "multiple writes did not preserve only the disjoint entry with its state")
+    shared_root = copy.replace(
+        good, entry_id=11, block_ranges=((16, 16), (80, 16)), last_used=1.0, root=True
+    )
+    suffix = copy.replace(
+        good,
+        entry_id=12,
+        prefix_tokens=3072,
+        block_ranges=((16, 16), (80, 16), (160, 16)),
+        state_index=1,
+        last_used=2.0,
+    )
+    unrelated = copy.replace(
+        good,
+        entry_id=13,
+        block_ranges=((256, 16), (320, 16)),
+        state_index=2,
+        last_used=3.0,
+    )
+    pinned = copy.replace(
+        good,
+        entry_id=14,
+        block_ranges=((400, 16), (480, 16)),
+        state_index=3,
+        ready=False,
+        pins=1,
+        last_used=4.0,
+    )
+    cached = copy.replace(
+        core.initial_schedule(slot_policy),
+        prefix_entries=(shared_root, suffix, unrelated, pinned),
+        next_entry_id=15,
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset()) is cached,
+        "an empty read changed the cache",
+    )
+    require(
+        core.invalidate_written_prefixes(
+            cached,
+            frozenset({
+                15,
+                32,
+                79,
+                96,
+                159,
+                176,
+                255,
+                272,
+                319,
+                336,
+                399,
+                416,
+                479,
+                496,
+            }),
+        )
+        is cached,
+        "writes outside entry ranges discarded a prefix",
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset({175})).prefix_entries
+        == (shared_root, unrelated, pinned),
+        "a suffix write discarded a disjoint root",
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset({95})).prefix_entries
+        == (unrelated, pinned),
+        "a shared root write left a dependent suffix or discarded unrelated entries",
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset({256})).prefix_entries
+        == (shared_root, suffix, pinned),
+        "a write in an unrelated entry discarded the root or suffix",
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset({495})).prefix_entries
+        == (shared_root, suffix, unrelated),
+        "an overwritten pinned, unready entry survived",
+    )
+    require(
+        core.invalidate_written_prefixes(cached, frozenset({95, 495})).prefix_entries
+        == (unrelated,),
+        "multiple writes did not preserve only the disjoint entry with its state",
+    )
 
     # Opt-in v2: one common header survives five interleaved conversations despite
     # four saved states. Its first donor saves the root, not its private suffix.
-    with Path(__file__).with_name("prefix-cache-root-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-root-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         root_mapping = json.load(handle)
     root_policy = prefix.PrefixCachePolicy.from_mapping(root_mapping)
-    require(root_policy.shared_root_minimum_tokens == 2048, "the candidate root floor changed")
+    require(
+        root_policy.shared_root_minimum_tokens == 2048,
+        "the candidate root floor changed",
+    )
     for change in (
         {"shared_root_minimum_tokens": 0},
         {"shared_root_minimum_tokens": 1500},
@@ -3185,39 +4105,59 @@ def probe_prefix_cache_policy():
         root_schedule, _ = core.submit(
             root_schedule, slot_policy, kv, request(f"chat-{index}", prompt, root=2048)
         )
-        root_schedule, effects = boundary(root_schedule, 2.0 * index + 1, use=root_policy)
+        root_schedule, effects = boundary(
+            root_schedule, 2.0 * index + 1, use=root_policy
+        )
         (effect,) = prefills(effects)
         if index == 0:
-            require(effect.prefix_tokens == 0 and effect.save_at == 2048,
-                    "the first shared-system request did not save its header")
+            require(
+                effect.prefix_tokens == 0 and effect.save_at == 2048,
+                "the first shared-system request did not save its header",
+            )
         else:
             require(
-                effect.prefix_tokens == 2048 and effect.hit_entry == root_entry.entry_id
-                and effect.resume_state == root_entry.state_index and effect.save_at == 4096
+                effect.prefix_tokens == 2048
+                and effect.hit_entry == root_entry.entry_id
+                and effect.resume_state == root_entry.state_index
+                and effect.save_at == 4096
                 and effect.save_state != root_entry.state_index,
                 f"conversation {index} overwrote or missed the shared root: {effect}",
             )
             require(
-                next(entry for entry in root_schedule.prefix_entries if entry.root).pins == 1,
+                next(entry for entry in root_schedule.prefix_entries if entry.root).pins
+                == 1,
                 "a root reader did not pin the shared state and KV",
             )
-        root_schedule, effects = run_to_completion(root_schedule, effects, 2.0 * index + 2)
+        root_schedule, effects = run_to_completion(
+            root_schedule, effects, 2.0 * index + 2
+        )
         if index == 0:
             (root_entry,) = root_schedule.prefix_entries
-            require(root_entry.root and root_entry.ready, "the donated header is not a ready root")
+            require(
+                root_entry.root and root_entry.ready,
+                "the donated header is not a ready root",
+            )
         else:
             require(
                 sum(entry.root for entry in root_schedule.prefix_entries) == 1
-                and next(entry for entry in root_schedule.prefix_entries if entry.root).state_index
+                and next(
+                    entry for entry in root_schedule.prefix_entries if entry.root
+                ).state_index
                 == root_entry.state_index,
                 "an interleaved conversation displaced the shared header",
             )
-    require(len(root_schedule.prefix_entries) == root_policy.state_slots,
-            "the state budget did not evict an older conversation entry")
-    root_schedule, _ = core.submit(root_schedule, slot_policy, kv, request("old-chat", conversations[0], root=2048))
+    require(
+        len(root_schedule.prefix_entries) == root_policy.state_slots,
+        "the state budget did not evict an older conversation entry",
+    )
+    root_schedule, _ = core.submit(
+        root_schedule, slot_policy, kv, request("old-chat", conversations[0], root=2048)
+    )
     root_schedule, effects = boundary(root_schedule, 11.0, use=root_policy)
-    require(prefills(effects)[0].prefix_tokens == 2048,
-            "a conversation evicted from the leaf cache did not fall back to the root")
+    require(
+        prefills(effects)[0].prefix_tokens == 2048,
+        "a conversation evicted from the leaf cache did not fall back to the root",
+    )
     root_schedule, effects = run_to_completion(root_schedule, effects, 12.0)
     changed = conversations[0][:]
     changed[10] += 1
@@ -3226,37 +4166,73 @@ def probe_prefix_cache_policy():
         ("different-identity", conversations[0], "model-b", "local"),
         ("different-tenant", conversations[0], "model-a", "other"),
     ):
-        other, _ = core.submit(root_schedule, slot_policy, kv, request(name, prompt, identity=identity, tenant=tenant, root=2048))
+        other, _ = core.submit(
+            root_schedule,
+            slot_policy,
+            kv,
+            request(name, prompt, identity=identity, tenant=tenant, root=2048),
+        )
         other, effects = boundary(other, 13.0, use=root_policy)
         require(prefills(effects)[0].hit_entry is None, f"{name} read the shared root")
-    require(not core.invalidate_prefix_cache(root_schedule).prefix_entries,
-            "full invalidation kept an unused shared root")
-    require(not core.quarantine_group(root_schedule)[0].prefix_entries,
-            "a device failure kept a shared root")
+    require(
+        not core.invalidate_prefix_cache(root_schedule).prefix_entries,
+        "full invalidation kept an unused shared root",
+    )
+    require(
+        not core.quarantine_group(root_schedule)[0].prefix_entries,
+        "a device failure kept a shared root",
+    )
 
     # Root retention is soft: a full-row live request can reclaim its KV blocks.
     root_schedule = core.initial_schedule(slot_policy)
-    narrow = core.KvBlockRange(kv.first_block, kv.first_block + kv.row_blocks + 20, kv.row_blocks, 64)
-    root_schedule, _ = core.submit(root_schedule, slot_policy, narrow, request("root", conversations[0], root=2048))
-    root_schedule, effects = core.plan_boundary(
-        root_schedule, slot_policy, narrow, now=1.0, prefix_policy=root_policy, prefix_available=True
-    )
-    root_schedule = core.observe_prefill(
-        root_schedule, slot=prefills(effects)[0].slot, generation=prefills(effects)[0].generation,
-        token_id=5, stopped=True,
-    )
-    root_schedule, _ = core.plan_boundary(
-        root_schedule, slot_policy, narrow, now=2.0, prefix_policy=root_policy, prefix_available=True
+    narrow = core.KvBlockRange(
+        kv.first_block, kv.first_block + kv.row_blocks + 20, kv.row_blocks, 64
     )
     root_schedule, _ = core.submit(
-        root_schedule, slot_policy, narrow,
+        root_schedule, slot_policy, narrow, request("root", conversations[0], root=2048)
+    )
+    root_schedule, effects = core.plan_boundary(
+        root_schedule,
+        slot_policy,
+        narrow,
+        now=1.0,
+        prefix_policy=root_policy,
+        prefix_available=True,
+    )
+    root_schedule = core.observe_prefill(
+        root_schedule,
+        slot=prefills(effects)[0].slot,
+        generation=prefills(effects)[0].generation,
+        token_id=5,
+        stopped=True,
+    )
+    root_schedule, _ = core.plan_boundary(
+        root_schedule,
+        slot_policy,
+        narrow,
+        now=2.0,
+        prefix_policy=root_policy,
+        prefix_available=True,
+    )
+    root_schedule, _ = core.submit(
+        root_schedule,
+        slot_policy,
+        narrow,
         request("full-row", [7] * 60000, max_tokens=layout.row_blocks * 64 - 60000),
     )
     root_schedule, effects = core.plan_boundary(
-        root_schedule, slot_policy, narrow, now=3.0, prefix_policy=root_policy, prefix_available=True
+        root_schedule,
+        slot_policy,
+        narrow,
+        now=3.0,
+        prefix_policy=root_policy,
+        prefix_available=True,
     )
-    require(prefills(effects)[0].hit_entry is None and not any(entry.root for entry in root_schedule.prefix_entries),
-            "the root kept KV needed by a live cold request")
+    require(
+        prefills(effects)[0].hit_entry is None
+        and not any(entry.root for entry in root_schedule.prefix_entries),
+        "the root kept KV needed by a live cold request",
+    )
 
 
 def probe_shared_system_root_boundary():
@@ -3269,10 +4245,16 @@ def probe_shared_system_root_boundary():
     class Tokenizer:
         @staticmethod
         def header(system, tools):
-            offered = "tools: " + ",".join(tool["function"]["name"] for tool in tools) + "\n" if tools else ""
+            offered = (
+                "tools: " + ",".join(tool["function"]["name"] for tool in tools) + "\n"
+                if tools
+                else ""
+            )
             return "<|im_start|>system\n" + offered + system + "<|im_end|>\n"
 
-        def apply_chat_template(self, messages, *, tools, add_generation_prompt, tokenize, **_options):
+        def apply_chat_template(
+            self, messages, *, tools, add_generation_prompt, tokenize, **_options
+        ):
             system = messages[0]["content"] if messages[0]["role"] == "system" else ""
             return self.header(system, tools or ()) + "<|im_start|>user\n<|im_end|>\n"
 
@@ -3291,27 +4273,44 @@ def probe_shared_system_root_boundary():
     )
     header = tokenizer.header(system, ())
     prompt = tokenizer.encode(header + "<|im_start|>user\nfirst<|im_end|>\n")
-    require(shared_system_root_tokens(request, tokenizer, prompt, 2048) == 2048,
-            "an exact system header did not produce a chunk-aligned root")
+    require(
+        shared_system_root_tokens(request, tokenizer, prompt, 2048) == 2048,
+        "an exact system header did not produce a chunk-aligned root",
+    )
     changed = prompt[:]
     changed[1024] += 1
-    require(shared_system_root_tokens(request, tokenizer, changed, 2048) == 0,
-            "a mismatched rendered/tokenized header was retained")
-    require(shared_system_root_tokens(request, tokenizer, prompt[:2048], 2048) == 0,
-            "a root without a token left for logits was accepted")
+    require(
+        shared_system_root_tokens(request, tokenizer, changed, 2048) == 0,
+        "a mismatched rendered/tokenized header was retained",
+    )
+    require(
+        shared_system_root_tokens(request, tokenizer, prompt[:2048], 2048) == 0,
+        "a root without a token left for logits was accepted",
+    )
     tool = {"type": "function", "function": {"name": "lookup"}}
     with_tool = replace(request, tools=(tool,))
     tool_header = tokenizer.header(system, (tool,))
     tool_prompt = tokenizer.encode(tool_header + "<|im_start|>user\nfirst<|im_end|>\n")
-    require(shared_system_root_tokens(with_tool, tokenizer, tool_prompt, 2048) == 2048,
-            "the shared tool header was not found")
-    require(shared_system_root_tokens(with_tool, tokenizer, prompt, 2048) == 0,
-            "a tool change reused another tool header")
+    require(
+        shared_system_root_tokens(with_tool, tokenizer, tool_prompt, 2048) == 2048,
+        "the shared tool header was not found",
+    )
+    require(
+        shared_system_root_tokens(with_tool, tokenizer, prompt, 2048) == 0,
+        "a tool change reused another tool header",
+    )
     no_system = replace(request, messages=(ChatMessage("user", "first"),))
-    require(shared_system_root_tokens(no_system, tokenizer, prompt, 2048) == 0,
-            "a request without system or tools retained a root")
-    require(shared_system_root_tokens(replace(request, endpoint=Endpoint.COMPLETIONS), tokenizer, prompt, 2048) == 0,
-            "raw completions were treated as chat headers")
+    require(
+        shared_system_root_tokens(no_system, tokenizer, prompt, 2048) == 0,
+        "a request without system or tools retained a root",
+    )
+    require(
+        shared_system_root_tokens(
+            replace(request, endpoint=Endpoint.COMPLETIONS), tokenizer, prompt, 2048
+        )
+        == 0,
+        "raw completions were treated as chat headers",
+    )
 
 
 # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_state]
@@ -3324,14 +4323,22 @@ def probe_prefix_cache_restore():
     import time
 
     import torch
-    from qwen36_service import batch_decode_adapter as adapter_module
-    from qwen36_service import continuous_slot_core as core
+    from qwen36_service import (
+        batch_decode_adapter as adapter_module,
+    )
+    from qwen36_service import (
+        continuous_slot_core as core,
+    )
     from qwen36_service.batch_decode_adapter import (
         BatchDecodeAdapterError,
         BatchedTracedDecodeAdapter,
         SlotRefillResult,
     )
-    from qwen36_service.batch_decode_core import TRACE_REUSE_REASON_MISSING, TracePrefillAction, TracePrefillPlan
+    from qwen36_service.batch_decode_core import (
+        TRACE_REUSE_REASON_MISSING,
+        TracePrefillAction,
+        TracePrefillPlan,
+    )
     from qwen36_service.continuous_slot_service import ContinuousSlotCoordinator
     from qwen36_service.core import CompletionRequest, Endpoint
     from qwen36_service.kv_pool_core import KvPoolError, KvPoolLayout
@@ -3342,7 +4349,12 @@ def probe_prefix_cache_restore():
 
     class FakeModel:
         def __init__(self):
-            self.layers = [SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(_decode_fusion_mode="step"))]
+            self.layers = [
+                SimpleNamespace(
+                    is_full_attention=False,
+                    attention=SimpleNamespace(_decode_fusion_mode="step"),
+                )
+            ]
             self.buckets = (1024,)
             self.rows = []
 
@@ -3358,7 +4370,16 @@ def probe_prefix_cache_restore():
         def prefix_cache_state_count(self):
             return 2
 
-        def prefill_paged_slots(self, tokens, page_table, slots, valid_lens, first_token_callback, masked_traces, prefixes=None):
+        def prefill_paged_slots(
+            self,
+            tokens,
+            page_table,
+            slots,
+            valid_lens,
+            first_token_callback,
+            masked_traces,
+            prefixes=None,
+        ):
             self.rows.append(page_table.clone())
             plans.append(prefixes)
             logits = torch.zeros((1, 1, 64))
@@ -3388,7 +4409,11 @@ def probe_prefix_cache_restore():
     adapter.prefix_states = 2
     adapter.reset_all = lambda: None
     original_ttnn = adapter_module.ttnn
-    adapter_module.ttnn = SimpleNamespace(synchronize_device=lambda _mesh: None, release_trace=lambda *_: None, deallocate=lambda _t: None)
+    adapter_module.ttnn = SimpleNamespace(
+        synchronize_device=lambda _mesh: None,
+        release_trace=lambda *_: None,
+        deallocate=lambda _t: None,
+    )
     scratch = layout.scratch_block
 
     def prompt(length):
@@ -3403,15 +4428,30 @@ def probe_prefix_cache_restore():
         else:
             require(False, reason)
         require(
-            torch.equal(before[0], adapter.page_table) and before[1] == adapter._slot_runs and before[2] == len(plans),
+            torch.equal(before[0], adapter.page_table)
+            and before[1] == adapter._slot_runs
+            and before[2] == len(plans),
             f"a rejected prefix refill changed adapter state: {reason}",
         )
 
     try:
         adapter.begin_slots(width=4, route="step")
-        require(adapter.prefix_cache_available(), "the fake adapter did not offer the prefix cache")
-        adapter.refill_slot(slot=0, token_ids=prompt(3000), block_start=16, block_count=48, save_state=0, save_at=2048)
-        require(plans[-1] == [{"save": (0, 2048)}], f"the donation plan did not reach the model: {plans[-1]}")
+        require(
+            adapter.prefix_cache_available(),
+            "the fake adapter did not offer the prefix cache",
+        )
+        adapter.refill_slot(
+            slot=0,
+            token_ids=prompt(3000),
+            block_start=16,
+            block_count=48,
+            save_state=0,
+            save_at=2048,
+        )
+        require(
+            plans[-1] == [{"save": (0, 2048)}],
+            f"the donation plan did not reach the model: {plans[-1]}",
+        )
         adapter.refill_slot(
             slot=1,
             token_ids=prompt(5000),
@@ -3423,38 +4463,120 @@ def probe_prefix_cache_restore():
             save_state=1,
             save_at=4096,
         )
-        require(plans[-1] == [{"resume": (0, 2048), "save": (1, 4096)}], f"the resume plan: {plans[-1]}")
+        require(
+            plans[-1] == [{"resume": (0, 2048), "save": (1, 4096)}],
+            f"the resume plan: {plans[-1]}",
+        )
         row = model.rows[-1][0].tolist()
-        require(row[:32] == list(range(16, 48)) and row[32:80] == list(range(64, 112)) and set(row[80:]) == {scratch},
-                "the page-table row is not prefix blocks, then the own run, then scratch")
+        require(
+            row[:32] == list(range(16, 48))
+            and row[32:80] == list(range(64, 112))
+            and set(row[80:]) == {scratch},
+            "the page-table row is not prefix blocks, then the own run, then scratch",
+        )
         # A second reader shares the same prefix blocks.
-        adapter.refill_slot(slot=2, token_ids=prompt(3000), block_start=112, block_count=16,
-                            prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        adapter.refill_slot(
+            slot=2,
+            token_ids=prompt(3000),
+            block_start=112,
+            block_count=16,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
         require(plans[-1] == [{"resume": (0, 2048)}], "a shared prefix was refused")
-        rejects("an own run overlapping its prefix was accepted", slot=3, token_ids=prompt(3000), block_start=40,
-                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
-        rejects("prefix blocks that do not cover the prefix were accepted", slot=3, token_ids=prompt(3000),
-                block_start=128, block_count=16, prefix_ranges=((16, 31),), prefix_tokens=2048, resume_state=0)
-        rejects("a resume without a prefix was accepted", slot=3, token_ids=prompt(3000), block_start=128,
-                block_count=48, resume_state=0)
-        rejects("a prefix covering the whole prompt was accepted", slot=3, token_ids=prompt(2048), block_start=128,
-                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
-        rejects("a save point inside the prefix was accepted", slot=3, token_ids=prompt(3000), block_start=128,
-                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0, save_state=1, save_at=2048)
-        rejects("a run too short for the rest of the prompt was accepted", slot=3, token_ids=prompt(5000),
-                block_start=128, block_count=8, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        rejects(
+            "an own run overlapping its prefix was accepted",
+            slot=3,
+            token_ids=prompt(3000),
+            block_start=40,
+            block_count=16,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
+        rejects(
+            "prefix blocks that do not cover the prefix were accepted",
+            slot=3,
+            token_ids=prompt(3000),
+            block_start=128,
+            block_count=16,
+            prefix_ranges=((16, 31),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
+        rejects(
+            "a resume without a prefix was accepted",
+            slot=3,
+            token_ids=prompt(3000),
+            block_start=128,
+            block_count=48,
+            resume_state=0,
+        )
+        rejects(
+            "a prefix covering the whole prompt was accepted",
+            slot=3,
+            token_ids=prompt(2048),
+            block_start=128,
+            block_count=16,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
+        rejects(
+            "a save point inside the prefix was accepted",
+            slot=3,
+            token_ids=prompt(3000),
+            block_start=128,
+            block_count=16,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+            save_state=1,
+            save_at=2048,
+        )
+        rejects(
+            "a run too short for the rest of the prompt was accepted",
+            slot=3,
+            token_ids=prompt(5000),
+            block_start=128,
+            block_count=8,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
         model.buckets = ()
-        rejects("a prefix plan ran without the masked traces", slot=3, token_ids=prompt(3000), block_start=128,
-                block_count=16, prefix_ranges=((16, 32),), prefix_tokens=2048, resume_state=0)
+        rejects(
+            "a prefix plan ran without the masked traces",
+            slot=3,
+            token_ids=prompt(3000),
+            block_start=128,
+            block_count=16,
+            prefix_ranges=((16, 32),),
+            prefix_tokens=2048,
+            resume_state=0,
+        )
         model.buckets = (1024,)
-        adapter.refill_slot(slot=3, token_ids=prompt(100), block_start=128, block_count=16)
+        adapter.refill_slot(
+            slot=3, token_ids=prompt(100), block_start=128, block_count=16
+        )
         require(plans[-1] is None, "a cold refill passed a prefix plan")
     finally:
         adapter_module.ttnn = original_ttnn
 
     # Part 2: a conversation through the shell on a fake device that checks every restore.
     def token_after(sequence):
-        return 10 + int(hashlib.blake2b(bytes(str(sequence[-64:]) + str(len(sequence)), "utf-8"), digest_size=4).hexdigest(), 16) % 1000
+        return (
+            10
+            + int(
+                hashlib.blake2b(
+                    bytes(str(sequence[-64:]) + str(len(sequence)), "utf-8"),
+                    digest_size=4,
+                ).hexdigest(),
+                16,
+            )
+            % 1000
+        )
 
     class FakePrefixDevice:
         """Row-independent fake device with a KV store and saved states it verifies."""
@@ -3462,7 +4584,9 @@ def probe_prefix_cache_restore():
         maximum_width = 16
 
         def __init__(self, states):
-            self.kv_pool = KvPoolLayout(pool_blocks=4096, row_blocks=1024, kv_block_size=64)
+            self.kv_pool = KvPoolLayout(
+                pool_blocks=4096, row_blocks=1024, kv_block_size=64
+            )
             self.fusion_mode = "step"
             self.prefix_states = states
             self.slot_trace_captures = 0
@@ -3478,28 +4602,52 @@ def probe_prefix_cache_restore():
 
         def request_blocks(self, *, prompt_tokens, generation_tokens):
             try:
-                return self.kv_pool.request_blocks(prompt_tokens=prompt_tokens, generation_tokens=generation_tokens)
+                return self.kv_pool.request_blocks(
+                    prompt_tokens=prompt_tokens, generation_tokens=generation_tokens
+                )
             except KvPoolError as error:
                 raise BatchDecodeAdapterError(str(error)) from error
 
         def begin_slots(self, *, width, route):
             self.width = width
             self.owned = {}
-            return TracePrefillPlan(TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING)
+            return TracePrefillPlan(
+                TracePrefillAction.RELEASE, False, TRACE_REUSE_REASON_MISSING
+            )
 
-        def refill_slot(self, *, slot, token_ids, block_start, block_count, prefix_ranges=(), prefix_tokens=0,
-                        resume_state=None, save_state=None, save_at=0):
+        def refill_slot(
+            self,
+            *,
+            slot,
+            token_ids,
+            block_start,
+            block_count,
+            prefix_ranges=(),
+            prefix_tokens=0,
+            resume_state=None,
+            save_state=None,
+            save_at=0,
+        ):
             sequence = tuple(int(token) for token in token_ids[0].tolist())
-            row = expand_blocks(prefix_ranges) + list(range(block_start, block_start + block_count))
+            row = expand_blocks(prefix_ranges) + list(
+                range(block_start, block_start + block_count)
+            )
             for other in self.owned.values():
-                if set(row[len(expand_blocks(prefix_ranges)):]) & set(other["own"]):
+                if set(row[len(expand_blocks(prefix_ranges)) :]) & set(other["own"]):
                     raise BatchDecodeAdapterError("own KV runs overlap")
             if resume_state is not None:
                 if self.saved.get(resume_state) != sequence[:prefix_tokens]:
-                    raise BatchDecodeAdapterError("the restored state belongs to another prefix")
+                    raise BatchDecodeAdapterError(
+                        "the restored state belongs to another prefix"
+                    )
                 for index in range(prefix_tokens // 64):
-                    if self.kv.get(row[index]) != sequence[index * 64 : (index + 1) * 64]:
-                        raise BatchDecodeAdapterError("a cached prefix block was overwritten")
+                    if (
+                        self.kv.get(row[index])
+                        != sequence[index * 64 : (index + 1) * 64]
+                    ):
+                        raise BatchDecodeAdapterError(
+                            "a cached prefix block was overwritten"
+                        )
                 self.restores += 1
             extent = -(-len(sequence) // 1024) * 1024
             for index in range(prefix_tokens // 64, extent // 64):
@@ -3507,8 +4655,11 @@ def probe_prefix_cache_restore():
             if save_state is not None:
                 self.saved[save_state] = sequence[:save_at]
             first = token_after(sequence)
-            self.owned[slot] = {"sequence": list(sequence) + [first], "row": row,
-                                "own": list(range(block_start, block_start + block_count))}
+            self.owned[slot] = {
+                "sequence": list(sequence) + [first],
+                "row": row,
+                "own": list(range(block_start, block_start + block_count)),
+            }
             return SlotRefillResult(first, 0.002, 0.001, True, False, False)
 
         def retire_slot(self, *, slot):
@@ -3528,7 +4679,11 @@ def probe_prefix_cache_restore():
                             tokens.append(0)
                             continue
                         position = len(state["sequence"]) - 1
-                        self.kv[state["row"][position // 64]] = ("decoded", row, position)
+                        self.kv[state["row"][position // 64]] = (
+                            "decoded",
+                            row,
+                            position,
+                        )
                         token = token_after(state["sequence"])
                         state["sequence"].append(token)
                         tokens.append(token)
@@ -3541,21 +4696,33 @@ def probe_prefix_cache_restore():
         def decode(tokens, skip_special_tokens=True):
             return " ".join(str(token) for token in tokens)
 
-    with Path(__file__).with_name("continuous-slot-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("continuous-slot-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         slot_policy = core.ContinuousSlotPolicy.from_mapping(json.load(handle))
-    with Path(__file__).with_name("prefix-cache-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         prefix_mapping = json.load(handle)
 
     def serve(conversations, *, states):
         device = FakePrefixDevice(states)
         prefix_policy = (
-            PrefixCachePolicy.from_mapping({**prefix_mapping, "state_slots": states}) if states else None
+            PrefixCachePolicy.from_mapping({**prefix_mapping, "state_slots": states})
+            if states
+            else None
         )
         coordinator = ContinuousSlotCoordinator(
             slot_policy=slot_policy,
             prefix_policy=prefix_policy,
             prefix_identity="fake-identity" if states else "",
-            blake3_digest=(lambda data: hashlib.blake2b(data, digest_size=32).digest()) if states else None,
+            blake3_digest=(lambda data: hashlib.blake2b(data, digest_size=32).digest())
+            if states
+            else None,
             adapter=device,
             tokenizer=FakeTokenizer(),
             model=SimpleNamespace(args=SimpleNamespace(vocab_size=2048)),
@@ -3578,7 +4745,13 @@ def probe_prefix_cache_restore():
                 sequence = history[name] + extra
                 started = time.monotonic()
                 response = coordinator.generate(
-                    request=CompletionRequest(endpoint=Endpoint.COMPLETIONS, model="m", max_tokens=12, prompt="x", messages=()),
+                    request=CompletionRequest(
+                        endpoint=Endpoint.COMPLETIONS,
+                        model="m",
+                        max_tokens=12,
+                        prompt="x",
+                        messages=(),
+                    ),
                     request_id=f"{name}-{len(results)}",
                     token_ids=torch.tensor([sequence], dtype=torch.int64),
                     prompt_token_count=len(sequence),
@@ -3587,34 +4760,69 @@ def probe_prefix_cache_restore():
                 )
                 evidence = response["x_onix_decode_evidence"]
                 history[name] = sequence + evidence["generated_token_ids"]
-                results.append((name, evidence["generated_token_ids"], evidence["prefix_hit_tokens"], evidence["prefix_saved_tokens"]))
+                results.append((
+                    name,
+                    evidence["generated_token_ids"],
+                    evidence["prefix_hit_tokens"],
+                    evidence["prefix_saved_tokens"],
+                ))
         finally:
             coordinator.close()
         return results, device
 
     conversation = {
         "starts": {"a": list(range(100, 3600)), "b": list(range(5000, 7600))},
-        "turns": [("a", []), ("a", list(range(20000, 21800))), ("a", list(range(22000, 23500)))],
+        "turns": [
+            ("a", []),
+            ("a", list(range(20000, 21800))),
+            ("a", list(range(22000, 23500))),
+        ],
     }
     cold, _ = serve(conversation, states=0)
     warm, device = serve(conversation, states=4)
-    require([r[1] for r in warm] == [r[1] for r in cold], "cached prefixes changed a conversation's tokens")
-    require([r[2] for r in warm] == [0, 3072, 5120], f"the turns did not resume from their prefixes: {warm}")
-    require([r[3] for r in warm] == [3072, 5120, 6144], f"the turns did not save their prefixes: {warm}")
+    require(
+        [r[1] for r in warm] == [r[1] for r in cold],
+        "cached prefixes changed a conversation's tokens",
+    )
+    require(
+        [r[2] for r in warm] == [0, 3072, 5120],
+        f"the turns did not resume from their prefixes: {warm}",
+    )
+    require(
+        [r[3] for r in warm] == [3072, 5120, 6144],
+        f"the turns did not save their prefixes: {warm}",
+    )
     require(device.restores == 2, "the device did not restore two prefixes")
     require(all(r[2] == 0 and r[3] == 0 for r in cold), "the cold path used the cache")
 
     interleaved = {
         "starts": conversation["starts"],
-        "turns": [("a", []), ("b", []), ("a", list(range(20000, 21800))), ("b", list(range(30000, 31200)))],
+        "turns": [
+            ("a", []),
+            ("b", []),
+            ("a", list(range(20000, 21800))),
+            ("b", list(range(30000, 31200))),
+        ],
     }
     cold, _ = serve(interleaved, states=0)
     evicting, device = serve(interleaved, states=1)
-    require([r[1] for r in evicting] == [r[1] for r in cold], "eviction changed a conversation's tokens")
-    require([r[2] for r in evicting] == [0, 0, 0, 0], f"an evicted prefix was resumed: {evicting}")
+    require(
+        [r[1] for r in evicting] == [r[1] for r in cold],
+        "eviction changed a conversation's tokens",
+    )
+    require(
+        [r[2] for r in evicting] == [0, 0, 0, 0],
+        f"an evicted prefix was resumed: {evicting}",
+    )
     roomy, device = serve(interleaved, states=2)
-    require([r[1] for r in roomy] == [r[1] for r in cold], "two cached conversations changed tokens")
-    require([r[2] for r in roomy] == [0, 0, 3072, 2048], f"interleaved turns did not resume: {roomy}")
+    require(
+        [r[1] for r in roomy] == [r[1] for r in cold],
+        "two cached conversations changed tokens",
+    )
+    require(
+        [r[2] for r in roomy] == [0, 0, 3072, 2048],
+        f"interleaved turns did not resume: {roomy}",
+    )
 
 
 # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
@@ -3630,12 +4838,24 @@ def probe_prefix_cache_admission():
     from qwen36_service import prefix_cache_admission_core as admission
     from qwen36_service.prefix_cache_receipt import build_receipt
 
-    with Path(__file__).with_name("prefix-cache-admission-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-admission-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         policy_mapping = json.load(handle)
     policy = admission.PrefixAdmissionPolicy.from_mapping(policy_mapping)
     for path, value, message in (
-        (("gates", "require_exact_parity"), False, "an admission without exact parity was accepted"),
-        (("root_order",), ["cold", "cached"], "an admission from one cold and one cached root was accepted"),
+        (
+            ("gates", "require_exact_parity"),
+            False,
+            "an admission without exact parity was accepted",
+        ),
+        (
+            ("root_order",),
+            ["cold", "cached"],
+            "an admission from one cold and one cached root was accepted",
+        ),
     ):
         broken = copy.deepcopy(policy_mapping)
         target = broken
@@ -3651,38 +4871,57 @@ def probe_prefix_cache_admission():
 
     epoch = datetime(2026, 9, 27, 20, 0, tzinfo=timezone.utc)
 
-    def root(kind, position, workload_index, conversations, turns, *, ttft, wall, hits=True, dram=9_900_000_000,
-             drift=0.0):
+    def root(
+        kind,
+        position,
+        workload_index,
+        conversations,
+        turns,
+        *,
+        ttft,
+        wall,
+        hits=True,
+        dram=9_900_000_000,
+        drift=0.0,
+    ):
         # Each process measures every workload in turn; drift slows a whole root.
         requests = []
         for turn in range(turns):
             for conversation in range(conversations):
                 hit = kind == "cached" and hits and turn > 0
-                requests.append(
-                    {
-                        "conversation": conversation,
-                        "turn": turn,
-                        "token_ids": [conversation, turn, 7],
-                        "ttft_seconds": ttft(turn, hit) + drift * position,
-                        "wall_seconds": wall(turn, hit) + drift * position,
-                        "prefix_hit_tokens": 3072 if hit else 0,
-                    }
-                )
+                requests.append({
+                    "conversation": conversation,
+                    "turn": turn,
+                    "token_ids": [conversation, turn, 7],
+                    "ttft_seconds": ttft(turn, hit) + drift * position,
+                    "wall_seconds": wall(turn, hit) + drift * position,
+                    "prefix_hit_tokens": 3072 if hit else 0,
+                })
         started = epoch + timedelta(minutes=15 * position + 5 * workload_index)
         return {
             "schema_version": 2,
             "root_kind": kind,
             "simulated": False,
             "identity": {
-                "package": "/nix/store/p", "execution_identity": "/nix/store/e", "runtime_identity": "/nix/store/r",
+                "package": "/nix/store/p",
+                "execution_identity": "/nix/store/e",
+                "runtime_identity": "/nix/store/r",
                 "physical_pcie_device_ids": [0, 1],
-                "prefix_cache_profile_id": policy.prefix_cache_profile_id if kind == "cached" else None,
+                "prefix_cache_profile_id": policy.prefix_cache_profile_id
+                if kind == "cached"
+                else None,
                 "prefix_policy_blake3": "a" * 64 if kind == "cached" else None,
             },
-            "workload": {"workload_id": "w", "blake3": f"{workload_index:064d}", "conversations": conversations,
-                         "turns": turns},
-            "measured_at": {"started_utc": started.isoformat(),
-                            "finished_utc": (started + timedelta(minutes=3)).isoformat()},
+            "workload": {
+                "workload_id": "w",
+                "blake3": f"{workload_index:064d}",
+                "conversations": conversations,
+                "turns": turns,
+            },
+            "measured_at": {
+                "started_utc": started.isoformat(),
+                "finished_utc": (started + timedelta(minutes=3)).isoformat(),
+            },
             "startup": {"device_dram_free_bytes": [dram]},
             "requests": requests,
         }
@@ -3702,21 +4941,38 @@ def probe_prefix_cache_admission():
     def groups(drift=0.0, **cached_options):
         result = []
         for index, (conversations, turns) in enumerate(policy.workloads):
-            options = {"ttft": fast_ttft, "wall": fast_wall, "hits": conversations <= 4, **cached_options}
-            result.append(
-                [
-                    root(kind, position, index, conversations, turns, drift=drift,
-                         **(options if kind == "cached" else {"ttft": cold_ttft, "wall": cold_wall}))
-                    for position, kind in enumerate(policy.root_order)
-                ]
-            )
+            options = {
+                "ttft": fast_ttft,
+                "wall": fast_wall,
+                "hits": conversations <= 4,
+                **cached_options,
+            }
+            result.append([
+                root(
+                    kind,
+                    position,
+                    index,
+                    conversations,
+                    turns,
+                    drift=drift,
+                    **(
+                        options
+                        if kind == "cached"
+                        else {"ttft": cold_ttft, "wall": cold_wall}
+                    ),
+                )
+                for position, kind in enumerate(policy.root_order)
+            ])
         return result
 
     def judge(group_mappings):
         return admission.evaluate(
             policy,
             [
-                [admission.root_from_mapping(mapping, expected_kind=kind) for mapping, kind in zip(group, policy.root_order)]
+                [
+                    admission.root_from_mapping(mapping, expected_kind=kind)
+                    for mapping, kind in zip(group, policy.root_order)
+                ]
                 for group in group_mappings
             ],
         )
@@ -3730,34 +4986,60 @@ def probe_prefix_cache_admission():
         )
 
     result = judge(groups())
-    require(result.admitted and result.hit_turns == 9 and result.miss_turns == 13,
-            f"a faster exact cache was rejected: {result.reasons} ({result.hit_turns} hits, {result.miss_turns} misses)")
+    require(
+        result.admitted and result.hit_turns == 9 and result.miss_turns == 13,
+        f"a faster exact cache was rejected: {result.reasons} ({result.hit_turns} hits, {result.miss_turns} misses)",
+    )
     receipt = receipt_for(groups())
-    require(receipt["admission"]["admitted"] and receipt["admission"]["admitted_profile"]["prefix_cache_profile_id"]
-            == policy.prefix_cache_profile_id, "the receipt does not name the measured cache profile")
+    require(
+        receipt["admission"]["admitted"]
+        and receipt["admission"]["admitted_profile"]["prefix_cache_profile_id"]
+        == policy.prefix_cache_profile_id,
+        "the receipt does not name the measured cache profile",
+    )
 
     # Load that slows each later root by 1.5 s makes the first pair's misses look 30%
     # slower; the ABBA means cancel it exactly.
     drifting = judge(groups(drift=1.5))
     gates = {gate.name: gate for gate in drifting.gates}
-    require(drifting.admitted and abs(gates["miss_wall_ratio"].measured - 1.0) < 1e-9,
-            f"linear drift was not cancelled: {drifting.reasons} {gates['miss_wall_ratio']}")
-    require(drifting.pairs[0]["miss_wall_ratio"] > policy.maximum_miss_wall_ratio,
-            f"the drift diagnostic lost the first pair's apparent miss cost: {drifting.pairs}")
+    require(
+        drifting.admitted and abs(gates["miss_wall_ratio"].measured - 1.0) < 1e-9,
+        f"linear drift was not cancelled: {drifting.reasons} {gates['miss_wall_ratio']}",
+    )
+    require(
+        drifting.pairs[0]["miss_wall_ratio"] > policy.maximum_miss_wall_ratio,
+        f"the drift diagnostic lost the first pair's apparent miss cost: {drifting.pairs}",
+    )
 
     def rejected(group_mappings, reason, message):
         verdict = judge(group_mappings)
-        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+        require(
+            not verdict.admitted and reason in verdict.reasons,
+            f"{message}: {verdict.reasons}",
+        )
 
     lost = groups()
     lost[0][3]["requests"][5]["token_ids"] = [9, 9, 9]
-    rejected(lost, "gate-failed:exact_parity", "a root that decoded different tokens was admitted")
-    rejected(groups(ttft=cold_ttft, wall=cold_wall), "gate-failed:hit_median_ttft_ratio",
-             "resumed turns without a speedup were admitted")
-    rejected(groups(drift=1.5, wall=lambda turn, hit: 3.0 if hit else 8.0 + turn), "gate-failed:miss_wall_ratio",
-             "misses much slower than cold prefill were admitted")
-    rejected(groups(dram=9_900_000_000 - 600 * 2**20), "gate-failed:startup_dram_drop_bytes",
-             "a memory overrun was admitted")
+    rejected(
+        lost,
+        "gate-failed:exact_parity",
+        "a root that decoded different tokens was admitted",
+    )
+    rejected(
+        groups(ttft=cold_ttft, wall=cold_wall),
+        "gate-failed:hit_median_ttft_ratio",
+        "resumed turns without a speedup were admitted",
+    )
+    rejected(
+        groups(drift=1.5, wall=lambda turn, hit: 3.0 if hit else 8.0 + turn),
+        "gate-failed:miss_wall_ratio",
+        "misses much slower than cold prefill were admitted",
+    )
+    rejected(
+        groups(dram=9_900_000_000 - 600 * 2**20),
+        "gate-failed:startup_dram_drop_bytes",
+        "a memory overrun was admitted",
+    )
     try:
         judge(groups(hits=False))
     except admission.PrefixAdmissionEvidenceError as error:
@@ -3765,32 +5047,58 @@ def probe_prefix_cache_admission():
     else:
         require(False, "a cache that never resumed was evaluated")
     cold_with_cache = groups()
-    cold_with_cache[0][3]["identity"]["prefix_cache_profile_id"] = policy.prefix_cache_profile_id
-    rejected(cold_with_cache, "cold-root-used-a-cache", "a cold root with a cache was accepted")
+    cold_with_cache[0][3]["identity"]["prefix_cache_profile_id"] = (
+        policy.prefix_cache_profile_id
+    )
+    rejected(
+        cold_with_cache,
+        "cold-root-used-a-cache",
+        "a cold root with a cache was accepted",
+    )
     reordered = groups()
     reordered[0][3]["measured_at"] = copy.deepcopy(reordered[0][0]["measured_at"])
-    rejected(reordered, "roots-out-of-order", "a second cold root measured before the cached roots was accepted")
+    rejected(
+        reordered,
+        "roots-out-of-order",
+        "a second cold root measured before the cached roots was accepted",
+    )
     disagreeing = groups()
     disagreeing[0][2]["requests"][4]["prefix_hit_tokens"] = 2048
-    rejected(disagreeing, "cached-roots-disagree", "cached roots that resumed different prefixes were accepted")
+    rejected(
+        disagreeing,
+        "cached-roots-disagree",
+        "cached roots that resumed different prefixes were accepted",
+    )
     for mutate, expected, message in (
-        (lambda mappings: mappings[1][1]["requests"].pop(3), "every declared turn", "a missing turn"),
+        (
+            lambda mappings: mappings[1][1]["requests"].pop(3),
+            "every declared turn",
+            "a missing turn",
+        ),
         (lambda mappings: mappings[1].pop(3), "four roots", "a missing root"),
     ):
         incomplete = groups()
         mutate(incomplete)
         receipt = receipt_for(incomplete)
-        require(receipt["admission"]["admitted"] is False and expected in (receipt["admission"]["evidence_error"] or ""),
-                f"{message} disappeared from the receipt: {receipt['admission']}")
-
+        require(
+            receipt["admission"]["admitted"] is False
+            and expected in (receipt["admission"]["evidence_error"] or ""),
+            f"{message} disappeared from the receipt: {receipt['admission']}",
+        )
 
     # V3 compares a shared system root across five conversations and requires
     # a conversation whose leaf was saved and evicted to fall back to that root.
-    with Path(__file__).with_name("prefix-cache-root-admission-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-root-admission-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         shared_mapping = json.load(handle)
     shared_policy = admission.PrefixAdmissionPolicy.from_mapping(shared_mapping)
-    require(shared_policy.workloads == ((5, 3),) and shared_policy.state_slots == 4,
-            "the shared-root gate lost its bounded eviction workload")
+    require(
+        shared_policy.workloads == ((5, 3),) and shared_policy.state_slots == 4,
+        "the shared-root gate lost its bounded eviction workload",
+    )
     for change in (
         {"schema_version": 2},
         {"shared_root_minimum_tokens": 1500},
@@ -3802,12 +5110,18 @@ def probe_prefix_cache_admission():
         except admission.PrefixAdmissionPolicyError:
             pass
         else:
-            require(False, f"an invalid shared-root admission policy was accepted: {change}")
+            require(
+                False, f"an invalid shared-root admission policy was accepted: {change}"
+            )
 
     def shared_groups():
         group = [
             root(
-                kind, position, 0, 5, 3,
+                kind,
+                position,
+                0,
+                5,
+                3,
                 ttft=fast_ttft if kind == "cached" else cold_ttft,
                 wall=fast_wall if kind == "cached" else cold_wall,
                 hits=False,
@@ -3817,7 +5131,9 @@ def probe_prefix_cache_admission():
         for mapping in group:
             mapping["workload"]["workload_id"] = "qwen38-agent-shared-system-v1"
             if mapping["root_kind"] == "cached":
-                mapping["identity"]["prefix_cache_profile_id"] = shared_policy.prefix_cache_profile_id
+                mapping["identity"]["prefix_cache_profile_id"] = (
+                    shared_policy.prefix_cache_profile_id
+                )
                 for request in mapping["requests"]:
                     first = request["conversation"] == 0 and request["turn"] == 0
                     request["prefix_hit_tokens"] = 0 if first else 2048
@@ -3835,8 +5151,11 @@ def probe_prefix_cache_admission():
         )
 
     shared = shared_receipt(shared_groups())
-    require(shared["admission"]["admitted"] and shared["turns"] == {"resumed": 14, "missed": 1},
-            f"a faster retained root was rejected: {shared['admission']}")
+    require(
+        shared["admission"]["admitted"]
+        and shared["turns"] == {"resumed": 14, "missed": 1},
+        f"a faster retained root was rejected: {shared['admission']}",
+    )
     for index, field, value, reason in (
         (0, "prefix_saved_tokens", 1024, "gate-failed:shared_root_reuse"),
         (1, "prefix_hit_tokens", 0, "gate-failed:shared_root_reuse"),
@@ -3847,20 +5166,32 @@ def probe_prefix_cache_admission():
         damaged[0][1]["requests"][index][field] = value
         damaged[0][2]["requests"][index][field] = value
         receipt = shared_receipt(damaged)
-        require(not receipt["admission"]["admitted"] and reason in receipt["admission"]["reasons"],
-                f"invalid root reuse or eviction was admitted: {field}={value} {receipt['admission']}")
+        require(
+            not receipt["admission"]["admitted"]
+            and reason in receipt["admission"]["reasons"],
+            f"invalid root reuse or eviction was admitted: {field}={value} {receipt['admission']}",
+        )
     damaged = shared_groups()
     damaged[0][2]["requests"][2]["token_ids"] = [99]
-    require("gate-failed:exact_parity" in shared_receipt(damaged)["admission"]["reasons"],
-            "a divergent shared-root completion was admitted")
+    require(
+        "gate-failed:exact_parity" in shared_receipt(damaged)["admission"]["reasons"],
+        "a divergent shared-root completion was admitted",
+    )
 
     # The v4 tool-header gate also requires a changed description with the same
     # function name to miss the retained root, with cold/cached token parity.
-    with Path(__file__).with_name("prefix-cache-tool-admission-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("prefix-cache-tool-admission-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         tool_mapping = json.load(handle)
     tool_policy = admission.PrefixAdmissionPolicy.from_mapping(tool_mapping)
-    require(tool_policy.workload_id == "qwen38-agent-shared-tools-v1" and tool_policy.require_changed_tool_miss,
-            "the tool-change workload lost its declared isolation requirement")
+    require(
+        tool_policy.workload_id == "qwen38-agent-shared-tools-v1"
+        and tool_policy.require_changed_tool_miss,
+        "the tool-change workload lost its declared isolation requirement",
+    )
     for change in (
         {"require_changed_tool_miss": False},
         {"workload_id": ""},
@@ -3871,7 +5202,9 @@ def probe_prefix_cache_admission():
         except admission.PrefixAdmissionPolicyError:
             pass
         else:
-            require(False, f"an invalid tool-header admission policy was accepted: {change}")
+            require(
+                False, f"an invalid tool-header admission policy was accepted: {change}"
+            )
 
     def tool_groups():
         mappings = shared_groups()
@@ -3895,31 +5228,57 @@ def probe_prefix_cache_admission():
         )
 
     tool_positive = tool_receipt(tool_groups())
-    require(tool_positive["admission"]["admitted"] and {gate["name"] for gate in tool_positive["gates"]} >=
-            {"changed_tool_isolation", "changed_tool_parity"},
-            f"a changed tool schema that missed without changing tokens was rejected: {tool_positive['admission']}")
+    require(
+        tool_positive["admission"]["admitted"]
+        and {gate["name"] for gate in tool_positive["gates"]}
+        >= {"changed_tool_isolation", "changed_tool_parity"},
+        f"a changed tool schema that missed without changing tokens was rejected: {tool_positive['admission']}",
+    )
     for root_index, mutate, reason in (
-        (1, lambda probe: probe.__setitem__("prefix_hit_tokens", 2048), "gate-failed:changed_tool_isolation"),
-        (1, lambda probe: probe.__setitem__("changed_tools_blake3", "a" * 64), "gate-failed:changed_tool_isolation"),
-        (2, lambda probe: probe.__setitem__("token_ids", [99, 12, 13]), "gate-failed:changed_tool_parity"),
+        (
+            1,
+            lambda probe: probe.__setitem__("prefix_hit_tokens", 2048),
+            "gate-failed:changed_tool_isolation",
+        ),
+        (
+            1,
+            lambda probe: probe.__setitem__("changed_tools_blake3", "a" * 64),
+            "gate-failed:changed_tool_isolation",
+        ),
+        (
+            2,
+            lambda probe: probe.__setitem__("token_ids", [99, 12, 13]),
+            "gate-failed:changed_tool_parity",
+        ),
     ):
         bad = tool_groups()
         mutate(bad[0][root_index]["tool_change"])
-        require(reason in tool_receipt(bad)["admission"]["reasons"],
-                f"a broken changed-tool probe was admitted: {reason}")
+        require(
+            reason in tool_receipt(bad)["admission"]["reasons"],
+            f"a broken changed-tool probe was admitted: {reason}",
+        )
     missing_probe = tool_groups()
     missing_probe[0][2].pop("tool_change")
-    require("gate-failed:changed_tool_isolation" in tool_receipt(missing_probe)["admission"]["reasons"],
-            "a missing changed-tool probe was admitted")
+    require(
+        "gate-failed:changed_tool_isolation"
+        in tool_receipt(missing_probe)["admission"]["reasons"],
+        "a missing changed-tool probe was admitted",
+    )
     incomplete_probe = tool_groups()
     incomplete_probe[0][1]["tool_change"]["token_ids"] = []
-    require("needs generated token IDs" in (tool_receipt(incomplete_probe)["admission"]["evidence_error"] or ""),
-            "an empty changed-tool response did not fail closed")
+    require(
+        "needs generated token IDs"
+        in (tool_receipt(incomplete_probe)["admission"]["evidence_error"] or ""),
+        "an empty changed-tool response did not fail closed",
+    )
     wrong_workload = tool_groups()
     for mapping in wrong_workload[0]:
         mapping["workload"]["workload_id"] = "qwen38-agent-shared-system-v1"
-    require("tool-workload-differs" in tool_receipt(wrong_workload)["admission"]["reasons"],
-            "a different tool-header workload was admitted")
+    require(
+        "tool-workload-differs" in tool_receipt(wrong_workload)["admission"]["reasons"],
+        "a different tool-header workload was admitted",
+    )
+
 
 # r[verify tenstorrent.qwen38_p150x2.resident_slot_trace]
 def probe_resident_trace_admission():
@@ -3936,13 +5295,29 @@ def probe_resident_trace_admission():
     from qwen36_service.prefix_cache_admission_core import root_from_mapping
     from qwen36_service.resident_trace_receipt import build_receipt
 
-    with Path(__file__).with_name("resident-trace-admission-policy.json").open(encoding="utf-8") as handle:
+    with (
+        Path(__file__)
+        .with_name("resident-trace-admission-policy.json")
+        .open(encoding="utf-8") as handle
+    ):
         policy_mapping = json.load(handle)
     policy = admission.ResidentTracePolicy.from_mapping(policy_mapping)
     for path, value, message in (
-        (("gates", "maximum_candidate_capture_share"), 1.0, "a capture on every turn was allowed"),
-        (("gates", "require_matching_prefix_cache"), False, "an admission without matching cache use was accepted"),
-        (("root_order",), ["baseline", "candidate"], "an admission from one root per role was accepted"),
+        (
+            ("gates", "maximum_candidate_capture_share"),
+            1.0,
+            "a capture on every turn was allowed",
+        ),
+        (
+            ("gates", "require_matching_prefix_cache"),
+            False,
+            "an admission without matching cache use was accepted",
+        ),
+        (
+            ("root_order",),
+            ["baseline", "candidate"],
+            "an admission from one root per role was accepted",
+        ),
     ):
         broken = copy.deepcopy(policy_mapping)
         target = broken
@@ -3960,8 +5335,21 @@ def probe_resident_trace_admission():
     packages = {"baseline": "/nix/store/old", "candidate": "/nix/store/new"}
     free_dram = 9_554_487_296
 
-    def root(role, position, index, workload_id, conversations, turns, *, drift=0.0, saving=0.8, ttft_scale=1.0,
-             captures=None, dram=free_dram, slow_turn=None):
+    def root(
+        role,
+        position,
+        index,
+        workload_id,
+        conversations,
+        turns,
+        *,
+        drift=0.0,
+        saving=0.8,
+        ttft_scale=1.0,
+        captures=None,
+        dram=free_dram,
+        slow_turn=None,
+    ):
         # A baseline turn captures a trace; a candidate root captures on its first turn only.
         candidate = role == "candidate"
         requests = []
@@ -3969,36 +5357,52 @@ def probe_resident_trace_admission():
             for conversation in range(conversations):
                 wall = 5.0 + turn
                 if candidate:
-                    wall = wall * 1.3 if slow_turn == (conversation, turn) else wall - saving
-                requests.append(
-                    {
-                        "conversation": conversation,
-                        "turn": turn,
-                        "token_ids": [conversation, turn, index],
-                        "ttft_seconds": (2.0 + 0.5 * turn) * (ttft_scale if candidate else 1.0) + drift * position,
-                        "wall_seconds": wall + drift * position,
-                        "prefix_hit_tokens": 3072 * turn,
-                        "prefix_saved_tokens": 3072 * (turn + 1),
-                        "trace_captures": (captures if captures is not None else int((conversation, turn) == (0, 0)))
-                        if candidate
-                        else 1,
-                    }
-                )
+                    wall = (
+                        wall * 1.3
+                        if slow_turn == (conversation, turn)
+                        else wall - saving
+                    )
+                requests.append({
+                    "conversation": conversation,
+                    "turn": turn,
+                    "token_ids": [conversation, turn, index],
+                    "ttft_seconds": (2.0 + 0.5 * turn)
+                    * (ttft_scale if candidate else 1.0)
+                    + drift * position,
+                    "wall_seconds": wall + drift * position,
+                    "prefix_hit_tokens": 3072 * turn,
+                    "prefix_saved_tokens": 3072 * (turn + 1),
+                    "trace_captures": (
+                        captures
+                        if captures is not None
+                        else int((conversation, turn) == (0, 0))
+                    )
+                    if candidate
+                    else 1,
+                })
         started = epoch + timedelta(minutes=15 * position + 5 * index)
         return {
             "schema_version": 2,
             "root_kind": "cached",
             "simulated": False,
             "identity": {
-                "package": packages[role], "execution_identity": f"/nix/store/e-{role}", "runtime_identity": "/nix/store/r",
+                "package": packages[role],
+                "execution_identity": f"/nix/store/e-{role}",
+                "runtime_identity": "/nix/store/r",
                 "physical_pcie_device_ids": [0, 1],
                 "prefix_cache_profile_id": policy.prefix_cache_profile_id,
                 "prefix_policy_blake3": "a" * 64,
             },
-            "workload": {"workload_id": workload_id, "blake3": f"{index:064d}", "conversations": conversations,
-                         "turns": turns},
-            "measured_at": {"started_utc": started.isoformat(),
-                            "finished_utc": (started + timedelta(minutes=3)).isoformat()},
+            "workload": {
+                "workload_id": workload_id,
+                "blake3": f"{index:064d}",
+                "conversations": conversations,
+                "turns": turns,
+            },
+            "measured_at": {
+                "started_utc": started.isoformat(),
+                "finished_utc": (started + timedelta(minutes=3)).isoformat(),
+            },
             "startup": {"device_dram_free_bytes": [dram if candidate else free_dram]},
             "requests": requests,
         }
@@ -4006,16 +5410,33 @@ def probe_resident_trace_admission():
     def groups(drift=0.0, **candidate_options):
         return [
             [
-                root(role, position, index, workload_id, conversations, turns, drift=drift,
-                     **(candidate_options if role == "candidate" else {}))
+                root(
+                    role,
+                    position,
+                    index,
+                    workload_id,
+                    conversations,
+                    turns,
+                    drift=drift,
+                    **(candidate_options if role == "candidate" else {}),
+                )
                 for position, role in enumerate(admission.ROOT_ORDER)
             ]
-            for index, (workload_id, conversations, turns) in enumerate(policy.workloads)
+            for index, (workload_id, conversations, turns) in enumerate(
+                policy.workloads
+            )
         ]
 
     def judge(group_mappings):
         return admission.evaluate(
-            policy, [[root_from_mapping(mapping, expected_kind="cached") for mapping in group] for group in group_mappings]
+            policy,
+            [
+                [
+                    root_from_mapping(mapping, expected_kind="cached")
+                    for mapping in group
+                ]
+                for group in group_mappings
+            ],
         )
 
     def receipt_for(group_mappings):
@@ -4027,53 +5448,105 @@ def probe_resident_trace_admission():
         )
 
     result = judge(groups())
-    require(result.admitted and result.compared_turns == sum(c * t for _, c, t in policy.workloads),
-            f"a faster exact candidate was rejected: {result.reasons}")
+    require(
+        result.admitted
+        and result.compared_turns == sum(c * t for _, c, t in policy.workloads),
+        f"a faster exact candidate was rejected: {result.reasons}",
+    )
     receipt = receipt_for(groups())
-    require(receipt["admission"]["admitted"] and receipt["admission"]["admitted_profile"]["package"] == packages["candidate"]
-            and receipt["admission"]["admitted_profile"]["replaces_package"] == packages["baseline"],
-            f"the receipt does not name the admitted replacement: {receipt['admission']}")
+    require(
+        receipt["admission"]["admitted"]
+        and receipt["admission"]["admitted_profile"]["package"] == packages["candidate"]
+        and receipt["admission"]["admitted_profile"]["replaces_package"]
+        == packages["baseline"],
+        f"the receipt does not name the admitted replacement: {receipt['admission']}",
+    )
 
     # Load that slows each later root by 1.5 s hides the saving in the first pair and
     # slows its prefill; the ABBA means cancel it.
     drifting = judge(groups(drift=1.5))
     require(drifting.admitted, f"linear drift was not cancelled: {drifting.reasons}")
-    require(drifting.pairs[0]["median_ttft_ratio"] > policy.maximum_median_ttft_ratio,
-            f"the drift diagnostic lost the first pair's apparent prefill cost: {drifting.pairs}")
+    require(
+        drifting.pairs[0]["median_ttft_ratio"] > policy.maximum_median_ttft_ratio,
+        f"the drift diagnostic lost the first pair's apparent prefill cost: {drifting.pairs}",
+    )
 
     def rejected(group_mappings, reason, message):
         verdict = judge(group_mappings)
-        require(not verdict.admitted and reason in verdict.reasons, f"{message}: {verdict.reasons}")
+        require(
+            not verdict.admitted and reason in verdict.reasons,
+            f"{message}: {verdict.reasons}",
+        )
 
     lost = groups()
     lost[0][3]["requests"][5]["token_ids"] = [9, 9, 9]
-    rejected(lost, "gate-failed:exact_parity", "a root that decoded different tokens was admitted")
+    rejected(
+        lost,
+        "gate-failed:exact_parity",
+        "a root that decoded different tokens was admitted",
+    )
     uncached = groups()
     uncached[0][2]["requests"][4]["prefix_saved_tokens"] = 1024
-    rejected(uncached, "gate-failed:matching_prefix_cache", "a candidate that saved another prefix was admitted")
-    rejected(groups(captures=1), "gate-failed:candidate_capture_share", "a candidate capturing every turn was admitted")
-    rejected(groups(ttft_scale=1.2), "gate-failed:median_ttft_ratio", "slower prefill beside the trace was admitted")
-    rejected(groups(saving=0.0), "gate-failed:median_wall_ratio", "a candidate without a speedup was admitted")
-    rejected(groups(slow_turn=(1, 2)), "gate-failed:wall_ratio", "a much slower turn was admitted")
-    rejected(groups(dram=free_dram - 100 * 2**20), "gate-failed:startup_dram_drop_bytes", "a memory drop was admitted")
+    rejected(
+        uncached,
+        "gate-failed:matching_prefix_cache",
+        "a candidate that saved another prefix was admitted",
+    )
+    rejected(
+        groups(captures=1),
+        "gate-failed:candidate_capture_share",
+        "a candidate capturing every turn was admitted",
+    )
+    rejected(
+        groups(ttft_scale=1.2),
+        "gate-failed:median_ttft_ratio",
+        "slower prefill beside the trace was admitted",
+    )
+    rejected(
+        groups(saving=0.0),
+        "gate-failed:median_wall_ratio",
+        "a candidate without a speedup was admitted",
+    )
+    rejected(
+        groups(slow_turn=(1, 2)),
+        "gate-failed:wall_ratio",
+        "a much slower turn was admitted",
+    )
+    rejected(
+        groups(dram=free_dram - 100 * 2**20),
+        "gate-failed:startup_dram_drop_bytes",
+        "a memory drop was admitted",
+    )
     same_package = groups()
     for group in same_package:
         for mapping in group:
             mapping["identity"]["package"] = "/nix/store/same"
-    rejected(same_package, "package-roles-differ", "one package in both roles was accepted")
+    rejected(
+        same_package, "package-roles-differ", "one package in both roles was accepted"
+    )
     reordered = groups()
     reordered[0][3]["measured_at"] = copy.deepcopy(reordered[0][0]["measured_at"])
-    rejected(reordered, "roots-out-of-order", "a second baseline root measured first was accepted")
+    rejected(
+        reordered,
+        "roots-out-of-order",
+        "a second baseline root measured first was accepted",
+    )
     for mutate, expected, message in (
-        (lambda mappings: mappings[0][1]["requests"][2].update(trace_captures=None), "trace captures",
-         "a candidate turn without its captures"),
+        (
+            lambda mappings: mappings[0][1]["requests"][2].update(trace_captures=None),
+            "trace captures",
+            "a candidate turn without its captures",
+        ),
         (lambda mappings: mappings[2].pop(3), "four roots", "a missing root"),
     ):
         incomplete = groups()
         mutate(incomplete)
         receipt = receipt_for(incomplete)
-        require(receipt["admission"]["admitted"] is False and expected in (receipt["admission"]["evidence_error"] or ""),
-                f"{message} disappeared from the receipt: {receipt['admission']}")
+        require(
+            receipt["admission"]["admitted"] is False
+            and expected in (receipt["admission"]["evidence_error"] or ""),
+            f"{message} disappeared from the receipt: {receipt['admission']}",
+        )
 
 
 # r[verify tenstorrent.qwen38_p150x2.batched_concurrency]
@@ -4214,10 +5687,17 @@ def probe_batch_decode_scheduler():
 
     # A continuous-slot group keeps one stable same-width trace only while the masked
     # prefill traces can serve its refills.
-    slot_facts = {"width": 4, "resident_widths": (4,), "binding_stable": True, "masked_prefill_ready": True}
+    slot_facts = {
+        "width": 4,
+        "resident_widths": (4,),
+        "binding_stable": True,
+        "masked_prefill_ready": True,
+    }
     kept = plan_slot_group_trace(**slot_facts)
     require(
-        kept.action is TracePrefillAction.PRESERVE and kept.reuse_after_prefill and kept.reason is None,
+        kept.action is TracePrefillAction.PRESERVE
+        and kept.reuse_after_prefill
+        and kept.reason is None,
         f"a stable slot trace was not kept: {kept}",
     )
     for override, expected_reason in (
@@ -4237,7 +5717,10 @@ def probe_batch_decode_scheduler():
     try:
         plan_slot_group_trace(**{**slot_facts, "masked_prefill_ready": 1})
     except BatchDecodePolicyError as error:
-        require("masked prefill ready" in str(error), f"wrong slot-trace diagnostic: {error}")
+        require(
+            "masked prefill ready" in str(error),
+            f"wrong slot-trace diagnostic: {error}",
+        )
     else:
         require(False, "a non-boolean masked-prefill fact was accepted")
 
@@ -4307,16 +5790,18 @@ def probe_batch_decode_scheduler():
     import qwen36_service.batch_decode_adapter as batch_decode_adapter_module
     import torch
 
-    resident_trace = SimpleNamespace(device_inputs=("tokens", "positions", "rope", "page-table"))
+    resident_trace = SimpleNamespace(
+        device_inputs=("tokens", "positions", "rope", "page-table")
+    )
     adapter.vocabulary_size = test_vocabulary_size
     adapter.profile = SimpleNamespace(maximum_sequence_length=test_sequence_length)
     adapter._traces = {mixed_user_count: resident_trace}
     adapter._pending_trace_plan = reuse_plan
     adapter._binding_matches = lambda trace: trace is resident_trace
     # The current group's rows, as prefill_users leaves them before trace preparation.
-    adapter.page_table = torch.arange(MAXIMUM_ACTIVE_BATCH_WIDTH * 4, dtype=torch.int32).reshape(
-        MAXIMUM_ACTIVE_BATCH_WIDTH, 4
-    )
+    adapter.page_table = torch.arange(
+        MAXIMUM_ACTIVE_BATCH_WIDTH * 4, dtype=torch.int32
+    ).reshape(MAXIMUM_ACTIVE_BATCH_WIDTH, 4)
     adapter.model = SimpleNamespace(
         prepare_decode_inputs_host=lambda tokens, positions, page_table: (
             tokens,
@@ -4329,7 +5814,10 @@ def probe_batch_decode_scheduler():
     with mock.patch.object(
         batch_decode_adapter_module,
         "copy_host_to_device",
-        lambda host, device_tensors: restaged.append((tuple(host), tuple(device_tensors))),
+        lambda host, device_tensors: restaged.append((
+            tuple(host),
+            tuple(device_tensors),
+        )),
     ):
         reused_preparation = adapter.prepare_width(
             token_ids=tuple(user.token_id for user in mixed_users),
@@ -7326,7 +8814,14 @@ TOOL_CALL_OUTPUT = (
 class FixtureTokenizer:
     """`apply_chat_template` through transformers' own Jinja environment and the fixture."""
 
-    def apply_chat_template(self, messages, tools=None, add_generation_prompt=False, tokenize=False, **kwargs):
+    def apply_chat_template(
+        self,
+        messages,
+        tools=None,
+        add_generation_prompt=False,
+        tokenize=False,
+        **kwargs,
+    ):
         from transformers.utils.chat_template_utils import render_jinja_template
 
         assert not tokenize
@@ -7359,7 +8854,9 @@ def probe_service_contract():
     maximum_sequence_length = 2048
 
     def parse(payload, endpoint=Endpoint.CHAT_COMPLETIONS):
-        return parse_completion_request(payload, endpoint, admitted_model, maximum_generation_tokens)
+        return parse_completion_request(
+            payload, endpoint, admitted_model, maximum_generation_tokens
+        )
 
     require(
         parse_endpoint("/v1/completions") is Endpoint.COMPLETIONS,
@@ -7386,7 +8883,9 @@ def probe_service_contract():
         completion.max_tokens == requested_generation_tokens,
         "completion max_tokens changed",
     )
-    admitted_completion = admit_prompt(completion, completion.prompt, 5, maximum_sequence_length)
+    admitted_completion = admit_prompt(
+        completion, completion.prompt, 5, maximum_sequence_length
+    )
     text_response = build_completion_response(
         request=admitted_completion,
         request_id="cmpl-text",
@@ -7402,20 +8901,20 @@ def probe_service_contract():
         "plain completions stopped returning raw text",
     )
 
-    chat = parse(
-        {
-            "max_tokens": requested_generation_tokens,
-            "messages": [{"content": "Name France's capital.", "role": "user"}],
-            "model": admitted_model,
-        }
-    )
+    chat = parse({
+        "max_tokens": requested_generation_tokens,
+        "messages": [{"content": "Name France's capital.", "role": "user"}],
+        "model": admitted_model,
+    })
     require(len(chat.messages) == 1, "valid chat request lost its message")
     prompt_token_count = 5
     generated_token_count = 3
 
     def chat_response(request, prompt, text, finish_reason):
         return build_completion_response(
-            request=admit_prompt(request, prompt, prompt_token_count, maximum_sequence_length),
+            request=admit_prompt(
+                request, prompt, prompt_token_count, maximum_sequence_length
+            ),
             request_id="cmpl-test",
             created=0,
             generated_text=text,
@@ -7424,7 +8923,9 @@ def probe_service_contract():
             finish_reason=finish_reason,
         )
 
-    response = chat_response(chat, "<|im_start|>assistant\n<think>\n\n</think>\n\n", "Paris", "stop")
+    response = chat_response(
+        chat, "<|im_start|>assistant\n<think>\n\n</think>\n\n", "Paris", "stop"
+    )
     require(
         response["choices"][0]["message"] == {"content": "Paris", "role": "assistant"}
         and response["choices"][0]["finish_reason"] == "stop",
@@ -7435,20 +8936,30 @@ def probe_service_contract():
         "chat response token total changed",
     )
     response = chat_response(
-        chat, "<|im_start|>assistant\n<think>\n", "The capital.\n</think>\n\nParis", "stop"
+        chat,
+        "<|im_start|>assistant\n<think>\n",
+        "The capital.\n</think>\n\nParis",
+        "stop",
     )
     require(
         response["choices"][0]["message"]
-        == {"content": "Paris", "reasoning_content": "The capital.", "role": "assistant"},
+        == {
+            "content": "Paris",
+            "reasoning_content": "The capital.",
+            "role": "assistant",
+        },
         f"reasoning was not split from content: {response['choices'][0]['message']}",
     )
 
     # Acceptance: a complete call ended by the stop token, and the same output cut by the budget.
-    tool_chat = parse(
-        {"messages": [{"content": "Show /etc/hosts.", "role": "user"}], "tools": [READ_TOOL]}
-    )
+    tool_chat = parse({
+        "messages": [{"content": "Show /etc/hosts.", "role": "user"}],
+        "tools": [READ_TOOL],
+    })
     thinking_prompt = "<|im_start|>assistant\n<think>\n"
-    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "stop")["choices"][0]
+    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "stop")[
+        "choices"
+    ][0]
     message = choice["message"]
     calls = message.get("tool_calls", [])
     require(
@@ -7458,109 +8969,177 @@ def probe_service_contract():
         and len(calls) == 1
         and calls[0]["type"] == "function"
         and calls[0]["id"].startswith("call_")
-        and calls[0]["function"] == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
+        and calls[0]["function"]
+        == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
         f"a complete tool call was not reported: {choice}",
     )
-    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "length")["choices"][0]
-    require(choice["finish_reason"] == "length", "a call cut by the budget was reported as tool_calls")
+    choice = chat_response(tool_chat, thinking_prompt, TOOL_CALL_OUTPUT, "length")[
+        "choices"
+    ][0]
+    require(
+        choice["finish_reason"] == "length",
+        "a call cut by the budget was reported as tool_calls",
+    )
     cut = TOOL_CALL_OUTPUT[: TOOL_CALL_OUTPUT.index("hosts")]
     choice = chat_response(tool_chat, thinking_prompt, cut, "length")["choices"][0]
     require(
         choice["finish_reason"] == "length"
-        and json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"]) == {"path": "/etc/"},
+        and json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"])
+        == {"path": "/etc/"},
         f"a truncated call lost its valid JSON or its length finish: {choice}",
     )
     choice = chat_response(tool_chat, thinking_prompt, cut, "stop")["choices"][0]
-    require(choice["finish_reason"] == "stop", "a call left open at the stop token was reported as tool_calls")
+    require(
+        choice["finish_reason"] == "stop",
+        "a call left open at the stop token was reported as tool_calls",
+    )
 
     # max_completion_tokens is an alias; without either, generation fills the sequence up to the cap.
     require(
-        parse({"max_completion_tokens": 7, "prompt": "ok"}, Endpoint.COMPLETIONS).max_tokens == 7
-        and parse({"max_completion_tokens": 7, "max_tokens": 7, "prompt": "ok"}, Endpoint.COMPLETIONS).max_tokens == 7,
+        parse(
+            {"max_completion_tokens": 7, "prompt": "ok"}, Endpoint.COMPLETIONS
+        ).max_tokens
+        == 7
+        and parse(
+            {"max_completion_tokens": 7, "max_tokens": 7, "prompt": "ok"},
+            Endpoint.COMPLETIONS,
+        ).max_tokens
+        == 7,
         "max_completion_tokens was not read as max_tokens",
     )
     defaulted = parse({"messages": [{"content": "hi", "role": "user"}]})
     require(
-        defaulted.max_tokens == maximum_generation_tokens and not defaulted.max_tokens_explicit,
+        defaulted.max_tokens == maximum_generation_tokens
+        and not defaulted.max_tokens_explicit,
         "a request without a limit did not default to the service cap",
     )
     require(
-        admit_prompt(defaulted, "p", 10, maximum_sequence_length).max_tokens == maximum_generation_tokens
-        and admit_prompt(defaulted, "p", maximum_sequence_length - 5, maximum_sequence_length).max_tokens == 5
-        and admit_prompt(chat, "p", maximum_sequence_length - 4, maximum_sequence_length).max_tokens == 4,
+        admit_prompt(defaulted, "p", 10, maximum_sequence_length).max_tokens
+        == maximum_generation_tokens
+        and admit_prompt(
+            defaulted, "p", maximum_sequence_length - 5, maximum_sequence_length
+        ).max_tokens
+        == 5
+        and admit_prompt(
+            chat, "p", maximum_sequence_length - 4, maximum_sequence_length
+        ).max_tokens
+        == 4,
         "the default limit did not fit the room the prompt leaves",
     )
-    for request, prompt_tokens in ((defaulted, maximum_sequence_length), (chat, maximum_sequence_length - 3)):
+    for request, prompt_tokens in (
+        (defaulted, maximum_sequence_length),
+        (chat, maximum_sequence_length - 3),
+    ):
         try:
             admit_prompt(request, "p", prompt_tokens, maximum_sequence_length)
         except RequestValidationError as error:
-            require("maximum context length is 2048 tokens" in str(error), f"wrong sequence-limit diagnostic: {error}")
+            require(
+                "maximum context length is 2048 tokens" in str(error),
+                f"wrong sequence-limit diagnostic: {error}",
+            )
         else:
             require(False, "a request over the sequence limit was admitted")
 
     # Thinking controls: top level wins, omp's efforts map onto the template's, other kwargs stay out.
-    thinking = parse(
-        {
-            "chat_template_kwargs": {
-                "enable_thinking": True,
-                "preserve_thinking": True,
-                "reasoning_effort": "low",
-                "unrelated": "x",
-            },
-            "enable_thinking": False,
-            "messages": [{"content": "hi", "role": "user"}],
-            "reasoning_effort": "high",
-        }
-    )
+    thinking = parse({
+        "chat_template_kwargs": {
+            "enable_thinking": True,
+            "preserve_thinking": True,
+            "reasoning_effort": "low",
+            "unrelated": "x",
+        },
+        "enable_thinking": False,
+        "messages": [{"content": "hi", "role": "user"}],
+        "reasoning_effort": "high",
+    })
     require(
         template_arguments(thinking)
-        == {"enable_thinking": False, "preserve_thinking": True, "reasoning_effort": "xhigh"},
+        == {
+            "enable_thinking": False,
+            "preserve_thinking": True,
+            "reasoning_effort": "xhigh",
+        },
         f"thinking controls resolved wrongly: {template_arguments(thinking)}",
     )
-    require(template_arguments(chat) == {}, "an unset thinking control reached the template")
+    require(
+        template_arguments(chat) == {}, "an unset thinking control reached the template"
+    )
     for effort, mapped in (("minimal", "low"), ("medium", "medium"), ("max", "xhigh")):
-        request = parse({"messages": [{"content": "hi", "role": "user"}], "reasoning_effort": effort})
-        require(request.reasoning_effort == mapped, f"reasoning effort {effort} mapped to {request.reasoning_effort}")
+        request = parse({
+            "messages": [{"content": "hi", "role": "user"}],
+            "reasoning_effort": effort,
+        })
+        require(
+            request.reasoning_effort == mapped,
+            f"reasoning effort {effort} mapped to {request.reasoning_effort}",
+        )
 
     # Tool selection.
     other_tool = {"function": {"name": "write"}, "type": "function"}
-    base = {"messages": [{"content": "hi", "role": "user"}], "tools": [READ_TOOL, other_tool]}
-    require(parse(base).tools == (READ_TOOL, other_tool), "auto did not offer every tool")
-    require(parse({**base, "tool_choice": "none"}).tools == (), "tool_choice none still offered tools")
-    require(parse({**base, "tool_choice": "required"}).tools == (READ_TOOL, other_tool), "required dropped tools")
+    base = {
+        "messages": [{"content": "hi", "role": "user"}],
+        "tools": [READ_TOOL, other_tool],
+    }
     require(
-        parse({**base, "tool_choice": {"function": {"name": "write"}, "type": "function"}}).tools == (other_tool,),
+        parse(base).tools == (READ_TOOL, other_tool), "auto did not offer every tool"
+    )
+    require(
+        parse({**base, "tool_choice": "none"}).tools == (),
+        "tool_choice none still offered tools",
+    )
+    require(
+        parse({**base, "tool_choice": "required"}).tools == (READ_TOOL, other_tool),
+        "required dropped tools",
+    )
+    require(
+        parse({
+            **base,
+            "tool_choice": {"function": {"name": "write"}, "type": "function"},
+        }).tools
+        == (other_tool,),
         "a named tool_choice did not narrow the tools",
     )
-    require(not parse({**base, "parallel_tool_calls": False}).parallel_tool_calls, "parallel_tool_calls was ignored")
+    require(
+        not parse({**base, "parallel_tool_calls": False}).parallel_tool_calls,
+        "parallel_tool_calls was ignored",
+    )
 
     # History: string arguments become the template's mapping; empty assistant content and tool results pass.
-    history = parse(
-        {
-            "messages": [
-                {"content": "You are helpful.", "role": "system"},
-                {"content": "Show /etc/hosts.", "role": "user"},
-                {
-                    "content": "",
-                    "reasoning_content": "I should read it.",
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "function": {"arguments": '{"path": "/etc/hosts", "limit": 3}', "name": "read"},
-                            "id": "call_1",
-                            "type": "function",
+    history = parse({
+        "messages": [
+            {"content": "You are helpful.", "role": "system"},
+            {"content": "Show /etc/hosts.", "role": "user"},
+            {
+                "content": "",
+                "reasoning_content": "I should read it.",
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "arguments": '{"path": "/etc/hosts", "limit": 3}',
+                            "name": "read",
                         },
-                        {"function": {"arguments": "", "name": "read"}, "id": "call_2", "type": "function"},
-                    ],
-                },
-                {"content": "127.0.0.1 localhost", "role": "tool", "tool_call_id": "call_1"},
-                {"content": "", "role": "tool", "tool_call_id": "call_2"},
-                {"content": None, "role": "assistant"},
-                {"content": [{"text": "Thanks.", "type": "text"}], "role": "user"},
-            ],
-            "tools": [],
-        }
-    )
+                        "id": "call_1",
+                        "type": "function",
+                    },
+                    {
+                        "function": {"arguments": "", "name": "read"},
+                        "id": "call_2",
+                        "type": "function",
+                    },
+                ],
+            },
+            {
+                "content": "127.0.0.1 localhost",
+                "role": "tool",
+                "tool_call_id": "call_1",
+            },
+            {"content": "", "role": "tool", "tool_call_id": "call_2"},
+            {"content": None, "role": "assistant"},
+            {"content": [{"text": "Thanks.", "type": "text"}], "role": "user"},
+        ],
+        "tools": [],
+    })
     rendered = template_messages(history)
     require(
         rendered[2]
@@ -7569,7 +9148,13 @@ def probe_service_contract():
             "reasoning_content": "I should read it.",
             "role": "assistant",
             "tool_calls": [
-                {"function": {"arguments": {"limit": 3, "path": "/etc/hosts"}, "name": "read"}, "type": "function"},
+                {
+                    "function": {
+                        "arguments": {"limit": 3, "path": "/etc/hosts"},
+                        "name": "read",
+                    },
+                    "type": "function",
+                },
                 {"function": {"arguments": {}, "name": "read"}, "type": "function"},
             ],
         }
@@ -7581,31 +9166,52 @@ def probe_service_contract():
     )
 
     # Streaming requests parse, and text content parts join as the chat template joins them.
-    streamed = parse(
-        {
-            "messages": [
-                {"content": [{"text": "Name ", "type": "text"}, {"text": "France's capital.", "type": "text"}], "role": "user"}
-            ],
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+    streamed = parse({
+        "messages": [
+            {
+                "content": [
+                    {"text": "Name ", "type": "text"},
+                    {"text": "France's capital.", "type": "text"},
+                ],
+                "role": "user",
+            }
+        ],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    })
+    require(
+        streamed.stream and streamed.include_usage,
+        "a streaming request lost its stream options",
     )
-    require(streamed.stream and streamed.include_usage, "a streaming request lost its stream options")
-    require(streamed.messages[0].content == "Name France's capital.", "text parts did not join")
-    require(not chat.stream and not chat.include_usage, "a plain request was marked streaming")
+    require(
+        streamed.messages[0].content == "Name France's capital.",
+        "text parts did not join",
+    )
+    require(
+        not chat.stream and not chat.include_usage,
+        "a plain request was marked streaming",
+    )
 
     user = {"content": "hi", "role": "user"}
     assistant_call = {
         "content": "",
         "role": "assistant",
-        "tool_calls": [{"function": {"arguments": "{}", "name": "read"}, "type": "function"}],
+        "tool_calls": [
+            {"function": {"arguments": "{}", "name": "read"}, "type": "function"}
+        ],
     }
 
     def call_history(arguments):
         return {
             "messages": [
                 user,
-                {"content": "", "role": "assistant", "tool_calls": [{"function": {"arguments": arguments, "name": "read"}}]},
+                {
+                    "content": "",
+                    "role": "assistant",
+                    "tool_calls": [
+                        {"function": {"arguments": arguments, "name": "read"}}
+                    ],
+                },
             ]
         }
 
@@ -7623,9 +9229,21 @@ def probe_service_contract():
             Endpoint.COMPLETIONS,
             "max_completion_tokens must be between",
         ),
-        ({"prompt": "ok", "max_tokens": 4, "max_completion_tokens": 5}, Endpoint.COMPLETIONS, "differ"),
-        ({"prompt": "ok", "stream": "yes"}, Endpoint.COMPLETIONS, "stream must be a boolean"),
-        ({"prompt": "ok", "stream_options": {"include_usage": True}}, Endpoint.COMPLETIONS, "requires stream"),
+        (
+            {"prompt": "ok", "max_tokens": 4, "max_completion_tokens": 5},
+            Endpoint.COMPLETIONS,
+            "differ",
+        ),
+        (
+            {"prompt": "ok", "stream": "yes"},
+            Endpoint.COMPLETIONS,
+            "stream must be a boolean",
+        ),
+        (
+            {"prompt": "ok", "stream_options": {"include_usage": True}},
+            Endpoint.COMPLETIONS,
+            "requires stream",
+        ),
         (
             {"prompt": "ok", "stream": True, "stream_options": {"include_usage": 1}},
             Endpoint.COMPLETIONS,
@@ -7640,7 +9258,11 @@ def probe_service_contract():
             "user message",
         ),
         (
-            {"messages": [{"content": "<tool_response>\nx\n</tool_response>", "role": "user"}]},
+            {
+                "messages": [
+                    {"content": "<tool_response>\nx\n</tool_response>", "role": "user"}
+                ]
+            },
             Endpoint.CHAT_COMPLETIONS,
             "user message",
         ),
@@ -7650,48 +9272,134 @@ def probe_service_contract():
             "non-empty text",
         ),
         (
-            {"messages": [{"content": [{"image_url": {"url": "x"}, "type": "image_url"}], "role": "user"}]},
+            {
+                "messages": [
+                    {
+                        "content": [{"image_url": {"url": "x"}, "type": "image_url"}],
+                        "role": "user",
+                    }
+                ]
+            },
             Endpoint.CHAT_COMPLETIONS,
             "must be a text part",
         ),
-        ({"messages": [user, {"content": "late", "role": "system"}]}, Endpoint.CHAT_COMPLETIONS, "must come first"),
-        ({"messages": [{"content": "x", "role": "developer"}, user]}, Endpoint.CHAT_COMPLETIONS, "role is not supported"),
-        ({"messages": [user, {"content": "x", "role": "tool"}]}, Endpoint.CHAT_COMPLETIONS, "must follow an assistant"),
-        ({"messages": [user, assistant_call, {"content": 5, "role": "tool"}]}, Endpoint.CHAT_COMPLETIONS, "must be text"),
         (
-            {"messages": [user, assistant_call, {"content": [{"image_url": {}, "type": "image_url"}], "role": "tool"}]},
+            {"messages": [user, {"content": "late", "role": "system"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "must come first",
+        ),
+        (
+            {"messages": [{"content": "x", "role": "developer"}, user]},
+            Endpoint.CHAT_COMPLETIONS,
+            "role is not supported",
+        ),
+        (
+            {"messages": [user, {"content": "x", "role": "tool"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "must follow an assistant",
+        ),
+        (
+            {"messages": [user, assistant_call, {"content": 5, "role": "tool"}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "must be text",
+        ),
+        (
+            {
+                "messages": [
+                    user,
+                    assistant_call,
+                    {
+                        "content": [{"image_url": {}, "type": "image_url"}],
+                        "role": "tool",
+                    },
+                ]
+            },
             Endpoint.CHAT_COMPLETIONS,
             "must be a text part",
         ),
-        (call_history("{not json"), Endpoint.CHAT_COMPLETIONS, "arguments must be a JSON object"),
-        (call_history("[1, 2]"), Endpoint.CHAT_COMPLETIONS, "arguments must be a JSON object"),
         (
-            {"messages": [user, {"content": "", "role": "assistant", "tool_calls": [{"function": {"arguments": "{}"}}]}]},
+            call_history("{not json"),
+            Endpoint.CHAT_COMPLETIONS,
+            "arguments must be a JSON object",
+        ),
+        (
+            call_history("[1, 2]"),
+            Endpoint.CHAT_COMPLETIONS,
+            "arguments must be a JSON object",
+        ),
+        (
+            {
+                "messages": [
+                    user,
+                    {
+                        "content": "",
+                        "role": "assistant",
+                        "tool_calls": [{"function": {"arguments": "{}"}}],
+                    },
+                ]
+            },
             Endpoint.CHAT_COMPLETIONS,
             "name must be a non-empty string",
         ),
         (
-            {"messages": [user, {"content": "", "reasoning_content": 3, "role": "assistant"}]},
+            {
+                "messages": [
+                    user,
+                    {"content": "", "reasoning_content": 3, "role": "assistant"},
+                ]
+            },
             Endpoint.CHAT_COMPLETIONS,
             "reasoning_content must be a string",
         ),
-        ({"messages": [user], "tools": {"read": READ_TOOL}}, Endpoint.CHAT_COMPLETIONS, "tools must be an array"),
-        ({"messages": [user], "tools": [{"type": "function", "function": {}}]}, Endpoint.CHAT_COMPLETIONS, "name must be"),
-        ({"messages": [user], "tool_choice": "required"}, Endpoint.CHAT_COMPLETIONS, "needs tools"),
         (
-            {"messages": [user], "tool_choice": {"function": {"name": "write"}, "type": "function"}, "tools": [READ_TOOL]},
+            {"messages": [user], "tools": {"read": READ_TOOL}},
+            Endpoint.CHAT_COMPLETIONS,
+            "tools must be an array",
+        ),
+        (
+            {"messages": [user], "tools": [{"type": "function", "function": {}}]},
+            Endpoint.CHAT_COMPLETIONS,
+            "name must be",
+        ),
+        (
+            {"messages": [user], "tool_choice": "required"},
+            Endpoint.CHAT_COMPLETIONS,
+            "needs tools",
+        ),
+        (
+            {
+                "messages": [user],
+                "tool_choice": {"function": {"name": "write"}, "type": "function"},
+                "tools": [READ_TOOL],
+            },
             Endpoint.CHAT_COMPLETIONS,
             "not in tools",
         ),
-        ({"messages": [user], "tool_choice": "sometimes"}, Endpoint.CHAT_COMPLETIONS, "tool_choice must be"),
-        ({"messages": [user], "parallel_tool_calls": "no"}, Endpoint.CHAT_COMPLETIONS, "parallel_tool_calls must be"),
-        ({"messages": [user], "reasoning_effort": "extreme"}, Endpoint.CHAT_COMPLETIONS, "reasoning_effort must be"),
+        (
+            {"messages": [user], "tool_choice": "sometimes"},
+            Endpoint.CHAT_COMPLETIONS,
+            "tool_choice must be",
+        ),
+        (
+            {"messages": [user], "parallel_tool_calls": "no"},
+            Endpoint.CHAT_COMPLETIONS,
+            "parallel_tool_calls must be",
+        ),
+        (
+            {"messages": [user], "reasoning_effort": "extreme"},
+            Endpoint.CHAT_COMPLETIONS,
+            "reasoning_effort must be",
+        ),
         (
             {"messages": [user], "chat_template_kwargs": {"enable_thinking": "yes"}},
             Endpoint.CHAT_COMPLETIONS,
             "enable_thinking must be a boolean",
         ),
-        ({"messages": [user], "chat_template_kwargs": []}, Endpoint.CHAT_COMPLETIONS, "chat_template_kwargs must be"),
+        (
+            {"messages": [user], "chat_template_kwargs": []},
+            Endpoint.CHAT_COMPLETIONS,
+            "chat_template_kwargs must be",
+        ),
     )
     for payload, endpoint, diagnostic in rejected:
         try:
@@ -7739,17 +9447,25 @@ def probe_chat_output_parser():
         for start in range(0, len(text), size):
             events += parser.push(text[start : start + size])
         events += parser.finish()
-        return collect_output(events, parser.completed_call_count, parser.open_call), events
+        return collect_output(
+            events, parser.completed_call_count, parser.open_call
+        ), events
 
     thinking = chat_output_plan("<|im_start|>assistant\n<think>\n", [READ_TOOL], True)
-    no_think = chat_output_plan("<|im_start|>assistant\n<think>\n\n</think>\n\n", [READ_TOOL], True)
-    require(thinking.starts_in_reasoning and not no_think.starts_in_reasoning, "the prompt did not seed the thinking state")
+    no_think = chat_output_plan(
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n", [READ_TOOL], True
+    )
+    require(
+        thinking.starts_in_reasoning and not no_think.starts_in_reasoning,
+        "the prompt did not seed the thinking state",
+    )
 
     output = parse(TOOL_CALL_OUTPUT, thinking)
     require(
         output.reasoning == "reasoning"
         and output.content == ""
-        and [(call.name, call.arguments) for call in output.tool_calls] == [("read", '{"path": "/etc/hosts"}')]
+        and [(call.name, call.arguments) for call in output.tool_calls]
+        == [("read", '{"path": "/etc/hosts"}')]
         and output.completed_call_count == 1
         and not output.open_call,
         f"a complete call parsed wrongly: {output}",
@@ -7764,8 +9480,14 @@ def probe_chat_output_parser():
     require(
         output.reasoning == ""
         and output.content == "Let me look.\n\nDone."
-        and [(call.call_id, call.name, json.loads(call.arguments)) for call in output.tool_calls]
-        == [("call_0", "read", {"limit": 12, "path": "a\n\nb"}), ("call_1", "write", {})]
+        and [
+            (call.call_id, call.name, json.loads(call.arguments))
+            for call in output.tool_calls
+        ]
+        == [
+            ("call_0", "read", {"limit": 12, "path": "a\n\nb"}),
+            ("call_1", "write", {}),
+        ]
         and output.completed_call_count == 2,
         f"multiple calls or the text around them parsed wrongly: {output}",
     )
@@ -7777,11 +9499,14 @@ def probe_chat_output_parser():
     )
     output = parse(multiple, single)
     require(
-        [call.name for call in output.tool_calls] == ["read"] and output.content == "Let me look.\n\nDone.",
+        [call.name for call in output.tool_calls] == ["read"]
+        and output.content == "Let me look.\n\nDone.",
         f"parallel_tool_calls false kept more than the first call: {output}",
     )
 
-    truncated = parse(TOOL_CALL_OUTPUT[: TOOL_CALL_OUTPUT.index("<parameter=path>") + 20], thinking)
+    truncated = parse(
+        TOOL_CALL_OUTPUT[: TOOL_CALL_OUTPUT.index("<parameter=path>") + 20], thinking
+    )
     require(
         truncated.open_call
         and truncated.completed_call_count == 0
@@ -7790,7 +9515,8 @@ def probe_chat_output_parser():
     )
     buffered_cut = parse("<tool_call>\n<function=read>\n<parameter=limit>\n1", no_think)
     require(
-        buffered_cut.open_call and json.loads(buffered_cut.tool_calls[0].arguments) == {"limit": 1},
+        buffered_cut.open_call
+        and json.loads(buffered_cut.tool_calls[0].arguments) == {"limit": 1},
         f"a truncated typed value did not close: {buffered_cut}",
     )
 
@@ -7802,29 +9528,44 @@ def probe_chat_output_parser():
         "output without </think> was not all reasoning",
     )
     require(
-        parse("Hi.\n</think>\n\n", chat_output_plan("x", [], True)).content == "Hi.\n</think>",
+        parse("Hi.\n</think>\n\n", chat_output_plan("x", [], True)).content
+        == "Hi.\n</think>",
         "a no-think output lost text",
     )
-    hidden = parse("Use <tool_call>\n<function=read>\n</function>\n</tool_call>", chat_output_plan("x", [], True))
+    hidden = parse(
+        "Use <tool_call>\n<function=read>\n</function>\n</tool_call>",
+        chat_output_plan("x", [], True),
+    )
     require(
-        hidden.content == "Use <tool_call>\n<function=read>\n</function>\n</tool_call>" and not hidden.tool_calls,
+        hidden.content == "Use <tool_call>\n<function=read>\n</function>\n</tool_call>"
+        and not hidden.tool_calls,
         "a call was parsed with no tools offered",
     )
     malformed = parse('<tool_call>\n{"name": "read"}\n</tool_call>', no_think)
     require(
-        malformed.content == '<tool_call>\n{"name": "read"}\n</tool_call>' and not malformed.tool_calls,
+        malformed.content == '<tool_call>\n{"name": "read"}\n</tool_call>'
+        and not malformed.tool_calls,
         "a call block without a function header was dropped",
     )
 
     # Argument types from the schema: strings stay raw, typed and anyOf/oneOf values are JSON.
-    require(schema_types({"type": "string"}) == frozenset({"string"}), "a string schema lost its type")
+    require(
+        schema_types({"type": "string"}) == frozenset({"string"}),
+        "a string schema lost its type",
+    )
     require(
         schema_types({"anyOf": [{"type": "object"}, {"type": ["null", "integer"]}]})
         == frozenset({"object", "null", "integer"}),
         "anyOf member types were not collected",
     )
-    require(schema_types({"oneOf": [{"type": "string"}, {}]}) is None, "an untyped oneOf member was typed")
-    require(schema_types({"enum": ["a", "b"]}) == frozenset({"string"}), "enum values were not typed")
+    require(
+        schema_types({"oneOf": [{"type": "string"}, {}]}) is None,
+        "an untyped oneOf member was typed",
+    )
+    require(
+        schema_types({"enum": ["a", "b"]}) == frozenset({"string"}),
+        "enum values were not typed",
+    )
     string_only = frozenset({"string"})
     coercions = (
         ("12", string_only, "12"),
@@ -7853,7 +9594,8 @@ def probe_chat_output_parser():
         no_think,
     )
     require(
-        typed.tool_calls[0].arguments == '{"path": "12", "state": {"open": true}, "extra": [1, 2]}',
+        typed.tool_calls[0].arguments
+        == '{"path": "12", "state": {"open": true}, "extra": [1, 2]}',
         f"typed arguments did not follow the schema: {typed.tool_calls[0].arguments}",
     )
 
@@ -7863,16 +9605,25 @@ def probe_chat_output_parser():
         (multiple, no_think),
         (multiple, single),
         ("Plan <tool_c\n</think>\n\nA < B </thinking> <tool_callx>\n\n", thinking),
-        ('<tool_call>\n<function=read>\n<parameter=path>\nx\n</param\n</parameter>\n</function>', no_think),
+        (
+            "<tool_call>\n<function=read>\n<parameter=path>\nx\n</param\n</parameter>\n</function>",
+            no_think,
+        ),
         ("a</think>b<tool_call>\n<function=read>\n<parameter=path>\n/et", thinking),
-        ("r</think>\n\n<tool_call>\n<function= read >\ngarbage<parameter=limit>7</parameter></tool_call>tail", thinking),
+        (
+            "r</think>\n\n<tool_call>\n<function= read >\ngarbage<parameter=limit>7</parameter></tool_call>tail",
+            thinking,
+        ),
         ("\n\n  indented\n\n", no_think),
     )
     for text, plan in samples:
         whole = parse(text, plan)
         for size in (1, 2, 3, 7):
             pieces, _events = chunked(text, plan, size)
-            require(pieces == whole, f"chunks of {size} parsed {text!r} differently: {pieces} != {whole}")
+            require(
+                pieces == whole,
+                f"chunks of {size} parsed {text!r} differently: {pieces} != {whole}",
+            )
 
     _output, events = chunked(TOOL_CALL_OUTPUT, thinking, 1)
     deltas = event_deltas(events)
@@ -7883,11 +9634,23 @@ def probe_chat_output_parser():
         and calls[0]
         == {
             "tool_calls": [
-                {"function": {"arguments": "", "name": "read"}, "id": "call_0", "index": 0, "type": "function"}
+                {
+                    "function": {"arguments": "", "name": "read"},
+                    "id": "call_0",
+                    "index": 0,
+                    "type": "function",
+                }
             ]
         }
-        and all(set(delta) == {"tool_calls"} and set(delta["tool_calls"][0]) == {"function", "index"} for delta in calls[1:])
-        and "".join(delta["tool_calls"][0]["function"]["arguments"] for delta in calls[1:]) == '{"path": "/etc/hosts"}',
+        and all(
+            set(delta) == {"tool_calls"}
+            and set(delta["tool_calls"][0]) == {"function", "index"}
+            for delta in calls[1:]
+        )
+        and "".join(
+            delta["tool_calls"][0]["function"]["arguments"] for delta in calls[1:]
+        )
+        == '{"path": "/etc/hosts"}',
         f"stream deltas have the wrong shape: {deltas}",
     )
     require(len(calls) > 3, "a string argument was not streamed as it arrived")
@@ -7909,50 +9672,72 @@ def probe_chat_template_rendering():
     tokenizer = FixtureTokenizer()
 
     def parse(payload):
-        return parse_completion_request(payload, Endpoint.CHAT_COMPLETIONS, "Qwen3.8-27B", 64)
+        return parse_completion_request(
+            payload, Endpoint.CHAT_COMPLETIONS, "Qwen3.8-27B", 64
+        )
 
-    request = parse(
-        {
-            "messages": [
-                {"content": "Show /etc/hosts.", "role": "user"},
-                {
-                    "content": "",
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "function": {"arguments": '{"path": "/etc/hosts", "limit": 3}', "name": "read"},
-                            "id": "call_1",
-                            "type": "function",
-                        }
-                    ],
-                },
-                {"content": "127.0.0.1 localhost", "role": "tool", "tool_call_id": "call_1"},
-            ],
-            "tools": [READ_TOOL],
-        }
-    )
+    request = parse({
+        "messages": [
+            {"content": "Show /etc/hosts.", "role": "user"},
+            {
+                "content": "",
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "arguments": '{"path": "/etc/hosts", "limit": 3}',
+                            "name": "read",
+                        },
+                        "id": "call_1",
+                        "type": "function",
+                    }
+                ],
+            },
+            {
+                "content": "127.0.0.1 localhost",
+                "role": "tool",
+                "tool_call_id": "call_1",
+            },
+        ],
+        "tools": [READ_TOOL],
+    })
     prompt = render_prompt(request, tokenizer)
     require(
-        "<parameter=path>\n/etc/hosts\n</parameter>\n<parameter=limit>\n3\n</parameter>" in prompt
+        "<parameter=path>\n/etc/hosts\n</parameter>\n<parameter=limit>\n3\n</parameter>"
+        in prompt
         and "<tool_response>\n127.0.0.1 localhost\n</tool_response>" in prompt
         and json.dumps(READ_TOOL, ensure_ascii=False) in prompt,
         f"history or tools did not render: {prompt!r}",
     )
     require(
-        prompt.endswith("<think>\n") and admit_prompt(request, prompt, 10, 2048).output_plan.starts_in_reasoning,
+        prompt.endswith("<think>\n")
+        and admit_prompt(request, prompt, 10, 2048).output_plan.starts_in_reasoning,
         "the default prompt did not open reasoning",
     )
-    quiet = parse({"enable_thinking": False, "messages": [{"content": "hi", "role": "user"}], "tools": [READ_TOOL]})
+    quiet = parse({
+        "enable_thinking": False,
+        "messages": [{"content": "hi", "role": "user"}],
+        "tools": [READ_TOOL],
+    })
     quiet_prompt = render_prompt(quiet, tokenizer)
     plan = admit_prompt(quiet, quiet_prompt, 10, 2048).output_plan
     require(
-        quiet_prompt.endswith("</think>\n\n") and not plan.starts_in_reasoning and plan.parse_tool_calls,
+        quiet_prompt.endswith("</think>\n\n")
+        and not plan.starts_in_reasoning
+        and plan.parse_tool_calls,
         "enable_thinking false did not close the reasoning section",
     )
-    hidden = parse({"messages": [{"content": "hi", "role": "user"}], "tool_choice": "none", "tools": [READ_TOOL]})
+    hidden = parse({
+        "messages": [{"content": "hi", "role": "user"}],
+        "tool_choice": "none",
+        "tools": [READ_TOOL],
+    })
     hidden_prompt = render_prompt(hidden, tokenizer)
     require(
-        "<tools>" not in hidden_prompt and not admit_prompt(hidden, hidden_prompt, 10, 2048).output_plan.parse_tool_calls,
+        "<tools>" not in hidden_prompt
+        and not admit_prompt(
+            hidden, hidden_prompt, 10, 2048
+        ).output_plan.parse_tool_calls,
         "tool_choice none still offered tools",
     )
 
@@ -7966,7 +9751,11 @@ def probe_chat_template_rendering():
             prompt=None,
             messages=(
                 ChatMessage(role="user", content="hi"),
-                ChatMessage(role="assistant", content="", tool_calls=(ToolCall(name="read", arguments='{"a": 1}'),)),
+                ChatMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(ToolCall(name="read", arguments='{"a": 1}'),),
+                ),
             ),
         ),
     )
@@ -7974,7 +9763,10 @@ def probe_chat_template_rendering():
         try:
             render_prompt(request, tokenizer)
         except RequestValidationError as error:
-            require("chat template rejected" in str(error), f"wrong template diagnostic: {error}")
+            require(
+                "chat template rejected" in str(error),
+                f"wrong template diagnostic: {error}",
+            )
         else:
             require(False, "a template failure was not a request error")
 
@@ -8000,7 +9792,9 @@ def probe_streaming():
 
     def decode(token_ids, skip_special_tokens=True):
         decoded_lengths.append(len(token_ids))
-        return b"".join(pieces[token] for token in token_ids).decode("utf-8", errors="replace")
+        return b"".join(pieces[token] for token in token_ids).decode(
+            "utf-8", errors="replace"
+        )
 
     detokenizer = IncrementalDetokenizer(decode, stop_token_ids)
     deltas = [detokenizer.push(token) for token in (1, 2, 3, 4, 9, 5)]
@@ -8015,19 +9809,33 @@ def probe_streaming():
     )
     late = IncrementalDetokenizer(decode, stop_token_ids)
     late.push(1)
-    require(late.finish([1, 2, 5]) == "lo !" and not late.diverged, "the final tokens did not complete the stream")
-    require(late.finish([2]) == "" and late.diverged, "diverging final tokens were not flagged")
+    require(
+        late.finish([1, 2, 5]) == "lo !" and not late.diverged,
+        "the final tokens did not complete the stream",
+    )
+    require(
+        late.finish([2]) == "" and late.diverged,
+        "diverging final tokens were not flagged",
+    )
     cut = IncrementalDetokenizer(decode, stop_token_ids)
     cut.push(3)
-    require(cut.finish([3]) == "\ufffd", "the final flush held back a partial character")
+    require(
+        cut.finish([3]) == "\ufffd", "the final flush held back a partial character"
+    )
     decoded_lengths.clear()
     long = IncrementalDetokenizer(decode, stop_token_ids)
     long_text = "".join(long.push(token) for token in [1, 2, 3, 4, 5] * 400)
     require(long_text == "Hello €!" * 400, "a long stream lost text")
-    require(max(decoded_lengths) <= 3, f"streaming decoded a growing window: {max(decoded_lengths)} tokens")
+    require(
+        max(decoded_lengths) <= 3,
+        f"streaming decoded a growing window: {max(decoded_lengths)} tokens",
+    )
 
     # The model's chat output as small text pieces; tags split across pieces.
-    script_pieces = [TOOL_CALL_OUTPUT[index : index + 3] for index in range(0, len(TOOL_CALL_OUTPUT), 3)]
+    script_pieces = [
+        TOOL_CALL_OUTPUT[index : index + 3]
+        for index in range(0, len(TOOL_CALL_OUTPUT), 3)
+    ]
     for index, piece in enumerate(script_pieces):
         pieces[100 + index] = piece.encode("utf-8")
     tool_tokens = [100 + index for index in range(len(script_pieces))]
@@ -8048,7 +9856,11 @@ def probe_streaming():
 
         def prepare(self, request):
             prompt = render_prompt(request, FixtureTokenizer())
-            prompt_tokens = 2048 if request.messages and request.messages[-1].content == "too long" else 3
+            prompt_tokens = (
+                2048
+                if request.messages and request.messages[-1].content == "too long"
+                else 3
+            )
             return PreparedGeneration(
                 request=admit_prompt(request, prompt, prompt_tokens, 2048),
                 token_ids=None,
@@ -8084,32 +9896,57 @@ def probe_streaming():
 
     def post(body, path="/v1/chat/completions"):
         payload = json.dumps(body)
-        connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=30)
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_address[1], timeout=30
+        )
         connection.request(
             "POST",
             path,
             body=payload,
-            headers={"Content-Type": "application/json", "Content-Length": str(len(payload))},
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(payload)),
+            },
         )
         response = connection.getresponse()
-        return response.status, response.getheader("Content-Type"), response.read().decode("utf-8")
+        return (
+            response.status,
+            response.getheader("Content-Type"),
+            response.read().decode("utf-8"),
+        )
 
     def stream(body, path="/v1/chat/completions"):
-        status, content_type, text = post({**body, "stream": True, "stream_options": {"include_usage": True}}, path)
+        status, content_type, text = post(
+            {**body, "stream": True, "stream_options": {"include_usage": True}}, path
+        )
         require(
             status == 200 and content_type == "text/event-stream",
             f"a stream answered {status} {content_type}: {text[:200]}",
         )
-        events = [line[len("data: ") :] for line in text.split("\n") if line.startswith("data: ")]
+        events = [
+            line[len("data: ") :]
+            for line in text.split("\n")
+            if line.startswith("data: ")
+        ]
         require(events[-1] == "[DONE]", "the stream did not end with [DONE]")
         chunks = [json.loads(event) for event in events[:-1]]
-        require(len({chunk["id"] for chunk in chunks}) == 1, "stream chunks carry different ids")
+        require(
+            len({chunk["id"] for chunk in chunks}) == 1,
+            "stream chunks carry different ids",
+        )
         require(
             chunks[-1]["choices"] == [] and "completion_tokens" in chunks[-1]["usage"],
             "the stream lacks its usage chunk",
         )
-        finals = [chunk for chunk in chunks if chunk["choices"] and chunk["choices"][0]["finish_reason"]]
-        require(len(finals) == 1 and finals[0] is chunks[-2], "the stream lacks exactly one finish chunk")
+        finals = [
+            chunk
+            for chunk in chunks
+            if chunk["choices"] and chunk["choices"][0]["finish_reason"]
+        ]
+        require(
+            len(finals) == 1 and finals[0] is chunks[-2],
+            "the stream lacks exactly one finish chunk",
+        )
         return chunks, finals[0]["choices"][0]["finish_reason"]
 
     def joined(chunks):
@@ -8122,16 +9959,24 @@ def probe_streaming():
             message["content"] += delta.get("content", "")
             message["reasoning_content"] += delta.get("reasoning_content", "")
             for call in delta.get("tool_calls", []):
-                entry = message["tool_calls"].setdefault(call["index"], {"arguments": "", "name": None, "id": None})
+                entry = message["tool_calls"].setdefault(
+                    call["index"], {"arguments": "", "name": None, "id": None}
+                )
                 entry["id"] = call.get("id", entry["id"])
                 entry["name"] = call["function"].get("name", entry["name"])
                 entry["arguments"] += call["function"]["arguments"]
         return message
 
     def no_think(content):
-        return {"enable_thinking": False, "messages": [{"content": content, "role": "user"}]}
+        return {
+            "enable_thinking": False,
+            "messages": [{"content": content, "role": "user"}],
+        }
 
-    tool_request = {"messages": [{"content": "call", "role": "user"}], "tools": [READ_TOOL]}
+    tool_request = {
+        "messages": [{"content": "call", "role": "user"}],
+        "tools": [READ_TOOL],
+    }
     try:
         chunks, finish_reason = stream(no_think("hi"))
         require(
@@ -8139,10 +9984,16 @@ def probe_streaming():
             "the stream did not open with the assistant role",
         )
         message = joined(chunks)
-        require(message["content"] == "Hello €" and finish_reason == "stop", f"the streamed text differs: {message}")
+        require(
+            message["content"] == "Hello €" and finish_reason == "stop",
+            f"the streamed text differs: {message}",
+        )
 
         for name in ("call", "late"):
-            chunks, finish_reason = stream({**tool_request, "messages": [{"content": name, "role": "user"}]})
+            chunks, finish_reason = stream({
+                **tool_request,
+                "messages": [{"content": name, "role": "user"}],
+            })
             message = joined(chunks)
             call = message["tool_calls"].get(0, {})
             require(
@@ -8157,7 +10008,8 @@ def probe_streaming():
             )
             require(
                 all(
-                    set(chunk["choices"][0]["delta"]) <= {"content", "role", "reasoning_content", "tool_calls"}
+                    set(chunk["choices"][0]["delta"])
+                    <= {"content", "role", "reasoning_content", "tool_calls"}
                     for chunk in chunks
                     if chunk["choices"]
                 ),
@@ -8168,7 +10020,10 @@ def probe_streaming():
             for chunk in stream(tool_request)[0]
             if chunk["choices"] and "tool_calls" in chunk["choices"][0]["delta"]
         ]
-        require(len(streamed_arguments) > 2, "the call arguments were not streamed as they arrived")
+        require(
+            len(streamed_arguments) > 2,
+            "the call arguments were not streamed as they arrived",
+        )
 
         status, _content_type, body = post(tool_request)
         choice = json.loads(body)["choices"][0]
@@ -8177,7 +10032,8 @@ def probe_streaming():
             and choice["finish_reason"] == "tool_calls"
             and choice["message"]["content"] is None
             and choice["message"]["reasoning_content"] == "reasoning"
-            and choice["message"]["tool_calls"][0]["function"] == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
+            and choice["message"]["tool_calls"][0]["function"]
+            == {"arguments": '{"path": "/etc/hosts"}', "name": "read"},
             f"the complete tool-call response differs: {choice}",
         )
 
@@ -8189,14 +10045,20 @@ def probe_streaming():
         require(
             finish_reason == "length"
             and cut_choice["finish_reason"] == "length"
-            and json.loads(cut_arguments) == json.loads(cut_choice["message"]["tool_calls"][0]["function"]["arguments"]),
+            and json.loads(cut_arguments)
+            == json.loads(
+                cut_choice["message"]["tool_calls"][0]["function"]["arguments"]
+            ),
             f"a call cut by the budget did not finish with length: {finish_reason} {cut_arguments!r} {cut_choice}",
         )
 
         # Plain completions keep raw text: no reasoning split, no call parsing.
-        chunks, finish_reason = stream({"prompt": "x", "max_tokens": 8}, "/v1/completions")
+        chunks, finish_reason = stream(
+            {"prompt": "x", "max_tokens": 8}, "/v1/completions"
+        )
         require(
-            "".join(chunk["choices"][0]["text"] for chunk in chunks if chunk["choices"]) == "Hello €"
+            "".join(chunk["choices"][0]["text"] for chunk in chunks if chunk["choices"])
+            == "Hello €"
             and finish_reason == "stop",
             "a completion stream changed its text",
         )
@@ -8205,19 +10067,26 @@ def probe_streaming():
             (no_think("too long"), "maximum context length is 2048 tokens"),
             (no_think("template error"), "chat template rejected"),
             (
-                {"messages": [{"content": "hi", "role": "user"}, {"content": "x", "role": "tool"}]},
+                {
+                    "messages": [
+                        {"content": "hi", "role": "user"},
+                        {"content": "x", "role": "tool"},
+                    ]
+                },
                 "must follow an assistant",
             ),
         ):
             for streaming in (True, False):
                 status, _content_type, answer = post({**body, "stream": streaming})
                 require(
-                    status == 400 and diagnostic in json.loads(answer)["error"]["message"],
+                    status == 400
+                    and diagnostic in json.loads(answer)["error"]["message"],
                     f"a rejected request (stream={streaming}) did not answer a JSON 400: {status} {answer}",
                 )
         status, _content_type, body = post(no_think("hi"))
         require(
-            status == 200 and json.loads(body)["choices"][0]["message"]["content"] == "Hello €",
+            status == 200
+            and json.loads(body)["choices"][0]["message"]["content"] == "Hello €",
             "a plain request stopped answering JSON",
         )
     finally:
@@ -10629,7 +12498,9 @@ def probe_gdn_grid_instance_cap():
     for batch, want_cores, want_length in ((1, 24, 1), (4, 96, 1), (8, 96, 2)):
         plan = plan_chunks(24 * batch, 110)
         require(plan.active_cores == want_cores, f"B={batch} used the wrong core count")
-        require(plan.chunk_length == want_length, f"B={batch} used the wrong chunk length")
+        require(
+            plan.chunk_length == want_length, f"B={batch} used the wrong chunk length"
+        )
         require(
             sum(chunk.count for chunk in plan.chunks) == 24 * batch,
             f"B={batch} plan does not cover every instance",
@@ -10639,7 +12510,10 @@ def probe_gdn_grid_instance_cap():
     for instances in (1, 16, 24, 96, 110):
         plan = plan_chunks(instances, 110)
         require(plan.chunk_length == 1, "in-range plan used a chunk above one")
-        require(plan.active_cores == instances, "in-range plan did not use one core per instance")
+        require(
+            plan.active_cores == instances,
+            "in-range plan did not use one core per instance",
+        )
         require(
             [chunk.start for chunk in plan.chunks] == list(range(instances)),
             "in-range plan did not reproduce the one-instance-per-core mapping",
@@ -10656,14 +12530,24 @@ def probe_gdn_grid_instance_cap():
             ),
             "chunk start is not core_index * chunk_length",
         )
-        short = [index for index, c in enumerate(plan.chunks) if c.count < plan.chunk_length]
+        short = [
+            index for index, c in enumerate(plan.chunks) if c.count < plan.chunk_length
+        ]
         require(
             short in ([], [len(plan.chunks) - 1]),
             "a chunk other than the final one is short",
         )
 
     # Invalid inputs.
-    for bad in ((0, 110), (-1, 110), (1, 0), (1, -1), (1.5, 110), (110.0, 110), (True, 1)):
+    for bad in (
+        (0, 110),
+        (-1, 110),
+        (1, 0),
+        (1, -1),
+        (1.5, 110),
+        (110.0, 110),
+        (True, 1),
+    ):
         try:
             plan_chunks(*bad)
         except GridAssignmentError:
@@ -10675,7 +12559,9 @@ def probe_gdn_grid_instance_cap():
     malformed = {
         "gap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 2, 1))),
         "overlap": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 0, 1))),
-        "short interior": ChunkPlan(4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1), Chunk(2, 3, 1), Chunk(3, 4, 0))),
+        "short interior": ChunkPlan(
+            4, 4, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1), Chunk(2, 3, 1), Chunk(3, 4, 0))
+        ),
         "over core count": ChunkPlan(2, 1, 1, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
         "duplicate core": ChunkPlan(2, 4, 1, (Chunk(0, 0, 1), Chunk(0, 1, 1))),
         "zero chunk length": ChunkPlan(2, 4, 0, (Chunk(0, 0, 1), Chunk(1, 1, 1))),
@@ -10706,10 +12592,7 @@ def probe_gdn_grid_mapping_unchanged():
         """Pre-change factory: one head per core, core {h/grid_y, h%grid_y}."""
         if num_heads > grid_x * grid_y:
             return None  # the removed TT_FATAL refused the launch
-        return {
-            (head // grid_y, head % grid_y): (head,)
-            for head in range(num_heads)
-        }
+        return {(head // grid_y, head % grid_y): (head,) for head in range(num_heads)}
 
     def decode_post(num_heads, grid_x, grid_y, ceil_div=True):
         """Chunked factory: contiguous ceil(n/k) instances per active core."""
@@ -10741,10 +12624,7 @@ def probe_gdn_grid_mapping_unchanged():
             return None  # the removed TT_FATAL refused the launch
         nv = scan_nv(bh, vt, ncores)
         total = bh * nv
-        return {
-            (i % grid_x, i // grid_x): ((i // nv, i % nv),)
-            for i in range(total)
-        }
+        return {(i % grid_x, i // grid_x): ((i // nv, i % nv),) for i in range(total)}
 
     def scan_post(bh, vt, grid_x, grid_y, bounded=True):
         """Chunked distribute_scan with wi_start/wi_count per active core."""
@@ -10759,9 +12639,7 @@ def probe_gdn_grid_mapping_unchanged():
         for i in range(active):
             start = i * per_core
             count = min(per_core, total - start)
-            instances = tuple(
-                (wi // nv, wi % nv) for wi in range(start, start + count)
-            )
+            instances = tuple((wi // nv, wi % nv) for wi in range(start, start + count))
             mapping[(i % grid_x, i // grid_x)] = instances
         return mapping
 
@@ -10818,6 +12696,7 @@ def probe_gdn_grid_mapping_unchanged():
         or scan_post(48, 8, 13, 10, bounded=False) != scan_pre(48, 8, 13, 10),
         "an unbounded NV search was not distinguished from the pre-change mapping",
     )
+
 
 # r[verify tenstorrent.qwen38_p150x2.grouped_prefill_eligibility]
 def probe_grouped_prefill_eligibility():
@@ -10897,8 +12776,13 @@ def probe_grouped_prefill_eligibility():
         chunked_plan.head_bound == 9,
         f"chunked TP2 head bound is {chunked_plan.head_bound}, expected 9",
     )
-    require(chunked_plan.groups == (tuple(range(8)),), "chunked plan split an eight-user group")
-    require(chunked_plan.destinations == eight_slots, "chunked plan reordered the slots")
+    require(
+        chunked_plan.groups == (tuple(range(8)),),
+        "chunked plan split an eight-user group",
+    )
+    require(
+        chunked_plan.destinations == eight_slots, "chunked plan reordered the slots"
+    )
 
     # Derived split: eight TP2 users on a one-instance scan exceed a single
     # group of eight (110 // 24 = 4 per group), so the plan must split them
@@ -10915,7 +12799,10 @@ def probe_grouped_prefill_eligibility():
         units_per_user=per_user_scratch_bytes,
     )
     require(split_plan.grouped, "eight TP2 users were not grouped at all")
-    require(split_plan.head_bound == 4, f"TP2 split bound is {split_plan.head_bound}, expected 4")
+    require(
+        split_plan.head_bound == 4,
+        f"TP2 split bound is {split_plan.head_bound}, expected 4",
+    )
     require(
         split_plan.groups == ((0, 1, 2, 3), (4, 5, 6, 7)),
         f"TP2 split planned the wrong groups: {split_plan.groups}",
@@ -10960,7 +12847,9 @@ def probe_grouped_prefill_eligibility():
         units_per_user=per_user_scratch_bytes,
     )
     require(not empty.grouped, "an empty group was planned as grouped")
-    require(empty.reason == REASON_EMPTY_GROUP, f"wrong empty-group reason: {empty.reason}")
+    require(
+        empty.reason == REASON_EMPTY_GROUP, f"wrong empty-group reason: {empty.reason}"
+    )
     require(empty.groups == (), "an empty group produced rows")
 
     single = plan_grouped_prefill(
@@ -10975,7 +12864,10 @@ def probe_grouped_prefill_eligibility():
         units_per_user=per_user_scratch_bytes,
     )
     require(not single.grouped, "a single user was planned as a group")
-    require(single.reason == REASON_SINGLE_USER, f"wrong single-user reason: {single.reason}")
+    require(
+        single.reason == REASON_SINGLE_USER,
+        f"wrong single-user reason: {single.reason}",
+    )
 
     # Negative: the TP4 geometry the source literal was written for derives 9,
     # so the bound may not be taken from the literal at either width.
@@ -10990,7 +12882,9 @@ def probe_grouped_prefill_eligibility():
         capacity_units=eight_users_scratch_bytes,
         units_per_user=per_user_scratch_bytes,
     )
-    require(tp4_plan.head_bound == 9, f"TP4 head bound is {tp4_plan.head_bound}, expected 9")
+    require(
+        tp4_plan.head_bound == 9, f"TP4 head bound is {tp4_plan.head_bound}, expected 9"
+    )
 
     # Negative: a bucket above the single-pass multiple is a per-user candidate.
     long_bucket = plan_grouped_prefill(
@@ -11072,10 +12966,16 @@ def probe_grouped_prefill_eligibility():
         except GroupedPrefillPolicyError:
             pass
         else:
-            raise AssertionError(f"invalid grouped-prefill request was accepted: {overrides}")
+            raise AssertionError(
+                f"invalid grouped-prefill request was accepted: {overrides}"
+            )
 
     for contradictory in (
-        {"chunked_scan_instances": False, "compute_cores": 110, "instances_per_core": 2},
+        {
+            "chunked_scan_instances": False,
+            "compute_cores": 110,
+            "instances_per_core": 2,
+        },
         {"chunked_scan_instances": True, "compute_cores": 110, "instances_per_core": 0},
         {"chunked_scan_instances": True, "compute_cores": 0, "instances_per_core": 1},
     ):
@@ -11084,7 +12984,9 @@ def probe_grouped_prefill_eligibility():
         except GroupedPrefillPolicyError:
             pass
         else:
-            raise AssertionError(f"contradictory capability was accepted: {contradictory}")
+            raise AssertionError(
+                f"contradictory capability was accepted: {contradictory}"
+            )
 
 
 # r[verify tenstorrent.qwen38_p150x2.grouped_prefill_state]
@@ -11114,9 +13016,15 @@ def probe_grouped_prefill_routing():
         gdn_scan_chunked_instances=False, source=PACKAGE_CAPABILITY_SOURCE
     )
 
-    def stub(record, mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid), capacity=8):
+    def stub(
+        record,
+        mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid),
+        capacity=8,
+    ):
         value_heads = 24
-        layer = SimpleNamespace(is_full_attention=False, attention=SimpleNamespace(Nv=value_heads))
+        layer = SimpleNamespace(
+            is_full_attention=False, attention=SimpleNamespace(Nv=value_heads)
+        )
         full = SimpleNamespace(is_full_attention=True, attention=SimpleNamespace(Nv=0))
 
         class RouteStub(BatchedTracedDecodeAdapter):
@@ -11147,11 +13055,17 @@ def probe_grouped_prefill_routing():
             not grouped_prefill_enabled({GROUPED_PREFILL_ENV: value}),
             f"grouped prefill accepted {value}",
         )
-    grouped, size, reason = plan(stub(chunked_record), 8, eight_lengths, grouped_enabled=False)
-    require((not grouped) and reason == "grouped-prefill-disabled", "the gate did not hold")
+    grouped, size, reason = plan(
+        stub(chunked_record), 8, eight_lengths, grouped_enabled=False
+    )
+    require(
+        (not grouped) and reason == "grouped-prefill-disabled", "the gate did not hold"
+    )
 
     # Chunked runtime: one group of eight at the validated per-core chunk.
-    grouped, size, reason = plan(stub(chunked_record), 8, eight_lengths, grouped_enabled=True)
+    grouped, size, reason = plan(
+        stub(chunked_record), 8, eight_lengths, grouped_enabled=True
+    )
     require(grouped and size == 8, f"chunked route planned {grouped}/{size}/{reason}")
     require(reason == "grouped-eligible", f"wrong grouped reason: {reason}")
 
@@ -11167,7 +13081,9 @@ def probe_grouped_prefill_routing():
 
     # An unreadable grid refuses grouping rather than guessing a core count.
     broken_mesh = SimpleNamespace(
-        compute_with_storage_grid_size=lambda: (_ for _ in ()).throw(RuntimeError("no grid"))
+        compute_with_storage_grid_size=lambda: (_ for _ in ()).throw(
+            RuntimeError("no grid")
+        )
     )
     grouped, size, reason = plan(
         stub(chunked_record, mesh=broken_mesh), 8, eight_lengths, grouped_enabled=True
@@ -11215,7 +13131,8 @@ def probe_grouped_prefill_routing():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         require(
-            load_runtime_capability_record(root).source == NON_CHUNKED_CAPABILITY_SOURCE,
+            load_runtime_capability_record(root).source
+            == NON_CHUNKED_CAPABILITY_SOURCE,
             "a missing capability record was not refused",
         )
         share = root / "share" / "qwen36"
@@ -11237,7 +13154,8 @@ def probe_grouped_prefill_routing():
         )
         loaded = load_runtime_capability_record(root)
         require(
-            loaded.gdn_scan_chunked_instances and loaded.source == PACKAGE_CAPABILITY_SOURCE,
+            loaded.gdn_scan_chunked_instances
+            and loaded.source == PACKAGE_CAPABILITY_SOURCE,
             "a valid capability record was not read",
         )
         record_path.write_text(
@@ -11270,25 +13188,42 @@ def probe_end_of_sequence():
     )
 
     stops = frozenset({7, 9})
-    require(finish_generation([1, 2, 7, 3, 9], stops) == ([1, 2], FINISH_STOP), "stop token not truncated")
-    require(finish_generation([7], stops) == ([], FINISH_STOP), "a leading stop token was kept")
-    require(finish_generation([1, 2, 3], stops) == ([1, 2, 3], FINISH_LENGTH), "an unstopped run was cut")
-    require(finish_generation([1, 7], frozenset()) == ([1, 7], FINISH_LENGTH), "an empty stop set stopped")
+    require(
+        finish_generation([1, 2, 7, 3, 9], stops) == ([1, 2], FINISH_STOP),
+        "stop token not truncated",
+    )
+    require(
+        finish_generation([7], stops) == ([], FINISH_STOP),
+        "a leading stop token was kept",
+    )
+    require(
+        finish_generation([1, 2, 3], stops) == ([1, 2, 3], FINISH_LENGTH),
+        "an unstopped run was cut",
+    )
+    require(
+        finish_generation([1, 7], frozenset()) == ([1, 7], FINISH_LENGTH),
+        "an empty stop set stopped",
+    )
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        (root / "generation_config.json").write_text(json.dumps({"eos_token_id": [248046, 248044]}))
+        (root / "generation_config.json").write_text(
+            json.dumps({"eos_token_id": [248046, 248044]})
+        )
         require(
-            load_stop_token_ids(root, SimpleNamespace(eos_token_id=248046)) == frozenset({248046, 248044}),
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=248046))
+            == frozenset({248046, 248044}),
             "generation_config stop ids were not read",
         )
         (root / "generation_config.json").write_text(json.dumps({"eos_token_id": 5}))
         require(
-            load_stop_token_ids(root, SimpleNamespace(eos_token_id=6)) == frozenset({5, 6}),
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=6))
+            == frozenset({5, 6}),
             "a scalar stop id or the tokenizer's was dropped",
         )
         (root / "generation_config.json").unlink()
         require(
-            load_stop_token_ids(root, SimpleNamespace(eos_token_id=None)) == frozenset(),
+            load_stop_token_ids(root, SimpleNamespace(eos_token_id=None))
+            == frozenset(),
             "stop ids appeared without a source",
         )
 
@@ -11301,10 +13236,13 @@ def probe_masked_prefill_traces():
     from unittest import mock
 
     import torch
-
     from models.demos.blackhole.qwen36.tt.model import Qwen36Model
-    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import seq_valid_mask
-    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_gated_deltanet import conv_valid_selector
+    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import (
+        seq_valid_mask,
+    )
+    from models.experimental.gated_attention_gated_deltanet.tt.ttnn_gated_deltanet import (
+        conv_valid_selector,
+    )
     from qwen36_service.batch_decode_adapter import (
         TRACED_PREFILL_ENV,
         BatchedTracedDecodeAdapter,
@@ -11315,7 +13253,9 @@ def probe_masked_prefill_traces():
 
     def adapter_on(grid_x, grid_y):
         grid = SimpleNamespace(x=grid_x, y=grid_y)
-        return SimpleNamespace(mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid))
+        return SimpleNamespace(
+            mesh=SimpleNamespace(compute_with_storage_grid_size=lambda: grid)
+        )
 
     supported = BatchedTracedDecodeAdapter.decode_width_supported
     p150 = adapter_on(11, 10)
@@ -11323,7 +13263,10 @@ def probe_masked_prefill_traces():
         [w for w in range(1, 17) if not supported(p150, w)] == [13],
         "an 11x10 grid must shard every width to 16 except 13",
     )
-    require(not supported(adapter_on(8, 8), 11), "a prime width above an 8x8 grid was accepted")
+    require(
+        not supported(adapter_on(8, 8), 11),
+        "a prime width above an 8x8 grid was accepted",
+    )
 
     # The sampled-fusion kernel places one (user, local value head) instance per core,
     # or two on a runtime that chunks instances: 4 or 9 users of 24 heads on 110 cores.
@@ -11334,19 +13277,21 @@ def probe_masked_prefill_traces():
             _local_value_heads=lambda: 24,
             _capability_record=SimpleNamespace(gdn_scan_chunked_instances=chunked),
         )
-        adapter.sampled_width_supported = lambda w: BatchedTracedDecodeAdapter.sampled_width_supported(
-            adapter, w
+        adapter.sampled_width_supported = lambda w: (
+            BatchedTracedDecodeAdapter.sampled_width_supported(adapter, w)
         )
         return adapter
 
     one_per_core = sampled_adapter(False)
     one_per_core.group_capacity_blocks = 16
     require(
-        [w for w in range(1, 17) if one_per_core.sampled_width_supported(w)] == [1, 2, 3, 4],
+        [w for w in range(1, 17) if one_per_core.sampled_width_supported(w)]
+        == [1, 2, 3, 4],
         "the sampled kernel must fit exactly 4 users of 24 heads on 110 cores",
     )
     require(
-        [w for w in range(1, 17) if sampled_adapter(True).sampled_width_supported(w)] == list(range(1, 10)),
+        [w for w in range(1, 17) if sampled_adapter(True).sampled_width_supported(w)]
+        == list(range(1, 10)),
         "two instances per core must fit exactly 9 users of 24 heads on 110 cores",
     )
 
@@ -11354,7 +13299,9 @@ def probe_masked_prefill_traces():
     # all-sampled batch until the sampled kernel fits it.
     def take(temperatures, sampled_admission=False):
         pending = [
-            SimpleNamespace(request=SimpleNamespace(max_tokens=8, temperature=temperature), index=i)
+            SimpleNamespace(
+                request=SimpleNamespace(max_tokens=8, temperature=temperature), index=i
+            )
             for i, temperature in enumerate(temperatures)
         ]
         worker = SimpleNamespace(
@@ -11369,8 +13316,13 @@ def probe_masked_prefill_traces():
         batch = BatchGenerationCoordinator._take_batch(worker)
         return [item.index for item in batch], [item.index for item in worker._queue]
 
-    require(take([0.0] * 13) == (list(range(12)), [12]), "a 13-request batch was not trimmed to 12")
-    require(take([0.0] * 11) == (list(range(11)), []), "an 11-request batch was trimmed")
+    require(
+        take([0.0] * 13) == (list(range(12)), [12]),
+        "a 13-request batch was not trimmed to 12",
+    )
+    require(
+        take([0.0] * 11) == (list(range(11)), []), "an 11-request batch was trimmed"
+    )
     require(take([0.0] * 16) == (list(range(16)), []), "a full batch was trimmed")
     require(
         take([0.7] * 6, sampled_admission=True) == ([0, 1, 2, 3], [4, 5]),
@@ -11380,7 +13332,10 @@ def probe_masked_prefill_traces():
         take([0.7] * 5 + [0.0], sampled_admission=True) == (list(range(6)), []),
         "a mixed batch, which decodes deterministically, was trimmed to the sampled capacity",
     )
-    require(take([0.7] * 6) == (list(range(6)), []), "a batch without sampled admission was trimmed")
+    require(
+        take([0.7] * 6) == (list(range(6)), []),
+        "a batch without sampled admission was trimmed",
+    )
 
     # Trace preparation warms the sampled route only at the widths its kernel fits.
     warmed = []
@@ -11420,21 +13375,34 @@ def probe_masked_prefill_traces():
         )
     require(buckets == (128,), "trace preparation did not report the captured buckets")
     require(
-        [w for route, w in warmed if route == ROUTE_FUSED_STEP] == [w for w in range(1, 17) if w != 13],
+        [w for route, w in warmed if route == ROUTE_FUSED_STEP]
+        == [w for w in range(1, 17) if w != 13],
         "the deterministic warm-up skipped a decodable width",
     )
     require(
         [w for route, w in warmed if route == ROUTE_SAMPLED] == [1, 2, 3, 4],
         "the sampled warm-up ran a width its kernel cannot fit",
     )
-    require(preparing.fusion_mode == ROUTE_FUSED_STEP, "trace preparation left the sampled route selected")
+    require(
+        preparing.fusion_mode == ROUTE_FUSED_STEP,
+        "trace preparation left the sampled route selected",
+    )
 
-    for value, expected in (("1", True), ("on", True), ("0", False), ("", False), ("maybe", False)):
+    for value, expected in (
+        ("1", True),
+        ("on", True),
+        ("0", False),
+        ("", False),
+        ("maybe", False),
+    ):
         require(
             traced_prefill_enabled({TRACED_PREFILL_ENV: value}) is expected,
             f"traced prefill gate value {value!r} did not select {expected}",
         )
-    require(not traced_prefill_enabled({}), "traced prefill defaulted on without its variable")
+    require(
+        not traced_prefill_enabled({}),
+        "traced prefill defaulted on without its variable",
+    )
 
     # Stale traces are released: any program compiled after the capture may own trace scratch.
     def stale(buckets, entries_now, entries_at_capture=10):
@@ -11451,7 +13419,10 @@ def probe_masked_prefill_traces():
         )
 
     full = (128, 256, 512, 1024)
-    require(plan(full, 10) == [(128, 0, 10)], "a short prompt did not take the smallest bucket")
+    require(
+        plan(full, 10) == [(128, 0, 10)],
+        "a short prompt did not take the smallest bucket",
+    )
     require(plan(full, 1024) == [(1024, 0, 1024)], "a full chunk was split")
     require(
         plan(full, 1025) == [(1024, 0, 1024), (128, 1024, 1)],
@@ -11466,7 +13437,9 @@ def probe_masked_prefill_traces():
 
     require(not stale((), 99), "missing traces reported stale")
     require(not stale((128, 256), 10), "unchanged traces reported stale")
-    require(stale((128, 256), 11), "a post-capture compile did not mark the traces stale")
+    require(
+        stale((128, 256), 11), "a post-capture compile did not mark the traces stale"
+    )
 
     # The device-data masks select exactly the real tokens' conv window and scan rows.
     kernel, length, valid = 4, 16, 7
@@ -11493,11 +13466,11 @@ def probe_gdn_occupancy_plan():
     exceeds the core count and per-core work cannot fall.
     """
     from qwen36_service.gdn_occupancy_core import (
-        GdnOccupancyPolicyError,
-        OccupancyPlan,
         REASON_NO_SPLIT_IMPROVES_COST,
         REASON_SPLIT_REFUSED_LOOPING_GRID,
         REASON_SPLIT_SELECTED,
+        GdnOccupancyPolicyError,
+        OccupancyPlan,
         candidate_splits,
         instance_coordinates,
         plan_occupancy,
@@ -11578,7 +13551,9 @@ def probe_gdn_occupancy_plan():
     )
 
     # Candidate splits divide the value width exactly.
-    require(candidate_splits(4) == (1, 2, 4), f"candidate splits: {candidate_splits(4)}")
+    require(
+        candidate_splits(4) == (1, 2, 4), f"candidate splits: {candidate_splits(4)}"
+    )
     require(candidate_splits(3) == (1, 3), f"candidate splits: {candidate_splits(3)}")
     require(instance_coordinates(0, heads=2, split=2) == (0, 0, 0), "flat 0 maps wrong")
     require(instance_coordinates(5, heads=2, split=2) == (1, 0, 1), "flat 5 maps wrong")
@@ -11588,35 +13563,37 @@ def probe_gdn_occupancy_plan():
     # a non-contiguous chunk, an over-long chunk, and mismatched occupancy or cost.
     good = idle
     malformed = {
-        "split does not divide": OccupancyPlan(
-            **{**good.__dict__, "split": 3}
-        ),
-        "wrong instance count": OccupancyPlan(
-            **{**good.__dict__, "instances": good.instances - 1}
-        ),
-        "missing instance": OccupancyPlan(
-            **{
-                **good.__dict__,
-                "per_core_instances": (tuple(range(0, 95)),),
-                "active_cores": 1,
-                "occupancy": 1 / good.cores,
-            }
-        ),
-        "repeated instance": OccupancyPlan(
-            **{**good.__dict__, "per_core_instances": ((0, 0), (1,))}
-        ),
-        "non-contiguous chunk": OccupancyPlan(
-            **{**good.__dict__, "per_core_instances": ((0,), (2,))}
-        ),
-        "over-long chunk": OccupancyPlan(
-            **{**good.__dict__, "per_core_instances": ((0, 1),)}
-        ),
-        "occupancy mismatch": OccupancyPlan(
-            **{**good.__dict__, "occupancy": good.occupancy / 2}
-        ),
-        "cost mismatch": OccupancyPlan(
-            **{**good.__dict__, "estimated_relative_cost": good.estimated_relative_cost * 2}
-        ),
+        "split does not divide": OccupancyPlan(**{**good.__dict__, "split": 3}),
+        "wrong instance count": OccupancyPlan(**{
+            **good.__dict__,
+            "instances": good.instances - 1,
+        }),
+        "missing instance": OccupancyPlan(**{
+            **good.__dict__,
+            "per_core_instances": (tuple(range(0, 95)),),
+            "active_cores": 1,
+            "occupancy": 1 / good.cores,
+        }),
+        "repeated instance": OccupancyPlan(**{
+            **good.__dict__,
+            "per_core_instances": ((0, 0), (1,)),
+        }),
+        "non-contiguous chunk": OccupancyPlan(**{
+            **good.__dict__,
+            "per_core_instances": ((0,), (2,)),
+        }),
+        "over-long chunk": OccupancyPlan(**{
+            **good.__dict__,
+            "per_core_instances": ((0, 1),),
+        }),
+        "occupancy mismatch": OccupancyPlan(**{
+            **good.__dict__,
+            "occupancy": good.occupancy / 2,
+        }),
+        "cost mismatch": OccupancyPlan(**{
+            **good.__dict__,
+            "estimated_relative_cost": good.estimated_relative_cost * 2,
+        }),
     }
     for name, broken in malformed.items():
         try:
@@ -11740,7 +13717,6 @@ def probe_gdn_occupancy_policy_binding():
 def probe_mtp_head_load_core():
     """Positive and negative tests for the head weight integrity verdicts."""
     import torch
-
     from qwen36_service.mtp_head_load_probe import evaluate_weight_integrity
 
     expected = {
@@ -11828,6 +13804,7 @@ def probe_structured_reads():
     from models.demos.blackhole.qwen36.tt.model import Qwen36Model
     from qwen36_service import structured_read_core as core
     from qwen36_service.batch_service import BatchGenerationCoordinator, _PendingRead
+    from qwen36_service.kv_pool_core import KvPoolLayout
 
     vocabulary = {}
 
@@ -11838,7 +13815,10 @@ def probe_structured_reads():
             for piece in re.findall(r" ?\w+|\n| ?\?|[^\w\s]| ", text)
         ]
 
-    labels = {piece: encode(piece)[0] for piece in (" yes", " no", " A", " B", " C", " 1", " 2", " 3")}
+    labels = {
+        piece: encode(piece)[0]
+        for piece in (" yes", " no", " A", " B", " C", " 1", " 2", " 3")
+    }
     width = 64 + len(vocabulary) + 256
     reads = []
     preferred = {}
@@ -11853,7 +13833,9 @@ def probe_structured_reads():
             for row in range(len(request.positions)):
                 # Row i prefers its configured label (" yes" by default) with its configured
                 # strength; noise in the prefill shifts the logits, so noise draws differ.
-                logits[row, preferred.get(row, labels[" yes"])] = strength.get(row, 6.0) + noise
+                logits[row, preferred.get(row, labels[" yes"])] = (
+                    strength.get(row, 6.0) + noise
+                )
             results.append(core.DeviceRead(logits=logits, seconds=0.25, route="fake"))
         return tuple(results)
 
@@ -11861,7 +13843,9 @@ def probe_structured_reads():
         values = dict(
             encode=encode,
             decode=lambda ids: " ".join(str(i) for i in ids),
-            chat_prompt=lambda system, user, thinking: encode(system + "\n" + user) + ([7] if thinking else []),
+            chat_prompt=lambda system, user, thinking: (
+                encode(system + "\n" + user) + ([7] if thinking else [])
+            ),
             read=read,
             think=lambda prompt, budget: [5, 6, 999, 4],
             noise_upper=2000,
@@ -11874,23 +13858,37 @@ def probe_structured_reads():
 
     def schema_of(questions, **extensions):
         return core.parse_jev_request(
-            {"state": {"ticket": "down"}, "questions": questions, **extensions}, maximum_think_tokens=64
+            {"state": {"ticket": "down"}, "questions": questions, **extensions},
+            maximum_think_tokens=64,
         )
 
     noul = {"type": "noul", "instructions": "Urgent?"}
-    choice = {"type": "choice", "instructions": "Route", "criteria": {"billing": None, "outage": "down"}}
-    score = {"type": "score", "instructions": "Tone", "criteria": ["calm", "annoyed", "furious"]}
+    choice = {
+        "type": "choice",
+        "instructions": "Route",
+        "criteria": {"billing": None, "outage": "down"},
+    }
+    score = {
+        "type": "score",
+        "instructions": "Tone",
+        "criteria": ["calm", "annoyed", "furious"],
+    }
 
     # Every label changes one token at one slot per question, in template order.
     schema, _state, _seed = schema_of({"urgent": noul, "bucket": choice, "tone": score})
     template = core.resolve_template(schema.questions, encode, "", schema.answer_format)
     require(
         [slot.label_ids for slot in template.slots]
-        == [(labels[" yes"], labels[" no"]), (labels[" A"], labels[" B"]), (labels[" 1"], labels[" 2"], labels[" 3"])],
+        == [
+            (labels[" yes"], labels[" no"]),
+            (labels[" A"], labels[" B"]),
+            (labels[" 1"], labels[" 2"], labels[" 3"]),
+        ],
         "template slots do not carry each question's label ids",
     )
     require(
-        [template.tokens[slot.position] for slot in template.slots] == [labels[" yes"], labels[" A"], labels[" 1"]],
+        [template.tokens[slot.position] for slot in template.slots]
+        == [labels[" yes"], labels[" A"], labels[" 1"]],
         "template slots do not point at the first label",
     )
     wide = dict(choice, criteria={"billing": None, "outage": None, "long label": None})
@@ -11911,7 +13909,10 @@ def probe_structured_reads():
         request.positions == tuple(2 + slot.position - 1 for slot in template.slots),
         "read rows are not the rows before each slot",
     )
-    require(len(request.token_ids) == 2 + template.slots[-1].position, "a read kept tokens no row can see")
+    require(
+        len(request.token_ids) == 2 + template.slots[-1].position,
+        "a read kept tokens no row can see",
+    )
     require(
         request.token_ids[2 + template.slots[0].position] == 1001
         and request.token_ids[2 + template.slots[1].position] == 1002,
@@ -11935,32 +13936,51 @@ def probe_structured_reads():
     result, _rows = core.decide(ports(), schema, state, seed)
     timing = result["diagnostics"]["timing"]
     require(
-        timing["reads"] == 4 and timing["device_reads"] == 1 and sum(len(r) for r in reads) == 1,
+        timing["reads"] == 4
+        and timing["device_reads"] == 1
+        and sum(len(r) for r in reads) == 1,
         "identical draws reached the device more than once",
     )
-    require(result["answers"]["urgent"]["label"] == "yes", "the favoured label did not win")
-    require(result["answers"]["urgent"]["stderr"] == 0.0, "identical draws reported a spread")
+    require(
+        result["answers"]["urgent"]["label"] == "yes", "the favoured label did not win"
+    )
+    require(
+        result["answers"]["urgent"]["stderr"] == 0.0,
+        "identical draws reported a spread",
+    )
 
     # Auto policy: a confident first read stops; an uncertain one reads auto_max draws.
     reads.clear()
-    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=100.0)
-    result, _rows = core.decide(ports(), schema, state, seed)
-    require(result["diagnostics"]["samples"]["n"] == 1, "a confident first read was extended")
-    reads.clear()
-    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=3)
+    schema, state, seed = schema_of(
+        {"urgent": noul, "tone": score}, auto_threshold=100.0
+    )
     result, _rows = core.decide(ports(), schema, state, seed)
     require(
-        result["diagnostics"]["samples"]["n"] == 3 and result["diagnostics"]["samples"]["policy"]["extended"],
+        result["diagnostics"]["samples"]["n"] == 1,
+        "a confident first read was extended",
+    )
+    reads.clear()
+    schema, state, seed = schema_of(
+        {"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=3
+    )
+    result, _rows = core.decide(ports(), schema, state, seed)
+    require(
+        result["diagnostics"]["samples"]["n"] == 3
+        and result["diagnostics"]["samples"]["policy"]["extended"],
         "an uncertain first read was not extended to auto_max",
     )
     # Only the first question is uncertain: its row sees no noise, so no draw is added.
     reads.clear()
     strength.update({0: 1.0, 1: 40.0})
-    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.1, steps=1)
+    schema, state, seed = schema_of(
+        {"urgent": noul, "tone": score}, auto_threshold=0.1, steps=1
+    )
     result, _rows = core.decide(ports(), schema, state, seed)
     strength.clear()
     first = result["diagnostics"]["samples"]["policy"]["first_read_entropy"]
-    require(first["urgent"] > 0.1 > first["tone"], "the gate fixture lost its entropy split")
+    require(
+        first["urgent"] > 0.1 > first["tone"], "the gate fixture lost its entropy split"
+    )
     require(
         result["diagnostics"]["samples"]["n"] == 1 and len(reads) == 1,
         "an uncertain first slot added draws that cannot change it",
@@ -11993,12 +14013,18 @@ def probe_structured_reads():
     tmpl = core.resolve_template(schema.questions, encode, "", schema.answer_format)
     second = reads[1][0]
     require(
-        all(second.token_ids[second.positions[i] + 1] == slot.label_ids[0] for i, slot in enumerate(tmpl.slots[:-1])),
+        all(
+            second.token_ids[second.positions[i] + 1] == slot.label_ids[0]
+            for i, slot in enumerate(tmpl.slots[:-1])
+        ),
         "a refinement step did not fill slots with the previous argmax",
     )
     first = reads[0][0]
     require(
-        all(first.token_ids[first.positions[i] + 1] == slot.placeholder for i, slot in enumerate(tmpl.slots[:-1]))
+        all(
+            first.token_ids[first.positions[i] + 1] == slot.placeholder
+            for i, slot in enumerate(tmpl.slots[:-1])
+        )
         and all(slot.placeholder == encode(" ?")[0] for slot in tmpl.slots),
         "the first draw did not fill its slots with the placeholder",
     )
@@ -12007,7 +14033,9 @@ def probe_structured_reads():
     # and draws that sample the same visible labels share one prefill.
     reads.clear()
     strength.update({0: 0.0})
-    schema, state, seed = schema_of({"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=8)
+    schema, state, seed = schema_of(
+        {"urgent": noul, "tone": score}, auto_threshold=0.0, auto_max=8
+    )
     result, _rows = core.decide(ports(), schema, state, seed)
     strength.clear()
     later = [request for batch in reads[1:] for request in batch]
@@ -12016,11 +14044,14 @@ def probe_structured_reads():
     require(
         result["diagnostics"]["samples"]["n"] == 8
         and later
-        and all(request.token_ids[slot_row] in tmpl.slots[0].label_ids for request in later),
+        and all(
+            request.token_ids[slot_row] in tmpl.slots[0].label_ids for request in later
+        ),
         "a later draw did not fill its slot with a sampled label",
     )
     require(
-        result["diagnostics"]["timing"]["device_reads"] <= 1 + len(tmpl.slots[0].label_ids),
+        result["diagnostics"]["timing"]["device_reads"]
+        <= 1 + len(tmpl.slots[0].label_ids),
         "draws with the same sampled labels did not share a prefill",
     )
 
@@ -12033,13 +14064,19 @@ def probe_structured_reads():
 
     apart = core.resolve_template(schema.questions, digits_apart, "", "lines")
     require(
-        apart.slots[0].placeholder == digits_apart(" ?")[0] and apart.slots[1].placeholder == digits_apart("?")[0],
+        apart.slots[0].placeholder == digits_apart(" ?")[0]
+        and apart.slots[1].placeholder == digits_apart("?")[0],
         "a digit slot did not take the bare placeholder",
     )
 
     # A slot whose placeholder is not one token falls back to noise.
-    split = core.resolve_template(schema.questions, lambda text: encode(text.replace("?", "? ?")), "", "lines")
-    require(all(slot.placeholder is None for slot in split.slots), "a split placeholder was accepted")
+    split = core.resolve_template(
+        schema.questions, lambda text: encode(text.replace("?", "? ?")), "", "lines"
+    )
+    require(
+        all(slot.placeholder is None for slot in split.slots),
+        "a split placeholder was accepted",
+    )
     require(
         all(0 <= fill < 2000 for fill in core.first_fills(split, 7, 2000)),
         "a slot without a placeholder was not filled with noise",
@@ -12057,31 +14094,53 @@ def probe_structured_reads():
         samples=1,
     )
     result, _rows = core.decide(ports(), schema, state, seed)
-    require(result["diagnostics"]["stages"] == [["urgent"], ["tone"]], "stages ignored depends_on")
-    require(result["answers"]["bucket"] is None, "a failed ask_if still asked its question")
+    require(
+        result["diagnostics"]["stages"] == [["urgent"], ["tone"]],
+        "stages ignored depends_on",
+    )
+    require(
+        result["answers"]["bucket"] is None, "a failed ask_if still asked its question"
+    )
     first_prefill, second_prefill = reads[0][0].token_ids, reads[1][0].token_ids
     answered = encode("urgent: yes")
     require(
-        any(second_prefill[i : i + len(answered)] == tuple(answered) for i in range(len(second_prefill))),
+        any(
+            second_prefill[i : i + len(answered)] == tuple(answered)
+            for i in range(len(second_prefill))
+        ),
         "a later stage did not continue the earlier answer",
     )
-    require(second_prefill[: len(first_prefill) - 2] == first_prefill[: len(first_prefill) - 2],
-            "a later stage changed the shared prompt")
+    require(
+        second_prefill[: len(first_prefill) - 2]
+        == first_prefill[: len(first_prefill) - 2],
+        "a later stage changed the shared prompt",
+    )
 
     # A thought ends at the model's close tag and is followed by the canonical close.
     reads.clear()
     schema, state, seed = schema_of({"urgent": noul}, samples=1, think=8)
     result, _rows = core.decide(ports(), schema, state, seed)
-    require(result["diagnostics"]["thought"]["tokens"] == 2 and result["diagnostics"]["thought"]["closed"],
-            "the thought was not cut at the close tag")
-    require(reads[0][0].token_ids[-6:-2] == (5, 6, 11, 12), "the read prefix did not close the thought")
+    require(
+        result["diagnostics"]["thought"]["tokens"] == 2
+        and result["diagnostics"]["thought"]["closed"],
+        "the thought was not cut at the close tag",
+    )
+    require(
+        reads[0][0].token_ids[-6:-2] == (5, 6, 11, 12),
+        "the read prefix did not close the thought",
+    )
 
     # One read holds at most 31 slots.
     many = {f"q{i}": noul for i in range(40)}
     schema, _state, _seed = schema_of(many)
     groups = core.chunk_groups(schema, schema.questions, encode)
-    require([len(g) for g in groups] == [31, 9], "a read was planned past the logit tile")
-    require(schema.answer_format == core.FORMAT_INDEXED, "a large schema kept the line format")
+    require(
+        [len(g) for g in groups] == [31, 9], "a read was planned past the logit tile"
+    )
+    require(
+        schema.answer_format == core.FORMAT_INDEXED,
+        "a large schema kept the line format",
+    )
 
     # A read longer than the service holds is refused before the device.
     reads.clear()
@@ -12094,14 +14153,44 @@ def probe_structured_reads():
 
     for body, reason in (
         ({"state": "s", "questions": {}}, "empty questions"),
-        ({"state": "s", "questions": {"u": noul}, "images": ["data:image/png;base64,AA"]}, "images"),
-        ({"state": "s", "questions": {"u": noul}, "think": 65}, "think past the generation budget"),
-        ({"state": "s", "questions": {"u": dict(choice, criteria={"a": None})}}, "one alternative"),
-        ({"state": "s", "questions": {"u": dict(noul, depends_on=["v"])}}, "unknown dependency"),
-        ({"state": "s", "questions": {"u": dict(noul, depends_on=["v"]), "v": dict(noul, depends_on=["u"])}},
-         "dependency cycle"),
-        ({"state": "s", "questions": {"u": noul, "v": dict(noul, depends_on=["u"])}, "ask": ["v"]},
-         "ask without its dependency"),
+        (
+            {
+                "state": "s",
+                "questions": {"u": noul},
+                "images": ["data:image/png;base64,AA"],
+            },
+            "images",
+        ),
+        (
+            {"state": "s", "questions": {"u": noul}, "think": 65},
+            "think past the generation budget",
+        ),
+        (
+            {"state": "s", "questions": {"u": dict(choice, criteria={"a": None})}},
+            "one alternative",
+        ),
+        (
+            {"state": "s", "questions": {"u": dict(noul, depends_on=["v"])}},
+            "unknown dependency",
+        ),
+        (
+            {
+                "state": "s",
+                "questions": {
+                    "u": dict(noul, depends_on=["v"]),
+                    "v": dict(noul, depends_on=["u"]),
+                },
+            },
+            "dependency cycle",
+        ),
+        (
+            {
+                "state": "s",
+                "questions": {"u": noul, "v": dict(noul, depends_on=["u"])},
+                "ask": ["v"],
+            },
+            "ask without its dependency",
+        ),
         ({"questions": {"u": noul}}, "missing state"),
         ({"state": "s", "questions": {"u": noul}, "samples": 0}, "zero samples"),
     ):
@@ -12112,15 +14201,27 @@ def probe_structured_reads():
             pass
 
     # Jev shapes: noul probability, choice with confidence, 0-indexed score legend.
-    schema, state, seed = schema_of({"urgent": noul, "bucket": choice, "tone": score}, samples=1)
+    schema, state, seed = schema_of(
+        {"urgent": noul, "bucket": choice, "tone": score}, samples=1
+    )
     preferred.update({0: labels[" no"]})
-    response = core.jev_response(schema, *core.decide(ports(), schema, state, seed), "Qwen3.8-27B")
+    response = core.jev_response(
+        schema, *core.decide(ports(), schema, state, seed), "Qwen3.8-27B"
+    )
     preferred.clear()
     answers = response["answers"]
-    require(set(answers["urgent"]) == {"type", "noul"} and answers["urgent"]["noul"] < 0.5,
-            "the noul answer is not the yes probability")
-    require(set(answers["tone"]["legend"]) == {"0", "1", "2"}, "the score legend is not 0-indexed")
-    require(answers["bucket"]["choice"] in ("billing", "outage"), "the choice answer is not an option name")
+    require(
+        set(answers["urgent"]) == {"type", "noul"} and answers["urgent"]["noul"] < 0.5,
+        "the noul answer is not the yes probability",
+    )
+    require(
+        set(answers["tone"]["legend"]) == {"0", "1", "2"},
+        "the score legend is not 0-indexed",
+    )
+    require(
+        answers["bucket"]["choice"] in ("billing", "outage"),
+        "the choice answer is not an option name",
+    )
 
     # The worker runs a read job on its own and never folds reads into a generation batch.
     def take(items):
@@ -12128,7 +14229,9 @@ def probe_structured_reads():
             _condition=threading.Condition(),
             _queue=deque(items),
             _closing=False,
-            adapter=SimpleNamespace(decode_width_supported=lambda w: True, group_capacity_blocks=16),
+            adapter=SimpleNamespace(
+                decode_width_supported=lambda w: True, group_capacity_blocks=16
+            ),
             sampled_admission_enabled=False,
             _request_blocks=lambda _pending: 1,
         )
@@ -12136,23 +14239,42 @@ def probe_structured_reads():
 
     job = _PendingRead(requests=((torch.zeros(1, 4), (1,)),), deadline=0.0)
     other = _PendingRead(requests=((torch.zeros(1, 4), (2,)),), deadline=0.0)
-    generation = [SimpleNamespace(request=SimpleNamespace(max_tokens=8)) for _ in range(2)]
+    generation = [
+        SimpleNamespace(request=SimpleNamespace(max_tokens=8)) for _ in range(2)
+    ]
     taken, left = take([job, generation[0], other, generation[1]])
-    require(taken == (job, other) and left == generation, "queued read jobs were not merged apart from generation")
+    require(
+        taken == (job, other) and left == generation,
+        "queued read jobs were not merged apart from generation",
+    )
     taken, left = take([generation[0], job, generation[1]])
-    require(taken == (generation[0], generation[1]) and left == [job], "a generation batch absorbed a read job")
+    require(
+        taken == (generation[0], generation[1]) and left == [job],
+        "a generation batch absorbed a read job",
+    )
 
     # A merged turn fails only its expired jobs; the others read in one call.
     calls = []
 
     def read_rows_batch(flat):
         calls.append(flat)
-        return tuple(SimpleNamespace(masked_traces_released=False, elapsed_seconds=0.1, route="fake") for _ in flat)
+        return tuple(
+            SimpleNamespace(
+                masked_traces_released=False, elapsed_seconds=0.1, route="fake"
+            )
+            for _ in flat
+        )
 
-    worker = SimpleNamespace(adapter=SimpleNamespace(read_rows_batch=read_rows_batch), emitter=lambda *a, **k: None)
-    expired = _PendingRead(requests=((torch.zeros(1, 4), (1,)),), deadline=time.monotonic() - 1.0)
+    worker = SimpleNamespace(
+        adapter=SimpleNamespace(read_rows_batch=read_rows_batch),
+        emitter=lambda *a, **k: None,
+    )
+    expired = _PendingRead(
+        requests=((torch.zeros(1, 4), (1,)),), deadline=time.monotonic() - 1.0
+    )
     fresh = _PendingRead(
-        requests=((torch.zeros(1, 4), (2,)), (torch.zeros(1, 4), (3,))), deadline=time.monotonic() + 3600.0
+        requests=((torch.zeros(1, 4), (2,)), (torch.zeros(1, 4), (3,))),
+        deadline=time.monotonic() + 3600.0,
     )
     BatchGenerationCoordinator._run_reads(worker, (expired, fresh))
     require(
@@ -12160,7 +14282,9 @@ def probe_structured_reads():
         "an expired read job was run",
     )
     require(
-        fresh.error is None and len(fresh.results) == 2 and [len(flat) for flat in calls] == [2],
+        fresh.error is None
+        and len(fresh.results) == 2
+        and [len(flat) for flat in calls] == [2],
         "an expired read job failed the jobs merged with it",
     )
 
@@ -12168,31 +14292,60 @@ def probe_structured_reads():
     # group meets its bucket's minimum; long reads and small groups go alone.
     def batches(lengths, rows):
         return core.plan_read_batches(
-            lengths=lengths, row_counts=rows, width=4, minimum_by_bucket={128: 2, 256: 3}, maximum_rows=32
+            lengths=lengths,
+            row_counts=rows,
+            width=4,
+            minimum_by_bucket={128: 2, 256: 3},
+            maximum_rows=32,
         )
 
-    require(batches([100] * 6, [3] * 6) == ((0, 1, 2, 3), (4, 5)), "reads were not packed to the batch width")
-    require(batches([100, 300, 100], [3, 3, 3]) == ((1,), (0, 2)), "a read past the batched buckets was batched")
-    require(batches([100] * 3, [20, 20, 5]) == ((0,), (1, 2)), "a batch exceeded the logit rows")
-    require(batches([200] * 2, [3] * 2) == ((0,), (1,)), "a group below its bucket's minimum was batched")
-    require(batches([200] * 3, [3] * 3) == ((0, 1, 2),), "a group at its bucket's minimum read alone")
-    require(batches([200, 100, 200, 100], [3] * 4) == ((1, 3, 0, 2),), "reads were not grouped shortest first")
-    require(batches([100], [40]) == ((0,),), "a read wider than the logit tile was batched")
+    require(
+        batches([100] * 6, [3] * 6) == ((0, 1, 2, 3), (4, 5)),
+        "reads were not packed to the batch width",
+    )
+    require(
+        batches([100, 300, 100], [3, 3, 3]) == ((1,), (0, 2)),
+        "a read past the batched buckets was batched",
+    )
+    require(
+        batches([100] * 3, [20, 20, 5]) == ((0,), (1, 2)),
+        "a batch exceeded the logit rows",
+    )
+    require(
+        batches([200] * 2, [3] * 2) == ((0,), (1,)),
+        "a group below its bucket's minimum was batched",
+    )
+    require(
+        batches([200] * 3, [3] * 3) == ((0, 1, 2),),
+        "a group at its bucket's minimum read alone",
+    )
+    require(
+        batches([200, 100, 200, 100], [3] * 4) == ((1, 3, 0, 2),),
+        "reads were not grouped shortest first",
+    )
+    require(
+        batches([100], [40]) == ((0,),), "a read wider than the logit tile was batched"
+    )
 
     # A short read touches only reserved KV blocks; a read beyond 1,024 tokens
     # reaches the cached generation range.
     from qwen36_service.batch_decode_adapter import (
-        BatchedTracedDecodeAdapter, READ_ROUTE_BATCHED_TRACE, READ_ROUTE_MASKED_TRACE,
+        READ_ROUTE_BATCHED_TRACE,
+        READ_ROUTE_MASKED_TRACE,
+        BatchedTracedDecodeAdapter,
         StructuredReadRows,
     )
-    from qwen36_service.kv_pool_core import KvPoolLayout
 
     layout = KvPoolLayout(pool_blocks=4113, row_blocks=2048, kv_block_size=64)
     reader = object.__new__(BatchedTracedDecodeAdapter)
     reader.kv_pool = layout
-    reader._startup_page_table = torch.tensor(layout.startup_rows(width=16), dtype=torch.int32)
+    reader._startup_page_table = torch.tensor(
+        layout.startup_rows(width=16), dtype=torch.int32
+    )
     reader._read_page_table = reader._startup_page_table[-1:].clone()
-    reader._batch_read_page_table = torch.tensor(layout.batch_read_rows(), dtype=torch.int32)
+    reader._batch_read_page_table = torch.tensor(
+        layout.batch_read_rows(), dtype=torch.int32
+    )
     reader.model = SimpleNamespace(
         MASKED_PREFILL_TRACE_BUCKETS=(128, 256, 512, 1024),
         masked_prefill_trace_buckets=lambda: (128, 256, 512, 1024),
@@ -12220,45 +14373,90 @@ def probe_structured_reads():
 
     def fake_single(tokens, positions):
         return StructuredReadRows(
-            logits=torch.zeros(len(positions), 2), elapsed_seconds=0.0,
-            route=READ_ROUTE_MASKED_TRACE, masked_traces_released=False,
-            kv_written_blocks=reader._single_read_written_blocks(int(tokens.shape[1]), True),
+            logits=torch.zeros(len(positions), 2),
+            elapsed_seconds=0.0,
+            route=READ_ROUTE_MASKED_TRACE,
+            masked_traces_released=False,
+            kv_written_blocks=reader._single_read_written_blocks(
+                int(tokens.shape[1]), True
+            ),
         )
 
     reader.model.prefill_masked_read_batch = fake_batch
     reader.read_rows = fake_single
     short = tuple((torch.zeros(1, 84, dtype=torch.int32), (83,)) for _ in range(2))
-    generation = frozenset(range(layout.reserved_prefix_blocks, layout.generation_end_block))
+    generation = frozenset(
+        range(layout.reserved_prefix_blocks, layout.generation_end_block)
+    )
     batched = reader.read_rows_batch(short, protected_blocks=generation)
-    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_BATCHED_TRACE for row in batched)
-            and batched[0].kv_written_blocks.isdisjoint(generation),
-            "cached generation KV disabled batched reads, or a batch wrote generation KV")
-    singles = reader.read_rows_batch(short, protected_blocks=batched[0].kv_written_blocks)
-    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_MASKED_TRACE for row in singles)
-            and all(row.kv_written_blocks.isdisjoint(batched[0].kv_written_blocks) for row in singles),
-            "a batch overwrote protected KV instead of reading singly")
+    require(
+        len(batch_calls) == 1
+        and all(row.route == READ_ROUTE_BATCHED_TRACE for row in batched)
+        and batched[0].kv_written_blocks.isdisjoint(generation),
+        "cached generation KV disabled batched reads, or a batch wrote generation KV",
+    )
+    singles = reader.read_rows_batch(
+        short, protected_blocks=batched[0].kv_written_blocks
+    )
+    require(
+        len(batch_calls) == 1
+        and all(row.route == READ_ROUTE_MASKED_TRACE for row in singles)
+        and all(
+            row.kv_written_blocks.isdisjoint(batched[0].kv_written_blocks)
+            for row in singles
+        ),
+        "a batch overwrote protected KV instead of reading singly",
+    )
     medium = tuple((torch.zeros(1, 200, dtype=torch.int32), (199,)) for _ in range(3))
-    unused_lane = reader.read_rows_batch(medium, protected_blocks=frozenset({layout.batch_read_rows()[-1][0]}))
-    require(len(batch_calls) == 1 and all(row.route == READ_ROUTE_MASKED_TRACE for row in unused_lane),
-            "a partial-width batch overwrote KV through an unused captured lane")
+    unused_lane = reader.read_rows_batch(
+        medium, protected_blocks=frozenset({layout.batch_read_rows()[-1][0]})
+    )
+    require(
+        len(batch_calls) == 1
+        and all(row.route == READ_ROUTE_MASKED_TRACE for row in unused_lane),
+        "a partial-width batch overwrote KV through an unused captured lane",
+    )
 
     # A saved read prefix matches only its own row and tokens, and any prefill that writes one
     # of its KV blocks, or passes a page table the host cannot inspect, drops it.
     def saved(blocks=range(480, 496)):
         row = torch.arange(480, 512, dtype=torch.int32).reshape(1, 32)
         tokens = torch.arange(1024, dtype=torch.int32)
-        return SimpleNamespace(_read_prefix=(row, tokens, frozenset(blocks))), row, tokens
+        return (
+            SimpleNamespace(_read_prefix=(row, tokens, frozenset(blocks))),
+            row,
+            tokens,
+        )
 
     model, row, tokens = saved()
-    require(Qwen36Model._read_prefix_matches(model, row, tokens), "a saved prefix did not match itself")
+    require(
+        Qwen36Model._read_prefix_matches(model, row, tokens),
+        "a saved prefix did not match itself",
+    )
     changed = tokens.clone()
     changed[1023] += 1
-    require(not Qwen36Model._read_prefix_matches(model, row, changed), "a prefix with other tokens matched")
-    require(not Qwen36Model._read_prefix_matches(model, row - 32, tokens), "a prefix on another row matched")
-    Qwen36Model._invalidate_read_prefix(model, torch.arange(0, 480, dtype=torch.int32).reshape(15, 32))
-    require(model._read_prefix is not None, "generation below full width dropped the saved prefix")
-    Qwen36Model._invalidate_read_prefix(model, torch.arange(0, 512, dtype=torch.int32).reshape(16, 32))
-    require(model._read_prefix is None, "a full-width prefill kept a prefix whose KV it overwrote")
+    require(
+        not Qwen36Model._read_prefix_matches(model, row, changed),
+        "a prefix with other tokens matched",
+    )
+    require(
+        not Qwen36Model._read_prefix_matches(model, row - 32, tokens),
+        "a prefix on another row matched",
+    )
+    Qwen36Model._invalidate_read_prefix(
+        model, torch.arange(0, 480, dtype=torch.int32).reshape(15, 32)
+    )
+    require(
+        model._read_prefix is not None,
+        "generation below full width dropped the saved prefix",
+    )
+    Qwen36Model._invalidate_read_prefix(
+        model, torch.arange(0, 512, dtype=torch.int32).reshape(16, 32)
+    )
+    require(
+        model._read_prefix is None,
+        "a full-width prefill kept a prefix whose KV it overwrote",
+    )
     model, row, tokens = saved()
     Qwen36Model._invalidate_read_prefix(model, SimpleNamespace(shape=(1, 32)))
     require(model._read_prefix is None, "a device page table kept the saved prefix")
@@ -12279,7 +14477,6 @@ def probe_structured_reads():
             require(False, f"read rows {bad_rows[:3]} were staged")
         except AssertionError:
             pass
-
 
 
 def main():

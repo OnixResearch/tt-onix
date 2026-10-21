@@ -51,20 +51,36 @@ def build_receipt(
         "schema_version": 2,
         "receipt_kind": "prefix-cache-admission",
         "policy": {"profile_id": policy.profile_id, "blake3": policy_blake3},
-        "roots": [dict(zip(ROOT_LABELS, digests, strict=True)) for digests in root_blake3s],
+        "roots": [
+            dict(zip(ROOT_LABELS, digests, strict=True)) for digests in root_blake3s
+        ],
         "non_claims": list(NON_CLAIMS),
     }
     try:
         if any(len(group) != len(policy.root_order) for group in group_mappings):
-            raise PrefixAdmissionEvidenceError("every workload needs four roots: cold, cached, cached, cold")
+            raise PrefixAdmissionEvidenceError(
+                "every workload needs four roots: cold, cached, cached, cold"
+            )
         groups = [
-            [root_from_mapping(mapping, expected_kind=kind) for mapping, kind in zip(group, policy.root_order, strict=True)]
+            [
+                root_from_mapping(mapping, expected_kind=kind)
+                for mapping, kind in zip(group, policy.root_order, strict=True)
+            ]
             for group in group_mappings
         ]
         result = evaluate(policy, groups)
     except PrefixAdmissionEvidenceError as error:
-        receipt["simulated"] = any(bool(mapping.get("simulated")) for group in group_mappings for mapping in group)
-        receipt["admission"] = {"admitted": False, "admitted_profile": None, "evidence_error": str(error), "reasons": ["evidence-error"]}
+        receipt["simulated"] = any(
+            bool(mapping.get("simulated"))
+            for group in group_mappings
+            for mapping in group
+        )
+        receipt["admission"] = {
+            "admitted": False,
+            "admitted_profile": None,
+            "evidence_error": str(error),
+            "reasons": ["evidence-error"],
+        }
         return receipt
     cached_identity = dict(groups[0][1].identity)
     receipt["simulated"] = any(root.simulated for group in groups for root in group)
@@ -75,7 +91,9 @@ def build_receipt(
             {
                 "execution_identity": cached_identity["execution_identity"],
                 "package": cached_identity["package"],
-                "prefix_cache_profile_id": cached_identity.get("prefix_cache_profile_id"),
+                "prefix_cache_profile_id": cached_identity.get(
+                    "prefix_cache_profile_id"
+                ),
                 "prefix_policy_blake3": cached_identity.get("prefix_policy_blake3"),
             }
             if result.admitted
@@ -85,7 +103,10 @@ def build_receipt(
         "reasons": list(result.reasons),
     }
     receipt["gates"] = [dataclasses.asdict(gate) for gate in result.gates]
-    receipt["pair_diagnostics"] = [{"pair": name, **ratios} for name, ratios in zip(PAIR_NAMES, result.pairs, strict=True)]
+    receipt["pair_diagnostics"] = [
+        {"pair": name, **ratios}
+        for name, ratios in zip(PAIR_NAMES, result.pairs, strict=True)
+    ]
     receipt["turns"] = {"resumed": result.hit_turns, "missed": result.miss_turns}
     return receipt
 
@@ -115,11 +136,17 @@ def main() -> None:
         policy_mapping=load(args.policy),
         group_mappings=[[load(path) for path in group] for group in args.abba],
         policy_blake3=blake3_of(args.policy, args.b3sum),
-        root_blake3s=[[blake3_of(path, args.b3sum) for path in group] for group in args.abba],
+        root_blake3s=[
+            [blake3_of(path, args.b3sum) for path in group] for group in args.abba
+        ],
     )
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     admission = receipt["admission"]
-    print(json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]}))
+    print(
+        json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]})
+    )
 
 
 if __name__ == "__main__":

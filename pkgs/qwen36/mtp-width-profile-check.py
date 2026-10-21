@@ -16,7 +16,10 @@ from qwen36_service.mtp_drafter_core import (  # noqa: E402
     MtpDrafterPolicyError,
     MtpDrafterProfile,
 )
-from qwen36_service.mtp_trace_core import MtpTracePolicyError, MtpTraceProfile  # noqa: E402
+from qwen36_service.mtp_trace_core import (  # noqa: E402
+    MtpTracePolicyError,
+    MtpTraceProfile,
+)
 
 DEFAULT_DRAFT_COUNT = 3
 TWO_DRAFT_COUNT = 2

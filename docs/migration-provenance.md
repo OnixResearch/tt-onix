@@ -26,6 +26,17 @@ Migration validation is device-free. It does not claim fresh hardware execution,
 performance, general P150 compatibility, or exact BF16 parity beyond the retained
 receipts' explicit claim boundaries.
 
+## Licensing boundary
+
+The standalone repository retains GNU LGPL version 2.1 as the license for
+project-authored material without a separate notice. This is not a change
+to the licenses of copied upstream code, external package sources or model
+artifacts. TT-Metal/Qwen patch portions and the local ttWKV7 descriptor
+fixture marked `Apache-2.0` retain that license; the full text is under
+[`LICENSES/Apache-2.0.txt`](../LICENSES/Apache-2.0.txt). The original
+`onix-core` snapshot and preserved evidence still need owner rights and
+disclosure review before a public release.
+
 ## Post-migration full-device development
 
 The reusable RWKV-7 P150x2 runtime and classifier were reviewed and ported from

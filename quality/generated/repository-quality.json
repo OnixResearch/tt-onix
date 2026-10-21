@@ -33,8 +33,10 @@
     {
       "allowed_roots": [
         ".cairn",
-        "pkgs",
-        "docs/research"
+        "cairn",
+        "docs/evidence",
+        "docs/research",
+        "pkgs"
       ],
       "blake3_required": true,
       "class": "portable_evidence",

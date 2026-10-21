@@ -6,7 +6,7 @@ attempted. The width was unreachable for a non-obvious reason: the batch
 admission policy is a closed set,
 
 ```python
-ALLOWED_CANDIDATE_WIDTHS = (CANDIDATE_WIDTH, B8_CANDIDATE_WIDTH)   # (4, 8)
+ALLOWED_CANDIDATE_WIDTHS = (CANDIDATE_WIDTH, B8_CANDIDATE_WIDTH)  # (4, 8)
 ```
 
 so any B=16 profile fails to load with `workload widths are unsupported` before

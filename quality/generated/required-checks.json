@@ -6,7 +6,8 @@
     "training-platform",
     "qwen36",
     "qwen36-authority-negative",
-    "qwen36-nixos-service"
+    "qwen36-nixos-service",
+    "metalium-rs-rwkv7-tokenizer"
   ],
   "schema_version": 1
 }

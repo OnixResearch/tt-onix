@@ -89,7 +89,9 @@ class KvPoolLayout:
     @property
     def generation_end_block(self) -> int:
         """Exclusive end of generation KV; batched read lanes follow this block."""
-        return self.scratch_block - self.batch_read_width * self.batch_read_blocks_per_row
+        return (
+            self.scratch_block - self.batch_read_width * self.batch_read_blocks_per_row
+        )
 
     @property
     def group_capacity_blocks(self) -> int:
@@ -100,7 +102,9 @@ class KvPoolLayout:
         """Blocks one request's row needs: its prefill buckets and every decoded position."""
         _require_positive("prompt token count", prompt_tokens)
         _require_positive("generation token count", generation_tokens)
-        prefill_extent = -(-prompt_tokens // PREFILL_SEGMENT_TOKENS) * PREFILL_SEGMENT_TOKENS
+        prefill_extent = (
+            -(-prompt_tokens // PREFILL_SEGMENT_TOKENS) * PREFILL_SEGMENT_TOKENS
+        )
         written_tokens = max(prefill_extent, prompt_tokens + generation_tokens)
         blocks = -(-written_tokens // self.kv_block_size)
         if blocks > self.row_blocks:
@@ -109,7 +113,9 @@ class KvPoolLayout:
             )
         return blocks
 
-    def assign_group(self, block_counts: Sequence[int], *, width: int) -> list[list[int]]:
+    def assign_group(
+        self, block_counts: Sequence[int], *, width: int
+    ) -> list[list[int]]:
         """Page-table rows for one group: row i gets a contiguous run of block_counts[i].
 
         Rows past the group, and entries past each run, point at the scratch block.
@@ -136,7 +142,9 @@ class KvPoolLayout:
                 + [self.scratch_block] * (self.row_blocks - count)
             )
             start += count
-        rows.extend([self.scratch_block] * self.row_blocks for _ in range(width - len(rows)))
+        rows.extend(
+            [self.scratch_block] * self.row_blocks for _ in range(width - len(rows))
+        )
         return rows
 
     def batch_read_rows(self) -> list[list[int]]:
@@ -157,10 +165,14 @@ class KvPoolLayout:
         """
         _require_positive("page-table width", width)
         if width < 2:
-            raise KvPoolError("the startup layout needs a read row and a generation row")
+            raise KvPoolError(
+                "the startup layout needs a read row and a generation row"
+            )
         read_row = list(range(self.row_blocks))
         first_free = self.row_blocks
-        share = min(self.row_blocks, (self.generation_end_block - first_free) // (width - 1))
+        share = min(
+            self.row_blocks, (self.generation_end_block - first_free) // (width - 1)
+        )
         if share < PREFILL_SEGMENT_TOKENS // self.kv_block_size:
             raise KvPoolError("the KV pool is too small for the startup rows")
         rows = []

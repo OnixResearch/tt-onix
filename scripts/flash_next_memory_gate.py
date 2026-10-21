@@ -55,15 +55,39 @@ HOST_OTHER_FLOOR_BYTES = 6_000_000_000  # Provisional non-expert CPU fallback al
 # GGML storage blocks used by the pinned checkpoint, not TT BLOCKFP2/4 formats.
 # Source: Strata tools/gguf_reader.py at STRATA_REVISION (MIT).
 BLOCKS = {
-    0: (1, 4), 1: (1, 2), 2: (32, 18), 6: (32, 22), 8: (32, 34),
-    11: (256, 110), 12: (256, 144), 13: (256, 176), 14: (256, 210),
-    16: (256, 66), 17: (256, 74), 18: (256, 98), 20: (32, 18),
-    21: (256, 110), 22: (256, 82), 23: (256, 136),
-    29: (256, 56), 30: (1, 2), 42: (64, 18),
+    0: (1, 4),
+    1: (1, 2),
+    2: (32, 18),
+    6: (32, 22),
+    8: (32, 34),
+    11: (256, 110),
+    12: (256, 144),
+    13: (256, 176),
+    14: (256, 210),
+    16: (256, 66),
+    17: (256, 74),
+    18: (256, 98),
+    20: (32, 18),
+    21: (256, 110),
+    22: (256, 82),
+    23: (256, 136),
+    29: (256, 56),
+    30: (1, 2),
+    42: (64, 18),
 }
-SCALARS = {0: ("B", 1), 1: ("b", 1), 2: ("H", 2), 3: ("h", 2),
-           4: ("I", 4), 5: ("i", 4), 6: ("f", 4), 7: ("?", 1),
-           10: ("Q", 8), 11: ("q", 8), 12: ("d", 8)}
+SCALARS = {
+    0: ("B", 1),
+    1: ("b", 1),
+    2: ("H", 2),
+    3: ("h", 2),
+    4: ("I", 4),
+    5: ("i", 4),
+    6: ("f", 4),
+    7: ("?", 1),
+    10: ("Q", 8),
+    11: ("q", 8),
+    12: ("d", 8),
+}
 LAYER = re.compile(r"^blk\.(\d+)\.")
 
 
@@ -92,7 +116,7 @@ class Reader:
     def take(self, count: int) -> bytes:
         if count < 0 or count > len(self.data) - self.at:
             raise ValueError("GGUF directory exceeds the bounded header prefix")
-        out = self.data[self.at:self.at + count]
+        out = self.data[self.at : self.at + count]
         self.at += count
         return out
 
@@ -133,7 +157,9 @@ def read_shard(name: str, prefix_path: Path) -> Shard:
     with prefix_path.open("rb") as stream:
         data = stream.read(limit + 1)
     if len(data) != limit:
-        raise ValueError(f"{name}: expected exactly {limit} bytes of GGUF header, without payload")
+        raise ValueError(
+            f"{name}: expected exactly {limit} bytes of GGUF header, without payload"
+        )
     reader = Reader(data)
     if reader.take(4) != b"GGUF" or reader.scalar(4) != 3:
         raise ValueError(f"{name}: expected little-endian GGUF v3")
@@ -152,7 +178,9 @@ def read_shard(name: str, prefix_path: Path) -> Shard:
         tensor_name = reader.text()
         dims = reader.scalar(4)
         if not 1 <= dims <= 4 or tensor_name in names:
-            raise ValueError(f"{name}: invalid dimensions or repeated tensor {tensor_name}")
+            raise ValueError(
+                f"{name}: invalid dimensions or repeated tensor {tensor_name}"
+            )
         names.add(tensor_name)
         shape = tuple(reader.scalar(10) for _ in range(dims))
         tensors.append(Tensor(tensor_name, shape, reader.scalar(4), reader.scalar(10)))
@@ -162,11 +190,15 @@ def read_shard(name: str, prefix_path: Path) -> Shard:
     data_start = (reader.at + alignment - 1) // alignment * alignment
     if data_start != limit:
         raise ValueError(f"{name}: expected data to begin after byte {limit}")
-    if meta.get("split.count") != 2 or meta.get("split.no") != (1 if name == "ngram" else 0):
+    if meta.get("split.count") != 2 or meta.get("split.no") != (
+        1 if name == "ngram" else 0
+    ):
         raise ValueError(f"{name}: unexpected split position")
     if name != "ngram" and meta.get("general.architecture") != "qwen4exp":
         raise ValueError(f"{name}: wrong model architecture")
-    if name == "ngram" and (len(tensors) != 1 or tensors[0].name != "per_layer_token_embd.weight"):
+    if name == "ngram" and (
+        len(tensors) != 1 or tensors[0].name != "per_layer_token_embd.weight"
+    ):
         raise ValueError("ngram: expected only the n-gram lookup tensor")
     ordered = sorted(tensors, key=lambda tensor: tensor.offset)
     payload_size = file_size - data_start
@@ -176,7 +208,9 @@ def read_shard(name: str, prefix_path: Path) -> Shard:
     for index, tensor in enumerate(ordered):
         end = ordered[index + 1].offset if index + 1 < len(ordered) else payload_size
         if tensor.kind not in BLOCKS or not tensor.shape or not all(tensor.shape):
-            raise ValueError(f"{name}: unsupported GGML format or shape for {tensor.name}")
+            raise ValueError(
+                f"{name}: unsupported GGML format or shape for {tensor.name}"
+            )
         elements = 1
         for dim in tensor.shape:
             elements *= dim
@@ -184,12 +218,17 @@ def read_shard(name: str, prefix_path: Path) -> Shard:
         if elements % block_elements:
             raise ValueError(f"{name}: incomplete GGML block for {tensor.name}")
         stored = elements // block_elements * block_bytes
-        if tensor.offset % alignment or not stored <= end - tensor.offset < stored + alignment:
-            raise ValueError(f"{name}: tensor {tensor.name} does not match its offset bracket")
+        if (
+            tensor.offset % alignment
+            or not stored <= end - tensor.offset < stored + alignment
+        ):
+            raise ValueError(
+                f"{name}: tensor {tensor.name} does not match its offset bracket"
+            )
         spans.append((tensor, end - tensor.offset))
     if sum(span for _, span in spans) != payload_size:
         raise ValueError(f"{name}: tensor spans do not cover the pinned file size")
-    fingerprint = hashlib.sha256(data[:reader.at]).hexdigest()
+    fingerprint = hashlib.sha256(data[: reader.at]).hexdigest()
     if fingerprint != HEADER_SHA256[name]:
         raise ValueError(f"{name}: GGUF directory does not match the pinned checkpoint")
     return Shard(path, fingerprint, data_start, tuple(spans), meta)
@@ -200,12 +239,20 @@ def memory_plan(model: Shard, *, context: int, trace_floor: int) -> dict[str, An
     layers = m.get("qwen4exp.block_count")
     interval = m.get("qwen4exp.full_attention_interval")
     ratios = m.get("qwen4exp.attention.compress_ratios")
-    if layers != 48 or interval != 4 or ratios != tuple(4 if i % 4 == 3 else 0 for i in range(48)):
-        raise ValueError("GGUF layer count or QSA compression layout differs from the audited model")
-    if (m.get("qwen4exp.attention.head_count_kv"), m.get("qwen4exp.attention.key_length"),
-        m.get("qwen4exp.attention.value_length"), m.get("qwen4exp.attention.indexer.key_length")) != (
-        2, 256, 256, 128
+    if (
+        layers != 48
+        or interval != 4
+        or ratios != tuple(4 if i % 4 == 3 else 0 for i in range(48))
     ):
+        raise ValueError(
+            "GGUF layer count or QSA compression layout differs from the audited model"
+        )
+    if (
+        m.get("qwen4exp.attention.head_count_kv"),
+        m.get("qwen4exp.attention.key_length"),
+        m.get("qwen4exp.attention.value_length"),
+        m.get("qwen4exp.attention.indexer.key_length"),
+    ) != (2, 256, 256, 128):
         raise ValueError("GGUF QSA head geometry differs from the audited model")
     if not 1 <= context <= m.get("qwen4exp.context_length", 0):
         raise ValueError("context is outside the GGUF model's native window")
@@ -225,17 +272,29 @@ def memory_plan(model: Shard, *, context: int, trace_floor: int) -> dict[str, An
             globals_[tensor.name] = span
     if len([1 for tensor, _ in model.tensors if "_exps." in tensor.name]) != 144:
         raise ValueError("GGUF has an unexpected routed-expert tensor count")
-    if set(globals_) != {"token_embd.weight", "output.weight", "output_hc_down.weight",
-                         "output_hc_norm.weight", "output_hc_up.weight"}:
+    if set(globals_) != {
+        "token_embd.weight",
+        "output.weight",
+        "output_hc_down.weight",
+        "output_hc_norm.weight",
+        "output_hc_up.weight",
+    }:
         raise ValueError("GGUF has an unexpected non-layer weight")
     # Conservative text-only, single-stream BF16 K/V; QSA pooled indexer keys FP32.
     kv_layer = context * 2 * 2 * 256 * 2
     index_layer = ((context + 3) // 4) * 128 * 4 + 3 * 128 * 4
-    channels = m["qwen4exp.ssm.inner_size"] + 2 * m["qwen4exp.ssm.group_count"] * m["qwen4exp.ssm.state_size"]
-    state_layer = (m["qwen4exp.ssm.state_size"] ** 2 * m["qwen4exp.ssm.time_step_rank"]
-                   + (m["qwen4exp.ssm.conv_kernel"] - 1) * channels) * 4
+    channels = (
+        m["qwen4exp.ssm.inner_size"]
+        + 2 * m["qwen4exp.ssm.group_count"] * m["qwen4exp.ssm.state_size"]
+    )
+    state_layer = (
+        m["qwen4exp.ssm.state_size"] ** 2 * m["qwen4exp.ssm.time_step_rank"]
+        + (m["qwen4exp.ssm.conv_kernel"] - 1) * channels
+    ) * 4
     if (kv_layer, state_layer, m["qwen4exp.expert_count"]) != (
-        context * 2048, 3_268_608, 512
+        context * 2048,
+        3_268_608,
+        512,
     ):
         raise ValueError("GGUF state geometry differs from the audited model")
     splits = []
@@ -243,38 +302,69 @@ def memory_plan(model: Shard, *, context: int, trace_floor: int) -> dict[str, An
         devices = []
         for chip, indices in ((0, range(split)), (1, range(split, layers))):
             weight = sum(layer_bytes[i] for i in indices)
-            weight += globals_["token_embd.weight"] if chip == 0 else sum(
-                span for name, span in globals_.items() if name != "token_embd.weight"
+            weight += (
+                globals_["token_embd.weight"]
+                if chip == 0
+                else sum(
+                    span
+                    for name, span in globals_.items()
+                    if name != "token_embd.weight"
+                )
             )
             qsa = sum(i % interval == interval - 1 for i in indices)
             gdn = len(indices) - qsa
             kv, index = qsa * kv_layer, qsa * index_layer
             state = gdn * state_layer
             floor = weight + kv + index + state + trace_floor
-            devices.append({"id": chip, "layers": [indices.start, indices.stop], "weights_bytes": weight,
-                            "routed_experts_bytes": sum(expert_bytes[i] for i in indices),
-                            "kv_bf16_bytes": kv, "indexer_fp32_bytes": index,
-                            "gdn_state_fp32_bytes": state, "trace_floor_bytes": trace_floor,
-                            "measured_trace_peak_bytes": None, "prompt_scratch_peak_bytes": None,
-                            "weight_materialization_overhead_bytes": None, "allocatable_dram_bytes": None,
-                            "known_floor_bytes": floor, "nominal_headroom_bytes": P150_NOMINAL_BYTES - floor})
-        splits.append((max(device["known_floor_bytes"] for device in devices), split, devices))
+            devices.append({
+                "id": chip,
+                "layers": [indices.start, indices.stop],
+                "weights_bytes": weight,
+                "routed_experts_bytes": sum(expert_bytes[i] for i in indices),
+                "kv_bf16_bytes": kv,
+                "indexer_fp32_bytes": index,
+                "gdn_state_fp32_bytes": state,
+                "trace_floor_bytes": trace_floor,
+                "measured_trace_peak_bytes": None,
+                "prompt_scratch_peak_bytes": None,
+                "weight_materialization_overhead_bytes": None,
+                "allocatable_dram_bytes": None,
+                "known_floor_bytes": floor,
+                "nominal_headroom_bytes": P150_NOMINAL_BYTES - floor,
+            })
+        splits.append((
+            max(device["known_floor_bytes"] for device in devices),
+            split,
+            devices,
+        ))
     _, split, devices = min(splits)
-    return {"split_after_layer": split - 1, "devices": devices,
-            "total_routed_experts_bytes": sum(expert_bytes),
-            "nominal_floor_fits": all(device["nominal_headroom_bytes"] > 0 for device in devices)}
+    return {
+        "split_after_layer": split - 1,
+        "devices": devices,
+        "total_routed_experts_bytes": sum(expert_bytes),
+        "nominal_floor_fits": all(
+            device["nominal_headroom_bytes"] > 0 for device in devices
+        ),
+    }
 
 
 def ttnn_format_projection(model: Shard, plan: dict[str, Any]) -> dict[str, Any]:
     """Optimistic fully resident 32x32 TTNN TILE layout at the GGUF-selected split."""
     split = plan["split_after_layer"] + 1
-    overhead = [device["known_floor_bytes"] - device["weights_bytes"] for device in plan["devices"]]
+    overhead = [
+        device["known_floor_bytes"] - device["weights_bytes"]
+        for device in plan["devices"]
+    ]
     projections = {}
     for dtype, tile_bytes in TTNN_TILE_BYTES.items():
         weights = [0, 0]
         for tensor, _ in model.tensors:
             shape = (1, *tensor.shape) if len(tensor.shape) == 1 else tensor.shape
-            tiles = math.prod(shape[:-2]) * ((shape[-2] + 31) // 32) * ((shape[-1] + 31) // 32)
+            tiles = (
+                math.prod(shape[:-2])
+                * ((shape[-2] + 31) // 32)
+                * ((shape[-1] + 31) // 32)
+            )
             match = LAYER.match(tensor.name)
             if match:
                 chip = 0 if int(match.group(1)) < split else 1
@@ -287,8 +377,14 @@ def ttnn_format_projection(model: Shard, plan: dict[str, Any]) -> dict[str, Any]
             "total_weight_bytes": total,
             "exceeds_two_card_nominal_weight_capacity": total > 2 * P150_NOMINAL_BYTES,
             "devices": [
-                {"id": chip, "weights_bytes": weight, "known_floor_bytes": weight + overhead[chip],
-                 "nominal_headroom_bytes": P150_NOMINAL_BYTES - weight - overhead[chip]}
+                {
+                    "id": chip,
+                    "weights_bytes": weight,
+                    "known_floor_bytes": weight + overhead[chip],
+                    "nominal_headroom_bytes": P150_NOMINAL_BYTES
+                    - weight
+                    - overhead[chip],
+                }
                 for chip, weight in enumerate(weights)
             ],
         }
@@ -306,67 +402,119 @@ def run(headers: Path, context: int, disk_path: Path) -> dict[str, Any]:
     names = {"Q2_0": "q2", "IQ2_XS": "iq2", "ngram": "ngram"}
     shards = {key: read_shard(key, headers / f"{names[key]}.header") for key in SHARDS}
     for name in ("Q2_0", "IQ2_XS"):
-        if any(shards[name].metadata[key] != shards["Q2_0"].metadata[key] for key in (
-            "qwen4exp.block_count", "qwen4exp.context_length", "qwen4exp.attention.compress_ratios",
-        )):
-            raise ValueError(f"{name}: model geometry differs across checkpoint variants")
+        if any(
+            shards[name].metadata[key] != shards["Q2_0"].metadata[key]
+            for key in (
+                "qwen4exp.block_count",
+                "qwen4exp.context_length",
+                "qwen4exp.attention.compress_ratios",
+            )
+        ):
+            raise ValueError(
+                f"{name}: model geometry differs across checkpoint variants"
+            )
     host_available = available_memory()
     disk_available = shutil.disk_usage(disk_path).free
     receipt: dict[str, Any] = {
         "schema_version": 2,
-        "source": {"hf_repository": REPOSITORY, "hf_revision": REVISION,
-                   "strata_revision": STRATA_REVISION, "header_only": True},
-        "scenario": {"architecture": "P150x2 layer pipeline (not existing 27B tensor parallel)",
-                     "context_tokens": context, "concurrent_requests": 1, "kv_dtype": "bf16",
-                     "vision": False, "mtp": False, "nominal_bytes_per_p150": P150_NOMINAL_BYTES,
-                     "trace_floor_from_27b_bytes_per_chip": TRACE_FLOOR_BYTES},
-        "host": {"mem_available_bytes": host_available, "extra_host_floor_bytes": HOST_OTHER_FLOOR_BYTES,
-                 "pinnable_bytes": None},
-        "ssd": {"path": str(disk_path), "available_bytes": disk_available,
-                "shared_ngram_shard_bytes": SHARDS["ngram"][1], "ngram_page_cache_bytes": None},
-        "shards": {}, "variants": {},
+        "source": {
+            "hf_repository": REPOSITORY,
+            "hf_revision": REVISION,
+            "strata_revision": STRATA_REVISION,
+            "header_only": True,
+        },
+        "scenario": {
+            "architecture": "P150x2 layer pipeline (not existing 27B tensor parallel)",
+            "context_tokens": context,
+            "concurrent_requests": 1,
+            "kv_dtype": "bf16",
+            "vision": False,
+            "mtp": False,
+            "nominal_bytes_per_p150": P150_NOMINAL_BYTES,
+            "trace_floor_from_27b_bytes_per_chip": TRACE_FLOOR_BYTES,
+        },
+        "host": {
+            "mem_available_bytes": host_available,
+            "extra_host_floor_bytes": HOST_OTHER_FLOOR_BYTES,
+            "pinnable_bytes": None,
+        },
+        "ssd": {
+            "path": str(disk_path),
+            "available_bytes": disk_available,
+            "shared_ngram_shard_bytes": SHARDS["ngram"][1],
+            "ngram_page_cache_bytes": None,
+        },
+        "shards": {},
+        "variants": {},
     }
     for name, shard in shards.items():
         path, size, sha = SHARDS[name]
-        receipt["shards"][name] = {"path": path, "pinned_bytes": size,
-                                     "lfs_sha256_unverified": sha,
-                                     "directory_sha256": shard.directory_sha256,
-                                     "data_start_bytes": shard.data_start,
-                                     "tensor_count": len(shard.tensors),
-                                     "ggml_type_tensor_counts": dict(Counter(tensor.kind for tensor, _ in shard.tensors))}
+        receipt["shards"][name] = {
+            "path": path,
+            "pinned_bytes": size,
+            "lfs_sha256_unverified": sha,
+            "directory_sha256": shard.directory_sha256,
+            "data_start_bytes": shard.data_start,
+            "tensor_count": len(shard.tensors),
+            "ggml_type_tensor_counts": dict(
+                Counter(tensor.kind for tensor, _ in shard.tensors)
+            ),
+        }
     for name in ("Q2_0", "IQ2_XS"):
         plan = memory_plan(shards[name], context=context, trace_floor=TRACE_FLOOR_BYTES)
-        plan["ttnn_all_tensor_tile_projection"] = ttnn_format_projection(shards[name], plan)
+        plan["ttnn_all_tensor_tile_projection"] = ttnn_format_projection(
+            shards[name], plan
+        )
         host_floor = plan["total_routed_experts_bytes"] + HOST_OTHER_FLOOR_BYTES
         disk_floor = SHARDS[name][1] + SHARDS["ngram"][1]
         blockers = []
         if not plan["nominal_floor_fits"]:
             blockers.append("per-chip known floor exceeds nominal P150 DRAM")
         if host_available < host_floor:
-            blockers.append("host MemAvailable cannot cover an expert CPU fallback plus reserve")
+            blockers.append(
+                "host MemAvailable cannot cover an expert CPU fallback plus reserve"
+            )
         if disk_available < disk_floor:
             blockers.append("free SSD cannot hold both pinned shards")
-        if plan["ttnn_all_tensor_tile_projection"]["BFLOAT4_B"]["exceeds_two_card_nominal_weight_capacity"]:
-            blockers.append("even optimistic fully resident TTNN BFLOAT4_B weights exceed both nominal P150 DRAM capacities")
-        blockers.extend(("Flash Next TT-native GGUF quantized operators and placement not implemented",
-                         "Flash Next per-chip usable DRAM, prompt scratch, weight conversion and trace peak unmeasured"))
-        plan.update({"host_fallback_floor_bytes": host_floor,
-                     "host_fallback_floor_fits": host_available >= host_floor,
-                     "ssd_download_bytes": disk_floor, "ssd_download_fits": disk_available >= disk_floor,
-                     "memory_admitted": not blockers, "one_layer_device_check_ready": not blockers,
-                     "blockers": blockers})
+        if plan["ttnn_all_tensor_tile_projection"]["BFLOAT4_B"][
+            "exceeds_two_card_nominal_weight_capacity"
+        ]:
+            blockers.append(
+                "even optimistic fully resident TTNN BFLOAT4_B weights exceed both nominal P150 DRAM capacities"
+            )
+        blockers.extend((
+            "Flash Next TT-native GGUF quantized operators and placement not implemented",
+            "Flash Next per-chip usable DRAM, prompt scratch, weight conversion and trace peak unmeasured",
+        ))
+        plan.update({
+            "host_fallback_floor_bytes": host_floor,
+            "host_fallback_floor_fits": host_available >= host_floor,
+            "ssd_download_bytes": disk_floor,
+            "ssd_download_fits": disk_available >= disk_floor,
+            "memory_admitted": not blockers,
+            "one_layer_device_check_ready": not blockers,
+            "blockers": blockers,
+        })
         receipt["variants"][name] = plan
     return receipt
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--headers", type=Path, required=True,
-                        help="directory of q2.header, iq2.header, ngram.header from pinned HTTP byte ranges")
+    parser.add_argument(
+        "--headers",
+        type=Path,
+        required=True,
+        help="directory of q2.header, iq2.header, ngram.header from pinned HTTP byte ranges",
+    )
     parser.add_argument("--context", type=int, default=65_536)
     parser.add_argument("--disk-path", type=Path, default=Path.cwd())
     args = parser.parse_args()
-    print(json.dumps(run(args.headers, args.context, args.disk_path), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            run(args.headers, args.context, args.disk_path), indent=2, sort_keys=True
+        )
+    )
 
 
 if __name__ == "__main__":

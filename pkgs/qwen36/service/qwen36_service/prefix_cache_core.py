@@ -36,16 +36,14 @@ DIGEST_DOMAIN = b"qwen38-hybrid-prefix-v1"
 # BLAKE3's default 32-byte output, in hex.
 DIGEST_HEX_LENGTH = 64
 TOKEN_BYTES = 4
-POLICY_FIELDS = frozenset(
-    {
-        "schema_version",
-        "profile_id",
-        "state_slots",
-        "minimum_prefix_tokens",
-        "maximum_cached_blocks",
-        "tenant",
-    }
-)
+POLICY_FIELDS = frozenset({
+    "schema_version",
+    "profile_id",
+    "state_slots",
+    "minimum_prefix_tokens",
+    "maximum_cached_blocks",
+    "tenant",
+})
 ROOT_POLICY_FIELDS = POLICY_FIELDS | {"shared_root_minimum_tokens"}
 
 
@@ -70,13 +68,20 @@ def prefix_cache_identity(package_identity: str, model_identity: str) -> str:
     )
     return f"{package_identity}|{model_identity}|{flags}"
 
+
 class PrefixCachePolicyError(ValueError):
     """The prefix-cache policy or an entry is outside the closed contract."""
 
 
 def _require_int(value: Any, name: str, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise PrefixCachePolicyError(f"{name} must be an integer in [{minimum}, {maximum}]")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
+        raise PrefixCachePolicyError(
+            f"{name} must be an integer in [{minimum}, {maximum}]"
+        )
     return value
 
 
@@ -98,11 +103,17 @@ class PrefixCachePolicy:
         if not isinstance(self.tenant, str) or not self.tenant:
             raise PrefixCachePolicyError("tenant must be a non-empty string")
         _require_int(self.state_slots, "state_slots", 1, MAXIMUM_STATE_SLOTS)
-        _require_int(self.minimum_prefix_tokens, "minimum_prefix_tokens", CHUNK_TOKENS, 2**20)
+        _require_int(
+            self.minimum_prefix_tokens, "minimum_prefix_tokens", CHUNK_TOKENS, 2**20
+        )
         if self.minimum_prefix_tokens % CHUNK_TOKENS:
-            raise PrefixCachePolicyError("minimum_prefix_tokens must be a whole number of chunks")
+            raise PrefixCachePolicyError(
+                "minimum_prefix_tokens must be a whole number of chunks"
+            )
         _require_int(self.maximum_cached_blocks, "maximum_cached_blocks", 1, 2**20)
-        _require_int(self.shared_root_minimum_tokens, "shared_root_minimum_tokens", 0, 2**20)
+        _require_int(
+            self.shared_root_minimum_tokens, "shared_root_minimum_tokens", 0, 2**20
+        )
         if self.shared_root_minimum_tokens:
             _require_int(
                 self.shared_root_minimum_tokens,
@@ -111,9 +122,13 @@ class PrefixCachePolicy:
                 2**20,
             )
             if self.shared_root_minimum_tokens % CHUNK_TOKENS:
-                raise PrefixCachePolicyError("shared_root_minimum_tokens must be a whole number of chunks")
+                raise PrefixCachePolicyError(
+                    "shared_root_minimum_tokens must be a whole number of chunks"
+                )
             if self.state_slots < 2:
-                raise PrefixCachePolicyError("a shared root needs a separate conversation state buffer")
+                raise PrefixCachePolicyError(
+                    "a shared root needs a separate conversation state buffer"
+                )
 
     @classmethod
     def from_mapping(cls, root: Mapping[str, Any]) -> PrefixCachePolicy:
@@ -122,7 +137,9 @@ class PrefixCachePolicy:
         version = _require_int(
             root.get("schema_version"), "schema_version", 1, ROOT_PROFILE_SCHEMA_VERSION
         )
-        fields = POLICY_FIELDS if version == PROFILE_SCHEMA_VERSION else ROOT_POLICY_FIELDS
+        fields = (
+            POLICY_FIELDS if version == PROFILE_SCHEMA_VERSION else ROOT_POLICY_FIELDS
+        )
         if set(root) != fields:
             raise PrefixCachePolicyError("policy fields differ from the closed schema")
         return cls(
@@ -161,7 +178,9 @@ def prefix_digests(
     digests = []
     for chunk in range((len(token_ids) - 1) // CHUNK_TOKENS):
         tokens = token_ids[chunk * CHUNK_TOKENS : (chunk + 1) * CHUNK_TOKENS]
-        payload = b"".join(int(token).to_bytes(TOKEN_BYTES, "little", signed=False) for token in tokens)
+        payload = b"".join(
+            int(token).to_bytes(TOKEN_BYTES, "little", signed=False) for token in tokens
+        )
         state = blake3_digest(state + payload)
         digests.append(state.hex())
     return tuple(digests)
@@ -186,13 +205,24 @@ class PrefixEntry:
         if self.prefix_tokens % CHUNK_TOKENS or self.prefix_tokens <= 0:
             raise PrefixCachePolicyError("an entry must cover whole chunks")
         if not self.block_ranges:
-            raise PrefixCachePolicyError("an entry must name its KV blocks; a KV-less entry is invalid")
-        if sum(count for _start, count in self.block_ranges) * block_tokens != self.prefix_tokens:
-            raise PrefixCachePolicyError("an entry's KV blocks must cover exactly its prefix")
+            raise PrefixCachePolicyError(
+                "an entry must name its KV blocks; a KV-less entry is invalid"
+            )
+        if (
+            sum(count for _start, count in self.block_ranges) * block_tokens
+            != self.prefix_tokens
+        ):
+            raise PrefixCachePolicyError(
+                "an entry's KV blocks must cover exactly its prefix"
+            )
         if not 0 <= self.state_index < state_slots:
-            raise PrefixCachePolicyError("an entry must name an allocated carried-state buffer")
+            raise PrefixCachePolicyError(
+                "an entry must name an allocated carried-state buffer"
+            )
         if self.pins < 0:
-            raise PrefixCachePolicyError("an entry cannot be pinned a negative number of times")
+            raise PrefixCachePolicyError(
+                "an entry cannot be pinned a negative number of times"
+            )
 
 
 def expand_blocks(ranges: Iterable[tuple[int, int]]) -> list[int]:
@@ -201,10 +231,14 @@ def expand_blocks(ranges: Iterable[tuple[int, int]]) -> list[int]:
 
 def cached_blocks(entries: Iterable[PrefixEntry]) -> frozenset[int]:
     """Every KV block some entry holds; entries in a chain share their common blocks."""
-    return frozenset(block for entry in entries for block in expand_blocks(entry.block_ranges))
+    return frozenset(
+        block for entry in entries for block in expand_blocks(entry.block_ranges)
+    )
 
 
-def lookup(entries: Sequence[PrefixEntry], digests: Sequence[str]) -> PrefixEntry | None:
+def lookup(
+    entries: Sequence[PrefixEntry], digests: Sequence[str]
+) -> PrefixEntry | None:
     """The ready entry for the longest prefix of these digests, or None."""
     ready = {entry.digest: entry for entry in entries if entry.ready}
     for digest in reversed(digests):
@@ -214,12 +248,18 @@ def lookup(entries: Sequence[PrefixEntry], digests: Sequence[str]) -> PrefixEntr
     return None
 
 
-def eviction_order(entries: Sequence[PrefixEntry], keep: frozenset[int] = frozenset()) -> list[PrefixEntry]:
+def eviction_order(
+    entries: Sequence[PrefixEntry], keep: frozenset[int] = frozenset()
+) -> list[PrefixEntry]:
     """Ready, unpinned victims: conversation entries first, then the shared root."""
     candidates = [
-        entry for entry in entries if entry.ready and entry.pins == 0 and entry.entry_id not in keep
+        entry
+        for entry in entries
+        if entry.ready and entry.pins == 0 and entry.entry_id not in keep
     ]
-    return sorted(candidates, key=lambda entry: (entry.root, entry.last_used, entry.entry_id))
+    return sorted(
+        candidates, key=lambda entry: (entry.root, entry.last_used, entry.entry_id)
+    )
 
 
 def free_state_index(entries: Sequence[PrefixEntry], state_slots: int) -> int | None:

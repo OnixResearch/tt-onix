@@ -80,7 +80,13 @@ let external_object_max_bytes = 16 * gibibyte in
     {
       class = "portable_evidence",
       max_bytes = portable_evidence_max_bytes,
-      allowed_roots = [".cairn", "pkgs", "docs/research"],
+      allowed_roots = [
+        ".cairn",
+        "cairn",
+        "docs/evidence",
+        "docs/research",
+        "pkgs",
+      ],
       git_allowed = true,
       blake3_required = true,
       private_content_allowed = false,

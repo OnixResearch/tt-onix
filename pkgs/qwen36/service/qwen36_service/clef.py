@@ -83,7 +83,9 @@ def _json_file(path: Path) -> dict[str, Any]:
     return result
 
 
-def validate_checkpoint(path: Path, variant: str) -> tuple[dict[str, Any], dict[str, Any], Path]:
+def validate_checkpoint(
+    path: Path, variant: str
+) -> tuple[dict[str, Any], dict[str, Any], Path]:
     """Reject wrong revisions and incompatible architectures before claiming any devices."""
     if variant not in VARIANTS:
         raise ValueError(f"unknown variant {variant!r}")
@@ -96,7 +98,9 @@ def validate_checkpoint(path: Path, variant: str) -> tuple[dict[str, Any], dict[
         if marker.read_text(encoding="ascii").strip() != spec.revision:
             raise ValueError(f"checkpoint revision must be {spec.revision}")
     elif not (path.name == spec.revision and path.parent.name == "snapshots"):
-        raise ValueError("checkpoint requires a matching revision file or pinned HF snapshot path")
+        raise ValueError(
+            "checkpoint requires a matching revision file or pinned HF snapshot path"
+        )
     config = _json_file(path / "config.json")
     text = config.get("text_config", {})
     expected = {
@@ -105,7 +109,9 @@ def validate_checkpoint(path: Path, variant: str) -> tuple[dict[str, Any], dict[
         "tie_word_embeddings": False,
     }
     if any(config.get(key) != value for key, value in expected.items()):
-        raise ValueError("checkpoint is not a compatible Qwen3.5 conditional generation model")
+        raise ValueError(
+            "checkpoint is not a compatible Qwen3.5 conditional generation model"
+        )
     if (
         text.get("model_type") != "qwen3_5_text"
         or text.get("num_hidden_layers") != spec.layers
@@ -128,10 +134,16 @@ def validate_checkpoint(path: Path, variant: str) -> tuple[dict[str, Any], dict[
         "heads": 16,
         "feedforward": 4096,
     }:
-        raise ValueError("joint schema head configuration does not match the pinned release")
+        raise ValueError(
+            "joint schema head configuration does not match the pinned release"
+        )
     index = _json_file(path / "model.safetensors.index.json")
     shard = index.get("weight_map", {}).get("lm_head.weight")
-    if not isinstance(shard, str) or Path(shard).name != shard or not shard.endswith(".safetensors"):
+    if (
+        not isinstance(shard, str)
+        or Path(shard).name != shard
+        or not shard.endswith(".safetensors")
+    ):
         raise ValueError("checkpoint has no valid lm_head.weight safetensors shard")
     if not (path / shard).is_file() or not (path / "joint_head.safetensors").is_file():
         raise ValueError("checkpoint is missing head or output embedding weights")
@@ -142,9 +154,13 @@ def validate_checkpoint(path: Path, variant: str) -> tuple[dict[str, Any], dict[
     return config, head_config, path / shard
 
 
-def _load_head(path: Path, head_config: dict[str, Any], embedding_shard: Path) -> tuple[JointSchemaHead, torch.Tensor]:
+def _load_head(
+    path: Path, head_config: dict[str, Any], embedding_shard: Path
+) -> tuple[JointSchemaHead, torch.Tensor]:
     head = JointSchemaHead(**head_config).to(dtype=torch.bfloat16)
-    head.load_state_dict(load_file(path / "joint_head.safetensors", device="cpu"), strict=True)
+    head.load_state_dict(
+        load_file(path / "joint_head.safetensors", device="cpu"), strict=True
+    )
     head.eval()
     # Read only this tensor; never instantiate a host copy of the Qwen backbone.
     with safe_open(embedding_shard, framework="pt", device="cpu") as weights:
@@ -157,7 +173,10 @@ def _load_head(path: Path, head_config: dict[str, Any], embedding_shard: Path) -
 def _reference_visual(path: Path, config: dict[str, Any]) -> Any:
     """Load just the HF visual tower needed by the TT vision adapter."""
     from transformers import Qwen3_5Config
-    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5VisionModel, Qwen3_5VisionRotaryEmbedding
+    from transformers.models.qwen3_5.modeling_qwen3_5 import (
+        Qwen3_5VisionModel,
+        Qwen3_5VisionRotaryEmbedding,
+    )
 
     # The pinned checkpoint supplies every parameter in BF16. Avoid allocating
     # and initializing an entire FP32 tower only to overwrite it with those weights.
@@ -166,7 +185,9 @@ def _reference_visual(path: Path, config: dict[str, Any]) -> Any:
     # Rotary frequencies are nonpersistent, so assign=True cannot restore them.
     # Construct that small buffer normally, including the original BF16 cast.
     rotary = visual.rotary_pos_emb
-    visual.rotary_pos_emb = Qwen3_5VisionRotaryEmbedding(rotary.dim, rotary.theta).to(dtype=torch.bfloat16)
+    visual.rotary_pos_emb = Qwen3_5VisionRotaryEmbedding(rotary.dim, rotary.theta).to(
+        dtype=torch.bfloat16
+    )
     index = _json_file(path / "model.safetensors.index.json")["weight_map"]
     prefix = "model.visual."
     keys = {key.removeprefix(prefix): key for key in index if key.startswith(prefix)}
@@ -180,7 +201,11 @@ def _reference_visual(path: Path, config: dict[str, Any]) -> Any:
             for name, original in keys.items():
                 if index[original] == shard:
                     state[name] = weights.get_tensor(original)
-    visual.load_state_dict({name: weight.to(dtype=torch.bfloat16) for name, weight in state.items()}, strict=True, assign=True)
+    visual.load_state_dict(
+        {name: weight.to(dtype=torch.bfloat16) for name, weight in state.items()},
+        strict=True,
+        assign=True,
+    )
     return visual.eval()
 
 
@@ -190,8 +215,14 @@ def _media_image(value: Any) -> Any:
 
     if isinstance(value, Image.Image):
         return value.convert("RGB")
-    if not isinstance(value, str) or not value.startswith("data:image/") or ";base64," not in value:
-        raise RequestError("images and video frames must be PIL images or base64 image data URLs")
+    if (
+        not isinstance(value, str)
+        or not value.startswith("data:image/")
+        or ";base64," not in value
+    ):
+        raise RequestError(
+            "images and video frames must be PIL images or base64 image data URLs"
+        )
     try:
         payload = base64.b64decode(value.split(";base64,", 1)[1], validate=True)
         image = Image.open(io.BytesIO(payload))
@@ -205,10 +236,14 @@ def _prepare_media(request: dict[str, Any]) -> dict[str, Any]:
     record = dict(request)
     images, videos = request.get("images"), request.get("videos")
     if images and videos:
-        raise RequestError("mixed image/video records are unsupported by the TT vision splice")
+        raise RequestError(
+            "mixed image/video records are unsupported by the TT vision splice"
+        )
     if images is not None:
         if not isinstance(images, list) or not images:
-            raise RequestError("images must be a nonempty list of PIL images or image data URLs")
+            raise RequestError(
+                "images must be a nonempty list of PIL images or image data URLs"
+            )
         record["images"] = [_media_image(image) for image in images]
     if videos is not None:
         if (
@@ -217,7 +252,9 @@ def _prepare_media(request: dict[str, Any]) -> dict[str, Any]:
             or any(not isinstance(video, list) or not video for video in videos)
         ):
             raise RequestError("videos must be a nonempty list of nonempty frame lists")
-        record["videos"] = [[_media_image(frame) for frame in video] for video in videos]
+        record["videos"] = [
+            [_media_image(frame) for frame in video] for video in videos
+        ]
     if "media_kwargs" in record and not isinstance(record["media_kwargs"], dict):
         raise RequestError("media_kwargs must be a JSON object")
     return record
@@ -227,7 +264,11 @@ def _validate_request(request: Any, variant: str) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise RequestError("request must be a JSON object")
     release_name = "Clef" if variant == "clef" else "Clef-Flash"
-    if request.get("model") not in (variant, f"Cloudflare/{variant}", f"Cloudflare/{release_name}"):
+    if request.get("model") not in (
+        variant,
+        f"Cloudflare/{variant}",
+        f"Cloudflare/{release_name}",
+    ):
         raise RequestError(f"model must identify Cloudflare/{release_name}")
     if "state" not in request:
         raise RequestError("state is required")
@@ -246,11 +287,15 @@ def _validate_request(request: Any, variant: str) -> dict[str, Any]:
             or not criteria
             or any(not isinstance(option, str) for option in criteria)
         ):
-            raise RequestError(f"{key}: choice criteria must map option IDs to descriptions")
+            raise RequestError(
+                f"{key}: choice criteria must map option IDs to descriptions"
+            )
         if kind == "score" and (not isinstance(criteria, list) or not criteria):
             raise RequestError(f"{key}: score criteria must be a nonempty list")
-        if kind == "noul" and criteria is not None and (
-            not isinstance(criteria, dict) or set(criteria) - {"true", "false"}
+        if (
+            kind == "noul"
+            and criteria is not None
+            and (not isinstance(criteria, dict) or set(criteria) - {"true", "false"})
         ):
             raise RequestError(f"{key}: noul criteria may describe only true and false")
     return _prepare_media(request)
@@ -284,7 +329,10 @@ class ClefEngine:
             record = _validate_request(request, self.variant)
             try:
                 encoded = encode_record(
-                    self.processor.tokenizer, record, max_length=self.max_length, processor=self.processor
+                    self.processor.tokenizer,
+                    record,
+                    max_length=self.max_length,
+                    processor=self.processor,
                 )
             except (TypeError, ValueError, KeyError) as error:
                 raise RequestError(f"record encoding failed: {error}") from error
@@ -297,15 +345,22 @@ class ClefEngine:
                     media = encoded.media
                     if record.get("images"):
                         if "pixel_values" not in media or "image_grid_thw" not in media:
-                            raise RequestError("processor did not return image patches and grid")
+                            raise RequestError(
+                                "processor did not return image patches and grid"
+                            )
                         if self.model.vision_model is None:
                             raise RuntimeError("TT vision tower was not initialized")
                         vision = self.model.get_image_features(
                             media["pixel_values"], media["image_grid_thw"]
                         )
                     elif record.get("videos"):
-                        if "pixel_values_videos" not in media or "video_grid_thw" not in media:
-                            raise RequestError("processor did not return video patches and grid")
+                        if (
+                            "pixel_values_videos" not in media
+                            or "video_grid_thw" not in media
+                        ):
+                            raise RequestError(
+                                "processor did not return video patches and grid"
+                            )
                         if self.model.vision_model is None:
                             raise RuntimeError("TT vision tower was not initialized")
                         vision = self.model.get_video_features(
@@ -314,8 +369,14 @@ class ClefEngine:
                 hidden = self.model.prefill_hidden_states(
                     tokens, valid_len=tokens.shape[1], vision_tokens=vision
                 )
-                if tuple(hidden.shape) != (1, tokens.shape[1], VARIANTS[self.variant].hidden):
-                    raise RuntimeError("TT backbone returned incompatible hidden states")
+                if tuple(hidden.shape) != (
+                    1,
+                    tokens.shape[1],
+                    VARIANTS[self.variant].hidden,
+                ):
+                    raise RuntimeError(
+                        "TT backbone returned incompatible hidden states"
+                    )
                 attention_mask = torch.ones_like(tokens)
                 logits = self.head(
                     hidden.to(dtype=self.head.hidden_norm.weight.dtype),
@@ -328,9 +389,14 @@ class ClefEngine:
                     raise RuntimeError("joint head returned an incomplete decision")
                 answers = {}
                 for question, scores in zip(encoded.questions, logits):
-                    if scores.numel() != len(question.option_ids) or not torch.isfinite(scores).all():
+                    if (
+                        scores.numel() != len(question.option_ids)
+                        or not torch.isfinite(scores).all()
+                    ):
                         raise RuntimeError("joint head returned invalid option logits")
-                    probabilities = dict(zip(question.option_ids, scores.float().softmax(-1).tolist()))
+                    probabilities = dict(
+                        zip(question.option_ids, scores.float().softmax(-1).tolist())
+                    )
                     answers[question.question_id] = systemone_answer(
                         request["questions"][question.question_id], probabilities
                     )
@@ -353,7 +419,9 @@ class ClefEngine:
 def make_handler(engine: ClefEngine) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
-            body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode(
+                "utf-8"
+            )
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -384,7 +452,9 @@ def make_handler(engine: ClefEngine) -> type[BaseHTTPRequestHandler]:
                 self._send(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except Exception:
                 logging.exception("SystemOne inference failed")
-                self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "inference failed"})
+                self._send(
+                    HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "inference failed"}
+                )
 
     return Handler
 
@@ -422,7 +492,9 @@ def serve(
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
     head, lm_head = _load_head(model_path, head_config, shard)
-    processor = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=False)
+    processor = AutoProcessor.from_pretrained(
+        model_path, local_files_only=True, trust_remote_code=False
+    )
 
     import ttnn
     from models.demos.blackhole.qwen36.tt.model import Qwen36Model
@@ -431,7 +503,9 @@ def serve(
     physical_ids = tuple(ttnn.get_pcie_device_ids())
     admitted_ids = (spec.devices,) if variant == "clef" else ((0,), (0, 1))
     if physical_ids not in admitted_ids:
-        raise RuntimeError(f"{variant} requires physical PCIe IDs {admitted_ids}; found {physical_ids}")
+        raise RuntimeError(
+            f"{variant} requires physical PCIe IDs {admitted_ids}; found {physical_ids}"
+        )
     os.environ["HF_MODEL"] = str(model_path)
     os.environ["TT_CACHE_PATH"] = str(cache_path)
     mesh = model = server = None
@@ -456,7 +530,9 @@ def serve(
         if mesh.get_num_devices() != len(spec.devices):
             raise RuntimeError("mesh did not open the admitted physical devices")
         mesh.enable_program_cache()
-        model = Qwen36Model.from_pretrained(mesh, max_batch_size=1, max_seq_len=max_length)
+        model = Qwen36Model.from_pretrained(
+            mesh, max_batch_size=1, max_seq_len=max_length
+        )
         if len(model.layers) != spec.layers or model.args.dim != spec.hidden:
             raise RuntimeError("loaded TT backbone differs from checkpoint variant")
         # The TT vision model expects an HF reference visual for patch/position steps.
@@ -466,10 +542,20 @@ def serve(
             model.init_vision_model(reference_visual=visual)
         finally:
             del visual
-        engine = ClefEngine(model, processor, head, lm_head, variant, max_length=max_length)
+        engine = ClefEngine(
+            model, processor, head, lm_head, variant, max_length=max_length
+        )
         server = ThreadingHTTPServer((host, port), make_handler(engine))
         server.daemon_threads = False
-        print(json.dumps({"stage": "ready", "model": variant, "host": host, "port": port}), flush=True)
+        print(
+            json.dumps({
+                "stage": "ready",
+                "model": variant,
+                "host": host,
+                "port": port,
+            }),
+            flush=True,
+        )
         server.serve_forever()
     finally:
         try:
@@ -493,26 +579,41 @@ def serve(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve a pinned Cloudflare Clef SystemOne checkpoint on TT")
+    parser = argparse.ArgumentParser(
+        description="Serve a pinned Cloudflare Clef SystemOne checkpoint on TT"
+    )
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--variant", choices=VARIANTS, required=True)
     parser.add_argument(
         "--cache-path",
         type=Path,
-        default=Path(os.environ["TT_CACHE_PATH"]) if os.environ.get("TT_CACHE_PATH") else None,
+        default=Path(os.environ["TT_CACHE_PATH"])
+        if os.environ.get("TT_CACHE_PATH")
+        else None,
     )
     parser.add_argument("--max-length", type=int, default=DEFAULT_MAX_LENGTH)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     if args.cache_path is None:
-        parser.error("--cache-path (or TT_CACHE_PATH) is required for writable TT tensor cache")
-    handlers = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)}
+        parser.error(
+            "--cache-path (or TT_CACHE_PATH) is required for writable TT tensor cache"
+        )
+    handlers = {
+        signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)
+    }
     try:
         for signum in handlers:
             signal.signal(signum, _stop_service)
         try:
-            serve(args.model_path, args.variant, args.cache_path, args.host, args.port, args.max_length)
+            serve(
+                args.model_path,
+                args.variant,
+                args.cache_path,
+                args.host,
+                args.port,
+                args.max_length,
+            )
         except ServiceStop:
             pass
         except (TypeError, ValueError, OSError, RuntimeError) as error:

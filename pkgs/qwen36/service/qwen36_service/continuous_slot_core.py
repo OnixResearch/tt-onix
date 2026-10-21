@@ -74,7 +74,12 @@ SLOT_ACTIVE = "active"
 SLOT_COMPLETE = "complete"
 SLOT_QUARANTINED = "quarantined"
 # States that own a KV run and a row of device state.
-OCCUPYING_STATES = frozenset({SLOT_PREFILLING, SLOT_ACTIVE, SLOT_COMPLETE, SLOT_QUARANTINED})
+OCCUPYING_STATES = frozenset({
+    SLOT_PREFILLING,
+    SLOT_ACTIVE,
+    SLOT_COMPLETE,
+    SLOT_QUARANTINED,
+})
 # States a request is still running in.
 RUNNING_STATES = frozenset({SLOT_PREFILLING, SLOT_ACTIVE})
 
@@ -91,20 +96,18 @@ REJECT_QUEUE_TIMEOUT = "queue-timeout"
 REJECT_DEADLINE = "deadline-expired"
 REJECT_CANCELLED = "cancelled"
 
-POLICY_FIELDS = frozenset(
-    {
-        "schema_version",
-        "profile_id",
-        "slot_capacity",
-        "queue_capacity",
-        "decode_window_steps",
-        "refills_per_boundary",
-        "refill_prompt_token_budget",
-        "maximum_head_bypasses",
-        "maximum_queue_seconds",
-        "worker_stall_seconds",
-    }
-)
+POLICY_FIELDS = frozenset({
+    "schema_version",
+    "profile_id",
+    "slot_capacity",
+    "queue_capacity",
+    "decode_window_steps",
+    "refills_per_boundary",
+    "refill_prompt_token_budget",
+    "maximum_head_bypasses",
+    "maximum_queue_seconds",
+    "worker_stall_seconds",
+})
 
 
 class ContinuousSlotPolicyError(ValueError):
@@ -116,8 +119,14 @@ class SlotEventRejected(ValueError):
 
 
 def _require_int(value: Any, name: str, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise ContinuousSlotPolicyError(f"{name} must be an integer in [{minimum}, {maximum}]")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
+        raise ContinuousSlotPolicyError(
+            f"{name} must be an integer in [{minimum}, {maximum}]"
+        )
     return value
 
 
@@ -126,7 +135,9 @@ def _require_seconds(value: Any, name: str) -> float:
         raise ContinuousSlotPolicyError(f"{name} must be a number")
     seconds = float(value)
     if not 0.0 < seconds <= MAXIMUM_POLICY_SECONDS:
-        raise ContinuousSlotPolicyError(f"{name} must be in (0, {MAXIMUM_POLICY_SECONDS}]")
+        raise ContinuousSlotPolicyError(
+            f"{name} must be in (0, {MAXIMUM_POLICY_SECONDS}]"
+        )
     return seconds
 
 
@@ -151,16 +162,26 @@ class ContinuousSlotPolicy:
             raise ContinuousSlotPolicyError(f"slot_capacity must be {SLOT_CAPACITY}")
         _require_int(self.queue_capacity, "queue_capacity", 1, MAXIMUM_QUEUE_CAPACITY)
         _require_int(
-            self.decode_window_steps, "decode_window_steps", 1, MAXIMUM_DECODE_WINDOW_STEPS
+            self.decode_window_steps,
+            "decode_window_steps",
+            1,
+            MAXIMUM_DECODE_WINDOW_STEPS,
         )
-        _require_int(self.refills_per_boundary, "refills_per_boundary", 1, self.slot_capacity)
+        _require_int(
+            self.refills_per_boundary, "refills_per_boundary", 1, self.slot_capacity
+        )
         _require_int(
             self.refill_prompt_token_budget,
             "refill_prompt_token_budget",
             1,
             MAXIMUM_REFILL_PROMPT_TOKEN_BUDGET,
         )
-        _require_int(self.maximum_head_bypasses, "maximum_head_bypasses", 0, MAXIMUM_HEAD_BYPASSES)
+        _require_int(
+            self.maximum_head_bypasses,
+            "maximum_head_bypasses",
+            0,
+            MAXIMUM_HEAD_BYPASSES,
+        )
         _require_seconds(self.maximum_queue_seconds, "maximum_queue_seconds")
         _require_seconds(self.worker_stall_seconds, "worker_stall_seconds")
 
@@ -169,12 +190,19 @@ class ContinuousSlotPolicy:
         if not isinstance(root, Mapping):
             raise ContinuousSlotPolicyError("policy must be a mapping")
         if set(root) != POLICY_FIELDS:
-            raise ContinuousSlotPolicyError("policy fields differ from the closed schema")
-        if _require_int(root["schema_version"], "schema_version", 1, 1) != PROFILE_SCHEMA_VERSION:
+            raise ContinuousSlotPolicyError(
+                "policy fields differ from the closed schema"
+            )
+        if (
+            _require_int(root["schema_version"], "schema_version", 1, 1)
+            != PROFILE_SCHEMA_VERSION
+        ):
             raise ContinuousSlotPolicyError("schema_version is unsupported")
         return cls(
             profile_id=root["profile_id"],
-            slot_capacity=_require_int(root["slot_capacity"], "slot_capacity", 1, SLOT_CAPACITY),
+            slot_capacity=_require_int(
+                root["slot_capacity"], "slot_capacity", 1, SLOT_CAPACITY
+            ),
             queue_capacity=root["queue_capacity"],
             decode_window_steps=root["decode_window_steps"],
             refills_per_boundary=root["refills_per_boundary"],
@@ -205,7 +233,9 @@ class KvBlockRange:
     def __post_init__(self) -> None:
         _require_int(self.first_block, "first_block", 0, 2**31 - 1)
         _require_int(self.row_blocks, "row_blocks", 1, 2**31 - 1)
-        _require_int(self.end_block, "end_block", self.first_block + self.row_blocks, 2**31 - 1)
+        _require_int(
+            self.end_block, "end_block", self.first_block + self.row_blocks, 2**31 - 1
+        )
         _require_int(self.block_tokens, "block_tokens", 1, CHUNK_TOKENS)
         if CHUNK_TOKENS % self.block_tokens:
             raise ContinuousSlotPolicyError("a KV block must divide the prefill chunk")
@@ -236,14 +266,22 @@ class SlotRequest:
         _require_int(self.max_tokens, "max_tokens", 1, 2**31 - 1)
         _require_int(self.blocks, "blocks", 1, 2**31 - 1)
         if len(self.prefix_digests) > (self.prompt_tokens - 1) // CHUNK_TOKENS or any(
-            not isinstance(digest, str) or len(digest) != DIGEST_HEX_LENGTH for digest in self.prefix_digests
+            not isinstance(digest, str) or len(digest) != DIGEST_HEX_LENGTH
+            for digest in self.prefix_digests
         ):
-            raise ContinuousSlotPolicyError("prefix digests must cover chunks strictly inside the prompt")
-        _require_int(self.shared_root_tokens, "shared_root_tokens", 0, self.prompt_tokens - 1)
+            raise ContinuousSlotPolicyError(
+                "prefix digests must cover chunks strictly inside the prompt"
+            )
+        _require_int(
+            self.shared_root_tokens, "shared_root_tokens", 0, self.prompt_tokens - 1
+        )
         if self.shared_root_tokens % CHUNK_TOKENS or (
-            self.shared_root_tokens and len(self.prefix_digests) < self.shared_root_tokens // CHUNK_TOKENS
+            self.shared_root_tokens
+            and len(self.prefix_digests) < self.shared_root_tokens // CHUNK_TOKENS
         ):
-            raise ContinuousSlotPolicyError("shared root must have a digest strictly inside the prompt")
+            raise ContinuousSlotPolicyError(
+                "shared root must have a digest strictly inside the prompt"
+            )
         # Both are validated as finite by request_deadline_expired.
         request_deadline_expired(self.arrival_seconds, self.deadline_seconds)
 
@@ -359,7 +397,9 @@ def initial_schedule(policy: ContinuousSlotPolicy) -> SlotSchedule:
 
 def _known_request_ids(schedule: SlotSchedule) -> set[str]:
     ids = {queued.request.request_id for queued in schedule.queue}
-    ids.update(slot.request.request_id for slot in schedule.slots if slot.request is not None)
+    ids.update(
+        slot.request.request_id for slot in schedule.slots if slot.request is not None
+    )
     return ids
 
 
@@ -379,7 +419,9 @@ def submit(
     return replace(schedule, queue=schedule.queue + (QueuedRequest(request),)), None
 
 
-def cancel(schedule: SlotSchedule, request_id: str) -> tuple[SlotSchedule, RejectRequest | None]:
+def cancel(
+    schedule: SlotSchedule, request_id: str
+) -> tuple[SlotSchedule, RejectRequest | None]:
     """Withdraw a request: a queued one is refused now, a running one completes as cancelled.
 
     A cancelled slot keeps its KV run until the next boundary retires it. An unknown or
@@ -388,20 +430,27 @@ def cancel(schedule: SlotSchedule, request_id: str) -> tuple[SlotSchedule, Rejec
     for position, queued in enumerate(schedule.queue):
         if queued.request.request_id == request_id:
             queue = schedule.queue[:position] + schedule.queue[position + 1 :]
-            return replace(schedule, queue=queue), RejectRequest(request_id, REJECT_CANCELLED)
+            return replace(schedule, queue=queue), RejectRequest(
+                request_id, REJECT_CANCELLED
+            )
     for slot in schedule.slots:
         if (
             slot.request is not None
             and slot.request.request_id == request_id
             and slot.state in RUNNING_STATES
         ):
-            finished = replace(slot, state=SLOT_COMPLETE, finish_reason=FINISH_CANCELLED)
+            finished = replace(
+                slot, state=SLOT_COMPLETE, finish_reason=FINISH_CANCELLED
+            )
             return _with_slot(schedule, finished), None
     return schedule, None
 
 
 def _with_slot(schedule: SlotSchedule, slot: Slot) -> SlotSchedule:
-    slots = tuple(slot if existing.index == slot.index else existing for existing in schedule.slots)
+    slots = tuple(
+        slot if existing.index == slot.index else existing
+        for existing in schedule.slots
+    )
     return replace(schedule, slots=slots)
 
 
@@ -477,7 +526,9 @@ def _place(
             for victim in victims:
                 if victim.root != chosen.root:
                     break
-                without = [entry for entry in current if entry.entry_id != victim.entry_id]
+                without = [
+                    entry for entry in current if entry.entry_id != victim.entry_id
+                ]
                 if _free_run(occupied_slots, kv_range, own_blocks, without) is not None:
                     chosen = victim
                     break
@@ -503,7 +554,8 @@ def _plan_donation(
         prefix_policy.shared_root_minimum_tokens
         and request.shared_root_tokens >= prefix_policy.shared_root_minimum_tokens
         and request.shared_root_tokens <= save_at
-        and request.shared_root_tokens > (placement.hit.prefix_tokens if placement.hit is not None else 0)
+        and request.shared_root_tokens
+        > (placement.hit.prefix_tokens if placement.hit is not None else 0)
         and not any(entry.root for entry in entries)
     ):
         save_at = request.shared_root_tokens
@@ -511,12 +563,18 @@ def _plan_donation(
     if not root:
         # A long turn can still donate a reusable prefix when its last chunk
         # exceeds the KV budget; keep the exact root boundary when present.
-        maximum_chunks = prefix_policy.maximum_cached_blocks * kv_range.block_tokens // CHUNK_TOKENS
+        maximum_chunks = (
+            prefix_policy.maximum_cached_blocks * kv_range.block_tokens // CHUNK_TOKENS
+        )
         save_at = min(save_at, maximum_chunks * CHUNK_TOKENS)
     prefix_tokens = placement.hit.prefix_tokens if placement.hit is not None else 0
     if save_at < prefix_policy.minimum_prefix_tokens or save_at <= prefix_tokens:
         return None
-    digest = request.prefix_digests[save_at // CHUNK_TOKENS - 1] if request.prefix_digests else None
+    digest = (
+        request.prefix_digests[save_at // CHUNK_TOKENS - 1]
+        if request.prefix_digests
+        else None
+    )
     if digest is None or len(request.prefix_digests) < save_at // CHUNK_TOKENS:
         return None
     if any(entry.digest == digest for entry in entries):
@@ -535,14 +593,20 @@ def _plan_donation(
     )
     supersede = hit is not None and hit.pins == 1 and not hit.root
     keep = frozenset({hit.entry_id}) if hit is not None else frozenset()
-    trial = [entry for entry in entries if not (supersede and entry.entry_id == hit.entry_id)]
+    trial = [
+        entry for entry in entries if not (supersede and entry.entry_id == hit.entry_id)
+    ]
     new_blocks = frozenset(expand_blocks(ranges))
     while len(cached_blocks(trial) | new_blocks) > prefix_policy.maximum_cached_blocks:
         victims = eviction_order(trial, keep)
         if not victims:
             return None
         trial.remove(victims[0])
-    state_index = hit.state_index if supersede else free_state_index(trial, prefix_policy.state_slots)
+    state_index = (
+        hit.state_index
+        if supersede
+        else free_state_index(trial, prefix_policy.state_slots)
+    )
     while state_index is None:
         victims = eviction_order(trial, keep)
         if not victims:
@@ -564,7 +628,12 @@ def _plan_donation(
     return entry, tuple(trial) + (entry,)
 
 
-def _repin(entries: tuple[PrefixEntry, ...], entry_id: int | None, delta: int, now: float | None = None) -> tuple[PrefixEntry, ...]:
+def _repin(
+    entries: tuple[PrefixEntry, ...],
+    entry_id: int | None,
+    delta: int,
+    now: float | None = None,
+) -> tuple[PrefixEntry, ...]:
     if entry_id is None:
         return entries
     updated = []
@@ -610,11 +679,15 @@ def plan_boundary(
         reason = None
         if slot.state == SLOT_COMPLETE:
             reason = slot.finish_reason
-        elif slot.state == SLOT_ACTIVE and request_deadline_expired(now, request.deadline_seconds):
+        elif slot.state == SLOT_ACTIVE and request_deadline_expired(
+            now, request.deadline_seconds
+        ):
             reason = FINISH_TIMEOUT
         if reason is None:
             continue
-        effects.append(RetireSlot(slot.index, slot.generation, request.request_id, reason))
+        effects.append(
+            RetireSlot(slot.index, slot.generation, request.request_id, reason)
+        )
         entries = _repin(entries, slot.prefix_entry, -1)
         slots[position] = Slot(index=slot.index, generation=slot.generation)
 
@@ -634,12 +707,16 @@ def plan_boundary(
     draining = schedule.draining if occupied else False
     next_generation = schedule.next_generation
 
-    if not reads_waiting and not draining and not any(
-        slot.state == SLOT_QUARANTINED for slot in slots
+    if (
+        not reads_waiting
+        and not draining
+        and not any(slot.state == SLOT_QUARANTINED for slot in slots)
     ):
         group_start = not occupied
         # Prefill interference limits apply only beside active users.
-        admission_limit = policy.slot_capacity if group_start else policy.refills_per_boundary
+        admission_limit = (
+            policy.slot_capacity if group_start else policy.refills_per_boundary
+        )
         admitted = 0
         admitted_tokens = 0
         while admitted < admission_limit and queue:
@@ -652,7 +729,8 @@ def plan_boundary(
                 over_budget = (
                     not group_start
                     and admitted > 0
-                    and admitted_tokens + request.prompt_tokens > policy.refill_prompt_token_budget
+                    and admitted_tokens + request.prompt_tokens
+                    > policy.refill_prompt_token_budget
                 )
                 if over_budget:
                     # Waiting for the next boundary is not a reason to pass anyone.
@@ -683,7 +761,13 @@ def plan_boundary(
             donation = None
             if caching:
                 donation = _plan_donation(
-                    entries, request, placement, prefix_policy, kv_range, next_entry_id, now
+                    entries,
+                    request,
+                    placement,
+                    prefix_policy,
+                    kv_range,
+                    next_entry_id,
+                    now,
                 )
             reads_entry = hit.entry_id if hit is not None else None
             if donation is not None:
@@ -738,7 +822,9 @@ def plan_boundary(
     )
 
 
-def _require_slot(schedule: SlotSchedule, slot_index: int, generation: int, state: str) -> Slot:
+def _require_slot(
+    schedule: SlotSchedule, slot_index: int, generation: int, state: str
+) -> Slot:
     if isinstance(slot_index, bool) or not isinstance(slot_index, int):
         raise SlotEventRejected("slot index must be an integer")
     if not 0 <= slot_index < len(schedule.slots):
@@ -757,11 +843,19 @@ def _advance(slot: Slot, token_id: int, stopped: bool) -> Slot:
     generated = slot.generated + 1
     if stopped:
         return replace(
-            slot, state=SLOT_COMPLETE, generated=generated, token_id=token_id, finish_reason=FINISH_STOP
+            slot,
+            state=SLOT_COMPLETE,
+            generated=generated,
+            token_id=token_id,
+            finish_reason=FINISH_STOP,
         )
     if generated >= slot.request.max_tokens:
         return replace(
-            slot, state=SLOT_COMPLETE, generated=generated, token_id=token_id, finish_reason=FINISH_LENGTH
+            slot,
+            state=SLOT_COMPLETE,
+            generated=generated,
+            token_id=token_id,
+            finish_reason=FINISH_LENGTH,
         )
     return replace(slot, state=SLOT_ACTIVE, generated=generated, token_id=token_id)
 
@@ -778,7 +872,9 @@ def observe_prefill(
     if current.donation_entry is None:
         return advanced
     entries = tuple(
-        replace(entry, ready=True) if entry.entry_id == current.donation_entry else entry
+        replace(entry, ready=True)
+        if entry.entry_id == current.donation_entry
+        else entry
         for entry in advanced.prefix_entries
     )
     return replace(advanced, prefix_entries=entries)
@@ -799,7 +895,9 @@ def slot_running(schedule: SlotSchedule, slot: int, generation: int) -> bool:
     return current.generation == generation and current.state == SLOT_ACTIVE
 
 
-def plan_window(schedule: SlotSchedule, policy: ContinuousSlotPolicy) -> DecodeWindow | None:
+def plan_window(
+    schedule: SlotSchedule, policy: ContinuousSlotPolicy
+) -> DecodeWindow | None:
     """The next decode window: every active slot, ending no later than the first bound.
 
     The window never runs a slot past its own max_tokens, so the earliest length-bounded
@@ -807,7 +905,13 @@ def plan_window(schedule: SlotSchedule, policy: ContinuousSlotPolicy) -> DecodeW
     at most `decode_window_steps` steps early.
     """
     rows = tuple(
-        DecodeRow(slot.index, slot.generation, slot.request.request_id, slot.token_id, slot.position)
+        DecodeRow(
+            slot.index,
+            slot.generation,
+            slot.request.request_id,
+            slot.token_id,
+            slot.position,
+        )
         for slot in schedule.slots
         if slot.state == SLOT_ACTIVE
     )
@@ -828,7 +932,9 @@ def mark_draining(schedule: SlotSchedule) -> SlotSchedule:
     return replace(schedule, draining=True)
 
 
-def quarantine_group(schedule: SlotSchedule) -> tuple[SlotSchedule, tuple[RetireSlot, ...]]:
+def quarantine_group(
+    schedule: SlotSchedule,
+) -> tuple[SlotSchedule, tuple[RetireSlot, ...]]:
     """Take every occupied slot out of service after a device failure.
 
     The returned retirements name the requests to fail. The slots stay quarantined, and
@@ -839,13 +945,17 @@ def quarantine_group(schedule: SlotSchedule) -> tuple[SlotSchedule, tuple[Retire
     for slot in schedule.slots:
         if slot.state in (SLOT_PREFILLING, SLOT_ACTIVE, SLOT_COMPLETE):
             failed.append(
-                RetireSlot(slot.index, slot.generation, slot.request.request_id, FINISH_FAILED)
+                RetireSlot(
+                    slot.index, slot.generation, slot.request.request_id, FINISH_FAILED
+                )
             )
             slots.append(replace(slot, state=SLOT_QUARANTINED))
         else:
             slots.append(slot)
     # The device state behind every cached prefix is unknown after a failure.
-    return replace(schedule, slots=tuple(slots), draining=True, prefix_entries=()), tuple(failed)
+    return replace(
+        schedule, slots=tuple(slots), draining=True, prefix_entries=()
+    ), tuple(failed)
 
 
 def release_quarantine(schedule: SlotSchedule) -> SlotSchedule:
@@ -865,25 +975,39 @@ def release_quarantine(schedule: SlotSchedule) -> SlotSchedule:
 def invalidate_prefix_cache(schedule: SlotSchedule) -> SlotSchedule:
     """Drop every entry no live request reads when KV writes cannot be tracked, or the
     device can no longer restore prefix state."""
-    return replace(schedule, prefix_entries=tuple(entry for entry in schedule.prefix_entries if entry.pins))
+    return replace(
+        schedule,
+        prefix_entries=tuple(entry for entry in schedule.prefix_entries if entry.pins),
+    )
 
 
-def invalidate_written_prefixes(schedule: SlotSchedule, written_blocks: frozenset[int]) -> SlotSchedule:
+def invalidate_written_prefixes(
+    schedule: SlotSchedule, written_blocks: frozenset[int]
+) -> SlotSchedule:
     """Drop entries whose KV ranges intersect the blocks written by a structured read."""
     if not written_blocks:
         return schedule
     retained = tuple(
-        entry for entry in schedule.prefix_entries
+        entry
+        for entry in schedule.prefix_entries
         if not any(
             start <= block < start + count
             for start, count in entry.block_ranges
             for block in written_blocks
         )
     )
-    return schedule if len(retained) == len(schedule.prefix_entries) else replace(schedule, prefix_entries=retained)
+    return (
+        schedule
+        if len(retained) == len(schedule.prefix_entries)
+        else replace(schedule, prefix_entries=retained)
+    )
 
 
-def drain_queue(schedule: SlotSchedule, reason: str) -> tuple[SlotSchedule, tuple[RejectRequest, ...]]:
+def drain_queue(
+    schedule: SlotSchedule, reason: str
+) -> tuple[SlotSchedule, tuple[RejectRequest, ...]]:
     """Refuse every queued request, for shutdown or engine quarantine."""
-    rejected = tuple(RejectRequest(queued.request.request_id, reason) for queued in schedule.queue)
+    rejected = tuple(
+        RejectRequest(queued.request.request_id, reason) for queued in schedule.queue
+    )
     return replace(schedule, queue=()), rejected

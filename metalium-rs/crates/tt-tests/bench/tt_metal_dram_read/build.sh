@@ -1,10 +1,12 @@
 #!/bin/bash
 # Build dram_read_bw against tt-metal v077's installed libraries (flags from `ninja -t commands`, mem_bench).
 set -e
-R=/home/carl/projects/tt-metal-v077
+: "${TT_METAL_HOME:?set TT_METAL_HOME to the tt-metal v0.77 checkout}"
+: "${TT_METAL_CPMCACHE:?set TT_METAL_CPMCACHE to the tt-metal .cpmcache directory}"
+R=$TT_METAL_HOME
 B=$R/build_Release
-C=/home/carl/projects/tt-metal/.cpmcache
-cd $(dirname "$0")
+C=$TT_METAL_CPMCACHE
+cd "$(dirname "$0")" || exit 1
 /usr/bin/clang++-20 -DFMT_HEADER_ONLY=1 -DNTEST -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DTRACY_ENABLE -DTRACY_IMPORTS \
   -DTRACY_TIMER_FALLBACK -DTT_ENABLE_LIGHT_METAL_TRACE=1 -DTT_UMD_BUILD_SIMULATION -DENCHANTUM_ENABLE_MSVC_SPEEDUP=1 \
   -I$R/tt_metal/api -I$R/tt_metal/api/tt-metalium -I$B/tt_metal/api -I$R -I$R/tt_metal -I$R/tt_metal/common -I$R/tests \

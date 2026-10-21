@@ -10,6 +10,66 @@
     let
       supportedSystem = "x86_64-linux";
       isSupportedSystem = system == supportedSystem;
+      metaliumRsToolchain = pkgs.rust-bin.stable."1.97.1".default.override {
+        targets = [ "riscv32im-unknown-none-elf" ];
+        extensions = [ "llvm-tools" ];
+      };
+      metaliumRs = pkgs.callPackage ../pkgs/metalium-rs {
+        rustToolchain = metaliumRsToolchain;
+      };
+      metaliumRsCheckpoint = pkgs.fetchurl {
+        name = "rwkv7-goose-world2.8-0.1b-d81965cb4e1a9f96696b4f70b84212b8f2e43216.safetensors";
+        url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/model.safetensors";
+        hash = "sha256-uWqL3CHhX3HgyVZT3MO+ieVkthmtUHPJ7b+9B/eElFM=";
+      };
+      rwkv7Vocab = pkgs.fetchurl {
+        name = "rwkv_vocab_v20230424.txt";
+        url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/rwkv_vocab_v20230424.txt";
+        hash = "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=";
+      };
+      mkMetaliumGate =
+        {
+          name,
+          executable,
+          arguments ? "",
+        }:
+        pkgs.writeShellApplication {
+          inherit name;
+          text = ''
+            exec ${metaliumRs}/bin/${executable}${arguments} "$@"
+          '';
+        };
+      metaliumRsCheckpointGate = mkMetaliumGate {
+        name = "rwkv7-layer-checkpoint";
+        executable = "rwkv7-layer-gate";
+        arguments = " --checkpoint ${metaliumRsCheckpoint}";
+      };
+      metaliumRsModelGate = mkMetaliumGate {
+        name = "rwkv7-model-checkpoint";
+        executable = "rwkv7-model-gate";
+        arguments = " --checkpoint ${metaliumRsCheckpoint}";
+      };
+      metaliumRsTokenizerGate = mkMetaliumGate {
+        name = "rwkv7-tokenizer";
+        executable = "rwkv7-tokenizer-gate";
+        arguments = " --vocab ${rwkv7Vocab}";
+      };
+      metaliumRsGenerateGate = mkMetaliumGate {
+        name = "rwkv7-generate-checkpoint";
+        executable = "rwkv7-generate-gate";
+        arguments = " --checkpoint ${metaliumRsCheckpoint}";
+      };
+      metaliumRsPromptGate = mkMetaliumGate {
+        name = "rwkv7-prompt-checkpoint";
+        executable = "rwkv7-generate-gate";
+        arguments = " --checkpoint ${metaliumRsCheckpoint} --vocab ${rwkv7Vocab}";
+      };
+      # The tokenizer gate is the one native-stack model gate that never opens
+      # a device, so the flake check and the quality aggregate can execute it.
+      metaliumRsTokenizerCheck = pkgs.runCommand "metalium-rs-rwkv7-tokenizer" { } ''
+        mkdir -p "$out"
+        ${metaliumRsTokenizerGate}/bin/rwkv7-tokenizer > "$out/result"
+      '';
       ttwkv7Pkgs = import inputs.nixpkgs {
         inherit system;
         overlays = [ self.overlays.default ];
@@ -253,8 +313,7 @@
           (qwenServiceEval {
             hardware.tenstorrent.qwen38.mtpSpeculation = true;
           });
-      qwenServiceSpeculativeConflictingRejected =
-        hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
+      qwenServiceSpeculativeConflictingRejected = hasFailedAssertion "MTP speculation cannot combine with sampled fusion" qwenServiceSpeculativeConflictingEval;
       qwenServiceContinuousUnit =
         (qwenServiceEval { hardware.tenstorrent.qwen38.continuousSlotScheduler = true; })
         .config.systemd.services.qwen38-p150x2;
@@ -262,11 +321,12 @@
         (qwenServiceEval {
           hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
           hardware.tenstorrent.qwen38.prefixCache = true;
-        })
-        .config.systemd.services.qwen38-p150x2;
+        }).config.systemd.services.qwen38-p150x2;
       qwenServiceCacheWithoutSlotsRejected =
         hasFailedAssertion "The Qwen prefix cache needs the continuous-slot scheduler"
-          (qwenServiceEval { hardware.tenstorrent.qwen38.prefixCache = true; });
+          (qwenServiceEval {
+            hardware.tenstorrent.qwen38.prefixCache = true;
+          });
       qwenServiceContinuousSpeculativeRejected =
         hasFailedAssertion "The continuous-slot scheduler needs the batch worker"
           (qwenServiceEval {
@@ -325,18 +385,16 @@
         assert lib.assertMsg (
           qwenServiceSpeculativeUnit.environment.QWEN36_MTP_SERVING or "" == "1"
         ) "the speculative option must set the serving gate";
-        assert lib.assertMsg (
-          lib.hasInfix "--decode-mode eager" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
-        ) "speculative serving must select the serialized eager route";
+        assert lib.assertMsg
+          (lib.hasInfix "--decode-mode eager" qwenServiceSpeculativeUnit.serviceConfig.ExecStart)
+          "speculative serving must select the serialized eager route";
         assert lib.assertMsg (
           lib.hasInfix "--mtp-drafter-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
-          && lib.hasInfix "share/qwen36/mtp-drafter-profile.json"
-            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-drafter-profile.json" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
         ) "speculative serving must pass the packaged drafter profile";
         assert lib.assertMsg (
           lib.hasInfix "--mtp-trace-profile" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
-          && lib.hasInfix "share/qwen36/mtp-trace-profile.json"
-            qwenServiceSpeculativeUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/mtp-trace-profile.json" qwenServiceSpeculativeUnit.serviceConfig.ExecStart
         ) "speculative serving must pass the packaged trace profile";
         assert lib.assertMsg qwenServiceSpeculativeConflictingRejected
           "the Qwen service must reject speculative and sampled fusion together";
@@ -345,8 +403,7 @@
         ) "the default Qwen service must keep the group coordinator";
         assert lib.assertMsg (
           lib.hasInfix "--continuous-slot-policy" qwenServiceContinuousUnit.serviceConfig.ExecStart
-          && lib.hasInfix "share/qwen36/continuous-slot-policy.json"
-            qwenServiceContinuousUnit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/continuous-slot-policy.json" qwenServiceContinuousUnit.serviceConfig.ExecStart
         ) "the continuous-slot option must pass the packaged scheduler policy";
         assert lib.assertMsg qwenServiceContinuousSpeculativeRejected
           "the Qwen service must reject the continuous-slot scheduler with speculative serving";
@@ -871,6 +928,7 @@
           qwen36 = qwen38;
           qwen36-authority-negative = qwen36AuthorityNegativeCheck;
           qwen36-nixos-service = qwenServiceCheck;
+          metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerCheck;
         };
       };
       requiredPackageInventoryValid = import ../checks/required-package-checks-test.nix {
@@ -1077,7 +1135,49 @@
         '';
     in
     {
-      apps = lib.optionalAttrs isSupportedSystem (
+      apps = {
+        metalium-rs-mnist = {
+          type = "app";
+          program = "${metaliumRs}/bin/tt-mnist";
+          meta.description = "Train MNIST with the native Rust Blackhole stack";
+        };
+        metalium-rs-wkv7 = {
+          type = "app";
+          program = "${metaliumRs}/bin/wkv7-gate";
+          meta.description = "Run the native RWKV-7 WKV7 state-carry gate";
+        };
+        metalium-rs-rwkv7-layer = {
+          type = "app";
+          program = "${metaliumRs}/bin/rwkv7-layer-gate";
+          meta.description = "Compare one RWKV-7 layer on Flex and TtBackend";
+        };
+        metalium-rs-rwkv7-checkpoint = {
+          type = "app";
+          program = "${metaliumRsCheckpointGate}/bin/rwkv7-layer-checkpoint";
+          meta.description = "Compare the real RWKV-7 layer zero on Flex and TtBackend";
+        };
+        metalium-rs-rwkv7-model = {
+          type = "app";
+          program = "${metaliumRsModelGate}/bin/rwkv7-model-checkpoint";
+          meta.description = "Compare all 12 real RWKV-7 layers on Flex and TtBackend";
+        };
+        metalium-rs-rwkv7-tokenizer = {
+          type = "app";
+          program = "${metaliumRsTokenizerGate}/bin/rwkv7-tokenizer";
+          meta.description = "Check the exact RWKV-7 byte-trie tokenizer";
+        };
+        metalium-rs-rwkv7-generate = {
+          type = "app";
+          program = "${metaliumRsGenerateGate}/bin/rwkv7-generate-checkpoint";
+          meta.description = "Check the stateful RWKV-7 decode chain";
+        };
+        metalium-rs-rwkv7-prompt = {
+          type = "app";
+          program = "${metaliumRsPromptGate}/bin/rwkv7-prompt-checkpoint";
+          meta.description = "Generate text from a prompt with the real RWKV-7 weights";
+        };
+      }
+      // lib.optionalAttrs isSupportedSystem (
         developmentApps
         // {
           clef-serve = {
@@ -1096,7 +1196,15 @@
         training-platform = trainingPlatformDevShell;
       };
 
-      packages = lib.optionalAttrs isSupportedSystem {
+      packages = {
+        metalium-rs = metaliumRs;
+        metalium-rs-rwkv7-checkpoint = metaliumRsCheckpointGate;
+        metalium-rs-rwkv7-model = metaliumRsModelGate;
+        metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerGate;
+        metalium-rs-rwkv7-generate = metaliumRsGenerateGate;
+        metalium-rs-rwkv7-prompt = metaliumRsPromptGate;
+      }
+      // lib.optionalAttrs isSupportedSystem {
         inherit ttwkv7;
         rwkv7-chat = rwkv7Chat;
         rwkv-lab = rwkvLab;
@@ -1139,7 +1247,11 @@
         qwen36 = qwen38; # Compatibility alias.
       };
 
-      checks = lib.optionalAttrs isSupportedSystem {
+      checks = {
+        metalium-rs = metaliumRs;
+        metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerCheck;
+      }
+      // lib.optionalAttrs isSupportedSystem {
         development-interface = developmentInterfaceCheck;
         migration-boundary = migrationBoundaryCheck;
         model-target-consumer-generator = modelTargetConsumerGenerator;

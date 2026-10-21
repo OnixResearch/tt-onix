@@ -33,10 +33,10 @@ from jinja2 import TemplateError
 
 from . import continuous_slot_core as slots
 from .batch_decode_adapter import (
+    READ_ROUTE_EAGER,
     BatchDecodeAdapterError,
     SlotRefillResult,
     StructuredReadRows,
-    READ_ROUTE_EAGER,
     TraceBindingDriftError,
 )
 from .batch_service import (
@@ -54,7 +54,12 @@ from .core import (
     template_messages,
 )
 from .decode_adapter import DecodeAdapterError
-from .prefix_cache_core import CHUNK_TOKENS, PrefixCachePolicy, cached_blocks, prefix_digests
+from .prefix_cache_core import (
+    CHUNK_TOKENS,
+    PrefixCachePolicy,
+    cached_blocks,
+    prefix_digests,
+)
 from .sampled_decode_core import (
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
@@ -168,19 +173,27 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         blake3_digest: Callable[[bytes], bytes] | None = None,
         **kwargs: Any,
     ) -> None:
-        if kwargs.get("batch_admission_enabled") or kwargs.get("trace_reuse_admission_enabled"):
+        if kwargs.get("batch_admission_enabled") or kwargs.get(
+            "trace_reuse_admission_enabled"
+        ):
             raise BatchDecodeAdapterError(
                 "continuous slots cannot run a fixed-group admission measurement"
             )
         adapter = kwargs["adapter"]
         if adapter.maximum_width < slot_policy.slot_capacity:
-            raise BatchDecodeAdapterError("the adapter holds fewer rows than the slot policy")
+            raise BatchDecodeAdapterError(
+                "the adapter holds fewer rows than the slot policy"
+            )
         pool = adapter.kv_pool
         if prefix_policy is not None:
             if adapter.prefix_states != prefix_policy.state_slots:
-                raise BatchDecodeAdapterError("the adapter's prefix states differ from the prefix policy")
+                raise BatchDecodeAdapterError(
+                    "the adapter's prefix states differ from the prefix policy"
+                )
             if not prefix_identity or blake3_digest is None:
-                raise BatchDecodeAdapterError("the prefix cache needs a serving identity and BLAKE3")
+                raise BatchDecodeAdapterError(
+                    "the prefix cache needs a serving identity and BLAKE3"
+                )
         self.slot_policy = slot_policy
         self.prefix_policy = prefix_policy
         self._prefix_identity = prefix_identity
@@ -206,7 +219,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
 
     def _require_serving(self) -> None:
         if self._quarantine_reason is not None:
-            raise EngineQuarantinedError(f"engine quarantined: {self._quarantine_reason}")
+            raise EngineQuarantinedError(
+                f"engine quarantined: {self._quarantine_reason}"
+            )
         if self._closing:
             raise BatchDecodeAdapterError("batch worker is closed")
         if not self._accepting_requests:
@@ -244,7 +259,10 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             )
             if self.prefix_policy.shared_root_minimum_tokens:
                 root_tokens = shared_system_root_tokens(
-                    request, self.tokenizer, tokens, self.prefix_policy.shared_root_minimum_tokens
+                    request,
+                    self.tokenizer,
+                    tokens,
+                    self.prefix_policy.shared_root_minimum_tokens,
                 )
         pending = _PendingBatchRequest(
             request=request,
@@ -291,7 +309,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
     ) -> tuple[StructuredReadRows, ...]:
         """Run structured reads once the slot group drains; refills wait for them."""
         if not requests:
-            raise BatchDecodeAdapterError("a structured read job needs at least one read")
+            raise BatchDecodeAdapterError(
+                "a structured read job needs at least one read"
+            )
         pending = _PendingRead(requests=requests, deadline=deadline)
         with self._condition:
             self._require_serving()
@@ -376,7 +396,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                     raise EngineQuarantinedError(self._quarantine_reason)
 
     def _occupied(self) -> bool:
-        return any(slot.state in slots.OCCUPYING_STATES for slot in self._schedule.slots)
+        return any(
+            slot.state in slots.OCCUPYING_STATES for slot in self._schedule.slots
+        )
 
     def _has_generation_work(self) -> bool:
         return bool(self._schedule.queue) or self._occupied()
@@ -449,17 +471,24 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                     protected_blocks = cached_blocks(self._schedule.prefix_entries)
                 self._run_reads(reads, protected_blocks=protected_blocks)
             if any(job.results is None and job.error is None for job in reads):
-                raise BatchDecodeAdapterError("structured read finished without results")
+                raise BatchDecodeAdapterError(
+                    "structured read finished without results"
+                )
             results = tuple(result for job in reads for result in job.results or ())
             with self._condition:
-                if any(result.masked_traces_released or result.route == READ_ROUTE_EAGER for result in results):
+                if any(
+                    result.masked_traces_released or result.route == READ_ROUTE_EAGER
+                    for result in results
+                ):
                     # Lost prefill traces also lose the saved recurrent states.
                     self._schedule = slots.invalidate_prefix_cache(self._schedule)
                 else:
                     written: set[int] = set()
                     for result in results:
                         written.update(result.kv_written_blocks)
-                    self._schedule = slots.invalidate_written_prefixes(self._schedule, frozenset(written))
+                    self._schedule = slots.invalidate_written_prefixes(
+                        self._schedule, frozenset(written)
+                    )
         except EngineQuarantinedError:
             raise
         except TraceBindingDriftError:
@@ -488,7 +517,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 self._retire(effect)
             elif isinstance(effect, slots.StartGroup):
                 with self._device_effect():
-                    plan = self.adapter.begin_slots(width=self.slot_policy.slot_capacity, route=effect.route)
+                    plan = self.adapter.begin_slots(
+                        width=self.slot_policy.slot_capacity, route=effect.route
+                    )
                 self.emitter(
                     "continuous-slot-group-started",
                     route=effect.route,
@@ -518,8 +549,11 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                     cached_blocks(self._schedule.prefix_entries).union(
                         block
                         for slot in self._schedule.slots
-                        if slot.state in slots.OCCUPYING_STATES and slot.request is not None
-                        for block in range(slot.block_start, slot.block_start + slot.block_count)
+                        if slot.state in slots.OCCUPYING_STATES
+                        and slot.request is not None
+                        for block in range(
+                            slot.block_start, slot.block_start + slot.block_count
+                        )
                     )
                 ),
             )
@@ -556,15 +590,24 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         run.tokens.append(result.first_token_id)
         self._publish(pending, result.first_token_id)
         if result.masked_traces_released:
-            self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
+            self.emitter(
+                "masked-prefill-traces-released",
+                reason="program-compiled-after-capture",
+            )
         if result.decode_trace_released:
-            self.emitter("continuous-slot-group-draining", reason="unsafe-refill-transition")
+            self.emitter(
+                "continuous-slot-group-draining", reason="unsafe-refill-transition"
+            )
 
     def _run_window(self) -> None:
         with self._condition:
             window = slots.plan_window(self._schedule, self.slot_policy)
             route = self._schedule.route
-            runs = {row.slot: self._runs[row.request_id] for row in window.rows} if window else {}
+            runs = (
+                {row.slot: self._runs[row.request_id] for row in window.rows}
+                if window
+                else {}
+            )
         if window is None:
             return
         width = self.slot_policy.slot_capacity
@@ -593,7 +636,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                         top_p=DEFAULT_TOP_P,
                         draw=run.sampler.random(),
                     )
-                if not self._observe_step(window, runs, next_tokens, time.monotonic() - step_started):
+                if not self._observe_step(
+                    window, runs, next_tokens, time.monotonic() - step_started
+                ):
                     return
                 for row in window.rows:
                     token_ids[row.slot] = next_tokens[row.slot]
@@ -602,7 +647,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         step_started = time.monotonic()
         with self._device_effect():
             stream = self.adapter.decode_slots_greedy(
-                token_ids=tuple(token_ids), positions=tuple(positions), steps=window.steps
+                token_ids=tuple(token_ids),
+                positions=tuple(positions),
+                steps=window.steps,
             )
         try:
             while True:
@@ -610,7 +657,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                     next_tokens = next(stream, None)
                 if next_tokens is None:
                     return
-                if not self._observe_step(window, runs, next_tokens, time.monotonic() - step_started):
+                if not self._observe_step(
+                    window, runs, next_tokens, time.monotonic() - step_started
+                ):
                     return
                 step_started = time.monotonic()
         finally:
@@ -642,7 +691,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
                 run.tokens.append(token)
                 run.step_seconds.append(step_seconds)
                 published.append((run.pending, token))
-                running = running or slots.slot_running(self._schedule, row.slot, row.generation)
+                running = running or slots.slot_running(
+                    self._schedule, row.slot, row.generation
+                )
         for pending, token in published:
             self._publish(pending, token)
         return running
@@ -655,7 +706,9 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         if effect.finish_reason in (slots.FINISH_STOP, slots.FINISH_LENGTH):
             self._finish(run.pending, response=self._response(run))
         elif effect.finish_reason == slots.FINISH_TIMEOUT:
-            self._finish(run.pending, error=BatchDecodeAdapterError("request timeout exceeded"))
+            self._finish(
+                run.pending, error=BatchDecodeAdapterError("request timeout exceeded")
+            )
         else:
             self._finish(run.pending, error=SlotRequestRefused(effect.finish_reason))
 
@@ -663,11 +716,17 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
         """Fail and reset the group after a device error; False when the engine is quarantined."""
         with self._condition:
             self._schedule, failed = slots.quarantine_group(self._schedule)
-            runs = [self._runs.pop(item.request_id) for item in failed if item.request_id in self._runs]
+            runs = [
+                self._runs.pop(item.request_id)
+                for item in failed
+                if item.request_id in self._runs
+            ]
         for run in runs:
             self._finish(run.pending, error=error)
         self.emitter(
-            "continuous-slot-group-failed", error_type=type(error).__name__, failed=len(runs)
+            "continuous-slot-group-failed",
+            error_type=type(error).__name__,
+            failed=len(runs),
         )
         try:
             with self._device_effect():
@@ -721,11 +780,14 @@ class ContinuousSlotCoordinator(BatchGenerationCoordinator):
             "slot": run.slot,
             "slot_generation": run.generation,
             "kv_blocks_in_use": run.kv_blocks_in_use,
-            "prefix_cache_profile_id": self.prefix_policy.profile_id if self.prefix_policy else None,
+            "prefix_cache_profile_id": self.prefix_policy.profile_id
+            if self.prefix_policy
+            else None,
             "prefix_hit_tokens": run.prefix_hit_tokens,
             "prefix_saved_tokens": run.prefix_saved_tokens,
             "tail_token_latency_seconds": max(steps) if steps else 0.0,
-            "trace_captures": self.adapter.slot_trace_captures - run.captures_at_admission,
+            "trace_captures": self.adapter.slot_trace_captures
+            - run.captures_at_admission,
             "ttft_seconds": refill.first_token_ready_seconds,
         }
         self.emitter(

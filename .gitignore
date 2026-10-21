@@ -11,3 +11,18 @@ __pycache__/
 
 # Runtime inspector and watcher logs are private operational artifacts.
 /generated/
+
+# Keep local credentials and downloaded model trees out of new commits.
+# Already-tracked files and Git history require separate publication review.
+.env
+.env.*
+!.env.example
+.ssh/
+*.pem
+*.p12
+*.key
+/models/
+
+# Host-specific privileged migration tooling stays local to the owner machine.
+/scripts/qwen38-profile-service
+/scripts/qwen38-profile-99.conf

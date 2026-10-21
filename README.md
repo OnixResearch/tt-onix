@@ -1,8 +1,14 @@
 # tenstorrent.nix
 
-A standalone private Nix flake for using Tenstorrent hardware with Nix/NixOS.
+A standalone Nix flake for using Tenstorrent hardware with Nix/NixOS.
 The `OnixResearch/tenstorrent.nix` `main` branch is the sole repository
 authority; no external upstream remote is configured.
+
+**Publication pending:** this repository is not yet cleared for a public
+release. Tracked physical evidence and Git history include machine-specific
+metadata; copyright, third-party patches, and binary fixture redistribution
+also require owner review. See the [publication review](docs/publication-review.md)
+before making any branch, tag, source archive, or build artifact public.
 
 ## License
 
@@ -74,8 +80,9 @@ for the canonical profile edit, regeneration, and freshness workflow.
 See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
 metadata-only profile, bounded simulator verdict, and explicit non-claims.
 
-See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the validated
-P150x2 path and serialized NixOS inference service.
+See [Qwen3.8-27B adoption](docs/qwen38-27b-adoption.md) for the historically
+validated P150x2 output and its guarded NixOS example. The current edited
+package requires a fresh physical qualification before serving.
 
 Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
 `qwen38` prefix, including `qwen38-check` and `qwen38-p150x2-serve`.
@@ -159,6 +166,8 @@ The command uses pinned Rust, shell, Python, Nix, Nickel, and Cairn tools.
 It does not acquire a Tenstorrent device. See
 [`docs/repository-quality.md`](docs/repository-quality.md) for the parser and artifact workflows.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and evidence policy.
+
 ## Onix packages
 
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
@@ -171,10 +180,13 @@ On `x86_64-linux`, the flake also publishes:
 - `rwkv7-p150x2-runtime` and `rwkv7-p150x2-evidence` for replicated full-model two-card validation;
 - `ttwkv7` plus bounded and persistent operator wrappers;
 - retained partial and passing ttWKV7 evidence validators;
+- `metalium-rs` plus its RWKV-7 WKV7, layer, model, tokenizer, generate, and prompt gates;
 - `ttwkv7-owner-control` and `tt-vibethinker-bench`.
 
 The focused checks include positive and negative fixtures and do not acquire a
-Tenstorrent device. The P150x2 runtime uses full-lockstep replication. It does not
+Tenstorrent device. The `metalium-rs-rwkv7-tokenizer` gate is device-free and is
+part of both `nix flake check` and `nix run .#quality`; the other native-stack
+model gates require a card. The P150x2 runtime uses full-lockstep replication. It does not
 claim a two-card speedup or fresh physical execution. Building `ttwkv7` requires
 allowing its unfree package license. See
 [`docs/migration-provenance.md`](docs/migration-provenance.md) for the exact source
@@ -216,8 +228,7 @@ boundary and non-claims.
 
 ### Rust runtime references
 
-- [brittonr/metalium-rs](https://github.com/brittonr/metalium-rs) — fork of Knight-Ops/metalium-rs: native Rust Blackhole firmware, `tt-kmd` host transport, Tensix kernels, and a Burn backend, independent of TT-Metalium. The flake pins fork commit `4fbddb5d297044f8b9426e69366017b47bc55fba` as the `metalium-rs` package.
-
+- [brittonr/metalium-rs](https://github.com/brittonr/metalium-rs) — historical fork of Knight-Ops/metalium-rs: native Rust Blackhole firmware, `tt-kmd` host transport, Tensix kernels, and a Burn backend, independent of TT-Metalium. The `metalium-rs` package builds the in-tree `metalium-rs/` tree, which is the source authority; the fork remains the upstream and historical pin.
 
 ### Tenstorrent operations references
 

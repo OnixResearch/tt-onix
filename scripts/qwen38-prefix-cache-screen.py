@@ -45,7 +45,12 @@ BASE_TOOL = {
         "description": "Retrieve archived station observations by station id.",
         "parameters": {
             "type": "object",
-            "properties": {"station": {"type": "integer", "description": "Station number to retrieve."}},
+            "properties": {
+                "station": {
+                    "type": "integer",
+                    "description": "Station number to retrieve.",
+                }
+            },
             "required": ["station"],
         },
     },
@@ -78,12 +83,18 @@ def cpu_pressure() -> tuple[float, int, float]:
     return float(fields["avg10"]), int(fields["total"]), os.getloadavg()[0]
 
 
-def conversations(filler: str, count: int, *, shared_system: bool = False) -> list[dict[str, Any]]:
+def conversations(
+    filler: str, count: int, *, shared_system: bool = False
+) -> list[dict[str, Any]]:
     """Distinct conversation histories; optionally share the system instructions."""
     result = []
     for index in range(count):
         start = 0 if shared_system else index * 7000
-        length = SHARED_SYSTEM_PROMPT_CHARACTERS if shared_system else SYSTEM_PROMPT_CHARACTERS
+        length = (
+            SHARED_SYSTEM_PROMPT_CHARACTERS
+            if shared_system
+            else SYSTEM_PROMPT_CHARACTERS
+        )
         result.append({
             "name": f"c{index}",
             "system": "You are a careful research assistant.\n\n"
@@ -187,7 +198,10 @@ class Server:
                 for choice in chunk.get("choices", ()):
                     delta = choice.get("delta") or {}
                     record["text"] += delta.get("content") or ""
-                    record["tool_calls_seen"] |= bool(delta.get("tool_calls") or choice.get("finish_reason") == "tool_calls")
+                    record["tool_calls_seen"] |= bool(
+                        delta.get("tool_calls")
+                        or choice.get("finish_reason") == "tool_calls"
+                    )
                 if "x_onix_decode_evidence" in chunk:
                     record["evidence"] = chunk["x_onix_decode_evidence"]
         except (OSError, http.client.HTTPException, json.JSONDecodeError) as error:
@@ -226,8 +240,16 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--conversations", type=int, default=3)
     parser.add_argument("--turns", type=int, default=4)
-    parser.add_argument("--shared-system", action="store_true", help="interleave five or more chats with one system header")
-    parser.add_argument("--shared-tools", action="store_true", help="measure one shared system/tool header and a changed-tool miss")
+    parser.add_argument(
+        "--shared-system",
+        action="store_true",
+        help="interleave five or more chats with one system header",
+    )
+    parser.add_argument(
+        "--shared-tools",
+        action="store_true",
+        help="measure one shared system/tool header and a changed-tool miss",
+    )
     parser.add_argument("--device-dram-free-bytes", type=int, nargs="+", required=True)
     parser.add_argument(
         "--prefix-policy", type=Path, help="prefix-cache policy JSON (cached root)"
@@ -255,12 +277,22 @@ def main() -> None:
         raise SystemExit("--shared-system and --shared-tools select distinct workloads")
     shared_header = args.shared_system or args.shared_tools
     if shared_header and (args.conversations < 5 or args.turns < 2 or sampled):
-        raise SystemExit("a shared header needs at least five conversations, two turns, and greedy decoding")
-    policy = json.loads(args.prefix_policy.read_text(encoding="utf-8")) if args.prefix_policy else None
-    if shared_header and policy is not None and (
-        policy.get("schema_version") != 2
-        or policy.get("shared_root_minimum_tokens", 0) < 2048
-        or policy.get("state_slots") != 4
+        raise SystemExit(
+            "a shared header needs at least five conversations, two turns, and greedy decoding"
+        )
+    policy = (
+        json.loads(args.prefix_policy.read_text(encoding="utf-8"))
+        if args.prefix_policy
+        else None
+    )
+    if (
+        shared_header
+        and policy is not None
+        and (
+            policy.get("schema_version") != 2
+            or policy.get("shared_root_minimum_tokens", 0) < 2048
+            or policy.get("state_slots") != 4
+        )
     ):
         raise SystemExit("a shared header needs the four-state v2 root policy")
     server = Server(args.base_url)
@@ -300,7 +332,9 @@ def main() -> None:
         workload["shared_tools"] = True
         workload["tools"] = [BASE_TOOL]
         workload["changed_tools"] = [CHANGED_TOOL]
-        workload["changed_probe"] = turn_passage(filler, 0, args.turns) + "\n\n" + QUESTION
+        workload["changed_probe"] = (
+            turn_passage(filler, 0, args.turns) + "\n\n" + QUESTION
+        )
     if sampled:
         workload["sampling"] = {"temperature": args.temperature, "seed": args.seed}
     workload_blake3 = blake3_bytes(
@@ -331,7 +365,9 @@ def main() -> None:
         evidence = record["evidence"] or {}
         if record["error"] is not None or record["wall_seconds"] is None:
             raise SystemExit(f"turn {step} failed: {record['error']}")
-        if args.shared_tools and (record["tool_calls_seen"] or not record["text"].strip()):
+        if args.shared_tools and (
+            record["tool_calls_seen"] or not record["text"].strip()
+        ):
             raise SystemExit(
                 f"turn c{step['conversation']}t{step['turn']} did not produce a text-only answer"
             )
@@ -355,8 +391,13 @@ def main() -> None:
             raise SystemExit(f"the listener's identity changed: {identity} -> {seen}")
         if (policy is None) != (evidence.get("prefix_cache_profile_id") is None):
             raise SystemExit("the listener's prefix cache does not match the root kind")
-        if policy is not None and evidence.get("prefix_cache_profile_id") != policy["profile_id"]:
-            raise SystemExit("the listener's prefix cache profile differs from the requested policy")
+        if (
+            policy is not None
+            and evidence.get("prefix_cache_profile_id") != policy["profile_id"]
+        ):
+            raise SystemExit(
+                "the listener's prefix cache profile differs from the requested policy"
+            )
         history[step["conversation"]] = messages + [
             {"role": "assistant", "content": record["text"]}
         ]
@@ -405,22 +446,32 @@ def main() -> None:
         if (
             evidence.get("decode_path") != "continuous-slot"
             or evidence.get("simulated") is not False
-            or list(evidence.get("physical_pcie_device_ids") or ()) != EXPECTED_DEVICE_IDS
+            or list(evidence.get("physical_pcie_device_ids") or ())
+            != EXPECTED_DEVICE_IDS
             or (
                 evidence.get("package_identity"),
                 evidence.get("runtime_identity"),
                 evidence.get("prefix_cache_profile_id"),
-            ) != identity
+            )
+            != identity
         ):
             raise SystemExit("changed-tool probe ran on a different listener")
         change_probe = {
-            "baseline_tools_blake3": blake3_bytes(args.b3sum, json.dumps([BASE_TOOL], sort_keys=True).encode()),
-            "changed_tools_blake3": blake3_bytes(args.b3sum, json.dumps([CHANGED_TOOL], sort_keys=True).encode()),
+            "baseline_tools_blake3": blake3_bytes(
+                args.b3sum, json.dumps([BASE_TOOL], sort_keys=True).encode()
+            ),
+            "changed_tools_blake3": blake3_bytes(
+                args.b3sum, json.dumps([CHANGED_TOOL], sort_keys=True).encode()
+            ),
             "prompt_tokens": (record["usage"] or {}).get("prompt_tokens"),
             "token_ids": evidence["generated_token_ids"],
             "prefix_hit_tokens": evidence.get("prefix_hit_tokens", 0),
         }
-        log("tool-change", hit=change_probe["prefix_hit_tokens"], prompt_tokens=change_probe["prompt_tokens"])
+        log(
+            "tool-change",
+            hit=change_probe["prefix_hit_tokens"],
+            prompt_tokens=change_probe["prompt_tokens"],
+        )
     finished_utc = utc_now()
     policy_blake3 = (
         blake3_bytes(args.b3sum, args.prefix_policy.read_bytes())
@@ -441,9 +492,13 @@ def main() -> None:
         },
         "workload": {
             "workload_id": (
-                SHARED_TOOL_WORKLOAD_ID if args.shared_tools else
-                SHARED_WORKLOAD_ID if args.shared_system else
-                SAMPLED_WORKLOAD_ID if sampled else WORKLOAD_ID
+                SHARED_TOOL_WORKLOAD_ID
+                if args.shared_tools
+                else SHARED_WORKLOAD_ID
+                if args.shared_system
+                else SAMPLED_WORKLOAD_ID
+                if sampled
+                else WORKLOAD_ID
             ),
             "blake3": workload_blake3,
             "conversations": args.conversations,

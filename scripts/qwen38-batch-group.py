@@ -23,22 +23,31 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
-import socket
 import threading
 from pathlib import Path
 
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True, help="base URL, e.g. http://127.0.0.1:8000")
-    parser.add_argument("--request", action="append", required=True, help="request JSON path, in order")
-    parser.add_argument("--output-directory", required=True, help="directory for response files")
+    parser.add_argument(
+        "--url", required=True, help="base URL, e.g. http://127.0.0.1:8000"
+    )
+    parser.add_argument(
+        "--request", action="append", required=True, help="request JSON path, in order"
+    )
+    parser.add_argument(
+        "--output-directory", required=True, help="directory for response files"
+    )
     parser.add_argument("--timeout-seconds", type=float, default=600.0)
-    parser.add_argument("--attempts", type=int, default=4, help="group attempts before giving up")
+    parser.add_argument(
+        "--attempts", type=int, default=4, help="group attempts before giving up"
+    )
     return parser.parse_args()
 
 
-def open_connection(base_url: str, timeout_seconds: float) -> http.client.HTTPConnection:
+def open_connection(
+    base_url: str, timeout_seconds: float
+) -> http.client.HTTPConnection:
     if "://" in base_url:
         scheme, remainder = base_url.split("://", 1)
     else:
@@ -66,7 +75,9 @@ def attempt_once(arguments: argparse.Namespace) -> int:
     requests = [Path(path).read_bytes() for path in arguments.request]
     width = len(requests)
 
-    connections = [open_connection(arguments.url, arguments.timeout_seconds) for _ in range(width)]
+    connections = [
+        open_connection(arguments.url, arguments.timeout_seconds) for _ in range(width)
+    ]
     barrier = threading.Barrier(width)
     errors: list[str] = []
 
@@ -87,7 +98,11 @@ def attempt_once(arguments: argparse.Namespace) -> int:
             target.write_bytes(body)
             if response.status != 200:
                 errors.append(f"request {index}: HTTP {response.status}")
-        except (OSError, http.client.HTTPException, threading.BrokenBarrierError) as error:
+        except (
+            OSError,
+            http.client.HTTPException,
+            threading.BrokenBarrierError,
+        ) as error:
             errors.append(f"request {index}: {type(error).__name__}: {error}")
 
     threads = [threading.Thread(target=send, args=(index,)) for index in range(width)]
@@ -98,7 +113,11 @@ def attempt_once(arguments: argparse.Namespace) -> int:
     for connection in connections:
         connection.close()
 
-    complete = sum(1 for index in range(width) if usable_response(output_directory / f"response-{index}.json"))
+    complete = sum(
+        1
+        for index in range(width)
+        if usable_response(output_directory / f"response-{index}.json")
+    )
     if errors:
         print("; ".join(errors[:4]))
     return complete

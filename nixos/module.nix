@@ -391,35 +391,40 @@ in
         ];
 
         serviceConfig = {
-          ExecStart = lib.escapeShellArgs ([
-            "${qwen38.package}/bin/qwen38-p150x2-serve"
-            "--host"
-            qwen38.listenAddress
-            "--port"
-            (toString qwen38.port)
-            "--model-path"
-            qwen38.modelPath
-            "--model-alias"
-            qwen38.modelAlias
-            "--max-sequence-length"
-            (toString qwen38.maximumSequenceLength)
-            "--max-generation-tokens"
-            (toString qwen38.maximumGenerationTokens)
-            "--require-systemd-notify"
-          ] ++ lib.optionals qwen38.continuousSlotScheduler [
-            "--continuous-slot-policy"
-            "${qwen38.package}/share/qwen36/continuous-slot-policy.json"
-          ] ++ lib.optionals qwen38.prefixCache [
-            "--prefix-cache-policy"
-            "${qwen38.package}/share/qwen36/prefix-cache-policy.json"
-          ] ++ lib.optionals qwen38.mtpSpeculation [
-            "--decode-mode"
-            "eager"
-            "--mtp-drafter-profile"
-            "${qwen38.package}/share/qwen36/mtp-drafter-profile.json"
-            "--mtp-trace-profile"
-            "${qwen38.package}/share/qwen36/mtp-trace-profile.json"
-          ]);
+          ExecStart = lib.escapeShellArgs (
+            [
+              "${qwen38.package}/bin/qwen38-p150x2-serve"
+              "--host"
+              qwen38.listenAddress
+              "--port"
+              (toString qwen38.port)
+              "--model-path"
+              qwen38.modelPath
+              "--model-alias"
+              qwen38.modelAlias
+              "--max-sequence-length"
+              (toString qwen38.maximumSequenceLength)
+              "--max-generation-tokens"
+              (toString qwen38.maximumGenerationTokens)
+              "--require-systemd-notify"
+            ]
+            ++ lib.optionals qwen38.continuousSlotScheduler [
+              "--continuous-slot-policy"
+              "${qwen38.package}/share/qwen36/continuous-slot-policy.json"
+            ]
+            ++ lib.optionals qwen38.prefixCache [
+              "--prefix-cache-policy"
+              "${qwen38.package}/share/qwen36/prefix-cache-policy.json"
+            ]
+            ++ lib.optionals qwen38.mtpSpeculation [
+              "--decode-mode"
+              "eager"
+              "--mtp-drafter-profile"
+              "${qwen38.package}/share/qwen36/mtp-drafter-profile.json"
+              "--mtp-trace-profile"
+              "${qwen38.package}/share/qwen36/mtp-trace-profile.json"
+            ]
+          );
           Group = cfg.deviceGroup;
           NotifyAccess = "main";
           Restart = "on-failure";

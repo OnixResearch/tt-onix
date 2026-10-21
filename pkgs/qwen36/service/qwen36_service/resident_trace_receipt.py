@@ -28,7 +28,12 @@ from .resident_trace_admission_core import (
     evaluate,
 )
 
-ROOT_LABELS = ("baseline_first", "candidate_first", "candidate_second", "baseline_second")
+ROOT_LABELS = (
+    "baseline_first",
+    "candidate_first",
+    "candidate_second",
+    "baseline_second",
+)
 NON_CLAIMS = (
     "The receipt compares declared agent-shaped workloads on two packages; it is not a "
     "general latency claim.",
@@ -52,17 +57,33 @@ def build_receipt(
         "schema_version": 1,
         "receipt_kind": "resident-slot-trace-admission",
         "policy": {"profile_id": policy.profile_id, "blake3": policy_blake3},
-        "roots": [dict(zip(ROOT_LABELS, digests, strict=True)) for digests in root_blake3s],
+        "roots": [
+            dict(zip(ROOT_LABELS, digests, strict=True)) for digests in root_blake3s
+        ],
         "non_claims": list(NON_CLAIMS),
     }
     try:
         if any(len(group) != len(ROOT_ORDER) for group in group_mappings):
-            raise ResidentTraceEvidenceError("every workload needs four roots: baseline, candidate, candidate, baseline")
-        groups = [[root_from_mapping(mapping, expected_kind="cached") for mapping in group] for group in group_mappings]
+            raise ResidentTraceEvidenceError(
+                "every workload needs four roots: baseline, candidate, candidate, baseline"
+            )
+        groups = [
+            [root_from_mapping(mapping, expected_kind="cached") for mapping in group]
+            for group in group_mappings
+        ]
         result = evaluate(policy, groups)
     except (PrefixAdmissionEvidenceError, ResidentTraceEvidenceError) as error:
-        receipt["simulated"] = any(bool(mapping.get("simulated")) for group in group_mappings for mapping in group)
-        receipt["admission"] = {"admitted": False, "admitted_profile": None, "evidence_error": str(error), "reasons": ["evidence-error"]}
+        receipt["simulated"] = any(
+            bool(mapping.get("simulated"))
+            for group in group_mappings
+            for mapping in group
+        )
+        receipt["admission"] = {
+            "admitted": False,
+            "admitted_profile": None,
+            "evidence_error": str(error),
+            "reasons": ["evidence-error"],
+        }
         return receipt
     candidate_identity = dict(groups[0][1].identity)
     receipt["simulated"] = any(root.simulated for group in groups for root in group)
@@ -89,7 +110,10 @@ def build_receipt(
         "reasons": list(result.reasons),
     }
     receipt["gates"] = [dataclasses.asdict(gate) for gate in result.gates]
-    receipt["pair_diagnostics"] = [{"pair": name, **ratios} for name, ratios in zip(PAIR_NAMES, result.pairs, strict=True)]
+    receipt["pair_diagnostics"] = [
+        {"pair": name, **ratios}
+        for name, ratios in zip(PAIR_NAMES, result.pairs, strict=True)
+    ]
     receipt["turns"] = {"compared": result.compared_turns}
     return receipt
 
@@ -103,7 +127,12 @@ def main() -> None:
         action="append",
         required=True,
         type=Path,
-        metavar=("BASELINE_FIRST", "CANDIDATE_FIRST", "CANDIDATE_SECOND", "BASELINE_SECOND"),
+        metavar=(
+            "BASELINE_FIRST",
+            "CANDIDATE_FIRST",
+            "CANDIDATE_SECOND",
+            "BASELINE_SECOND",
+        ),
         help="one workload's roots in measurement order; repeat per declared workload",
     )
     parser.add_argument("--output", required=True, type=Path)
@@ -119,11 +148,17 @@ def main() -> None:
         policy_mapping=load(args.policy),
         group_mappings=[[load(path) for path in group] for group in args.abba],
         policy_blake3=blake3_of(args.policy, args.b3sum),
-        root_blake3s=[[blake3_of(path, args.b3sum) for path in group] for group in args.abba],
+        root_blake3s=[
+            [blake3_of(path, args.b3sum) for path in group] for group in args.abba
+        ],
     )
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     admission = receipt["admission"]
-    print(json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]}))
+    print(
+        json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]})
+    )
 
 
 if __name__ == "__main__":

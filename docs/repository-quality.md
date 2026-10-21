@@ -8,6 +8,12 @@ nix run .#quality
 
 The command evaluates every supported system. Then it builds `checks.x86_64-linux.repository-quality` with Nix-owned tools.
 
+The launcher evaluates the Git-tracked worktree, not a raw directory copy:
+ignored `.pi/`, `generated/`, and downloaded model files stay out of the Nix
+store even when present locally. Add new source or fixture files to the Git
+index before running the gate; untracked files are not tested. The gate still
+does not review tracked files for publication safety.
+
 ## Baseline from 2026-08-07
 
 The pre-change flake evaluation and three focused Nix builds passed.
@@ -24,13 +30,15 @@ Cairn validation passed with nine active changes. The Cairn command used the pin
 
 The aggregate gate runs these device-free groups:
 
-1. Rust formatting, Clippy, and tests for every Cargo package.
+1. Rust formatting, Clippy, and tests for every repository Cargo package; the
+   in-tree `metalium-rs` workspace runs its own full test tier in the
+   `metalium-rs` package check.
 2. ShellCheck, interpreter checks, and Bash syntax checks.
 3. Ruff formatting and lint checks for maintained Python files.
 4. Nickel policy export and generated-data freshness checks.
 5. Artifact policy, model-target freshness, focused package checks, and Cairn validation.
 
-`quality/required-checks.ncl` owns the required package inventory. The aggregate includes `qwen36`, `qwen36-authority-negative`, and `qwen36-nixos-service`. Its Nix selector rejects missing checks, unregistered checks, duplicates, and non-derivation entries. Negative controls remove each required check from the available set.
+`quality/required-checks.ncl` owns the required package inventory. The aggregate includes `qwen36`, `qwen36-authority-negative`, `qwen36-nixos-service`, and the device-free `metalium-rs-rwkv7-tokenizer` gate. Its Nix selector rejects missing checks, unregistered checks, duplicates, and non-derivation entries. Negative controls remove each required check from the available set.
 
 Cairn output passes through `repository-quality cairn-verdict RECEIPT`. The verifier requires a true top-level verdict, valid root resolution, and empty issue lists. It rejects duplicate keys, missing fields, wrong types, unsupported fields, malformed JSON, and excessive input. The JSON adapter enforces named byte, item, depth, and field limits. The core owns the acceptance decision. The CLI owns bounded file reads and the exit status.
 

@@ -36,7 +36,15 @@ EVENT_CONTENT = "content"
 EVENT_TOOL_CALL_START = "tool_call_start"
 EVENT_TOOL_CALL_ARGUMENTS = "tool_call_arguments"
 
-JSON_TYPES = frozenset({"string", "number", "integer", "boolean", "object", "array", "null"})
+JSON_TYPES = frozenset({
+    "string",
+    "number",
+    "integer",
+    "boolean",
+    "object",
+    "array",
+    "null",
+})
 STRING_ONLY = frozenset({"string"})
 
 _REASONING = "reasoning"
@@ -116,7 +124,9 @@ def schema_types(schema: Any) -> frozenset[str] | None:
     if isinstance(declared, str):
         return frozenset({declared}) if declared in JSON_TYPES else None
     if isinstance(declared, list):
-        if declared and all(isinstance(item, str) and item in JSON_TYPES for item in declared):
+        if declared and all(
+            isinstance(item, str) and item in JSON_TYPES for item in declared
+        ):
             return frozenset(declared)
         return None
     for key in ("anyOf", "oneOf"):
@@ -137,15 +147,21 @@ def schema_types(schema: Any) -> frozenset[str] | None:
     return None
 
 
-def argument_types(tools: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, frozenset[str] | None]]:
+def argument_types(
+    tools: Iterable[Mapping[str, Any]],
+) -> dict[str, dict[str, frozenset[str] | None]]:
     """Parameter types per function from OpenAI `tools` entries."""
     types: dict[str, dict[str, frozenset[str] | None]] = {}
     for tool in tools:
         function = tool.get("function")
-        if not isinstance(function, Mapping) or not isinstance(function.get("name"), str):
+        if not isinstance(function, Mapping) or not isinstance(
+            function.get("name"), str
+        ):
             continue
         parameters = function.get("parameters")
-        properties = parameters.get("properties") if isinstance(parameters, Mapping) else None
+        properties = (
+            parameters.get("properties") if isinstance(parameters, Mapping) else None
+        )
         types[function["name"]] = (
             {name: schema_types(schema) for name, schema in properties.items()}
             if isinstance(properties, Mapping)
@@ -187,7 +203,9 @@ def coerce_argument(raw: str, admitted: frozenset[str] | None) -> Any:
     if admitted == STRING_ONLY:
         return raw
     try:
-        value = json.loads(raw, parse_constant=_reject_constant, parse_float=_finite_float)
+        value = json.loads(
+            raw, parse_constant=_reject_constant, parse_float=_finite_float
+        )
     except ValueError:
         return raw
     if admitted is None:
@@ -406,7 +424,9 @@ class ChatOutputParser:
             self._consume(len(TOOL_CALL_CLOSE))
             self._close_call(completed=True)
             return True
-        if not self._final and any(marker.startswith(buffer) for marker in _FUNCTION_MARKERS):
+        if not self._final and any(
+            marker.startswith(buffer) for marker in _FUNCTION_MARKERS
+        ):
             return False
         # Stray text inside a call: skip to the next tag.
         positions = [
@@ -462,7 +482,9 @@ class ChatOutputParser:
         if buffer.startswith(TOOL_CALL_CLOSE):
             self._consume(len(TOOL_CALL_CLOSE))
             return True
-        if not self._final and any(marker.startswith(buffer) for marker in _BETWEEN_MARKERS):
+        if not self._final and any(
+            marker.startswith(buffer) for marker in _BETWEEN_MARKERS
+        ):
             return False
         # Text after a call is content, not dropped.
         self._state = _CONTENT
@@ -472,7 +494,11 @@ class ChatOutputParser:
         if not text:
             return
         last = self._events[-1] if self._events else None
-        if last is not None and last.kind == kind and kind in (EVENT_REASONING, EVENT_CONTENT):
+        if (
+            last is not None
+            and last.kind == kind
+            and kind in (EVENT_REASONING, EVENT_CONTENT)
+        ):
             self._events[-1] = OutputEvent(kind=kind, text=last.text + text)
         else:
             self._events.append(OutputEvent(kind=kind, text=text))
@@ -511,7 +537,9 @@ class ChatOutputParser:
             self._state = _BUFFERED_VALUE
 
     def _coerced(self, value: str) -> str:
-        return json.dumps(coerce_argument(value, self._parameter_types), ensure_ascii=False)
+        return json.dumps(
+            coerce_argument(value, self._parameter_types), ensure_ascii=False
+        )
 
     def _arguments(self, fragment: str) -> None:
         if not self._call_emitted or not fragment:
@@ -523,11 +551,17 @@ class ChatOutputParser:
             and last.index == self._call_index
         ):
             self._events[-1] = OutputEvent(
-                kind=EVENT_TOOL_CALL_ARGUMENTS, text=last.text + fragment, index=self._call_index
+                kind=EVENT_TOOL_CALL_ARGUMENTS,
+                text=last.text + fragment,
+                index=self._call_index,
             )
         else:
             self._events.append(
-                OutputEvent(kind=EVENT_TOOL_CALL_ARGUMENTS, text=fragment, index=self._call_index)
+                OutputEvent(
+                    kind=EVENT_TOOL_CALL_ARGUMENTS,
+                    text=fragment,
+                    index=self._call_index,
+                )
             )
 
     def _close_call(self, *, completed: bool) -> None:
@@ -605,20 +639,20 @@ def event_deltas(events: Iterable[OutputEvent]) -> list[dict[str, Any]]:
         elif event.kind == EVENT_CONTENT:
             deltas.append({"content": event.text})
         elif event.kind == EVENT_TOOL_CALL_START:
-            deltas.append(
-                {
-                    "tool_calls": [
-                        {
-                            "function": {"arguments": "", "name": event.name},
-                            "id": event.call_id,
-                            "index": event.index,
-                            "type": "function",
-                        }
-                    ]
-                }
-            )
+            deltas.append({
+                "tool_calls": [
+                    {
+                        "function": {"arguments": "", "name": event.name},
+                        "id": event.call_id,
+                        "index": event.index,
+                        "type": "function",
+                    }
+                ]
+            })
         else:
-            deltas.append(
-                {"tool_calls": [{"function": {"arguments": event.text}, "index": event.index}]}
-            )
+            deltas.append({
+                "tool_calls": [
+                    {"function": {"arguments": event.text}, "index": event.index}
+                ]
+            })
     return deltas

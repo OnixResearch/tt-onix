@@ -200,7 +200,9 @@ class BatchGenerationCoordinator:
     ) -> tuple[StructuredReadRows, ...]:
         """Run structured reads on the device worker, between generation batches."""
         if not requests:
-            raise BatchDecodeAdapterError("a structured read job needs at least one read")
+            raise BatchDecodeAdapterError(
+                "a structured read job needs at least one read"
+            )
         pending = _PendingRead(requests=requests, deadline=deadline)
         with self._condition:
             if self._closing:
@@ -325,10 +327,17 @@ class BatchGenerationCoordinator:
             buckets = self.adapter.prepare_masked_prefill_traces(
                 int(token_ids[0, 0]), routes
             )
-        except (AssertionError, BatchDecodeAdapterError, RuntimeError, ValueError) as error:
+        except (
+            AssertionError,
+            BatchDecodeAdapterError,
+            RuntimeError,
+            ValueError,
+        ) as error:
             self.adapter.model.release_masked_prefill_traces()
             self.adapter.reset_all()
-            self.emitter("masked-prefill-traces-failed", error_type=type(error).__name__)
+            self.emitter(
+                "masked-prefill-traces-failed", error_type=type(error).__name__
+            )
         else:
             if buckets:
                 self.emitter(
@@ -395,21 +404,30 @@ class BatchGenerationCoordinator:
                 self._condition.wait(timeout=remaining)
             # Decode shards one user per core as a grid rectangle; a width with no
             # rectangle (13 on an 11x10 grid) returns its newest requests to the queue.
-            while len(selected) > 1 and not self.adapter.decode_width_supported(len(selected)):
+            while len(selected) > 1 and not self.adapter.decode_width_supported(
+                len(selected)
+            ):
                 self._queue.appendleft(selected.pop())
             # An all-sampled batch decodes on the sampled-fusion kernel, which fits fewer
             # users than the grid rectangle (4 on P150x2); the rest wait for the next batch.
             if self.sampled_admission_enabled and all(
-                classify_temperature(pending.request.temperature, self.deterministic_route)
+                classify_temperature(
+                    pending.request.temperature, self.deterministic_route
+                )
                 == ROUTE_SAMPLED
                 for pending in selected
             ):
-                while len(selected) > 1 and not self.adapter.sampled_width_supported(len(selected)):
+                while len(selected) > 1 and not self.adapter.sampled_width_supported(
+                    len(selected)
+                ):
                     self._queue.appendleft(selected.pop())
             return tuple(selected)
 
     def _run_reads(
-        self, jobs: tuple[_PendingRead, ...], *, protected_blocks: frozenset[int] = frozenset()
+        self,
+        jobs: tuple[_PendingRead, ...],
+        *,
+        protected_blocks: frozenset[int] = frozenset(),
     ) -> None:
         # An expired job fails alone; the decisions merged with it still read.
         now = time.monotonic()
@@ -425,13 +443,18 @@ class BatchGenerationCoordinator:
             return
         flat = tuple(request for job in live for request in job.requests)
         if protected_blocks:
-            results = self.adapter.read_rows_batch(flat, protected_blocks=protected_blocks)
+            results = self.adapter.read_rows_batch(
+                flat, protected_blocks=protected_blocks
+            )
         else:
             results = self.adapter.read_rows_batch(flat)
         if len(results) != len(flat):
             raise BatchDecodeAdapterError("structured reads returned the wrong count")
         if any(result.masked_traces_released for result in results):
-            self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
+            self.emitter(
+                "masked-prefill-traces-released",
+                reason="program-compiled-after-capture",
+            )
         start = 0
         for job in live:
             job.results = results[start : start + len(job.requests)]
@@ -567,7 +590,10 @@ class BatchGenerationCoordinator:
             trace_reuse_enabled=trace_reuse_enabled,
         )
         if prefill_result.masked_traces_released:
-            self.emitter("masked-prefill-traces-released", reason="program-compiled-after-capture")
+            self.emitter(
+                "masked-prefill-traces-released",
+                reason="program-compiled-after-capture",
+            )
         first_token_ready = prefill_started + prefill_result.first_token_ready_seconds
         generated = [[token] for token in prefill_result.first_token_ids]
         for row_index, token in enumerate(prefill_result.first_token_ids):
@@ -590,9 +616,15 @@ class BatchGenerationCoordinator:
         ]
 
         decode_durations = []
-        stopped = [token in self.stop_token_ids for token in prefill_result.first_token_ids]
+        stopped = [
+            token in self.stop_token_ids for token in prefill_result.first_token_ids
+        ]
         remaining_steps = maximum_generation_tokens - len(generated[0])
-        if route_decision.route != ROUTE_SAMPLED and remaining_steps > 0 and not all(stopped):
+        if (
+            route_decision.route != ROUTE_SAMPLED
+            and remaining_steps > 0
+            and not all(stopped)
+        ):
             # Greedy batches stream: the device feeds each step's tokens into the next step,
             # and the host reads step k while step k + 1 runs.
             stream = self.adapter.decode_greedy_stream(
@@ -608,7 +640,9 @@ class BatchGenerationCoordinator:
                         generated[row_index].append(next_token)
                         self._publish(pending_batch[row_index], next_token)
                         positions[row_index] += 1
-                        stopped[row_index] = stopped[row_index] or next_token in self.stop_token_ids
+                        stopped[row_index] = (
+                            stopped[row_index] or next_token in self.stop_token_ids
+                        )
                     if all(stopped):
                         break
                     if any(
@@ -668,7 +702,9 @@ class BatchGenerationCoordinator:
                 generated[row.row_index].append(next_token)
                 self._publish(pending_batch[row.row_index], next_token)
                 positions[row.row_index] = row.next_position
-                stopped[row.row_index] = stopped[row.row_index] or next_token in self.stop_token_ids
+                stopped[row.row_index] = (
+                    stopped[row.row_index] or next_token in self.stop_token_ids
+                )
 
         cleanup_started = time.monotonic()
         self.adapter.reset_all()
@@ -717,7 +753,9 @@ class BatchGenerationCoordinator:
         for state_slice, (pending, user_tokens) in enumerate(
             zip(pending_batch, generated, strict=True)
         ):
-            user_tokens, finish_reason = finish_generation(user_tokens, self.stop_token_ids)
+            user_tokens, finish_reason = finish_generation(
+                user_tokens, self.stop_token_ids
+            )
             generated_text = self.tokenizer.decode(
                 user_tokens,
                 skip_special_tokens=True,

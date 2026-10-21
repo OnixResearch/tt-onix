@@ -135,7 +135,9 @@ def _validate_common_fields(
         if not isinstance(stream_options, dict):
             raise RequestValidationError("stream_options must be an object")
         if not isinstance(stream_options.get("include_usage", False), bool):
-            raise RequestValidationError("stream_options.include_usage must be a boolean")
+            raise RequestValidationError(
+                "stream_options.include_usage must be a boolean"
+            )
 
     choice_count = payload.get("n", DEFAULT_REQUEST_CHOICE_COUNT)
     if choice_count != DEFAULT_REQUEST_CHOICE_COUNT:
@@ -169,13 +171,18 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
         role = item.get("role")
         if role == "system":
             if index != 0:
-                raise RequestValidationError(f"messages[{index}]: a system message must come first")
-            message = ChatMessage(role=role, content=_required_text(item.get("content"), index))
+                raise RequestValidationError(
+                    f"messages[{index}]: a system message must come first"
+                )
+            message = ChatMessage(
+                role=role, content=_required_text(item.get("content"), index)
+            )
         elif role == "user":
             content = _required_text(item.get("content"), index)
             stripped = content.strip()
             has_user_query = has_user_query or not (
-                stripped.startswith(TOOL_RESPONSE_OPEN) and stripped.endswith(TOOL_RESPONSE_CLOSE)
+                stripped.startswith(TOOL_RESPONSE_OPEN)
+                and stripped.endswith(TOOL_RESPONSE_CLOSE)
             )
             message = ChatMessage(role=role, content=content)
         elif role == "assistant":
@@ -185,7 +192,9 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
                 raise RequestValidationError(
                     f"messages[{index}]: a tool message must follow an assistant or tool message"
                 )
-            message = ChatMessage(role=role, content=_optional_text(item.get("content"), index))
+            message = ChatMessage(
+                role=role, content=_optional_text(item.get("content"), index)
+            )
         else:
             raise RequestValidationError(f"messages[{index}].role is not supported")
         messages.append(message)
@@ -198,7 +207,9 @@ def _parse_messages(payload: dict[str, Any]) -> tuple[ChatMessage, ...]:
 def _parse_assistant_message(item: dict[str, Any], index: int) -> ChatMessage:
     reasoning = item.get("reasoning_content")
     if reasoning is not None and not isinstance(reasoning, str):
-        raise RequestValidationError(f"messages[{index}].reasoning_content must be a string")
+        raise RequestValidationError(
+            f"messages[{index}].reasoning_content must be a string"
+        )
     source = item.get("tool_calls")
     if source is None:
         source = []
@@ -209,7 +220,9 @@ def _parse_assistant_message(item: dict[str, Any], index: int) -> ChatMessage:
         content=_optional_text(item.get("content"), index),
         reasoning_content=reasoning,
         tool_calls=tuple(
-            _parse_history_tool_call(call, f"messages[{index}].tool_calls[{call_index}]")
+            _parse_history_tool_call(
+                call, f"messages[{index}].tool_calls[{call_index}]"
+            )
             for call_index, call in enumerate(source)
         ),
     )
@@ -225,7 +238,9 @@ def _parse_history_tool_call(call: Any, location: str) -> ToolCall:
         raise RequestValidationError(f"{location}.function must be an object")
     name = function.get("name")
     if not isinstance(name, str) or not name.strip():
-        raise RequestValidationError(f"{location}.function.name must be a non-empty string")
+        raise RequestValidationError(
+            f"{location}.function.name must be a non-empty string"
+        )
     arguments = function.get("arguments")
     # OpenAI clients send arguments as a JSON string; the template iterates a mapping.
     if arguments is None or (isinstance(arguments, str) and not arguments.strip()):
@@ -238,7 +253,9 @@ def _parse_history_tool_call(call: Any, location: str) -> ToolCall:
                 f"{location}.function.arguments must be a JSON object"
             ) from error
     if not isinstance(arguments, dict):
-        raise RequestValidationError(f"{location}.function.arguments must be a JSON object")
+        raise RequestValidationError(
+            f"{location}.function.arguments must be a JSON object"
+        )
     return ToolCall(name=name, arguments=arguments)
 
 
@@ -264,7 +281,9 @@ def _message_text(content: Any, index: int) -> str | None:
 def _required_text(content: Any, index: int) -> str:
     text = _message_text(content, index)
     if text is None or not text.strip():
-        raise RequestValidationError(f"messages[{index}].content must be non-empty text")
+        raise RequestValidationError(
+            f"messages[{index}].content must be non-empty text"
+        )
     return text
 
 
@@ -292,11 +311,21 @@ def _parse_tools(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
             raise RequestValidationError(f"tools[{index}].function must be an object")
         name = function.get("name")
         if not isinstance(name, str) or not name.strip():
-            raise RequestValidationError(f"tools[{index}].function.name must be a non-empty string")
-        if function.get("parameters") is not None and not isinstance(function["parameters"], dict):
-            raise RequestValidationError(f"tools[{index}].function.parameters must be an object")
-        if function.get("description") is not None and not isinstance(function["description"], str):
-            raise RequestValidationError(f"tools[{index}].function.description must be a string")
+            raise RequestValidationError(
+                f"tools[{index}].function.name must be a non-empty string"
+            )
+        if function.get("parameters") is not None and not isinstance(
+            function["parameters"], dict
+        ):
+            raise RequestValidationError(
+                f"tools[{index}].function.parameters must be an object"
+            )
+        if function.get("description") is not None and not isinstance(
+            function["description"], str
+        ):
+            raise RequestValidationError(
+                f"tools[{index}].function.description must be a string"
+            )
     return tuple(source)
 
 
@@ -321,7 +350,9 @@ def _select_tools(
         if isinstance(name, str):
             selected = tuple(tool for tool in tools if tool["function"]["name"] == name)
             if not selected:
-                raise RequestValidationError(f"tool_choice names {name!r}, which is not in tools")
+                raise RequestValidationError(
+                    f"tool_choice names {name!r}, which is not in tools"
+                )
             return selected
     raise RequestValidationError(
         "tool_choice must be auto, none, required or {type: function, function: {name}}"
@@ -336,7 +367,9 @@ def _thinking_field(
     return template_arguments.get(name) if value is None else value
 
 
-def _parse_thinking(payload: dict[str, Any]) -> tuple[bool | None, bool | None, str | None]:
+def _parse_thinking(
+    payload: dict[str, Any],
+) -> tuple[bool | None, bool | None, str | None]:
     """enable_thinking, preserve_thinking and the template's reasoning effort.
 
     Only these chat_template_kwargs reach the template; other keys are ignored."""
@@ -412,7 +445,9 @@ def parse_completion_request(
         temperature=_parse_temperature(body),
         seed=_parse_seed(body),
         stream=stream,
-        include_usage=bool(stream and (body.get("stream_options") or {}).get("include_usage", False)),
+        include_usage=bool(
+            stream and (body.get("stream_options") or {}).get("include_usage", False)
+        ),
         max_tokens_explicit=max_tokens_explicit,
     )
     if endpoint is Endpoint.COMPLETIONS:
@@ -442,7 +477,10 @@ def template_messages(request: CompletionRequest) -> list[dict[str, Any]]:
             rendered["reasoning_content"] = message.reasoning_content
         if message.tool_calls:
             rendered["tool_calls"] = [
-                {"function": {"arguments": call.arguments, "name": call.name}, "type": "function"}
+                {
+                    "function": {"arguments": call.arguments, "name": call.name},
+                    "type": "function",
+                }
                 for call in message.tool_calls
             ]
         messages.append(rendered)
@@ -460,7 +498,10 @@ def template_arguments(request: CompletionRequest) -> dict[str, Any]:
 
 
 def admit_prompt(
-    request: CompletionRequest, prompt: str, prompt_token_count: int, maximum_sequence_length: int
+    request: CompletionRequest,
+    prompt: str,
+    prompt_token_count: int,
+    maximum_sequence_length: int,
 ) -> CompletionRequest:
     """Fit generation to the sequence and fix how the chat output will be read.
 
@@ -503,14 +544,20 @@ def load_stop_token_ids(model_path: str | Path, tokenizer: Any) -> frozenset[int
         if isinstance(value, int) and not isinstance(value, bool):
             ids.add(value)
         elif isinstance(value, list):
-            ids.update(item for item in value if isinstance(item, int) and not isinstance(item, bool))
+            ids.update(
+                item
+                for item in value
+                if isinstance(item, int) and not isinstance(item, bool)
+            )
     eos = getattr(tokenizer, "eos_token_id", None)
     if isinstance(eos, int) and not isinstance(eos, bool):
         ids.add(eos)
     return frozenset(ids)
 
 
-def finish_generation(tokens: list[int], stop_token_ids: frozenset[int]) -> tuple[list[int], str]:
+def finish_generation(
+    tokens: list[int], stop_token_ids: frozenset[int]
+) -> tuple[list[int], str]:
     """Tokens up to (excluding) the first stop token, and the OpenAI finish reason."""
     for index, token in enumerate(tokens):
         if token in stop_token_ids:
@@ -518,7 +565,9 @@ def finish_generation(tokens: list[int], stop_token_ids: frozenset[int]) -> tupl
     return list(tokens), FINISH_LENGTH
 
 
-def chat_finish_reason(generation_finish: str, completed_call_count: int, open_call: bool) -> str:
+def chat_finish_reason(
+    generation_finish: str, completed_call_count: int, open_call: bool
+) -> str:
     """`tool_calls` only for complete calls ended by a stop token.
 
     A run out of budget stays `length` even after tool deltas went out, so a client never
@@ -547,7 +596,9 @@ def build_completion_response(
     }
     if request.endpoint is Endpoint.CHAT_COMPLETIONS:
         if request.output_plan is None:
-            raise ValueError("a chat response needs the output plan of its rendered prompt")
+            raise ValueError(
+                "a chat response needs the output plan of its rendered prompt"
+            )
         output = parse_chat_output(generated_text, request.output_plan)
         choices = [
             {

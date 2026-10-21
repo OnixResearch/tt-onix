@@ -63,41 +63,73 @@ def main():
     results = {}
     try:
         mesh.enable_program_cache()
-        model = Qwen36Model.from_pretrained(mesh, max_batch_size=srv.MAXIMUM_BATCH_WIDTH, max_seq_len=65536)
+        model = Qwen36Model.from_pretrained(
+            mesh, max_batch_size=srv.MAXIMUM_BATCH_WIDTH, max_seq_len=65536
+        )
         with open(PROFILE, encoding="utf-8") as profile_file:
             profile = DecodeProfile.from_mapping(json.load(profile_file))
-        adapter = BatchedTracedDecodeAdapter(model=model, profile=profile, maximum_width=srv.MAXIMUM_BATCH_WIDTH)
+        adapter = BatchedTracedDecodeAdapter(
+            model=model, profile=profile, maximum_width=srv.MAXIMUM_BATCH_WIDTH
+        )
         tokenizer = AutoTokenizer.from_pretrained(MODEL)
         log("model-loaded")
 
         # Same warm-up as the service: widths 1 and 4, then every decode width and the masked traces.
-        warm = tokenizer("Warm the test path.", return_tensors="pt")["input_ids"].to(torch.int32)
+        warm = tokenizer("Warm the test path.", return_tensors="pt")["input_ids"].to(
+            torch.int32
+        )
         for width in (1, WIDTH):
-            first = adapter.prefill_users(tuple(warm for _ in range(width)), generation_tokens=2)
+            first = adapter.prefill_users(
+                tuple(warm for _ in range(width)), generation_tokens=2
+            )
             positions = (int(warm.shape[1]),) * width
             adapter.prepare_width(token_ids=first.first_token_ids, positions=positions)
             adapter.decode_traced(token_ids=first.first_token_ids, positions=positions)
             adapter.reset_all()
-        buckets = adapter.prepare_masked_prefill_traces(int(warm[0, 0]), (adapter.fusion_mode,))
+        buckets = adapter.prepare_masked_prefill_traces(
+            int(warm[0, 0]), (adapter.fusion_mode,)
+        )
         log("warmed", buckets=list(buckets), fusion_mode=adapter.fusion_mode)
 
-        filler = tokenizer(open(FILLER, encoding="utf-8").read(), add_special_tokens=False)["input_ids"]
+        filler = tokenizer(
+            open(FILLER, encoding="utf-8").read(), add_special_tokens=False
+        )["input_ids"]
         texts = {
             "A": chat("Name the three primary colors and one use for each."),
-            "B": chat(tokenizer.decode(filler[:1500]) + "\n\nSummarize the passage above in two sentences."),
-            "C": chat(tokenizer.decode(filler[2000:5000]) + "\n\nWhat is this passage about? One sentence."),
-            "D": chat(tokenizer.decode(filler[6000:8500]) + "\n\nList two technical terms from the passage."),
+            "B": chat(
+                tokenizer.decode(filler[:1500])
+                + "\n\nSummarize the passage above in two sentences."
+            ),
+            "C": chat(
+                tokenizer.decode(filler[2000:5000])
+                + "\n\nWhat is this passage about? One sentence."
+            ),
+            "D": chat(
+                tokenizer.decode(filler[6000:8500])
+                + "\n\nList two technical terms from the passage."
+            ),
         }
-        ids = {key: tokenizer(text, return_tensors="pt", add_special_tokens=False)["input_ids"].to(torch.int32) for key, text in texts.items()}
+        ids = {
+            key: tokenizer(text, return_tensors="pt", add_special_tokens=False)[
+                "input_ids"
+            ].to(torch.int32)
+            for key, text in texts.items()
+        }
         lengths = {key: int(value.shape[1]) for key, value in ids.items()}
         generation = N_BEFORE + M_AFTER + 2
         log("prompts", lengths=lengths)
 
         def step(tokens, positions):
-            return list(adapter.decode_traced(token_ids=tuple(tokens), positions=tuple(positions)))
+            return list(
+                adapter.decode_traced(
+                    token_ids=tuple(tokens), positions=tuple(positions)
+                )
+            )
 
         # Reference: all four users from the start.
-        first = adapter.prefill_users(tuple(ids[key] for key in "ABCD"), generation_tokens=generation)
+        first = adapter.prefill_users(
+            tuple(ids[key] for key in "ABCD"), generation_tokens=generation
+        )
         tokens = list(first.first_token_ids)
         positions = [lengths[key] for key in "ABCD"]
         reference = {key: [tokens[index]] for index, key in enumerate("ABCD")}
@@ -110,13 +142,23 @@ def main():
                 positions[index] += 1
         adapter.reset_all()
         adapter._release_traces()
-        results["reference"] = {key: tokenizer.decode(value) for key, value in reference.items()}
+        results["reference"] = {
+            key: tokenizer.decode(value) for key, value in reference.items()
+        }
         log("reference-done")
 
         for label, masked in (("R2-masked-refill", True), ("R1-eager-refill", False)):
             cache_before = mesh.num_program_cache_entries()
-            blocks = [adapter.request_blocks(prompt_tokens=lengths[key], generation_tokens=generation) for key in "ABCD"]
-            adapter.page_table = torch.tensor(adapter.kv_pool.assign_group(blocks, width=adapter.maximum_width), dtype=torch.int32)
+            blocks = [
+                adapter.request_blocks(
+                    prompt_tokens=lengths[key], generation_tokens=generation
+                )
+                for key in "ABCD"
+            ]
+            adapter.page_table = torch.tensor(
+                adapter.kv_pool.assign_group(blocks, width=adapter.maximum_width),
+                dtype=torch.int32,
+            )
             adapter.reset_all()
             logits = model.prefill_paged_slots(
                 [ids[key] for key in "ABC"],
@@ -125,7 +167,10 @@ def main():
                 valid_lens=[lengths[key] for key in "ABC"],
                 masked_traces=True,
             )
-            tokens = [int(torch.argmax(row.float().reshape(-1)[: model.args.vocab_size])) for row in logits] + [0]
+            tokens = [
+                int(torch.argmax(row.float().reshape(-1)[: model.args.vocab_size]))
+                for row in logits
+            ] + [0]
             positions = [lengths[key] for key in "ABC"] + [0]
             run = {key: [tokens[index]] for index, key in enumerate("ABC")}
             adapter._pending_trace_plan = None
@@ -147,7 +192,9 @@ def main():
                 masked_traces=masked,
             )
             refill_seconds = time.monotonic() - refill_started
-            tokens[3] = int(torch.argmax(logits_d[0].float().reshape(-1)[: model.args.vocab_size]))
+            tokens[3] = int(
+                torch.argmax(logits_d[0].float().reshape(-1)[: model.args.vocab_size])
+            )
             positions[3] = lengths["D"]
             run["D"] = [tokens[3]]
             host = model.prepare_decode_inputs_host(
@@ -157,7 +204,10 @@ def main():
             )
             copy_host_to_device(host, device_tensors=trace.device_inputs)
             binding_held = adapter._binding_matches(trace)
-            traces_intact = bool(model.masked_prefill_trace_buckets()) and not model.masked_prefill_traces_stale()
+            traces_intact = (
+                bool(model.masked_prefill_trace_buckets())
+                and not model.masked_prefill_traces_stale()
+            )
 
             for _ in range(M_AFTER):
                 winners = step(tokens, positions)
@@ -166,9 +216,19 @@ def main():
                     tokens[index] = winners[index]
                     positions[index] += 1
 
-            matches = {key: run[key] == reference[key][: len(run[key])] for key in "ABCD"}
+            matches = {
+                key: run[key] == reference[key][: len(run[key])] for key in "ABCD"
+            }
             first_divergence = {
-                key: next((i for i, (a, b) in enumerate(zip(run[key], reference[key])) if a != b), None) for key in "ABCD"
+                key: next(
+                    (
+                        i
+                        for i, (a, b) in enumerate(zip(run[key], reference[key]))
+                        if a != b
+                    ),
+                    None,
+                )
+                for key in "ABCD"
             }
             results[label] = {
                 "matches_reference": matches,

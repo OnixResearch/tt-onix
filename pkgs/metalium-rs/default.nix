@@ -18,7 +18,8 @@ let
   # tree. `target` is excluded (a build product, and large).
   src = lib.cleanSourceWith {
     src = ../../metalium-rs;
-    filter = path: _type:
+    filter =
+      path: _type:
       let
         name = baseNameOf (toString path);
       in

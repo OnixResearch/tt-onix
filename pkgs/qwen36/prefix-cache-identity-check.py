@@ -53,6 +53,7 @@ class PrefixIdentityTests(unittest.TestCase):
 
         def digest(data):
             return hashlib.sha256(data).digest()
+
         first = prefix_digests(
             tokens, identity="package|model|", tenant="tenant", blake3_digest=digest
         )

@@ -75,7 +75,9 @@ class RuntimeCapability:
                 "a one-instance-per-core scan cannot claim a wider chunk"
             )
         if self.compute_cores < MINIMUM_COMPUTE_CORES:
-            raise GroupedPrefillPolicyError("capability needs at least one compute core")
+            raise GroupedPrefillPolicyError(
+                "capability needs at least one compute core"
+            )
 
     @property
     def instance_capacity(self) -> int:
@@ -184,7 +186,9 @@ def plan_grouped_prefill(
         raise GroupedPrefillPolicyError("state destinations must be distinct")
     for length in user_lengths:
         if isinstance(length, bool) or not isinstance(length, int) or length < 1:
-            raise GroupedPrefillPolicyError(f"user length is not a positive int: {length!r}")
+            raise GroupedPrefillPolicyError(
+                f"user length is not a positive int: {length!r}"
+            )
 
     # Derived bounds. Each is a count of users, never a copied literal.
     head_bound = capability.instance_capacity // heads

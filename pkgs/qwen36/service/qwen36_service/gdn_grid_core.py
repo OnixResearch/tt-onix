@@ -66,7 +66,9 @@ class ChunkPlan:
 def _require_positive(value: object, name: str) -> int:
     """Return ``value`` as an int, or raise with a named diagnostic."""
     if isinstance(value, bool) or not isinstance(value, int):
-        raise GridAssignmentError(f"{name} must be an integer, got {type(value).__name__}")
+        raise GridAssignmentError(
+            f"{name} must be an integer, got {type(value).__name__}"
+        )
     if value < 1:
         raise GridAssignmentError(f"{name} must be positive, got {value}")
     return value
@@ -84,11 +86,17 @@ def plan_chunks(instances: object, cores: object) -> ChunkPlan:
 
     chunk_length = -(-n // k)  # ceiling division, one forward pass
     if chunk_length < 1:
-        raise GridAssignmentError(f"chunk length must be at least one, got {chunk_length}")
+        raise GridAssignmentError(
+            f"chunk length must be at least one, got {chunk_length}"
+        )
 
     active = chunk_length and -(-n // chunk_length)
     chunks = tuple(
-        Chunk(core_index=i, start=i * chunk_length, count=min(chunk_length, n - i * chunk_length))
+        Chunk(
+            core_index=i,
+            start=i * chunk_length,
+            count=min(chunk_length, n - i * chunk_length),
+        )
         for i in range(active)
     )
     result = ChunkPlan(instances=n, cores=k, chunk_length=chunk_length, chunks=chunks)
@@ -106,7 +114,9 @@ def validate_plan(plan: ChunkPlan) -> None:
     if not plan.chunks:
         raise GridAssignmentError("plan has no chunks")
     if plan.chunk_length < 1:
-        raise GridAssignmentError(f"chunk length must be at least one, got {plan.chunk_length}")
+        raise GridAssignmentError(
+            f"chunk length must be at least one, got {plan.chunk_length}"
+        )
     if len(plan.chunks) > plan.cores:
         raise GridAssignmentError(
             f"plan uses {len(plan.chunks)} cores above the available {plan.cores}"

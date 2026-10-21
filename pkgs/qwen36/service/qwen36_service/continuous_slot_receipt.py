@@ -89,7 +89,9 @@ def build_receipt(
             {
                 "execution_identity": candidate.identity["execution_identity"],
                 "package": candidate.identity["package"],
-                "scheduler_policy_blake3": candidate.identity["scheduler_policy_blake3"],
+                "scheduler_policy_blake3": candidate.identity[
+                    "scheduler_policy_blake3"
+                ],
                 "scheduler_profile_id": candidate.identity["scheduler_profile_id"],
             }
             if result.admitted
@@ -109,7 +111,9 @@ def build_receipt(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--policy", required=True, type=Path, help="exported admission policy JSON")
+    parser.add_argument(
+        "--policy", required=True, type=Path, help="exported admission policy JSON"
+    )
     parser.add_argument("--baseline-root", required=True, type=Path)
     parser.add_argument("--candidate-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -128,9 +132,13 @@ def main() -> None:
         baseline_blake3=digests[1],
         candidate_blake3=digests[2],
     )
-    args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     admission = receipt["admission"]
-    print(json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]}))
+    print(
+        json.dumps({"admitted": admission["admitted"], "reasons": admission["reasons"]})
+    )
 
 
 if __name__ == "__main__":

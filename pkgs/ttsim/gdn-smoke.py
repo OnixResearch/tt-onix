@@ -44,7 +44,9 @@ def reference_step(q, k, v, beta, g, state):
     )
     for value, expected in zip((q, k, v, beta, g, state), expected_shapes, strict=True):
         if value.shape != expected or value.dtype != FLOAT_DTYPE:
-            raise ValueError(f"expected float32 {expected}, got {value.dtype} {value.shape}")
+            raise ValueError(
+                f"expected float32 {expected}, got {value.dtype} {value.shape}"
+            )
         if not np.isfinite(value).all():
             raise ValueError("reference inputs must be finite")
     decayed = np.exp(g) * state
@@ -138,7 +140,9 @@ def device_checks(validation_only=False):
         errors = []
         for step in range(0 if validation_only else RECURRENT_STEPS):
             host_inputs = inputs_for_step(step)
-            expected_output, expected_state = reference_step(*host_inputs, expected_state)
+            expected_output, expected_state = reference_step(
+                *host_inputs, expected_state
+            )
             device_inputs = tuple(to_device(value) for value in host_inputs)
             cache_entries_before = device.num_program_cache_entries()
             # First use fresh output storage. Later calls exercise in-place state carry
@@ -151,7 +155,9 @@ def device_checks(validation_only=False):
             )
             ttnn.synchronize_device(device)
             if step > 1 and device.num_program_cache_entries() != cache_entries_before:
-                raise AssertionError("the recurrent step did not reuse the cached program")
+                raise AssertionError(
+                    "the recurrent step did not reuse the cached program"
+                )
             actual_output = to_host(output)
             actual_state = to_host(next_state)
             assert_close(actual_output, expected_output)
@@ -175,12 +181,16 @@ def device_checks(validation_only=False):
         )
         for arguments, diagnostic in invalid_cases:
             try:
-                ttnn.transformer.gated_delta_decode(*arguments, state, output_state=state)
+                ttnn.transformer.gated_delta_decode(
+                    *arguments, state, output_state=state
+                )
             except (RuntimeError, ValueError) as error:
                 if diagnostic not in str(error):
                     raise AssertionError(f"unexpected rejection: {error}") from error
             else:
-                raise AssertionError(f"the device operation admitted invalid {diagnostic}")
+                raise AssertionError(
+                    f"the device operation admitted invalid {diagnostic}"
+                )
             assert_close(to_host(state), expected_state)
 
         valid_config = {
@@ -201,13 +211,20 @@ def device_checks(validation_only=False):
             config = ttnn.WormholeComputeKernelConfig(**(valid_config | override))
             try:
                 ttnn.transformer.gated_delta_decode(
-                    *device_inputs, state, output_state=state, compute_kernel_config=config
+                    *device_inputs,
+                    state,
+                    output_state=state,
+                    compute_kernel_config=config,
                 )
             except (RuntimeError, ValueError) as error:
                 if "requires HiFi4" not in str(error):
-                    raise AssertionError(f"unexpected config rejection: {error}") from error
+                    raise AssertionError(
+                        f"unexpected config rejection: {error}"
+                    ) from error
             else:
-                raise AssertionError(f"the operation admitted invalid config: {override}")
+                raise AssertionError(
+                    f"the operation admitted invalid config: {override}"
+                )
             assert_close(to_host(state), expected_state)
 
         if validation_only:
@@ -215,7 +232,11 @@ def device_checks(validation_only=False):
                 "workload": "gdn-invalid-input-rejection",
                 "status": "passed",
                 "negative_cases": len(invalid_cases) + len(invalid_configs),
-                "non_claims": ["numerical correctness", "recurrent state carry", "cache reuse"],
+                "non_claims": [
+                    "numerical correctness",
+                    "recurrent state carry",
+                    "cache reuse",
+                ],
             }
 
         expected_output, expected_state = reference_step(*host_inputs, expected_state)

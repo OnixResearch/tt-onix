@@ -49,9 +49,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         groups = load_groups(args.sensitivity)
-        assignment = solve_assignment(
-            groups, budget_effective_bits=args.effective_bits
-        )
+        assignment = solve_assignment(groups, budget_effective_bits=args.effective_bits)
     except (FormatAssignmentError, OSError, json.JSONDecodeError) as error:
         print(f"format assignment: {error}", file=sys.stderr)
         return 2
