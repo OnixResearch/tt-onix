@@ -66,6 +66,17 @@ Receipt:
 `physically_admitted = true` with that digest; the v1 rejection remains at
 `…-b16-receipt-v1-group-ttft.json` (BLAKE3 `aee9bd5a…`).
 
+## Short-bucket attempt (rejected)
+
+The corpus prompts are 5-11 tokens but replay in the 128-token bucket. Adding 32- and
+64-token masked-prefill buckets was tried to cut the per-replay cost: the GDN sequence
+kernel requires `chunk_size = 128` (`model_config.gdn_chunk_size`), and capturing a
+32-token masked trace left the GDN scratch state in a different shape, so server warmup
+failed with `GDN recurrent reset shape changed`. The change was reverted. The per-replay
+floor is therefore the 128-token chunk, and reducing the group's prefill time needs a
+batched masked prefill (batch-N sequence prefill plus batched paged attention), not a
+smaller bucket.
+
 ## Non-claims and risk
 
 - The per-user ratio passes by 0.40 against the 9.0 bound. The group-max ratio remains

@@ -1342,8 +1342,8 @@
     {
       "path": ".cairn/changes/enable-qwen38-p150x2-b16/evidence/v7-per-user-ttft-readmission-2026-10-21.md",
       "class": "portable_evidence",
-      "byte_count": 4754,
-      "blake3": "8701ecc5c6a454c7788d3ee29692685c815f1b270217d4a3ca10b00c37fcac7e"
+      "byte_count": 5413,
+      "blake3": "3ea207f126f67187963a30734eb011b8d616496de4c597f64bc0e9ef3fec0339"
     },
     {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/a1-a4-attribution.md",
