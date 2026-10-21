@@ -317,6 +317,19 @@
       qwenServiceContinuousUnit =
         (qwenServiceEval { hardware.tenstorrent.qwen38.continuousSlotScheduler = true; })
         .config.systemd.services.qwen38-p150x2;
+      qwenServiceContinuousB8Unit =
+        (qwenServiceEval {
+          hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
+          hardware.tenstorrent.qwen38.continuousSlotProfile = "b8";
+        }).config.systemd.services.qwen38-p150x2;
+      qwenServiceInvalidProfileRejected =
+        let
+          evaluation = qwenServiceEval {
+            hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
+            hardware.tenstorrent.qwen38.continuousSlotProfile = "b16";
+          };
+        in
+        builtins.tryEval evaluation.config.systemd.services.qwen38-p150x2.serviceConfig.ExecStart;
       qwenServiceCacheUnit =
         (qwenServiceEval {
           hardware.tenstorrent.qwen38.continuousSlotScheduler = true;
@@ -405,6 +418,14 @@
           lib.hasInfix "--continuous-slot-policy" qwenServiceContinuousUnit.serviceConfig.ExecStart
           && lib.hasInfix "share/qwen36/continuous-slot-policy.json" qwenServiceContinuousUnit.serviceConfig.ExecStart
         ) "the continuous-slot option must pass the packaged scheduler policy";
+        assert lib.assertMsg (
+          lib.hasInfix "--continuous-slot-policy" qwenServiceContinuousB8Unit.serviceConfig.ExecStart
+          && lib.hasInfix "share/qwen36/continuous-slot-policy-b8.json" qwenServiceContinuousB8Unit.serviceConfig.ExecStart
+          && !(lib.hasInfix "share/qwen36/continuous-slot-policy.json" qwenServiceContinuousB8Unit.serviceConfig.ExecStart)
+        ) "the B=8 profile option must pass the packaged eight-slot scheduler policy";
+        assert lib.assertMsg (
+          !qwenServiceInvalidProfileRejected.success
+        ) "the Qwen service must reject a continuous-slot profile outside the closed set";
         assert lib.assertMsg qwenServiceContinuousSpeculativeRejected
           "the Qwen service must reject the continuous-slot scheduler with speculative serving";
         assert lib.assertMsg (
@@ -436,6 +457,8 @@
           grep -F -- '--decode-mode eager' "$speculative_exec_start"
           grep -F -- '--mtp-drafter-profile ${qwen38}/share/qwen36/mtp-drafter-profile.json' "$speculative_exec_start"
           grep -F -- '--mtp-trace-profile ${qwen38}/share/qwen36/mtp-trace-profile.json' "$speculative_exec_start"
+          b8_exec_start=${pkgs.writeText "qwen-service-b8-exec-start" qwenServiceContinuousB8Unit.serviceConfig.ExecStart}
+          grep -F -- '--continuous-slot-policy ${qwen38}/share/qwen36/continuous-slot-policy-b8.json' "$b8_exec_start"
           touch "$out"
         '';
       modelTargetFactoryCheck = pkgs.callPackage ../model-targets/check.nix {

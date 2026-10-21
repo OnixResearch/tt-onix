@@ -42,7 +42,11 @@ let
   deviceMode =
     if cfg.accessPolicy == "group-restricted" then defaultDeviceMode else permissiveDeviceMode;
   hugepageMode =
-    if cfg.accessPolicy == "group-restricted" then defaultHugepageMode else permissiveHugepageMode;
+    if cfg.accessPolicy == "group-restricted" then defaultHugepageMode else permissiveDeviceMode;
+  # The continuous-slot profiles are packaged beside each other; the option
+  # names the one the service selects.
+  continuousSlotPolicyFile =
+    "continuous-slot-policy" + (if qwen38.continuousSlotProfile == "b8" then "-b8" else "") + ".json";
 
   meshDescriptorFile =
     if lib.hasSuffix ".textproto" cfg.meshName then
@@ -151,12 +155,29 @@ in
         default = false;
         description = ''
           Serve generation through the continuous-slot scheduler instead of the
-          group coordinator. One B4 decode trace stays resident and a finished
+          group coordinator. One decode trace stays resident and a finished
           request's slot is refilled at the next 16-step boundary, so a new
           request no longer waits for a whole batch to finish. Live streams pause
           while a refill's prompt is prefilled beside them. Bounds come from the
-          package's continuous-slot policy; the admission receipt is
-          pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-admission-receipt.json.
+          package's continuous-slot policy; the admission receipts are
+          pkgs/qwen36/evidence/2026-09-27/qwen38-continuous-slot-admission-receipt.json
+          for the B4 profile and
+          pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json
+          for the B8 profile.
+        '';
+      };
+
+      continuousSlotProfile = mkOption {
+        type = types.enum [
+          "b4"
+          "b8"
+        ];
+        default = "b4";
+        description = ''
+          Which continuous-slot scheduler profile the service selects when
+          continuousSlotScheduler is enabled. "b4" is the four-slot profile and
+          "b8" the eight-slot profile; both are admitted by their predeclared
+          receipts, and every other value is refused before the service starts.
         '';
       };
 
@@ -410,7 +431,7 @@ in
             ]
             ++ lib.optionals qwen38.continuousSlotScheduler [
               "--continuous-slot-policy"
-              "${qwen38.package}/share/qwen36/continuous-slot-policy.json"
+              "${qwen38.package}/share/qwen36/${continuousSlotPolicyFile}"
             ]
             ++ lib.optionals qwen38.prefixCache [
               "--prefix-cache-policy"

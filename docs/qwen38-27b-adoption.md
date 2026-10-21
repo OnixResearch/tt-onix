@@ -1289,6 +1289,19 @@ receipt. The root profile still selects the B4 policy, and the comparison covere
 one workload without the prefix cache. The change
 `.cairn/changes/widen-qwen38-continuous-slots-b8` records the evidence.
 
+The NixOS module now names the profile explicitly:
+`hardware.tenstorrent.qwen38.continuousSlotProfile` takes `b4` or `b8` and refuses
+every other value, and the service passes the matching packaged policy. On
+2026-10-21 the admitted package was served with the B=8 profile at the served
+limits (131,072 context, the prefix cache enabled) on devices 0 and 1: eight
+concurrent requests were answered, the service reported the admitted execution
+identity and the `qwen38_p150x2-continuous-slot-b8-v1` profile, one slot was
+refilled inside the same run, and the client-observed walls were 0.77 s to 2.73 s.
+The managed profile and the systemd unit were not moved in that session: both are
+root-owned, and the move is the profile service's `switch-policy` operation. Until
+that runs, the served unit still names the B=4 policy. The change
+`.cairn/changes/select-qwen38-continuous-slot-b8` records the evidence.
+
 A request without `temperature` decodes greedily, including thinking. On
 2026-09-27, eight reasoning prompts with known answers were run at the
 template's default effort (`xhigh`) with `max_tokens` 8,192. Greedy (one

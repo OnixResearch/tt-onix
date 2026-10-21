@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "widen-qwen38-continuous-slots-b8",
+    "qwen38-continuous-slot-scheduler"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}
