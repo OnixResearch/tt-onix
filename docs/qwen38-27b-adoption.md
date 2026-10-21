@@ -1358,6 +1358,23 @@ This admits candidate width 8 on the recorded execution identity only. It does
 not enable batched serving in production, does not admit B=16, and does not
 admit arbitrary continuous batching.
 
+### B=16 re-screen (2026-10-21)
+
+The frozen B=16 protocol was re-run on the same package and identity. Exact token and
+text parity pass, with aggregate speedup 13.40 (bound 6.0), per-user retention 0.838
+(bound 0.75), and tail-latency ratio 1.123 (bound 1.5). The TTFT ratio is **14.25**
+against the 9.0 bound, so B=16 stays unadmitted.
+
+The cause is structural on this route. Batch TTFT is sixteen serialized per-user masked
+prefill replays (3.384 s, 0.212 s each) against a single replay plus one decode step
+(0.237 s), so the ratio is approximately the batch width. Eager grouped and per-user
+prefill measured 33.4 s and 29.2 s medians on the same corpus, an order of magnitude
+slower, so switching the prefill route cannot clear it. A batched masked prefill replay,
+or a protocol-level per-user TTFT statistic (which the service cannot observe without
+changing its enqueue/read structure), is required. The rejection receipt is
+`pkgs/qwen36/evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json`
+(BLAKE3 `aee9bd5a2617addb63932e9cee77587a86dd64c582f2f34381ea30b8aac97ab3`).
+
 ## Managed root package profile (historical host, 2026-09-30)
 
 The live `qwen38-p150x2.service` remains the **enabled, unmasked native

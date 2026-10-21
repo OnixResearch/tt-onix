@@ -1193,7 +1193,7 @@ stdenvNoCC.mkDerivation {
         test -f "$out/share/qwen36/batch-admission-profile.json"
         test -f "$out/share/qwen36/batch-admission-b8-profile.json"
         test -f "$out/share/qwen36/batch-admission-b16-profile.json"
-        b16_receipt=${./evidence/2026-09-12/qwen38-27b-batch-admission-b16-receipt.json}
+        b16_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json}
         b16_receipt_blake3=$(b3sum "$b16_receipt" | cut -d' ' -f1)
         ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
     import json
