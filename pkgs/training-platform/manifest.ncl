@@ -59,7 +59,9 @@ let contracts = import "contracts.ncl" in
     version = "2.10.0",
   },
   firmware = {
-    bundle_version = "18.8.0.0",
+    # Both cards run 19.11.0.0; the upstream 18.8.0.0 floor remains the
+    # minimum compatible bundle. Admission still requires this exact bundle.
+    bundle_version = "19.11.0.0",
     floor_version = "18.8.0.0",
   },
 } | contracts.BundleClosed | contracts.BundleDeepClosed | contracts.Bundle

@@ -11,7 +11,7 @@
       "board_type": "p150a",
       "board_id": "000004033192100e",
       "dram_status": true,
-      "fw_bundle_version": "18.8.0.0"
+      "fw_bundle_version": "19.11.0.0"
     }
   ],
   "hugepages": {

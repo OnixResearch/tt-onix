@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "dual_p150a_platform_smoke",
+  "bundle_identity": "811f45d7f1ca54caf9cb694606c827ff901147e161a1b13949dfdecfe90df420",
+  "config_identity": "53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658",
+  "launch_plan_identity": "bbf0cb88269b68d221716d51094dad59f20abc3df03a39b5fef6b53058ebd225",
+  "stages": [
+    {
+      "name": "health_before",
+      "status": "pass"
+    },
+    {
+      "name": "preflight",
+      "status": "pass"
+    },
+    {
+      "name": "mesh_open",
+      "status": "pass"
+    },
+    {
+      "name": "smoke_execute",
+      "status": "pass"
+    },
+    {
+      "name": "mesh_close",
+      "status": "pass"
+    },
+    {
+      "name": "restore",
+      "status": "pass"
+    },
+    {
+      "name": "health_after",
+      "status": "pass"
+    }
+  ],
+  "artifacts": {
+    "preflight-admission.json": "e031ce59167ef47372c8fbef8d84270ab105141cde5c3a491c7cc90432107444",
+    "workload-summary.json": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"
+  },
+  "non_claims": [
+    "no training correctness claim",
+    "no gradient parity claim",
+    "no convergence claim",
+    "no speedup claim",
+    "no thermal endurance claim"
+  ]
+}

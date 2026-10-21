@@ -2776,8 +2776,8 @@
     {
       "path": "docs/research/training-platform-identity-review.md",
       "class": "portable_evidence",
-      "byte_count": 5914,
-      "blake3": "dc028d40d2d547bc970ee503729db585017f58b6ad781243dd15c5a3ecacde65"
+      "byte_count": 6835,
+      "blake3": "a5c7b54cb4730acddb9d8fc75e0cd7b609d0e3c83b849fd24111b51d054d2098"
     },
     {
       "path": "docs/research/verifier-boundary-follow-up.md",
@@ -3759,6 +3759,30 @@
     },
     {
       "path": "pkgs/training-platform/evidence/2026-08-08-dual-p150a-smoke/workload-summary.json",
+      "class": "portable_evidence",
+      "byte_count": 50,
+      "blake3": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-21T040555Z-dual-p150a-smoke/preflight-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 191,
+      "blake3": "e031ce59167ef47372c8fbef8d84270ab105141cde5c3a491c7cc90432107444"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 43,
+      "blake3": "d8bf43a710ba1e3ce808453c8df90df9d9e8d54adad50cba05de7d81a0b3c7d2"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1201,
+      "blake3": "97b2ba43a6f9bf1c8f7c0dc7cd37e12e7cbcc9998391f9a88eae7a2f8afcacf8"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-21T040555Z-dual-p150a-smoke/workload-summary.json",
       "class": "portable_evidence",
       "byte_count": 50,
       "blake3": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"

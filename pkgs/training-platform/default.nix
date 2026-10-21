@@ -419,16 +419,16 @@ runCommand "training-platform-check"
 
         # Current hardware evidence validates under the package-owned authority.
         "$CORE" validate-terminal-receipt \
-          evidence/2026-08-08-dual-p150a-smoke/receipt.json ${authorityJson} \
+          evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt.json ${authorityJson} \
           > current-hardware-admission.json
         grep -F '"outcome":"success"' current-hardware-admission.json
-        for artifact in evidence/2026-08-08-dual-p150a-smoke/*.json; do
+        for artifact in evidence/2026-10-21T040555Z-dual-p150a-smoke/*.json; do
           "$CORE" validate-portable-artifact "$artifact" > /dev/null
         done
-        test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/preflight-admission.json | cut -d' ' -f1)" = \
-          "$(jq -r '.artifacts["preflight-admission.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
-        test "$(b3sum evidence/2026-08-08-dual-p150a-smoke/workload-summary.json | cut -d' ' -f1)" = \
-          "$(jq -r '.artifacts["workload-summary.json"]' evidence/2026-08-08-dual-p150a-smoke/receipt.json)"
+        test "$(b3sum evidence/2026-10-21T040555Z-dual-p150a-smoke/preflight-admission.json | cut -d' ' -f1)" = \
+          "$(jq -r '.artifacts["preflight-admission.json"]' evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt.json)"
+        test "$(b3sum evidence/2026-10-21T040555Z-dual-p150a-smoke/workload-summary.json | cut -d' ' -f1)" = \
+          "$(jq -r '.artifacts["workload-summary.json"]' evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt.json)"
 
         # Historical evidence is retained only as a sanitized disclosure. It
         # cannot satisfy current platform admission after the driver correction.

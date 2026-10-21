@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn portable_evidence_accepts_native_cairn_and_rejects_unowned_roots() {
+    fn portable_evidence_accepts_registered_roots_and_rejects_unowned_roots() {
         let policy = load_policy().expect("checked policy must load");
         let cairn = ArtifactObservation {
             path: ".cairn/changes/demo/evidence/receipt.json",
@@ -564,21 +564,29 @@ mod tests {
             tracked: true,
             fresh: true,
         };
-        validate_artifact(&policy, &cairn).expect("Cairn evidence must pass");
-
         for path in [
-            "docs/evidence/receipt.json",
+            ".cairn/changes/demo/evidence/receipt.json",
             "cairn/changes/demo/evidence/receipt.json",
+            "docs/evidence/receipt.json",
+            "docs/research/receipt.json",
+            "pkgs/demo/evidence/receipt.json",
         ] {
-            let unowned = ArtifactObservation {
+            let owned = ArtifactObservation {
                 path,
                 ..cairn.clone()
             };
-            assert_eq!(
-                validate_artifact(&policy, &unowned).expect_err("unowned evidence must fail"),
-                format!("{path} is outside allowed roots for portable_evidence")
-            );
+            validate_artifact(&policy, &owned).expect("registered evidence must pass");
         }
+
+        let path = "checks/evidence/receipt.json";
+        let unowned = ArtifactObservation {
+            path,
+            ..cairn.clone()
+        };
+        assert_eq!(
+            validate_artifact(&policy, &unowned).expect_err("unowned evidence must fail"),
+            format!("{path} is outside allowed roots for portable_evidence")
+        );
     }
 
     #[test]

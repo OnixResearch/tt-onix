@@ -58,6 +58,23 @@ A separate change can review how the repository distinguishes device-free tests 
 
 No aggregate retry was useful after this review because the known admission blocker remains. The review did not change pins, expected dependency hashes, hardware evidence, launcher behavior, service configuration, or devices. MTP physical admission remains a separate open issue.
 
+## Resolution (2026-10-21)
+
+The owner authorized the bounded dual-P150A smoke. The admitted firmware
+bundle was raised from `18.8.0.0` to the installed `19.11.0.0` (floor remains
+`18.8.0.0`), and the smoke ran on the current runtime authority:
+
+- Receipt: `pkgs/training-platform/evidence/2026-10-21T040555Z-dual-p150a-smoke/receipt.json`
+- Bundle: `811f45d7f1ca54caf9cb694606c827ff901147e161a1b13949dfdecfe90df420`
+- Configuration: `53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658`
+- Launch plan: `bbf0cb88269b68d221716d51094dad59f20abc3df03a39b5fef6b53058ebd225`
+- Stages: preflight, mesh open, one collective-free shard-map operation, mesh
+  close, restore, and health-after all passed on two p150a cards.
+
+The earlier `2026-08-08` receipt remains historical and still fails current
+admission. This resolution does not create a training-correctness, gradient,
+convergence, speedup, or thermal claim.
+
 ## Evidence scope
 
 Local evidence resides under `.pi/training-identity-review/` in the implementation worktree:

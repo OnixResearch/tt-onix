@@ -12,7 +12,9 @@ endurance.
 The compatibility manifest lives in `manifest.ncl` and exports to JSON. Every
 component carries an immutable identity. The original identities were
 resolved from the listed upstream authorities on 2026-08-04. The packaged
-driver authority was corrected to stable TT-KMD `2.10.0` on 2026-08-06.
+driver authority was corrected to stable TT-KMD `2.10.0` on 2026-08-06, and
+the admitted firmware bundle was raised to the installed `19.11.0.0` on
+2026-10-21.
 
 | Component | Identity |
 |---|---|
@@ -24,7 +26,7 @@ driver authority was corrected to stable TT-KMD `2.10.0` on 2026-08-06.
 | PyTorch/XLA | `torch-xla 2.9.0+gitb230007` (cp312), wheel sha256 `4318d8cce4f9de38d497712b9e80cb74746dc16dc8e2a15e555c417711757481` |
 | JAX | `jax 0.7.1`, `jaxlib 0.7.1` |
 | Driver | TT-KMD `2.10.0` |
-| Firmware floor | bundle `18.8.0.0` |
+| Firmware | bundle `19.11.0.0`, floor `18.8.0.0` |
 
 The pinned TT-Blacksmith revision pins `pjrt-plugin-tt==1.5.0.dev20260804002041`
 in `env/xla_requirements.txt`. The bundle is internally coherent.
@@ -43,7 +45,7 @@ The recorded host baseline is `baseline-2026-08-04.json`.
   `hardware.tenstorrent.meshName = "p150_x2"`.
 - Reserved 1G hugepages mounted at `/dev/hugepages-1G`. The validated host
   reserves eight pages.
-- TT-KMD `2.10.0` and firmware bundle `18.8.0.0` on both cards.
+- TT-KMD `2.10.0` and firmware bundle `19.11.0.0` on both cards (floor `18.8.0.0`).
 - Docker for the runtime container.
 
 `nixos/examples/dual-p150a-training.nix` declares all of these. The flake
@@ -84,6 +86,12 @@ before Docker starts.
 Each terminal exit writes a BLAKE3-bound receipt and validates it with
 `training-platform-core validate-terminal-receipt`. Failed receipts identify
 the first failed stage. They mark all later stages as `not_observed`.
+
+The files in `evidence/2026-10-21T040555Z-dual-p150a-smoke/` are the current
+admitted receipt: TT-KMD `2.10.0`, firmware `19.11.0.0`, two p150a cards,
+preflight, mesh open, one collective-free shard-map operation, mesh close, and
+restore. The earlier `evidence/2026-08-08-dual-p150a-smoke/` run is superseded
+because it was taken under the former `18.8.0.0` firmware authority.
 
 The files in `evidence/2026-08-04-dual-p150a-smoke/` are sanitized historical
 summaries. They are explicitly superseded because that run observed the
