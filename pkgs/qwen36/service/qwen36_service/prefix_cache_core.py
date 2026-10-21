@@ -22,6 +22,7 @@ boundary after the prefix, and every later write lands in the request's own bloc
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -47,6 +48,27 @@ POLICY_FIELDS = frozenset(
 )
 ROOT_POLICY_FIELDS = POLICY_FIELDS | {"shared_root_minimum_tokens"}
 
+
+# The execution closure and precision flags that change the cached bytes. The
+# paged-KV dtype is part of the checkpoint: a prefix saved with BF16 KV must not
+# be restored under BF8 SDPA (or the reverse).
+PREFIX_IDENTITY_ENVIRONMENT = (
+    "QWEN35_GROUPED_PREFILL",
+    "QWEN36_GDN_BF4",
+    "QWEN36_GDN_FUSED_PREFILL",
+    "QWEN36_TRACED_PREFILL",
+    "QWEN_SDPA_BF8",
+)
+
+
+def prefix_cache_identity(package_identity: str, model_identity: str) -> str:
+    """What a cached prefix state depends on besides its tokens: the execution
+    closure, the checkpoint (model, tokenizer, and chat template), and the flags
+    that change prefill numerics or cached precision."""
+    flags = ",".join(
+        f"{name}={os.environ.get(name, '')}" for name in PREFIX_IDENTITY_ENVIRONMENT
+    )
+    return f"{package_identity}|{model_identity}|{flags}"
 
 class PrefixCachePolicyError(ValueError):
     """The prefix-cache policy or an entry is outside the closed contract."""

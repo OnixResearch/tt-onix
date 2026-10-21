@@ -74,6 +74,10 @@ def run_rounds(
     """Own snapshots and traces for one request. Never retain them for reuse."""
     if type(diagnostic_kv_tail_restore) is not bool:
         raise ValueError("diagnostic KV restoration switch must be a boolean")
+    # One width per request: the verifier and draft traces are captured for
+    # this width, and a second large verification trace corrupts a resident one.
+    # `mtp_width_core.select_round_width` prices prepared widths for an offline
+    # or startup profile choice; per-round trace switching is not safe.
     width = owner.profile.draft_token_count
     generated = [anchor]
     current = anchor

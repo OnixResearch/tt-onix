@@ -1744,7 +1744,7 @@ PROFILE_CHECK
     # Positive: device-free check of the adopted stack against the packaged
     # tt-metal runtime.
     "$out/bin/qwen36-check"
-    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py}; do
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py} ${./mtp-width-check.py} ${./prefix-cache-identity-check.py} ${./format-assignment-check.py}; do
       PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
         TT_METAL_HOME="$out/libexec/tt-metalium" \
         TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \

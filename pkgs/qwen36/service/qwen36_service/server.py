@@ -63,7 +63,11 @@ from .mtp_serving_core import MTP_PREFILL_BUCKET
 from .mtp_trace_core import MtpTraceProfile
 from .prefill_profile_adapter import RealtimePrefillProfiler
 from .prefill_profile_core import select_measurement_mode
-from .prefix_cache_core import PrefixCachePolicy, PrefixCachePolicyError
+from .prefix_cache_core import (
+    PrefixCachePolicy,
+    PrefixCachePolicyError,
+    prefix_cache_identity,
+)
 from .readiness_core import (
     StartupReadiness,
     begin_warmup,
@@ -1251,22 +1255,6 @@ def make_handler(
             emit("http", client=self.client_address[0], message=format % args)
 
     return Handler
-
-
-PREFIX_IDENTITY_ENVIRONMENT = (
-    "QWEN35_GROUPED_PREFILL",
-    "QWEN36_GDN_BF4",
-    "QWEN36_GDN_FUSED_PREFILL",
-    "QWEN36_TRACED_PREFILL",
-)
-
-
-def prefix_cache_identity(package_identity: str, model_identity: str) -> str:
-    """What a cached prefix state depends on besides its tokens: the execution closure, the
-    checkpoint (model, tokenizer, and chat template), and the flags that change prefill
-    numerics or precision."""
-    flags = ",".join(f"{name}={os.environ.get(name, '')}" for name in PREFIX_IDENTITY_ENVIRONMENT)
-    return f"{package_identity}|{model_identity}|{flags}"
 
 
 def parse_args() -> argparse.Namespace:

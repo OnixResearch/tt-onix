@@ -137,6 +137,11 @@ class TracedDecodeAdapter:
             self.profile.kv_block_size,
             int(self.model.args.head_dim),
         ]
+        # One dtype for every attention layer: the model applies QWEN_SDPA_BF8
+        # globally and each TPAttention reads it in __init__. The caches are
+        # per layer and SDPA branches per attention object, so a mixed map
+        # would be a model patch plus a per-layer accuracy gate. The uniform
+        # BF8 opt-in stays until that gate exists.
         self.model.allocate_kv_caches(
             cache_shape,
             ttnn.bfloat16,
