@@ -70,18 +70,20 @@ directory and the managed drop-in are root-owned.
 
 The host's sudo rules already allow the unit's `systemctl stop` and `systemctl start`
 without a password, which is what measurement campaigns need. The profile swap needs
-one more rule, so that the switch does not need a typed password each time. The file
-is `/etc/sudoers.d/qwen38-profile-service`, mode 0440, owned by root, with one line:
+one more rule, so that the switch does not need a typed password each time.
+
+This host has no `/etc/sudoers.d`: the rules live in `/etc/sudoers` itself, which is
+mode 0440 and owned by root. The rule is one line:
 
 ```text
 brittonr ALL=(root) NOPASSWD: /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service switch-policy *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore
 ```
 
-The operator's shell is fish, which has no heredoc, so the file is written with one
-pipeline:
+The operator's shell is fish, which has no heredoc, so the line is appended with one
+pipeline. The leading newline keeps the rule off whatever the file's last line is:
 
 ```fish
-echo 'brittonr ALL=(root) NOPASSWD: /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service switch-policy *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore' | sudo tee /etc/sudoers.d/qwen38-profile-service >/dev/null; sudo chmod 0440 /etc/sudoers.d/qwen38-profile-service
+printf '\n%s\n' 'brittonr ALL=(root) NOPASSWD: /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service switch-policy *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore' | sudo tee -a /etc/sudoers >/dev/null
 ```
 
 Check it with `sudo -n -l`. After that, the switch is a command without a prompt,
