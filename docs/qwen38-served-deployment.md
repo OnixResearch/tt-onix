@@ -35,7 +35,21 @@ the served package carries the receipts of the features it serves.
 
 ## Moving the service to a new package
 
-The profile service does the move. It swaps the named profile to the exact store
+`scripts/qwen38-deploy` does the whole move and then reads the served instance back.
+It builds the package from the tree, refuses to serve a package that no admission
+receipt names, performs the switch, waits for readiness, and prints the profile and
+identity the service reports:
+
+```text
+scripts/qwen38-deploy
+scripts/qwen38-deploy --package /nix/store/<hash>-qwen38-0.1.0
+```
+
+The receipt guard is the point of it: a rebuild of the same tree is a different
+package, and the service must not drift off a package that no receipt names. Pass
+`--force` to serve such a package deliberately.
+
+The switch itself is the profile service's job. It swaps the named profile to the exact store
 output, rewrites the managed drop-in so the served command names the policy that
 package carries, restarts the unit, and waits for readiness. If the service does not
 become ready it restores the previous profile generation, the previous drop-in
@@ -44,6 +58,9 @@ bytes, and the previous owner command.
 ```text
 scripts/qwen38-profile-service switch-policy /nix/store/<hash>-qwen38-0.1.0
 ```
+
+`scripts/qwen38-deploy` calls exactly that, with `sudo -n`, so it fails loudly
+instead of waiting for a password when the rule below is missing.
 
 The script is host-local and is not in version control: it names this host's model
 path, its service unit, and its device owner. It requires root, because the profile

@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Deploy the repository's Qwen package to the served service, and check what it serves.
+
+The service on this host is owned by `scripts/qwen38-profile-service`, which swaps the
+named Nix profile and the managed drop-in. This script builds the package from the
+tree, refuses to serve a package that no admission receipt names, performs the
+switch, and then reads the served instance's own identity back.
+
+    scripts/qwen38-deploy [--package <store path>] [--force]
+
+With no `--package`, the package is built from this tree. `--force` serves a package
+that no receipt names, which moves the service off an admitted package; the switch
+still validates the package and restores the previous owner on failure.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
+PROFILE_SERVICE = REPOSITORY / "scripts" / "qwen38-profile-service"
+EVIDENCE = REPOSITORY / "pkgs" / "qwen36" / "evidence"
+# The two receipts the served configuration needs: the scheduler profile and the
+# prefix cache.
+REQUIRED_KINDS = ("continuous-slot-admission", "prefix-cache-admission")
+MODEL_ALIAS = "Qwen3.8-27B"
+
+
+def run(*args: str, timeout: int = 3600) -> str:
+    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+    if result.returncode != 0:
+        raise SystemExit(
+            f"{' '.join(args)} failed: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result.stdout.strip()
+
+
+def build_package() -> str:
+    return run(
+        "nix",
+        "build",
+        f"{REPOSITORY}#packages.x86_64-linux.qwen38",
+        "--no-link",
+        "--print-out-paths",
+    ).splitlines()[-1]
+
+
+def receipts_for(package: str) -> dict[str, pathlib.Path]:
+    """The receipts that name this package, by receipt kind."""
+    found: dict[str, pathlib.Path] = {}
+    for path in sorted(EVIDENCE.glob("*/*.json")):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(receipt, dict) or not receipt.get("admission", {}).get("admitted"):
+            continue
+        admitted = receipt["admission"].get("admitted_profile") or {}
+        if admitted.get("package") != package:
+            continue
+        kind = receipt.get("receipt_kind")
+        if kind in REQUIRED_KINDS:
+            found[kind] = path
+    return found
+
+
+def health() -> dict:
+    with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=10) as response:
+        return json.loads(response.read())
+
+
+def served_evidence() -> dict:
+    """One short request, read back from the served instance's own decode evidence."""
+    payload = json.dumps(
+        {
+            "model": MODEL_ALIAS,
+            "messages": [{"role": "user", "content": "Name a color. Answer with it only."}],
+            "max_tokens": 8,
+            "stream": True,
+            "enable_thinking": False,
+        }
+    ).encode()
+    request = urllib.request.Request(
+        "http://127.0.0.1:8000/v1/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    evidence: dict = {}
+    with urllib.request.urlopen(request, timeout=600) as response:
+        for raw in response:
+            line = raw.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[len("data:"):].strip()
+            if body == "[DONE]":
+                break
+            chunk = json.loads(body)
+            if "x_onix_decode_evidence" in chunk:
+                evidence = chunk["x_onix_decode_evidence"]
+    if not evidence:
+        raise SystemExit("the served instance returned no decode evidence")
+    return evidence
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--package", help="exact qwen38 store output to serve")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="serve a package that no admission receipt names",
+    )
+    args = parser.parse_args()
+
+    package = args.package or build_package()
+    if not package.startswith("/nix/store/") or not package.endswith("-qwen38-0.1.0"):
+        raise SystemExit(f"{package} is not an exact qwen38 store output")
+
+    found = receipts_for(package)
+    missing = [kind for kind in REQUIRED_KINDS if kind not in found]
+    if missing:
+        message = f"no admitted receipt names {package}: missing {', '.join(missing)}"
+        if not args.force:
+            raise SystemExit(
+                message
+                + ". Measure the package, or pass --force to serve it without a receipt."
+            )
+        print(f"warning: {message}", file=sys.stderr)
+    for kind, path in found.items():
+        print(f"receipt: {kind} {path.relative_to(REPOSITORY)}")
+
+    print(run("sudo", "-n", str(PROFILE_SERVICE), "switch-policy", package, timeout=3600))
+    for _ in range(60):
+        try:
+            state = health()
+            if state.get("ready"):
+                break
+        except (urllib.error.URLError, OSError, json.JSONDecodeError):
+            pass
+        time.sleep(5)
+    else:
+        raise SystemExit("the served instance did not become ready")
+
+    evidence = served_evidence()
+    print(json.dumps({
+        "package": package,
+        "health": state,
+        "decode_path": evidence.get("decode_path"),
+        "scheduler_profile_id": evidence.get("profile_id"),
+        "prefix_cache_profile_id": evidence.get("prefix_cache_profile_id"),
+        "package_identity": evidence.get("package_identity"),
+        "runtime_identity": evidence.get("runtime_identity"),
+        "physical_pcie_device_ids": evidence.get("physical_pcie_device_ids"),
+        "simulated": evidence.get("simulated"),
+    }, indent=1, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
