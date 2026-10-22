@@ -12,6 +12,7 @@ With no `--package`, the package is built from this tree. `--force` serves a pac
 that no receipt names, which moves the service off an admitted package; the switch
 still validates the package and restores the previous owner on failure.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,6 +33,12 @@ EVIDENCE = REPOSITORY / "pkgs" / "qwen36" / "evidence"
 # prefix cache.
 REQUIRED_KINDS = ("continuous-slot-admission", "prefix-cache-admission")
 MODEL_ALIAS = "Qwen3.8-27B"
+# The containment checker proves that the profile and identity the service will
+# read are the ones this exact package exported. `--force` may bypass the receipt
+# guard; it never bypasses containment.
+CONTAINMENT_CHECKER = REPOSITORY / "scripts" / "qwen38-admission-containment.py"
+V3_PROFILE_RELATIVE = pathlib.Path("share/qwen36/batch-admission-b8-profile-v3.json")
+GENERIC_PROFILE_RELATIVE = pathlib.Path("share/qwen36/batch-admission-b8-profile.json")
 
 
 def run(*args: str, timeout: int = 3600) -> str:
@@ -53,6 +60,36 @@ def build_package() -> str:
     ).splitlines()[-1]
 
 
+def containment_verdict(package: str) -> dict:
+    """Require the package's own profile and identity to agree, then return the verdict."""
+    identity_link = pathlib.Path(package) / "share" / "qwen36" / "execution-identity"
+    try:
+        identity = str(identity_link.resolve(strict=True))
+    except OSError as error:
+        raise SystemExit(
+            f"package carries no resolvable identity: {identity_link}: {error}"
+        )
+    profile = pathlib.Path(package) / V3_PROFILE_RELATIVE
+    if not profile.is_file():
+        profile = pathlib.Path(package) / GENERIC_PROFILE_RELATIVE
+    if not profile.is_file():
+        raise SystemExit(f"package exports no admission profile: {package}")
+    output = run(
+        sys.executable,
+        str(CONTAINMENT_CHECKER),
+        package,
+        "--package-identity",
+        identity,
+        "--profile",
+        str(profile),
+        timeout=600,
+    )
+    verdict = json.loads(output)
+    if verdict.get("passed") is not True:
+        raise SystemExit(f"containment did not pass for {package}: {verdict}")
+    return verdict
+
+
 def receipts_for(package: str) -> dict[str, pathlib.Path]:
     """The receipts that name this package, by receipt kind."""
     found: dict[str, pathlib.Path] = {}
@@ -61,7 +98,9 @@ def receipts_for(package: str) -> dict[str, pathlib.Path]:
             receipt = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(receipt, dict) or not receipt.get("admission", {}).get("admitted"):
+        if not isinstance(receipt, dict) or not receipt.get("admission", {}).get(
+            "admitted"
+        ):
             continue
         admitted = receipt["admission"].get("admitted_profile") or {}
         if admitted.get("package") != package:
@@ -73,21 +112,21 @@ def receipts_for(package: str) -> dict[str, pathlib.Path]:
 
 
 def health() -> dict:
-    with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=10) as response:
+    with urllib.request.urlopen(
+        "http://127.0.0.1:8000/healthz", timeout=10
+    ) as response:
         return json.loads(response.read())
 
 
 def served_evidence() -> dict:
     """One short request, read back from the served instance's own decode evidence."""
-    payload = json.dumps(
-        {
-            "model": MODEL_ALIAS,
-            "messages": [{"role": "user", "content": "Name a color. Answer with it only."}],
-            "max_tokens": 8,
-            "stream": True,
-            "enable_thinking": False,
-        }
-    ).encode()
+    payload = json.dumps({
+        "model": MODEL_ALIAS,
+        "messages": [{"role": "user", "content": "Name a color. Answer with it only."}],
+        "max_tokens": 8,
+        "stream": True,
+        "enable_thinking": False,
+    }).encode()
     request = urllib.request.Request(
         "http://127.0.0.1:8000/v1/chat/completions",
         data=payload,
@@ -99,7 +138,7 @@ def served_evidence() -> dict:
             line = raw.decode("utf-8").strip()
             if not line.startswith("data:"):
                 continue
-            body = line[len("data:"):].strip()
+            body = line[len("data:") :].strip()
             if body == "[DONE]":
                 break
             chunk = json.loads(body)
@@ -137,6 +176,16 @@ def main() -> None:
     for kind, path in found.items():
         print(f"receipt: {kind} {path.relative_to(REPOSITORY)}")
 
+    verdict = containment_verdict(package)
+    print(
+        "containment: package "
+        f"{verdict['package_identity']} mode {verdict['mode']} "
+        f"profile {verdict['profile_id']}"
+    )
+    if verdict["mode"] == "non-v3":
+        print(
+            f"containment: {package} ships no v3 profile; deploying its non-v3 profile"
+        )
     print(run(str(PROFILE_SERVICE), "deploy", package, timeout=3600))
     for _ in range(60):
         try:
@@ -150,17 +199,23 @@ def main() -> None:
         raise SystemExit("the served instance did not become ready")
 
     evidence = served_evidence()
-    print(json.dumps({
-        "package": package,
-        "health": state,
-        "decode_path": evidence.get("decode_path"),
-        "scheduler_profile_id": evidence.get("profile_id"),
-        "prefix_cache_profile_id": evidence.get("prefix_cache_profile_id"),
-        "package_identity": evidence.get("package_identity"),
-        "runtime_identity": evidence.get("runtime_identity"),
-        "physical_pcie_device_ids": evidence.get("physical_pcie_device_ids"),
-        "simulated": evidence.get("simulated"),
-    }, indent=1, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "package": package,
+                "health": state,
+                "decode_path": evidence.get("decode_path"),
+                "scheduler_profile_id": evidence.get("profile_id"),
+                "prefix_cache_profile_id": evidence.get("prefix_cache_profile_id"),
+                "package_identity": evidence.get("package_identity"),
+                "runtime_identity": evidence.get("runtime_identity"),
+                "physical_pcie_device_ids": evidence.get("physical_pcie_device_ids"),
+                "simulated": evidence.get("simulated"),
+            },
+            indent=1,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
