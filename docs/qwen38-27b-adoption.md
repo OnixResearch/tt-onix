@@ -1305,7 +1305,9 @@ unit on `127.0.0.1:8000` reported the admitted execution identity and the
 unit is stopped after that check and starts on the B=8 profile when it is started.
 The change `.cairn/changes/widen-qwen38-continuous-slots-b8` records the admission
 evidence and `.cairn/changes/select-qwen38-continuous-slot-b8` records the
-deployment.
+deployment. `docs/qwen38-served-deployment.md` is the standing procedure for moving
+the served service between packages, for the privilege the move needs, and for
+measuring while the service runs.
 
 The deployed configuration also keeps the hybrid prefix cache, whose own receipt
 covered neither that package nor the eight-slot profile. A schema-5 prefix-cache
