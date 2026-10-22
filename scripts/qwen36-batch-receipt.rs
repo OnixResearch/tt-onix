@@ -66,7 +66,7 @@ const SELF_TEST_CANDIDATE_TTFT: f64 = 4.0;
 const SELF_TEST_BASELINE_TAIL: f64 = 0.1;
 const SELF_TEST_CANDIDATE_TAIL: f64 = 0.12;
 const SELF_TEST_TRACE_PREPARE: f64 = 0.2;
-const ROUTE_COUNT_DIAGNOSTIC: &str = "exactly two single and two batch roots are required";
+const ROUTE_COUNT_DIAGNOSTIC: &str = "exactly 2 single and 2 batch roots are required";
 const ARGUMENT_ORDER_DIAGNOSTIC: &str = "execution order must be single,batch,batch,single";
 const PROFILE_ORDER_DIAGNOSTIC: &str = "profile execution order differs from the command";
 const SAMPLE_COUNT_DIAGNOSTIC: &str = "measured samples, expected";
@@ -260,7 +260,9 @@ fn parse_config(arguments: &[String]) -> Result<Config, String> {
             SINGLE_ROOT_FLAG => single_roots.push(PathBuf::from(value)),
             BATCH_ROOT_FLAG => batch_roots.push(PathBuf::from(value)),
             EXECUTION_ORDER_FLAG => {
-                execution_order = Some(value.split(',').map(str::to_owned).collect())
+                execution_order = Some(
+                    value.split(',').map(str::to_owned).collect::<Vec<String>>(),
+                )
             }
             OUTPUT_FLAG => output = Some(PathBuf::from(value)),
             _ => return Err(format!("unknown argument: {flag}")),
