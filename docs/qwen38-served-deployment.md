@@ -149,3 +149,33 @@ name.
 - The historical owner command, the original `/run` rollback overrides, and the
   managed drop-in are host state, not repository state.
 - A running service is a convenience for serving. It does not change any receipt.
+
+## How the checkers gate a campaign and a deploy
+
+Two device-free checkers close the gap between "a profile was passed" and "the
+package's own profile was passed". Both fail closed, and neither changes served
+behavior.
+
+`scripts/qwen38-admission-containment.py PACKAGE --profile PROFILE
+--package-identity IDENTITY` resolves the package's
+`share/qwen36/execution-identity` link, reads the wrapper's exported
+`--package-identity`, and requires the invoked identity and profile to agree with
+the package. A v3 profile must be the package's own export, `physically_admitted:
+true`, and name a receipt file under the evidence tree whose real BLAKE3 matches.
+Before a measurement it runs with `--expect-unadmitted --receipt <fresh path>`:
+that mode asserts `physically_admitted: false` and `"not-measured"`, names the
+receipt the campaign will produce, prints that the run cannot serve, and refuses a
+profile that is already admitted. Its JSON verdict feeds the second checker.
+
+`scripts/qwen38-campaign-provenance.py` then writes the campaign record: package
+store path and identity, invoked profile path and `profile_id`, the exact command
+line, `QWEN35_GDN_DECODE_FUSION`, `TT_METAL_DISABLE_SFPLOADMACRO`, checkpoint path
+and BLAKE3, tree commit, and the containment verdicts taken before and after the
+run. It writes nothing unless every field is present and both verdicts name the
+same package, profile and identity.
+
+A deploy uses the same containment verdict against the package it is about to
+serve. `scripts/qwen38-deploy` still owns the move, and its receipt guard still
+decides admission; the containment verdict proves that the profile the service
+will read is the one the package exported, so a wrapper and a profile cannot
+disagree about which identity they describe.

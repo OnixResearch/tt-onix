@@ -1352,6 +1352,18 @@
       "blake3": "3ea207f126f67187963a30734eb011b8d616496de4c597f64bc0e9ef3fec0339"
     },
     {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/bootstrap-gate-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 9044,
+      "blake3": "f7f95f6912c7f604ace06409de7ab8a95ab03d15d26581744ff6fcfe83433a88"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/bootstrap-gate.json",
+      "class": "portable_evidence",
+      "byte_count": 5441,
+      "blake3": "1210f6a6ebfc0be6bffcaeebc2419f94b84f6b0448b9a3e29658cf3343a896e1"
+    },
+    {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/identity-mismatch-2026-10-22.md",
       "class": "portable_evidence",
       "byte_count": 9570,
@@ -1360,8 +1372,8 @@
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md",
       "class": "portable_evidence",
-      "byte_count": 27780,
-      "blake3": "7079a07bdc63dab3f2be5e22d91d02bfcc3015b2805a9648c8864a64f39f6fbc"
+      "byte_count": 29432,
+      "blake3": "23ac5c56a476f5fc5c6088fd7d791effa553948ebe6e4b6fb7fe8498f6cc385c"
     },
     {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/a1-a4-attribution.md",
