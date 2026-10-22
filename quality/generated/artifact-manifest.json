@@ -1316,6 +1316,12 @@
       "blake3": "a30af1ca44d001acaa1d45093da4454e6dc3041843c7498eae8f622aaf1cc8e1"
     },
     {
+      "path": ".cairn/changes/deploy-qwen38-measured-runtime/evidence/after-switch.md",
+      "class": "portable_evidence",
+      "byte_count": 6452,
+      "blake3": "75ad7f0e970bbec4df4b4fdc0183da2d39c3d2fa6b1aa1cd2e40e929145d373b"
+    },
+    {
       "path": ".cairn/changes/deploy-qwen38-measured-runtime/evidence/deployment-gap.md",
       "class": "portable_evidence",
       "byte_count": 5859,
