@@ -73,18 +73,28 @@ without a password, which is what measurement campaigns need. The profile swap n
 one more rule, so that the switch does not need a typed password each time.
 
 This host has no `/etc/sudoers.d`: the rules live in `/etc/sudoers` itself, which is
-mode 0440 and owned by root. The rule is one line:
+mode 0440 and owned by root.
+
+The rule names a short path, so that the line cannot be broken by a wrapped paste.
+A symlink in `/usr/local/bin` points at the host-local script, and the rule is:
 
 ```text
-brittonr ALL=(root) NOPASSWD: /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service switch-policy *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore
+brittonr ALL=(root) NOPASSWD: /usr/local/bin/qwen38-profile-service
 ```
 
-The operator's shell is fish, which has no heredoc, so the line is appended with one
-pipeline. The leading newline keeps the rule off whatever the file's last line is:
+With no arguments named in the rule, sudo permits the command with any arguments.
+The symlink and the rule are installed as root:
 
 ```fish
-printf '\n%s\n' 'brittonr ALL=(root) NOPASSWD: /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service switch-policy *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service check *, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service status, /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service restore' | sudo tee -a /etc/sudoers >/dev/null
+su -c 'ln -sfn /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service /usr/local/bin/qwen38-profile-service'
+su -c 'head -20 /etc/sudoers > /tmp/s; printf "\n%s\n" "brittonr ALL=(root) NOPASSWD: /usr/local/bin/qwen38-profile-service" >> /tmp/s; visudo -c -f /tmp/s && cp /tmp/s /etc/sudoers && rm /tmp/s'
 ```
+
+The operator's shell is fish, which has no heredoc, so the file is written with a
+pipeline. The leading newline keeps the rule off whatever the file's last line is.
+Copy these from the file, not from a chat window: a soft wrap in a terminal is
+harmless, but a hard line break inside the rule makes sudoers invalid and stops sudo
+from running at all.
 
 Check it with `sudo -n -l`. After that, the switch is a command without a prompt,
 and the service is left running.

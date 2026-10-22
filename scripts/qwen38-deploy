@@ -24,7 +24,11 @@ import urllib.error
 import urllib.request
 
 REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
-PROFILE_SERVICE = REPOSITORY / "scripts" / "qwen38-profile-service"
+# The profile service is host-local. A short symlink in /usr/local/bin is what the
+# host's sudo rule names, so the rule stays one short line.
+PROFILE_SERVICE = pathlib.Path("/usr/local/bin/qwen38-profile-service")
+if not PROFILE_SERVICE.exists():
+    PROFILE_SERVICE = REPOSITORY / "scripts" / "qwen38-profile-service"
 EVIDENCE = REPOSITORY / "pkgs" / "qwen36" / "evidence"
 # The two receipts the served configuration needs: the scheduler profile and the
 # prefix cache.
