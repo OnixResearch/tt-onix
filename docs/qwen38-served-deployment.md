@@ -33,11 +33,25 @@ repository's rule is in
 `.cairn/changes/readmit-qwen38-prefix-cache-b8/specs/qwen38-p150x2-runtime/spec.md`:
 the served package carries the receipts of the features it serves.
 
+## How the served version is chosen
+
+The systemd owner and its drop-in are root-owned; they name a stable path that the
+operator owns:
+
+```text
+/home/brittonr/.local/state/qwen38-p150x2/current
+```
+
+That path is a symlink to the package that is served. The root-owned layer pins the
+shape of the command, the flags, and the environment; the operator's layer pins the
+version. A package change is therefore a symlink update and a restart, with no root
+and no password.
+
 ## Moving the service to a new package
 
 `scripts/qwen38-deploy` does the whole move and then reads the served instance back.
 It builds the package from the tree, refuses to serve a package that no admission
-receipt names, performs the switch, waits for readiness, and prints the profile and
+receipt names, performs the move, waits for readiness, and prints the profile and
 identity the service reports:
 
 ```text
@@ -49,55 +63,44 @@ The receipt guard is the point of it: a rebuild of the same tree is a different
 package, and the service must not drift off a package that no receipt names. Pass
 `--force` to serve such a package deliberately.
 
-The switch itself is the profile service's job. It swaps the named profile to the exact store
-output, rewrites the managed drop-in so the served command names the policy that
-package carries, restarts the unit, and waits for readiness. If the service does not
-become ready it restores the previous profile generation, the previous drop-in
-bytes, and the previous owner command.
+The move itself is the profile service's job. It validates the exact store output,
+repoints the operator's symlink, restarts the owner through the host's passwordless
+stop and start rules, and waits for readiness. If the service does not become ready
+it points the symlink back at the previous package and restarts again.
 
 ```text
-scripts/qwen38-profile-service switch-policy /nix/store/<hash>-qwen38-0.1.0
+scripts/qwen38-profile-service deploy /nix/store/<hash>-qwen38-0.1.0
 ```
 
-`scripts/qwen38-deploy` calls exactly that, with `sudo -n`, so it fails loudly
-instead of waiting for a password when the rule below is missing.
+The profile service is host-local and is not in version control: it names this
+host's model path, its service unit, and the operator's path. It needs no root.
 
-The script is host-local and is not in version control: it names this host's model
-path, its service unit, and its device owner. It requires root, because the profile
-directory and the managed drop-in are root-owned.
-
-### The one-time privilege setup
+### The one-time setup
 
 The host's sudo rules already allow the unit's `systemctl stop` and `systemctl start`
-without a password, which is what measurement campaigns need. The profile swap needs
-one more rule, so that the switch does not need a typed password each time.
+without a password, which is what the move and the measurement campaigns need. No
+new rule is needed.
 
-This host has no `/etc/sudoers.d`: the rules live in `/etc/sudoers` itself, which is
-mode 0440 and owned by root.
+The one root action is installing the managed drop-in, which names the operator's
+path. It is done once, from a root shell:
 
-The rule names a short path, so that the line cannot be broken by a wrapped paste.
-A symlink in `/usr/local/bin` points at the host-local script, and the rule is:
+```sh
+/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install-dropin
+```
+
+After that, the served version is the operator's symlink, and a package change is:
 
 ```text
-brittonr ALL=(root) NOPASSWD: /usr/local/bin/qwen38-profile-service
+ln -sfn /nix/store/<hash>-qwen38-0.1.0 /home/brittonr/.local/state/qwen38-p150x2/current
+sudo -n systemctl stop qwen38-p150x2.service
+sudo -n systemctl start qwen38-p150x2.service
 ```
 
-With no arguments named in the rule, sudo permits the command with any arguments.
-The symlink and the rule are installed as root:
+`scripts/qwen38-deploy` does exactly that, with the receipt guard in front of it.
 
-```fish
-su -c 'ln -sfn /home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service /usr/local/bin/qwen38-profile-service'
-su -c 'head -20 /etc/sudoers > /tmp/s; printf "\n%s\n" "brittonr ALL=(root) NOPASSWD: /usr/local/bin/qwen38-profile-service" >> /tmp/s; visudo -c -f /tmp/s && cp /tmp/s /etc/sudoers && rm /tmp/s'
-```
-
-The operator's shell is fish, which has no heredoc, so the file is written with a
-pipeline. The leading newline keeps the rule off whatever the file's last line is.
-Copy these from the file, not from a chat window: a soft wrap in a terminal is
-harmless, but a hard line break inside the rule makes sudoers invalid and stops sudo
-from running at all.
-
-Check it with `sudo -n -l`. After that, the switch is a command without a prompt,
-and the service is left running.
+The operator's shell is fish, which has no heredoc. Copy commands from a file or a
+terminal rather than from a chat window: a soft wrap in a terminal is harmless, but a
+hard line break inside a command can break it.
 
 ## Measuring while the service runs
 
