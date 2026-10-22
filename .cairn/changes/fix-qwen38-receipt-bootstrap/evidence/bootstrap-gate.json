@@ -1,29 +1,32 @@
 {
   "schema": "onix.qwen38.b8-bootstrap-gate.v1",
+  "gate_form": "identity-equality+input-manifest",
   "source_revision": "5e7fbc0e5e7dc3968cbc9dd48cc20fe60cc4ec52",
   "unmeasured_package_store_path": "/nix/store/b6z3951wdi6gmyi4wfg0dpq2wlj2i5hh-qwen38-0.1.0",
   "admitted_fixture_package_store_path": "/nix/store/l4ikvhpg0qaa7glq9khhkj5fq4rdgkbi-qwen38-0.1.0",
   "unmeasured_package_identity": "/nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0",
   "admitted_fixture_package_identity": "/nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0",
+  "fixture_identity_store_path": "/nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0",
   "identity_equal": true,
   "profile_json_changed": true,
   "profile_only_admission_fields_changed": true,
   "fixture_receipt_blake3": "af2365ffb09002bb5674e175374efda1a81ea1a665c1f199b16a069344ac785e",
   "execution_inputs_sha256": {
-    "admitted": "215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7",
-    "unmeasured": "215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7",
+    "identity_derivation": "215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7",
+    "admitted_package": "215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7",
+    "diagnostic_fixture_package": "215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7",
     "byte_identical": true
   },
   "profile_sha256": {
     "admitted": "a8de639df69dea28fe3dee090a6bd1258c502825e3006171a2aa9c4973619e4c",
-    "unmeasured": "f01bdbaf7569bf96e2e18783ab90e671cc4d3dac90375aa302b81abae3849f72"
+    "diagnostic_unmeasured": "f01bdbaf7569bf96e2e18783ab90e671cc4d3dac90375aa302b81abae3849f72"
   },
   "profile_admission_fields": {
     "admitted": {
       "physically_admitted": true,
       "identities.receipt_blake3": "af2365ffb09002bb5674e175374efda1a81ea1a665c1f199b16a069344ac785e"
     },
-    "unmeasured": {
+    "diagnostic_unmeasured": {
       "physically_admitted": false,
       "identities.receipt_blake3": "not-measured"
     }
@@ -38,26 +41,36 @@
     "fixture_blob_sha1": "a33c29f1a7f2a3286fc3211467a7b159ff2586a3",
     "diff_r_excluding": [".git", ".pi", "result", "result-*"]
   },
-  "checker_command": "python3 - <repo> (inline checker, see bootstrap-gate-2026-10-22.md: b3sum of the committed receipt; load both v3 profile JSONs; require fields (true, receipt BLAKE3) vs (false, \"not-measured\"); delete exactly physically_admitted and identities.receipt_blake3 from both; require the remaining objects equal)",
+  "checker_command": "nix eval --raw .#qwen38.passthru.executionIdentity; nix eval --raw --impure --expr '((builtins.getFlake \"path:/tmp/qwen38-bootstrap-admitted-fixture\").packages.x86_64-linux.qwen38).passthru.executionIdentity'; compare manifests with cmp/sha256; inline Python check of both v3 profile JSONs (b3sum of the committed receipt; (true, receipt BLAKE3) vs (false, \"not-measured\"); delete exactly physically_admitted and identities.receipt_blake3; require the remaining objects equal; assert the unmeasured export is not admitted). See bootstrap-gate-2026-10-22.md.",
   "build_commands": {
     "admitted": "nix build .#qwen38 --no-link --print-out-paths",
-    "unmeasured_as_specified": "nix build path:/tmp/qwen38-bootstrap-admitted-fixture#qwen38 --no-link --print-out-paths",
-    "unmeasured_installcheck_bypassed": "nix build --impure --no-link --print-out-paths --expr '((builtins.getFlake \"path:/tmp/qwen38-bootstrap-admitted-fixture\").packages.x86_64-linux.qwen38).overrideAttrs (o: { doInstallCheck = false; })'"
+    "admitted_install_check": "nix build .#qwen38 --rebuild --no-link -L (installCheckPhase completed in 1 minutes 42 seconds; overall exit 1 only because the rebuilt output is not byte-identical to the cached output, i.e. a determinism comparison, not a check failure)",
+    "fixture_tree_as_specified": "nix build path:/tmp/qwen38-bootstrap-admitted-fixture#qwen38 --no-link --print-out-paths",
+    "fixture_tree_diagnostic_bypass": "nix build --impure --no-link --print-out-paths --expr '((builtins.getFlake \"path:/tmp/qwen38-bootstrap-admitted-fixture\").packages.x86_64-linux.qwen38).overrideAttrs (o: { doInstallCheck = false; })'"
   },
   "build_exit_status": {
     "admitted": 0,
-    "unmeasured_as_specified": 1,
-    "unmeasured_installcheck_bypassed": 0
+    "admitted_rebuild": 1,
+    "fixture_tree_as_specified": 1,
+    "fixture_tree_diagnostic_bypass": 0,
+    "corrected_gate_checker": 0
   },
-  "install_check_failure": {
+  "admitted_install_check": {
+    "passed": true,
+    "evidence": "nix build .#qwen38 --rebuild -L log: 'qwen36 device-free check: PASS', 'receipt promotion changed exactly physically_admitted and identities.receipt_blake3', 'installCheckPhase completed in 1 minutes 42 seconds'"
+  },
+  "fixture_package_build_expected_failure": true,
+  "fixture_package_build_failure": {
     "derivation": "/nix/store/xvr6w7r75y44ap59iwvwnv1ds1dd6kr8-qwen38-0.1.0.drv",
     "aborted_output": "/nix/store/s8h2q78ryfvbrf7xylkjilyq60jrqz94-qwen38-0.1.0",
-    "failing_check": "installCheckPhase requires the shipped v3 export to be admitted ('physically_admitted': true, committed receipt BLAKE3); an unmeasured binding exports false/\"not-measured\", so the package does not build normally from the fixture tree"
+    "expected_message": "installCheckPhase rejects the unmeasured binding: the shipped v3 export is physically_admitted=false / identities.receipt_blake3=\"not-measured\", so the admission check (pkgs/qwen36/default.nix:1862) fails closed"
   },
+  "campaign_package": "/nix/store/l4ikvhpg0qaa7glq9khhkj5fq4rdgkbi-qwen38-0.1.0",
+  "post_promotion_substitution": "the campaign measures the admitted package; after a fresh receipt, a rebuilt promoted package is a legitimate substitute because its execution identity equals the measured one and its profile differs only in physically_admitted and identities.receipt_blake3, both checked again by the promotion gate",
   "non_claims": [
     "no hardware, simulator, campaign, admission or promotion was run",
     "no fresh receipt was earned and no admission is claimed",
-    "the unmeasured output was produced only with doInstallCheck = false because the specified standard build fails closed on an unmeasured binding"
+    "the doInstallCheck=false fixture output is diagnostic only and is not used as the gate or served"
   ],
-  "passed": false
+  "passed": true
 }

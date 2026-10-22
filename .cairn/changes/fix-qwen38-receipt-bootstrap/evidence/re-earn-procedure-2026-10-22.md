@@ -258,3 +258,31 @@ Exact artifact classes to retain under the new run directory:
 ## Non-claims
 
 No hardware, simulator, campaign, admission or promotion was run here. No timing, performance, request-latency or new retention claim is made. Historical reported ratios are not re-earned by this investigation. The original profile path and executable provenance remain unproven; override capability must not be turned into a historical conclusion. Bootstrap equality, path-containment enforcement and provenance capture are required future gates, not asserted existing results.
+
+## Amendment 2026-10-22: the bootstrap gate is identity equality, not a second package build
+
+The original text above asks for two package outputs differing only in the
+binding and calls the unmeasured one "the package to measure". That formulation
+is wrong and is kept only as history; it is not a waiver of anything below.
+
+- An unmeasured package **cannot** build normally and **must not** be made to
+  build: `installCheckPhase` requires the shipped v3 export to be admitted with
+  the committed receipt, and the fixture tree fails closed. A bypassed
+  `doInstallCheck = false` output is diagnostic only and may never be served or
+  measured.
+- The device-free bootstrap gate is **identity equality**: the admitted
+  package's execution identity must equal the identity derived from the tree
+  whose only difference is the binding text
+  (`passthru.executionIdentity`, no package build), with byte-identical
+  immutable input manifests, plus the admitted package's install check passing
+  and the unmeasured build failing closed.
+- **The campaign runs the admitted package**, not an unmeasured one. This is the
+  same package whose export carries the admission, so there is no ambiguity
+  about which profile the server loads.
+- After the fresh receipt exists, the post-promotion rebuild is verified by the
+  promotion gate: its execution identity must equal the measured identity it
+  served, and its profile must differ only in `physically_admitted` and
+  `identities.receipt_blake3`, naming the fresh digest.
+
+Recorded in `bootstrap-gate.json` and `bootstrap-gate-2026-10-22.md`; no
+hardware, campaign, receipt, admission or promotion was run.

@@ -116,3 +116,63 @@ the unmeasured package is not buildable by the specified command.
 - Passing comparisons here do not substitute for the re-earn or the promotion
   gate, and the unmeasured build bypass must not become the measurement-time
   recipe without a reviewed packaging fix.
+
+## Correction: the package-build form of this gate is wrong
+
+The original formulation above measured the wrong thing and is retained as a
+failure record, not as a waiver.
+
+(a) An unmeasured package **cannot** build normally and **must not** be made to
+build. `installCheckPhase` requires the shipped v3 export to be admitted, so the
+fixture tree fails closed by design. The `doInstallCheck = false` output
+(`b6z3951w…`) is recorded only as diagnostic evidence; nobody may serve it, and
+it is **not** used as the gate.
+
+(b) The gate the campaign actually needs is:
+
+- identity equality between the admitted package and the fixture tree whose only
+  difference is the binding text, computed device-free from the identity
+  derivation (`passthru.executionIdentity`, no package build) and confirmed on
+  the byte-identical input manifest;
+- the admitted package's install check passing;
+- the unmeasured build failing closed with the expected admission check.
+
+The identity derivation proves the binding is not an identity input: the fixture
+tree resolves to the **same** execution identity store path
+(`knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0`) and the
+manifest in that identity output (`share/qwen36/execution-inputs`, SHA-256
+`215e3492…`) is byte-identical to the admitted package's installed manifest.
+
+(c) The campaign therefore measures the **admitted** package. After a fresh
+receipt exists, the post-promotion rebuild is a legitimate substitute for the
+measured package because the execution identity is identical and the profile
+delta is exactly `physically_admitted` and `identities.receipt_blake3`; the
+promotion gate must repeat the identity comparison against the fresh receipt.
+
+### Corrected gate evidence (device-free)
+
+```text
+nix eval --raw .#qwen38.passthru.executionIdentity
+  -> /nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0
+nix eval --raw --impure --expr '((builtins.getFlake "path:/tmp/qwen38-bootstrap-admitted-fixture").packages.x86_64-linux.qwen38).passthru.executionIdentity'
+  -> /nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0
+```
+
+Identity manifest: `$identity/share/qwen36/execution-inputs` SHA-256
+`215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7`, `cmp`-equal
+to the admitted package's installed manifest and to the diagnostic fixture
+package's manifest.
+
+Corrected checker stdout (exit 0):
+
+```text
+identity equality: PASS /nix/store/knkqyk5z28n5s7014xda35xda0gmbxik-qwen36-execution-identity-0.1.0
+input manifests byte-identical: PASS sha256=215e3492c21949adb9afe90fa52c5a3141f2901e40b583937d96503792eb01b7
+exact two-field profile delta: PASS; fixture receipt_blake3=af2365ffb09002bb5674e175374efda1a81ea1a665c1f199b16a069344ac785e
+unmeasured build fail-closed condition: PASS (shipped export is not physically_admitted)
+RESULT: PASS
+```
+
+The fail-closed evidence is the fixture tree's standard build exit 1
+(`xvr6w7r75y44ap59iwvwnv1ds1dd6kr8-qwen38-0.1.0.drv`): the install check's
+admission condition rejects `physically_admitted: false` / `"not-measured"`.
