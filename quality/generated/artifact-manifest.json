@@ -1394,6 +1394,12 @@
       "blake3": "dc688e121b9d52006b7787666fdd998bfbb62bfbe98fe292183db9cef9e5d32d"
     },
     {
+      "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/protocol-v3.md",
+      "class": "portable_evidence",
+      "byte_count": 3794,
+      "blake3": "1d9a275a5b7a22a436b641deb9d1f168d6f074f469b8b4ab018186adda9bbee5"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/rejected-instance-prefetch.patch",
       "class": "portable_evidence",
       "byte_count": 2642,
