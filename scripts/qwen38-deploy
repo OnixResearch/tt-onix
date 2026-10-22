@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Deploy the repository's Qwen package to the served service, and check what it serves.
 
-The service on this host is owned by `scripts/qwen38-profile-service`, which swaps the
-named Nix profile and the managed drop-in. This script builds the package from the
-tree, refuses to serve a package that no admission receipt names, performs the
-switch, and then reads the served instance's own identity back.
+The service on this host is owned by `scripts/qwen38-profile-service`, which moves the
+owner through the operator's own path. This script builds the package from the tree,
+refuses to serve a package that no admission receipt names, performs the move, and
+then reads the served instance's own identity back.
 
     scripts/qwen38-deploy [--package <store path>] [--force]
 
@@ -24,11 +24,9 @@ import urllib.error
 import urllib.request
 
 REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
-# The profile service is host-local. A short symlink in /usr/local/bin is what the
-# host's sudo rule names, so the rule stays one short line.
-PROFILE_SERVICE = pathlib.Path("/usr/local/bin/qwen38-profile-service")
-if not PROFILE_SERVICE.exists():
-    PROFILE_SERVICE = REPOSITORY / "scripts" / "qwen38-profile-service"
+# The profile service is host-local. It moves the owner through the operator's
+# own path, so deploying needs no root and no password.
+PROFILE_SERVICE = REPOSITORY / "scripts" / "qwen38-profile-service"
 EVIDENCE = REPOSITORY / "pkgs" / "qwen36" / "evidence"
 # The two receipts the served configuration needs: the scheduler profile and the
 # prefix cache.
@@ -139,7 +137,7 @@ def main() -> None:
     for kind, path in found.items():
         print(f"receipt: {kind} {path.relative_to(REPOSITORY)}")
 
-    print(run("sudo", "-n", str(PROFILE_SERVICE), "switch-policy", package, timeout=3600))
+    print(run(str(PROFILE_SERVICE), "deploy", package, timeout=3600))
     for _ in range(60):
         try:
             state = health()
