@@ -1352,6 +1352,18 @@
       "blake3": "3ea207f126f67187963a30734eb011b8d616496de4c597f64bc0e9ef3fec0339"
     },
     {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/identity-mismatch-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 9570,
+      "blake3": "9b91afd73b048ada03153d2f67ddca146a28f20115036019bdf4a4a758c2ba2d"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 27780,
+      "blake3": "7079a07bdc63dab3f2be5e22d91d02bfcc3015b2805a9648c8864a64f39f6fbc"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/a1-a4-attribution.md",
       "class": "portable_evidence",
       "byte_count": 6147,
@@ -1396,8 +1408,8 @@
     {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/protocol-v3-validation.md",
       "class": "portable_evidence",
-      "byte_count": 4622,
-      "blake3": "8dc3444219c3feaad5103be70ec642c22903429422fdac9c00bbf4abfa7ef6f7"
+      "byte_count": 6307,
+      "blake3": "16977a8ab0240f1189b6eb84bb4eac083a440258e28a6a3a7a92b37ef7e82dd8"
     },
     {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/protocol-v3.md",
@@ -1530,6 +1542,12 @@
       "class": "portable_evidence",
       "byte_count": 1933,
       "blake3": "c10918590438446e7370f5fafedb78a17d15e895e6132ee672bbaf58fc8f14a4"
+    },
+    {
+      "path": ".cairn/changes/qwen38-tp2-collective-shape-tuning/evidence/ceiling-verdict-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 3291,
+      "blake3": "77d6db247050de59cc13fd601c04dc4d1d33e3e6198ba70cbc2ccf499ca528a4"
     },
     {
       "path": ".cairn/changes/qwen38-tp2-collective-shape-tuning/evidence/step-attribution-2026-10-21.md",

@@ -89,6 +89,15 @@ maximum recorded as a non-gating diagnostic), and continuous-slot, prefix-cache,
 and batched production serving still require their own physical
 qualification.
 
+The B=8 v3 interleaved-protocol receipt is not carried by any servable
+package. It names execution identity `l4arf461…`, which no build in this tree
+reproduces, while the served package exports the generic B=8 profile as
+`…-b8-v2`. The v3 admission must therefore be re-earned on a buildable
+identity before any package may carry it; the predeclared procedure is
+`.cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md`.
+Keeping mutable receipt bindings out of the execution identity is what makes
+that promotion satisfiable (`.cairn/changes/fix-qwen38-receipt-bootstrap/`).
+
 Use `nix build .#qwen38` for the Qwen3.8-27B package. Its commands use the
 `qwen38` prefix, including `qwen38-check` and `qwen38-p150x2-serve`.
 The `qwen36` package and command names remain compatibility aliases.

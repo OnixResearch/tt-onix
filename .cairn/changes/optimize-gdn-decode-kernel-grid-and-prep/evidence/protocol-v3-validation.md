@@ -85,3 +85,34 @@ The per-pair ratios, with the roots they came from:
   pairs.
 - The admission covers the eight-prompt corpus at width 8 on one package. It says
   nothing about other widths, other corpora, or the single-stream route.
+
+## Correction, 2026-10-22: which identity and package the receipt names
+
+Added by `fix-qwen38-receipt-bootstrap`. This correction does not rewrite the
+run record above; it fixes what the sentence "the receipt is bound to the
+package and identity that served it" may be read to mean.
+
+- The receipt names execution identity
+  `/nix/store/l4arf461kxbbns0nnlg2vd98anx943pc-qwen36-execution-identity-0.1.0`,
+  and no build in this repository reproduces that identity. It is not the
+  identity of a package this tree can rebuild.
+- All 192 saved roots report that same identity, with
+  `profile_id=qwen38-p150x2-batched-throughput-b8-v3`. The served package
+  `/nix/store/wlsl6pnxllv9qhr6yqimnwv3si0qyz9k-qwen38-0.1.0`, however, exports
+  the generic B=8 profile as `qwen38-p150x2-batched-throughput-b8-v2`; its
+  identity is `l4arf461…` only in the sense that its wrapper passes that
+  identity.
+- The campaign package named above,
+  `/nix/store/frf73q2612gczcj1qr43zz48i3frj2q4-qwen38-0.1.0`, embeds identity
+  `4115hgb2ri3168c9d0g4r4pjj8m8m06n-qwen36-execution-identity-0.1.0`, not
+  `l4arf461…`.
+
+So "bound to the package and identity that served it" names the identity the
+served processes reported; it does not establish that the campaign package
+embedded that identity, nor that any servable package carries this receipt.
+The receipt still records its measurements, but its admission cannot be
+carried by a build until it is re-earned on a buildable identity. The
+procedure is
+`.cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md`,
+and the investigation is
+`.cairn/changes/fix-qwen38-receipt-bootstrap/evidence/identity-mismatch-2026-10-22.md`.

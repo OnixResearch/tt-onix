@@ -28,8 +28,17 @@ invalidates both:
   `pkgs/qwen36/evidence/2026-10-21/qwen38-prefix-cache-abba-admission-receipt.json`.
 
 Both bind a package path and an execution identity. A rebuild of the same tree is a
-different package, so a new build needs its own receipts before it is served. The
-repository's rule is in
+different package, so a new build needs its own receipts before it is served.
+
+The B=8 v3 interleaved-protocol receipt is **not** one of them and is not carried
+by any servable package. It names execution identity `l4arf461…`, which no build
+in this tree reproduces, and the served package exports the generic B=8 profile
+as `…-b8-v2`. The v3 admission must be re-earned on a buildable identity before a
+package may carry it; see
+`.cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md`.
+Do not read the v3 receipt as a receipt for the package this note serves.
+
+The repository's rule is in
 `.cairn/changes/readmit-qwen38-prefix-cache-b8/specs/qwen38-p150x2-runtime/spec.md`:
 the served package carries the receipts of the features it serves.
 

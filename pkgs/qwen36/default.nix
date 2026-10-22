@@ -122,7 +122,14 @@ let
     (stableIdentityPath "qwen36-batch-admission-b8-contracts-v3.ncl" ./batch-admission-b8-contracts-v3.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-policy-v3.ncl" ./batch-admission-b8-policy-v3.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-policy-v3-validated.ncl" ./batch-admission-b8-policy-v3-validated.ncl)
-    (stableIdentityPath "qwen36-batch-admission-b8-binding-v3.ncl" ./batch-admission-b8-binding-v3.ncl)
+    # Bootstrap rule: a receipt binding is a mutable pointer to evidence, not
+    # policy text, and MUST NOT be an execution identity input. If it were,
+    # the package built while the binding says `not-measured` would have a
+    # different execution identity from the package built once the receipt is
+    # admitted, so no build could ever carry its own receipt (the promotion
+    # would be unsatisfiable). The immutable v3 policy and profile text stay
+    # in the identity; the binding is exported beside it, and the assert below
+    # fails closed if a binding ever returns to this list.
     (stableIdentityPath "qwen36-batch-admission-b8-profile-v3.ncl" ./batch-admission-b8-profile-v3.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-profile.ncl" ./batch-admission-b8-profile.ncl)
     (stableIdentityPath "qwen36-batch-admission-b16-policy.ncl" ./batch-admission-b16-policy.ncl)
@@ -193,17 +200,43 @@ let
       '';
     };
   executionIdentity = mkExecutionIdentity executionIdentityInputs;
-  executionIdentityAfterMetadataPromotion = mkExecutionIdentity executionIdentityInputs;
   executionIdentityWithDrift = mkExecutionIdentity (
     executionIdentityInputs
     ++ [
       (stableIdentityPath "qwen36-execution-identity-drift.txt" ./fixtures/execution-identity-drift.txt)
     ]
   );
+  # The fail-closed half of the bootstrap rule. A receipt binding names a
+  # receipt; it is a mutable pointer to evidence, not policy text. If one were
+  # an identity input, the identity would move exactly when the receipt is
+  # admitted, so the receipt could never name a package that also carries it.
+  executionIdentityInputNames = map (input: builtins.baseNameOf (toString input)) executionIdentityInputs;
+  executionIdentityBindingInputs = builtins.filter (name: lib.hasInfix "-binding" name) executionIdentityInputNames;
+  # The other half: the identity must move when immutable policy text moves.
+  # Swap the v3 policy for a fixture of different bytes and require a different
+  # identity store path. The input is a builtins.path store path, so its
+  # basename carries the store hash; match the exact store-name suffix rather
+  # than a bare filename. A tautology (rebuilding from the identical list) is
+  # no longer asserted anywhere; the receipt-only promotion is proven where
+  # the exported profile can be re-exported, in installCheckPhase.
+  executionIdentityInputsWithPolicyDrift = map (
+    input:
+    if lib.hasSuffix "-qwen36-batch-admission-b8-policy-v3.ncl" (toString input) then
+      stableIdentityPath "qwen36-batch-admission-b8-policy-v3.ncl" ./fixtures/execution-identity-policy-drift.ncl
+    else
+      input
+  ) executionIdentityInputs;
+  executionIdentityPolicyInputCount = builtins.length (
+    builtins.filter (input: lib.hasSuffix "-qwen36-batch-admission-b8-policy-v3.ncl" (toString input)) executionIdentityInputs
+  );
+  executionIdentityWithPolicyDrift = mkExecutionIdentity executionIdentityInputsWithPolicyDrift;
 in
 assert lib.assertMsg (
-  toString executionIdentity == toString executionIdentityAfterMetadataPromotion
-) "receipt-only promotion changed the Qwen execution identity";
+  builtins.length executionIdentityBindingInputs == 0
+) "a receipt binding is an execution identity input; a package built while the binding is unmeasured could never carry its own receipt (${lib.concatStringsSep ", " executionIdentityBindingInputs})";
+assert lib.assertMsg (
+  toString executionIdentity != toString executionIdentityWithPolicyDrift
+) "a policy input failed to change the Qwen execution identity (${toString executionIdentity} vs ${toString executionIdentityWithPolicyDrift}; inputs ${lib.concatStringsSep ", " executionIdentityInputNames}; drift inputs ${lib.concatStringsSep ", " (map (input: builtins.baseNameOf (toString input)) executionIdentityInputsWithPolicyDrift)}; policy input matches ${toString executionIdentityPolicyInputCount})";
 assert lib.assertMsg (
   toString executionIdentity != toString executionIdentityWithDrift
 ) "an execution input failed to change the Qwen execution identity";
@@ -1236,20 +1269,20 @@ stdenvNoCC.mkDerivation {
         b16_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json}
         b16_receipt_blake3=$(b3sum "$b16_receipt" | cut -d' ' -f1)
         ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
-    import json
-    with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
-        profile = json.load(handle)
-    with open("$b16_receipt") as handle:
-        receipt = json.load(handle)
-    assert profile["workload"]["candidate_width"] == 16
-    assert len(profile["workload"]["prompts"]) == 16
-    assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
-    assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
-    assert profile["admission"]["maximum_ttft_ratio"] == 9.0
-    assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
-    assert profile["identities"]["receipt_blake3"] == "$b16_receipt_blake3"
-    assert profile["physically_admitted"] == receipt["admission"]["admitted"]
-    PROFILE_CHECK
+        import json
+        with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
+            profile = json.load(handle)
+        with open("$b16_receipt") as handle:
+            receipt = json.load(handle)
+        assert profile["workload"]["candidate_width"] == 16
+        assert len(profile["workload"]["prompts"]) == 16
+        assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
+        assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
+        assert profile["admission"]["maximum_ttft_ratio"] == 9.0
+        assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
+        assert profile["identities"]["receipt_blake3"] == "$b16_receipt_blake3"
+        assert profile["physically_admitted"] == receipt["admission"]["admitted"]
+        PROFILE_CHECK
         test -f "$out/share/qwen36/batch-admission-policy.ncl"
         test -f "$out/share/qwen36/batch-admission-binding.ncl"
         test -f "$out/share/qwen36/trace-reuse-profile.json"
@@ -1802,6 +1835,144 @@ stdenvNoCC.mkDerivation {
 
         PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
           ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
+
+        # r[verify tenstorrent.qwen38_p150x2.receipt_bootstrap]
+        # Positive: the execution identity's own input manifest carries no
+        # receipt binding, and it carries the immutable v3 policy text. A
+        # binding is a mutable receipt pointer: if it were an identity input,
+        # the identity would move exactly when the receipt is admitted, and no
+        # build could carry its own receipt.
+        execution_inputs="$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+        test -f "$execution_inputs"
+        grep -Fq 'schema=onix.qwen36.execution-identity.v1' "$execution_inputs"
+        if grep -F -- '-binding' "$execution_inputs"; then
+          echo "execution identity carries a receipt binding" >&2
+          exit 1
+        fi
+        grep -Fq 'qwen36-batch-admission-b8-contracts-v3.ncl' "$execution_inputs"
+        grep -Fq 'qwen36-batch-admission-b8-policy-v3.ncl' "$execution_inputs"
+        grep -Fq 'qwen36-batch-admission-b8-policy-v3-validated.ncl' "$execution_inputs"
+        grep -Fq 'qwen36-batch-admission-b8-profile-v3.ncl' "$execution_inputs"
+
+        # Positive: the shipped v3 profile is admitted and names the committed
+        # receipt. The receipt may name an earlier identity; deploy's guard
+        # refuses that rather than the package pretending the admission moved.
+        v3_receipt=${./evidence/2026-10-22/qwen38-batch-admission-b8-v3-receipt.json}
+        v3_receipt_blake3=$(b3sum "$v3_receipt" | cut -d' ' -f1)
+        grep -Fq '"physically_admitted": true' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+        grep -Fq "\"receipt_blake3\": \"$v3_receipt_blake3\"" "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+        grep -Fq '"profile_id": "qwen38-p150x2-batched-throughput-b8-v3"' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+
+        # Positive: a receipt-only promotion changes the exported profile and
+        # not the execution identity. Re-export the identical immutable v3 text
+        # with the binding reverted to not-measured. The profile must become
+        # unadmitted and differ from the shipped one; the identity manifest has
+        # no binding input (asserted above) and mkExecutionIdentity is a pure
+        # function of that manifest, so the same tree with the binding reverted
+        # keeps its execution identity.
+        mkdir -p batch-admission-b8-profile-v3-reverted
+        cp ${./batch-admission-b8-profile-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl
+        cp ${./batch-admission-b8-policy-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3.ncl
+        cp ${./batch-admission-b8-policy-v3-validated.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3-validated.ncl
+        cp ${./batch-admission-b8-contracts-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-contracts-v3.ncl
+        cp ${./fixtures/batch-admission-b8-binding-v3-not-measured.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-binding-v3.ncl
+        nickel export --format json batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl \
+          > batch-admission-b8-profile-v3-reverted.json
+        grep -Fq '"physically_admitted": false' batch-admission-b8-profile-v3-reverted.json
+        grep -Fq '"receipt_blake3": "not-measured"' batch-admission-b8-profile-v3-reverted.json
+
+        # Positive, exact: the promotion changes exactly two fields. Delete
+        # `physically_admitted` and `identities.receipt_blake3` from both exports
+        # and require the whole remainder to be equal. Anything else is a
+        # promotion that moved immutable policy text, not just the receipt
+        # pointer, and fails with the exact differing paths. The admission
+        # fields themselves must be false/not-measured (reverted) and
+        # true/committed receipt BLAKE3 (shipped).
+        "${pythonEnvironment}/bin/python" - \
+          "$out/share/qwen36/batch-admission-b8-profile-v3.json" \
+          batch-admission-b8-profile-v3-reverted.json \
+          "$v3_receipt_blake3" <<'PY'
+        import difflib
+        import json
+        import sys
+
+        shipped_path, reverted_path, receipt_blake3 = sys.argv[1:4]
+
+
+        def load(path):
+            with open(path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+
+
+        def admission_fields(profile, path):
+            if not isinstance(profile, dict):
+                raise SystemExit(f"{path}: exported profile is not a JSON object")
+            if "physically_admitted" not in profile:
+                raise SystemExit(f"{path}: exported profile lacks physically_admitted")
+            identities = profile.get("identities")
+            if not isinstance(identities, dict):
+                raise SystemExit(f"{path}: exported profile lacks the identities object")
+            if "receipt_blake3" not in identities:
+                raise SystemExit(f"{path}: identities lacks receipt_blake3")
+            return profile["physically_admitted"], identities["receipt_blake3"]
+
+
+        def strip_admission(profile):
+            del profile["physically_admitted"]
+            del profile["identities"]["receipt_blake3"]
+            return profile
+
+
+        shipped = load(shipped_path)
+        reverted = load(reverted_path)
+
+        shipped_admitted, shipped_receipt = admission_fields(shipped, shipped_path)
+        reverted_admitted, reverted_receipt = admission_fields(reverted, reverted_path)
+
+        if shipped_admitted is not True:
+            raise SystemExit(
+                f"{shipped_path}: shipped v3 profile is not admitted "
+                f"physically_admitted={shipped_admitted!r}"
+            )
+        if shipped_receipt != receipt_blake3:
+            raise SystemExit(
+                f"{shipped_path}: shipped receipt_blake3={shipped_receipt!r} "
+                f"does not name the committed receipt {receipt_blake3!r}"
+            )
+        if reverted_admitted is not False:
+            raise SystemExit(
+                f"{reverted_path}: reverted v3 profile is not unadmitted "
+                f"physically_admitted={reverted_admitted!r}"
+            )
+        if reverted_receipt != "not-measured":
+            raise SystemExit(
+                f"{reverted_path}: reverted receipt_blake3={reverted_receipt!r} "
+                'is not "not-measured"'
+            )
+
+        shipped_remainder = strip_admission(shipped)
+        reverted_remainder = strip_admission(reverted)
+        if shipped_remainder != reverted_remainder:
+            shipped_text = json.dumps(shipped_remainder, indent=2, sort_keys=True).splitlines()
+            reverted_text = json.dumps(reverted_remainder, indent=2, sort_keys=True).splitlines()
+            diff = "\n".join(
+                difflib.unified_diff(
+                    shipped_text,
+                    reverted_text,
+                    fromfile=f"{shipped_path} minus admission fields",
+                    tofile=f"{reverted_path} minus admission fields",
+                )
+            )
+            raise SystemExit(
+                "receipt promotion changed more than physically_admitted and "
+                "identities.receipt_blake3:\n" + diff
+            )
+
+        print(
+            "receipt promotion changed exactly physically_admitted and "
+            "identities.receipt_blake3"
+        )
+        PY
 
         # Negative: env-gated BF4 cache names must never collide; the check script
         # itself rejects a missing .bfp4 distinction.

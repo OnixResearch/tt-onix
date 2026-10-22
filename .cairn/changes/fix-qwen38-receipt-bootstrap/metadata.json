@@ -1,0 +1,11 @@
+{
+  "depends_on": [
+    "optimize-gdn-decode-kernel-grid-and-prep",
+    "readmit-qwen38-prefix-cache-b8"
+  ],
+  "workflow_profile": {
+    "id": "spec-driven",
+    "source": "change_create",
+    "version": 1
+  }
+}
