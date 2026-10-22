@@ -1394,10 +1394,16 @@
       "blake3": "dc688e121b9d52006b7787666fdd998bfbb62bfbe98fe292183db9cef9e5d32d"
     },
     {
+      "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/protocol-v3-validation.md",
+      "class": "portable_evidence",
+      "byte_count": 4622,
+      "blake3": "8dc3444219c3feaad5103be70ec642c22903429422fdac9c00bbf4abfa7ef6f7"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/protocol-v3.md",
       "class": "portable_evidence",
-      "byte_count": 3794,
-      "blake3": "1d9a275a5b7a22a436b641deb9d1f168d6f074f469b8b4ab018186adda9bbee5"
+      "byte_count": 3911,
+      "blake3": "0743f9d6c30a88b705cfbff18e22205041c4005bc435fd14f33b132f4ee9e2b0"
     },
     {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/rejected-instance-prefetch.patch",
@@ -3720,6 +3726,1164 @@
       "class": "portable_evidence",
       "byte_count": 6763,
       "blake3": "c5d3458b5c1fd9290e5114bdf734136490504a87e2033543bac295a7ce64f63b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-b8-v3-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 144042,
+      "blake3": "af2365ffb09002bb5674e175374efda1a81ea1a665c1f199b16a069344ac785e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1740,
+      "blake3": "880c1541a47e6c2695577e911ec42abc7cde0e3200dcdec688991bf28a1a09fc"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1745,
+      "blake3": "52d39cbcc8c741babb9f328d4df0eb9dbf9b920ade7759c9e6840cb9f5ae2c3b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1751,
+      "blake3": "28583209f654caddb2f2899527e6c97eaa8ce0c9b05552baa681edf59c2c01be"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1853,
+      "blake3": "4d448eca7223a08da8f3adabe3c729d27af6201219d1f934c79e70e8d35e1bcd"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1866,
+      "blake3": "fbfa0ba0205c1b75b41cba750562238eafcd758bdfef832e43f1b44e45c79aaf"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1862,
+      "blake3": "9347a74eef451f2d953cdf4ddf6e50a63179f2b767ee6a206ba1cdf2e221e3ac"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1739,
+      "blake3": "1dc3c093a044905f395f39a5b1eea3615b5cae207d0de24cde2a2fad48d56189"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1745,
+      "blake3": "9d341dd09038eb64153db6d2821172f19dfbc77405d13be88416dc561da1d231"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1748,
+      "blake3": "91a9c504f76602b0df9e8bb043cb07836918ab2adbabdfc3ba381912c1dd8926"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1928,
+      "blake3": "0d7e012b0bb98d3b1af18e58b2715c160ec3577a885626d26bd34531aa5c8c6b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1937,
+      "blake3": "17b0a2581d97f78eda0e92c42cc5529075d7b8a48cdbe2235cca7e4dabaffee3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1932,
+      "blake3": "83991c3760ea9ed1e5621ebecbcb6f9b6008fc1aa60d978106682ba95f416905"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1828,
+      "blake3": "0149024f782dcc2644b0440182941666fc3b31d399e729681b9cff3d3135fc2b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1832,
+      "blake3": "e76c6ecb4137be4c9cc1860990d29aba4a7ae53c4c9c1c396fbdb106edd9aee8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1835,
+      "blake3": "3d9fc28fb08abc818a5f1bdf30036d29e22383829938b7af9c8a1c17a678d23e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1742,
+      "blake3": "0f17a58eba684dbaf71958e68df7450390b4e4e22dbb675946eaed3cb78f70e0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1743,
+      "blake3": "515503ad7c1a4ccb520a113beb03df0ac38ab8543d69b6e6e1219b4765e3595b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1748,
+      "blake3": "20b1c051cd1b4c65aff6d980eafd5ac147a43a8bc2834e60fc2372e6bd428466"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1896,
+      "blake3": "c06721f3f68d0c4ea182049c7278146c25ed9c0be7bb505d125e8bec3ccc6913"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1907,
+      "blake3": "97db88714cb7b3e668834d40863453a3bcc60b90d2abfcba102920171c81cb48"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1902,
+      "blake3": "e935230609eed7295f4fe9255987cc790408e08121d23ef4bafd659462a57b2a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1805,
+      "blake3": "a3fdb8127ce5bf0420c53469f11a59d785408069ed59604414c38ce3a1c331e2"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1810,
+      "blake3": "106c6f57668553cb750172841d9177cb74b2a2c44a98f1318747ccd00c369bc0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-1-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1815,
+      "blake3": "46258d93ba7ebb0d2ca43d4495278acd426c39ded570b524116f6ad7646a888c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1783,
+      "blake3": "204151376e2c066be78186d73161b63d02ff14722f6d6caacfd88c451e3cd4b0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1814,
+      "blake3": "1678e3de81c1844bbbc7a5b720ac3ae9b6426332ac4f59fa01ee4ccba2665783"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1787,
+      "blake3": "b8024817b149353af31935be522500bbb825387151d7d2309b5d14338757f7a9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1901,
+      "blake3": "c662053c800b9385fc47caef3945490122b1d7d9dd9adcd88d6a17caf1f2b9c1"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1921,
+      "blake3": "621add5f3f2de10b083474fe529cc82094eb412962145f1ef2eb4b93cdd2ff86"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1905,
+      "blake3": "ed96961954d79f875c00fa7cfa95382f1bb670aecdb1881559fe04afad78cb62"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1786,
+      "blake3": "b0b8b875f01e66e0ff591cd1740146ad35700629197a1bf29173e624341ef756"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1808,
+      "blake3": "943a31e375b4e0f4d7e170385e4420141a50d0c8e78f3e456326bc1cec91d483"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1784,
+      "blake3": "983496b2af22bb6109af07f441e736c86147eab87f00c869195eeb2a863955ba"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1975,
+      "blake3": "83bc74d11dfd2a70916cdb1df403bcbaf0157e95371822cc6c5b55cb6b856ea4"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1998,
+      "blake3": "2106b5aaeee2dd2a9d0a7492525ee42e5e94144bfbbb288d765efa2a24f48208"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1973,
+      "blake3": "5b4194f5b67b47247265b5ddb14fab9baa6a89db1ae6716ce3457dc360c03757"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1870,
+      "blake3": "406decaaca7da586fb0b7fc3fcbd8de635c9df1aff9492d2285c14cbfaf143f4"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1892,
+      "blake3": "64f108846b1e5f6107daec13e98c281a838233c409fb05d1ae85987315153d82"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1871,
+      "blake3": "a08b291fb5b7f7cf2c2cdc52656c96111b9fc1150b37bbfe35aeede3872c1e9d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1783,
+      "blake3": "e78843547cf2154640016630f5118021faaca7ee85872bdc9278f7ab4bceb603"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1811,
+      "blake3": "6b2ec478470c6931dae62610f36b2610f4f8354c74ab9c9f4146a23dc0e2a75e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1784,
+      "blake3": "496b1ea59a8e3a9d685828df6b10413cfd7be1a35c840ec37a3de06897e08989"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1939,
+      "blake3": "b5a1f2a981853ceb86dfbc0b2690c2332806608c400cf458da80d98ac4845c8d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1962,
+      "blake3": "bd86706955a6c9af8f0814cff8a8efdc8e1b373826c6f1303523d0652e351cdd"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1946,
+      "blake3": "ec1b381bd904d6f0b4a658a02024e59dc72fff220d82b063a081ba92e160635b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1854,
+      "blake3": "e6283399c5ce02354f0e7c7cc199c1339a57269b57145ced5f7cb2faec89ae9a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1874,
+      "blake3": "f5ce004c8893cc7057f63846872b36c1eb84f2b9acb1e340f2b67c15f5cf1651"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-3-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1857,
+      "blake3": "3e832c120e7377196cc910042c62d61063678d8502962db6983296b98023db50"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1789,
+      "blake3": "cce2c8b1d8208a45e538392ef7b4af8f488ba49a57724cc4f5e2ed4d6c0362cf"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1805,
+      "blake3": "e24a64b22a51dc9c1b2f0783b41d0b8f96c1fa65141b90afc566220df039cb56"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1795,
+      "blake3": "1411c92e7be1bdcc1adbd7d8e8267d87aee76cefc0033e289af51c138b8ca011"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1904,
+      "blake3": "c903ed83bf8a28f55f6da8e14c2f8687f2e6ddacfa2ec6739b86c71fe41efcac"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1913,
+      "blake3": "e887aa4188004bf8ff773e99edf630d21677b40b4d92171ce546c3acb1b11ddb"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1907,
+      "blake3": "43f6c8a09e1cb9c367e0dfbc6e62b1e4fe768cc9448d6d6c826bd4471d98f22f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1785,
+      "blake3": "18700c093018f785c269ac736949e4ff25dccc404590fdab52432265df9fcabe"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1797,
+      "blake3": "39d0bfeb6b72ae1ffbd5bfb30e0cdc62ecad7b3d8d9b059c47833818ff5aebbb"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1785,
+      "blake3": "7cddda2d1373420c166e36122422531dbddc28424dd032c91e49a8a9661beea7"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1970,
+      "blake3": "a01ac709f20607f13dd3cd769bee45e7aba28835f0c98b95266ab0db3919a4be"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1993,
+      "blake3": "8bbeb14d16e6c6f665f40663db4d537584be3f7ec43977586e7fc25e055c709a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1978,
+      "blake3": "70163afa369eb6159acc4688d6f4595401f5d1d119eeab787558013484472f01"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1874,
+      "blake3": "f20825d645fde23daee14c3b76e775a6a48e2bdd62b714058a4f42a1908ec9a3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1879,
+      "blake3": "189fc9ccd54fd7aebd14ff72bbf8e86abd2cbe7a719cd5be58737781bd449499"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1876,
+      "blake3": "98bde8ab5221ad6159cbba10787dcc1c3544d977e00609139eb7497d5fbd1d29"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1785,
+      "blake3": "79d9d3469142658b37fcf2b31b046d15dda5981682f7f09e92bb0acee50e86be"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1796,
+      "blake3": "86f55a478a5c7621bd3cd04d58eb9e47f9b1e01630ee16c8b06d7358d0de13a9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1786,
+      "blake3": "58a1190db4998faf4eb36a500298a21ff51c7cee15eb216472c8704be54a0511"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1941,
+      "blake3": "19cc6f82cc81bc7010434c618c085cd644ab1ece8682980e933127a8ef275831"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1954,
+      "blake3": "514480bc85fa4efffefa35a152479b8a8368b2cf1f775e15112f8d59ae8bb143"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1943,
+      "blake3": "9bf412c70236ffb0e3e864d95fc6efe1d43f92f9465e3ba176fd258f0e135730"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1855,
+      "blake3": "b9a8ad9505b7cff4a3824680e900924f41fcf05be4ce34256fbe29d09d429a16"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1866,
+      "blake3": "9624e9d2cc01ec27403e77a022773f08a177c0ec56e7c2bf4cc2007b836a8cad"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-5-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1862,
+      "blake3": "5794cf161c4da29c426a2ef3adc08cb228c3564a7701ad9f90c6e5735f181241"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1748,
+      "blake3": "43a40b6e06e30830fb8eb3c8662dd0940060e1c6fe1b11f2d2fdc6cb277754af"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1767,
+      "blake3": "316e964cacfe9fef4d1e2e44356789b842433cbfca82e00c7eb641204f852ce9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1756,
+      "blake3": "2deee79ad5b8a5b0a5c0dad295f8f4ab8872a4aa14fb097426f1e1a8ec36e605"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1870,
+      "blake3": "0ff8b6c05a62767cd969d89254f0bc80210cae583a22401a2769e28c4b001c91"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1876,
+      "blake3": "6e0b6fe9ade20787fb4fbb084164b949060139f3b136a961db93383416f987f7"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1876,
+      "blake3": "c91e7e9e13d162abf5570203a86c0873668dd12ecf8e193d7b68dfbf60896f6a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1745,
+      "blake3": "1694a4034b7d53a56db4465fcac870b7e9752b9c1fe56e9e4b1952bd9820357d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1758,
+      "blake3": "0dd6cbb6173ddaa699d45676a37c536508f62d5094e8039ae843d1323d2f44f3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1755,
+      "blake3": "8224593359fb92ea4fd1ec949914923f8c127f8a0b4316817091682c6542592b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1939,
+      "blake3": "a39339a1bca2be7a976ca338c1dabbf955f90ec5381c8b808b72af4975736946"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1947,
+      "blake3": "3cbaf0658b4afef28e323e1c260d480b0b13ffc829b4c98b2f659ddc2a9114b6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1944,
+      "blake3": "12e99fd4e1407967af098123902183ed3d6649d8a080d469bb7fb440608e7616"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1834,
+      "blake3": "8c71f086001766fa3d444a0df25ee30de031753feb425578fdb8b5fc79897980"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1841,
+      "blake3": "2a50928bcc9dc5dbe149e66f0e6cea849052d75526a1c09b9b7ed8b07f6382f6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1841,
+      "blake3": "43fbf5703f2fec2a7d4b344b165aab3a4800c206fdd1278054d9b9a36d389c85"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1745,
+      "blake3": "d5b263f29b131d302363a80926b086b127cdc07d7dcbf57f5e070734b1dcc691"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1757,
+      "blake3": "2e1c7cca667de4aae777fc7804e55488e266a55aa4b0cd40a52e6c841e4a3bc5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1756,
+      "blake3": "6349c62ba4e5cc000d2123a3d42c6c8cdcb7f8032a9e644fc96fdaf8a6633465"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1905,
+      "blake3": "0a869ae72dde5a92b0c1729573c1efcf3662335e7382a4337d24361b839ae227"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1914,
+      "blake3": "a3efb43dd3ae048037579ea71061f45118fe4854e5a75f7cf98a8a0104236aa1"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1911,
+      "blake3": "7e667d2330cbaecd65f8dbc1a83e56bac53413ab31d96a4c49fcfa0c06b08c3f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1813,
+      "blake3": "05337dc1b089eebc6dc9a356656f5e5a85a53e5caae502aa4a0b3ddede693583"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1827,
+      "blake3": "e57dddde539e0df02bea1f27abda628346e7ae6a838c7bdd7cef841bc152bca5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-batch-7-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1825,
+      "blake3": "96e12ba54da7951bf6606397265f8701e042d4a67f2ac073ff4d225c2fd660ce"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1747,
+      "blake3": "5d2bb14bdc39e66eeff91494ad2d584abb8a78041fbc81082cdb3946eef86fb8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1767,
+      "blake3": "5161ce20fa79d249d34941cc145dd74ef0e17fe59832650132ffb6dc43ea9308"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1743,
+      "blake3": "97ba1f49b9901f0c4df20efe5410d51b7aeea787d863a94e1552879d19a15cd5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1867,
+      "blake3": "5894f2a0478283aff219810879609dabc7f0193ca0aeb1be8f5c8659326c5344"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1890,
+      "blake3": "cb89107cc2063d150bdc89dcd796407432c9d16db69abe8f8db32cbb76c3b791"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1865,
+      "blake3": "e39658874e9370fe033c6dec47d739ef0c223b7c3aa5789175a7266800195da5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1739,
+      "blake3": "9b7cd4e8df53339d0f4af34b047227f7d3e05370ef5cbd1294f89a854cef4b80"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1727,
+      "blake3": "fec391717cfb8f9152f948f173107446949b35084bc9c7074567958b15b0550b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1768,
+      "blake3": "c506a191e8d4973348dd5c2d2b2279cf8ad4ad030e9f1d03ab5f931af2dfe88c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1933,
+      "blake3": "5a18dfc00e6085f34d59ee559eaebcaecbc9d1ef573d754cc7d3615e83f512b1"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1915,
+      "blake3": "88e81c551cb21265646fe219b319b351c40874b1678190fb64cc5f6bcbe93a3b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1927,
+      "blake3": "e16b670fe0dc8437ce76dfb71d2e74e44d86774ca941def5d8f01ac503f40998"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1803,
+      "blake3": "657073c85db312827639094d811f69a868a09fd001e4dd8992659494ffa21f07"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1807,
+      "blake3": "b6f7c15dd6acaf2d3d30be409d76b8389520537ad85513c001736e51831ccaef"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1809,
+      "blake3": "4142305631b3846d5c85e7c0c3b00b05e62e2871bf5c669bd803b1f1b4b6b37a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1757,
+      "blake3": "28ec59337a1d7d1b6c7c1bd8abae623e7024172d93c555e35ab188bf3d2f7f36"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1735,
+      "blake3": "eaf17eb23f24cb65e6b9815777c8cadf76224532e5c8b60bea2a9d8caedf5cf9"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1738,
+      "blake3": "a47b46964ff708213a4606aa1be35ec8604f25ac6becd434347fd1c4a1dec87a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1912,
+      "blake3": "cd9d3c28e44f48752d4e2cdc13651e79bad5c791f192f60452481607e28cd987"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1873,
+      "blake3": "5a8d1cf67331b53f9471c3cd6bb38f3c898c80fd16e5c397189bbbb1c27804ec"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1896,
+      "blake3": "8783eada53c30ad4ff97cb90e10b99fd92cd5d2dd447a01ac2fd674fe18182c6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1847,
+      "blake3": "28109b47a742d88df9f77a7d419b07d2a5805b12970c63647e13b8ff4bf697d5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1808,
+      "blake3": "5d99915a8656641ce779c29065f30ed72612b9f873629ab302d02f571dc4475b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-0-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1793,
+      "blake3": "658e2f23bdfab38a24b843905df251cbd0f52f9abb31514bfdc8444b4c332e1e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1765,
+      "blake3": "5531ad0ab3c66efb1075c41646af271a38d32df01684a5b3fbbd2b661e52a5c8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1768,
+      "blake3": "5b89424f46b3aa36a1a27c1b490c920daf389b8084d2cbbb97d3b4eb88f57cbb"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1755,
+      "blake3": "f31ca9a4b352e8ec14679343643595c8e350ddda9da212278a3e0d05389670bc"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1871,
+      "blake3": "3f5bb4c8cf9390d95e2065981643a416cce32e840b716416da73c97f4fb13deb"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1867,
+      "blake3": "56b8f0d0ed7d93baa8ad7d9f7e7775598ad6578645f5def475309b23c3b36268"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1874,
+      "blake3": "0bf7e4a1f801ad4acd22a53dfa34eb3bbbe01bde5a807e1f138d48c6d7e585ba"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1752,
+      "blake3": "83e4668e84d880ec619c5d9fc4ec919647d571b75c6bdcb23322f89f159a0c7e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1741,
+      "blake3": "cf5d84d500002bf234d3db557d4bfbf613af26af59a807e56d367f45a5633a84"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1737,
+      "blake3": "18cadec70c57d1820f2d221d38198a36529570f222e406560fe7896d386e9f36"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1934,
+      "blake3": "eb2ab65481d8be8dbe3999ed83525f0dc22063ce442f964a6d29e98c79522f0d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1921,
+      "blake3": "7472b0875c56e1d2e306aad515a23e35e24022b4ec53bed7a83a538b78994e56"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1942,
+      "blake3": "d78d00fc29ead330a08f36bc668040203e6d7a5de2b98eb6a1824ef9dd06efbb"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1843,
+      "blake3": "abb54c95a93464e8920930433e568cbd19bdd6e9175d035e473668377de2628b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1830,
+      "blake3": "8c930fcf9f2f06c358978ec9225359a33e9300cf51bee61b5e24c499c9fbfc71"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1842,
+      "blake3": "3189713d42fe94e965f4821b9d247f889fbe823ffcfa7a6213657ca99c564b5c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1780,
+      "blake3": "b2e76607de4f52338f4f3f4f50f0eae1fff98fda81ec10b216cdb82123843fec"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1755,
+      "blake3": "20702d5f356fc5f4ef6acb2185c854209555fa380cad7f1fc9e070a6ceef0fcf"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1754,
+      "blake3": "48e882cb2ba3c8e2ae31fc9466f817803331405c11fda65c65512cf20710d454"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1903,
+      "blake3": "376efdfc4b7af8f75fa171a81edea6b5b758b9fe04f9a07f7ffde4c2fec2dcc7"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1900,
+      "blake3": "f9ced6ab0c424eed2aad571cb16b7fb22809eeee49c2e6e90608152f07e83e8c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1930,
+      "blake3": "8eda796907e320256bd5e69308134482b8c539125140e4eee30e7359daca9b6e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1830,
+      "blake3": "8cc3c125f4abd7db6d4e3efc96b190de106e8399bbc06f863c8edb844e7732aa"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1804,
+      "blake3": "74a929789d87c90cca830df7ab03758bf01cc1468ab22aee812e001dead0defa"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-2-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1848,
+      "blake3": "2910c33ca5e6ae78c5bc893bf5481cef2a639ed3a5ff027d8f911679880ebb94"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1781,
+      "blake3": "3a3a3181fd2dbc3a51e966ba9402ec90c7d6671aa7a454f9695a5b60af1eaa4b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1759,
+      "blake3": "65796e6f3621a311da13518648bf1fd484ffd15d947ed2ec6b013737819940e0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1733,
+      "blake3": "d1a475922e003b49600ed972def71caf9990dc07ab5435edd9052bef0461af5c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1891,
+      "blake3": "beda4ced9f297d5bb9f8c0f15fc1ba6734b883ef10936d01acffef66bd1f7e40"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1869,
+      "blake3": "dd3ff97c63421c93782babf93ee50e7eefb83cf60cc7b7d94d45287e2c7ea20a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1869,
+      "blake3": "cd863d5ac7ee0445ced51b96a40f3b67bf32287b045d19326825c2703c7944e0"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1778,
+      "blake3": "67f19bc6573f7b6b851f750de0e5659ba255b3919dc50b92745aa96c0da39629"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1755,
+      "blake3": "0dc5f474578cffb64003edc2eaff38836915ddb77d4f9b20be43138bff4457d8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1762,
+      "blake3": "cd63d9a90371236e200bfa82b742b53597e094655fa28e95c1f8318eb6f647d6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1964,
+      "blake3": "5e0fb59d89dd096ab0ebc2a75b21fac7b983b3eb36295a0e064a917eb2f72e3f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1931,
+      "blake3": "407d60d0cb1ac15ef788fe7852fd6ff7cee1be34843b99ebf5e4a3a6a3ca5308"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1966,
+      "blake3": "b5071962685e2e6a1cc6798926f421a67b918f17c771834defeaa20f6ec70c1e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1843,
+      "blake3": "3e9b083f0538f864afbec7e1b55749eb6ca19cbfa32f7252f92a109d5db6070d"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1834,
+      "blake3": "3027bc96373995979b8966a67442ed1c580e62d45439b87ca52c7db2aefd9f33"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1864,
+      "blake3": "9f5bd4c7fc727459973e8a77ce26a4278d80b529754e6cca00fd8fb4076f499f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1766,
+      "blake3": "4c939b23ee7467d722106d464a6a547341527e5c952a32abd88217a23e69d6b8"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1735,
+      "blake3": "5386d1bca15a7356acbd060de59686ea0f3b9f9e16ffed394e89d4cb12ae3c5b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1791,
+      "blake3": "d676bf9f3bd50c7257aa6274d85ac2749fbc282656e18c8c242964c12e4d3b1c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1910,
+      "blake3": "2e7a09ea5e0c62989fc5900e42488011c89d8347ba7aa612ca8517b8cff0b008"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1891,
+      "blake3": "5047cb8d09feb58859aba04aabfadb165a314c9707d5e47459761644ceca4f79"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1962,
+      "blake3": "800bfb173cc2d8733f4403335a7e31ad5575f3849425cf43f5834700dcaf3829"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1839,
+      "blake3": "6aa0d1fb896ff13d2235c02a7c80bceb61403c27125b817f5c0d960793d85245"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1807,
+      "blake3": "ae95f18daa9404e6095050767c1f6899f6b4f88cb34b2fafc7f056d896ee5c3e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-4-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1849,
+      "blake3": "1504320ea8d1ab5ebfecb95def0308ab635c5c0cefb37418f8d4e272a602fed5"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-0-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1734,
+      "blake3": "2e221f905473ae06117d2387519a20105815f75c91348caac2b9dd119e4ccad3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-0-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1737,
+      "blake3": "cc6968d0be952d1e7379d94d1bead2fd398065bda2088145dd7a537e7d03851a"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-0-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1736,
+      "blake3": "08bc92424f91c38d96d86c7115027b4dd3c4914fdc75fd532ca873d63ebf4419"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-1-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1842,
+      "blake3": "7602c18b371559737d742472636f06e80ccd8855813d753838f5221c06c4dc01"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-1-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1861,
+      "blake3": "7a38ac5af2330296b7da68a9271c10650a255d10324c80c2c8b7930d52266ffa"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-1-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1845,
+      "blake3": "8099681c5a052ce37e923247ce1c5007628fc072ff50ae028621d6ea7bd94f2f"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-2-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1728,
+      "blake3": "e6649e0c7b654984b4deb85aee665c57cc056e5efb09f4b43a42f926e0cff97b"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-2-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1780,
+      "blake3": "1f7988336c90213aa2bbbdd03ae42863b62dc58572d7cb918b6e6cf549ff20c6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-2-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1720,
+      "blake3": "035a099c5f1c01bf3aea6f5af5ac213747860895b333902a921330f41a52b833"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-3-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1910,
+      "blake3": "1dc90c945d4c4463febd85f8f261af3df9e931cde46fea835b5de88c942ff842"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-3-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1921,
+      "blake3": "6e45e76713803bb764e6011122657cc17b3165ea3ae9517ab396a7c6f47f2b56"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-3-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1919,
+      "blake3": "92c9a0eb3268bea648406e9768ecad877f977d0412e52079c8b00b488a6c4063"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-4-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1808,
+      "blake3": "9971a0ca623d366c9979a93222c528d2e2f35143e709c8a56079a32160e15002"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-4-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1830,
+      "blake3": "a94f1a23433b0cb31edec683da09c00df58b6f0e24a321fb876e3de0e39c7118"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-4-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1816,
+      "blake3": "3bbccff7c8581beafdb33bb5fb3021938688fba9c64bc195f1d76436620976b6"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-5-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1731,
+      "blake3": "e7ed30bc5ca521b07fa65724ca8a1b01587bb8202372eeb23408f576576c0129"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-5-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1737,
+      "blake3": "b2c3e11e134febd85f91973d4b12c6e7d8fc76a3a0106ccb12b9cdb8d59ba402"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-5-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1736,
+      "blake3": "3be5ca4a3d7290fa9d760aea1f77c57b14706eb24cada8420b4b3401a27fd8ee"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-6-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1896,
+      "blake3": "bb0bb9910fd9725220b1e6ce5afcf8ba15bdca5b78132079df5e28afa737cbe2"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-6-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1886,
+      "blake3": "7923f192712806cc157c0c0f967625703cb0414c759c2de17b980e09dd410293"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-6-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1880,
+      "blake3": "8026e1a23d56f2f3a56cb8e7bda3036d77b7ff0d1e41d9a1e89bfaf2ef630b3e"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-7-measured-1.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1798,
+      "blake3": "1d05ff91fe73a9c181cbd0aec3e9f15c18735e3ddf016a70e3edb6546eec49aa"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-7-measured-2.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1805,
+      "blake3": "213aca389758ef32f6d706fcf3676a14d85b05d2f347880f02c58d30352e6d41"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-22/qwen38-batch-admission-v3-single-6-response-7-measured-3.json.gz",
+      "class": "portable_evidence",
+      "byte_count": 1802,
+      "blake3": "e0834a06301a5a51f7080edbd3ad72d9f938f09608a861c506183fd356b440f7"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",

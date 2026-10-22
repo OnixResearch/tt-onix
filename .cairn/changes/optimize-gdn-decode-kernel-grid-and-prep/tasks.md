@@ -51,7 +51,7 @@
 ## Phase 4: Completion
 
 - [x] [serial] D1 Record the parity table, the occupancy derivation, the step-time result, and every non-claim. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]
-- [ ] [serial] V9 Widen the admission protocol so it resolves a two percent difference: interleaved root order, per-user first-token statistics instead of the group maximum, and enough roots for a stable median. Blocks any further width-8 admission verdict; evidence/protocol-measurement-power.md. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]
+- [x] [serial] V9 Widen the admission protocol so it resolves a two percent difference: interleaved root order, per-user first-token statistics instead of the group maximum, and enough roots for a stable median. Blocks any further width-8 admission verdict; evidence/protocol-measurement-power.md. The interleaved protocol's spread across four pairs is 0.07 % on the aggregate decode speedup and on the per-user retention, against the four-root protocol's 0.070 band on retention; the per-user first-token ratio and the tail ratio remain noisy at 6 % and 18 %. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.valid]  (evidence/protocol-v3-validation.md)
 - [x] [serial] D2 Reject the candidate on any failed gate and keep the admitted kernel. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency.invalid]
 - [x] [serial] D3 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.gdn_decode_kernel_efficiency]  (`repository-quality-artifacts`, `repository-quality-cairn`, and `qwen38` all pass on the cleaned change; the artifact manifest carries the new evidence file)
 

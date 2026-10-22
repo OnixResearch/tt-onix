@@ -55,8 +55,9 @@ The interleaved protocol was run end to end at width 8 on the admitted package
 (`frf73q26…`, execution identity `l4arf461…`), eight fresh roots in the
 interleaved order, each root one warmup round and three measured rounds of the
 eight-prompt corpus, the single roots sequential and the batch roots released
-through the collection window. The receipt and the per-root numbers are recorded in
-`protocol-v3-validation.md`.
+through the collection window. The receipt admits the profile, and the spread across
+the four pairs is 0.07 % on the two decode-throughput metrics. The receipt and the
+per-root numbers are recorded in `protocol-v3-validation.md`.
 
 ## Non-claims
 
