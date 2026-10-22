@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "simulated": true,
+  "status": "passed",
+  "workload": "qwen38-staged-step-conv-prep-recurrence-float64-reference",
+  "exit_status": 0,
+  "package": "/nix/store/a7nlx35sz0pvklx96vbcks55qbaqam18-qwen38-0.1.0",
+  "package_identity": "/nix/store/rymc1wl22dwr1db16948sxlqk1p6wrm3-qwen36-execution-identity-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "simulator": "/nix/store/0qvnw9q02agnjbnm5pwvfpxhmrkqczii-ttsim-1.10.6/lib/ttsim/runtimes/blackhole-x1/libttsim.so",
+  "simulator_sha256": "9333b22c8a1aeefc4faa83acef56d79c8a43c7bddc4ff29f3965d4a3762cf626",
+  "descriptor_sha256": "2aa71c2d4321c186d2958ee05a82db4c4c405c4420ed31c1d592f490994942ef",
+  "step_reader_sha256": "df4c46da400cdb36a8f7628bd7f6878be9d67aceb432236b5dadf90adb589d12",
+  "step_reader_matches_head_patch": true,
+  "harness_sha256": "89aa8f1a29f0da68ced607e4158c2cd02b9217158c0dacdbcf07b96fcc926bd4",
+  "mesh": [1, 1],
+  "dispatch_mode": "slow",
+  "TT_METAL_DISABLE_SFPLOADMACRO": "1",
+  "physical_device_namespace": "absent: bubblewrap --dev /dev, asserted before mesh open",
+  "timeout_seconds": 3580,
+  "random_seed": 20261022,
+  "geometry": {
+    "num_k_heads": 1,
+    "num_v_heads": 1,
+    "head_k_dim": 128,
+    "head_v_dim": 128,
+    "max_batch": 1,
+    "batch": 1
+  },
+  "reference": "packaged decode_step.reference_step (float64), state carried for three steps",
+  "tolerance_source": ".pi/tmp/gdn-step/test_step.py:59-72 (preserved physical harness)",
+  "state_relative_tolerance_exclusive": 0.002,
+  "gated_relative_tolerance_exclusive": 0.02,
+  "steps": [
+    {"step": 1, "state_relative_error": 0.001534386355145001, "gated_relative_error": 0.00192821252340541, "conv_state_exact": true},
+    {"step": 2, "state_relative_error": 0.001454896039034123, "gated_relative_error": 0.0017164542368592064, "conv_state_exact": true},
+    {"step": 3, "state_relative_error": 0.0015221651721497192, "gated_relative_error": 0.0017277577908767804, "conv_state_exact": true}
+  ],
+  "observations": {
+    "simulated_mesh_opened": true,
+    "fresh_jit_cache": "0/51 hits (0.0%)",
+    "conv_prep_executed": true,
+    "recurrence_executed": true,
+    "recurrent_steps_completed": 3,
+    "clean_close": true
+  },
+  "raw_verdict": "SIMULATED STEP KERNEL: PASS",
+  "non_claims": ["physical placement", "performance", "hardware profiling", "silicon execution", "multi-device correctness", "full-model correctness", "admission"]
+}

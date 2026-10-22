@@ -1424,6 +1424,12 @@
       "blake3": "763ec11d93ddba741a6657d596b880ddb3c0cb5cd871dbe0cb3d229f3b2023aa"
     },
     {
+      "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/v4-kernel-hazard-audit.md",
+      "class": "portable_evidence",
+      "byte_count": 26763,
+      "blake3": "d447149a636c9aa55bf45c8c3d747c6b532521928c82d18a030a4dd5e7f7bdca"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/width-dependent-cost.md",
       "class": "portable_evidence",
       "byte_count": 6248,
@@ -2574,6 +2580,18 @@
       "class": "portable_evidence",
       "byte_count": 3924,
       "blake3": "49081a22edb130cf3a0443ad856e9b2f7f6f21b22bd8f6e908d8f6a08de3bb2a"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.77/step-kernel-simulator-2026-10-22.json",
+      "class": "portable_evidence",
+      "byte_count": 2464,
+      "blake3": "1f41b90cb60f1dc8033528351aa6427b9141e525f12fbb4dade8eff815a1869c"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.77/step-kernel-simulator-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 4409,
+      "blake3": "a810b1bd17623cf1899895eb7b6fff3146b70f405675d451c5774731f2820833"
     },
     {
       "path": "docs/research/flash-next-p150x2-memory-gate.md",
