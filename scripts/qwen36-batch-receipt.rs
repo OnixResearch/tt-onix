@@ -29,13 +29,17 @@ const MEASURED_MARKER: &str = "-measured-";
 const JSON_EXTENSION: &str = "json";
 const MEASUREMENT_MODE: &str = "batch-admission";
 const DECODE_PATH: &str = "batched-traced";
-const EXPECTED_ROOTS_PER_ROUTE: usize = 2;
 const EXPECTED_CHOICE_COUNT: usize = 1;
 const EXPECTED_DEVICE_COUNT: usize = 2;
-const EXPECTED_EXECUTION_ORDER_COUNT: usize = 4;
 const EXPECTED_DEVICE_IDS: [i64; EXPECTED_DEVICE_COUNT] = [0, 1];
-const EXPECTED_EXECUTION_ORDER: [&str; EXPECTED_EXECUTION_ORDER_COUNT] =
-    ["single", "batch", "batch", "single"];
+// The historical protocol: two roots per route, the batch roots adjacent.
+const LEGACY_EXECUTION_ORDER: [&str; 4] = ["single", "batch", "batch", "single"];
+// The interleaved protocol: the routes alternate and there are enough roots for
+// the median to settle, so a drift in the host's load reaches both halves of a
+// ratio at the same point in time.
+const INTERLEAVED_EXECUTION_ORDER: [&str; 8] = [
+    "single", "batch", "single", "batch", "single", "batch", "single", "batch",
+];
 const FLAG_ARGUMENT_WIDTH: usize = 2;
 const MEDIAN_DIVISOR: usize = 2;
 const MEDIAN_DIVISOR_FLOAT: f64 = 2.0;
@@ -263,14 +267,12 @@ fn parse_config(arguments: &[String]) -> Result<Config, String> {
         }
         index += FLAG_ARGUMENT_WIDTH;
     }
-    if single_roots.len() != EXPECTED_ROOTS_PER_ROUTE
-        || batch_roots.len() != EXPECTED_ROOTS_PER_ROUTE
-    {
-        return Err("exactly two single and two batch roots are required".to_owned());
-    }
     let execution_order = execution_order.ok_or("missing --execution-order")?;
-    if execution_order != EXPECTED_EXECUTION_ORDER {
-        return Err("execution order must be single,batch,batch,single".to_owned());
+    let expected_roots = roots_per_route(&execution_order)?;
+    if single_roots.len() != expected_roots || batch_roots.len() != expected_roots {
+        return Err(format!(
+            "exactly {expected_roots} single and {expected_roots} batch roots are required"
+        ));
     }
     Ok(Config {
         profile: profile.ok_or("missing --profile")?,
@@ -412,15 +414,33 @@ fn build_receipt(config: &Config) -> Result<Value, String> {
     }))
 }
 
+/// The accepted execution orders, and the number of roots each route needs.
+fn roots_per_route(order: &[String]) -> Result<usize, String> {
+    let legacy: Vec<String> = LEGACY_EXECUTION_ORDER
+        .iter()
+        .map(|entry| (*entry).to_owned())
+        .collect();
+    let interleaved: Vec<String> = INTERLEAVED_EXECUTION_ORDER
+        .iter()
+        .map(|entry| (*entry).to_owned())
+        .collect();
+    if order == legacy {
+        return Ok(2);
+    }
+    if order == interleaved {
+        return Ok(4);
+    }
+    Err("execution order must be single,batch,batch,single or the interleaved order".to_owned())
+}
+
 fn validate_profile(profile: &Profile, config: &Config) -> Result<(), String> {
     if profile.physically_admitted || profile.identities.receipt_blake3 != "not-measured" {
         return Err("input profile must be unadmitted and unmeasured".to_owned());
     }
-    if profile.workload.execution_order != EXPECTED_EXECUTION_ORDER
-        || config.execution_order != profile.workload.execution_order
-    {
+    if config.execution_order != profile.workload.execution_order {
         return Err("profile execution order differs from the command".to_owned());
     }
+    roots_per_route(&profile.workload.execution_order)?;
     if profile.workload.baseline_width != SELF_TEST_BASELINE_WIDTH
         || !ALLOWED_CANDIDATE_WIDTHS.contains(&profile.workload.candidate_width)
     {
@@ -843,7 +863,7 @@ fn run_self_test_case(case: &SelfTestCase) -> Result<(), String> {
         profile: profile_path.clone(),
         single_roots: vec![single_one.clone(), single_two.clone()],
         batch_roots: vec![batch_one.clone(), batch_two.clone()],
-        execution_order: EXPECTED_EXECUTION_ORDER
+        execution_order: LEGACY_EXECUTION_ORDER
             .iter()
             .map(|value| (*value).to_owned())
             .collect(),
@@ -901,7 +921,7 @@ fn run_self_test_case(case: &SelfTestCase) -> Result<(), String> {
         BATCH_ROOT_FLAG.to_owned(),
         batch_one.display().to_string(),
         EXECUTION_ORDER_FLAG.to_owned(),
-        EXPECTED_EXECUTION_ORDER.join(","),
+        LEGACY_EXECUTION_ORDER.join(","),
         OUTPUT_FLAG.to_owned(),
         root.join("unused.json").display().to_string(),
     ];
@@ -992,7 +1012,7 @@ fn write_profile(path: &Path, case: &SelfTestCase) -> Result<(), String> {
         "workload": {
             "baseline_width": SELF_TEST_BASELINE_WIDTH,
             "candidate_width": case.width,
-            "execution_order": EXPECTED_EXECUTION_ORDER,
+            "execution_order": LEGACY_EXECUTION_ORDER,
             "generated_tokens": SELF_TEST_GENERATED_TOKENS,
             "measured_runs": SELF_TEST_MEASURED_RUNS,
             "prompts": prompts,

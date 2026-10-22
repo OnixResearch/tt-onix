@@ -119,6 +119,11 @@ let
     (stableIdentityPath "qwen36-batch-admission-b8-policy.ncl" ./batch-admission-b8-policy.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-policy-validated.ncl" ./batch-admission-b8-policy-validated.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-contracts.ncl" ./batch-admission-b8-contracts.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b8-contracts-v3.ncl" ./batch-admission-b8-contracts-v3.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b8-policy-v3.ncl" ./batch-admission-b8-policy-v3.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b8-policy-v3-validated.ncl" ./batch-admission-b8-policy-v3-validated.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b8-binding-v3.ncl" ./batch-admission-b8-binding-v3.ncl)
+    (stableIdentityPath "qwen36-batch-admission-b8-profile-v3.ncl" ./batch-admission-b8-profile-v3.ncl)
     (stableIdentityPath "qwen36-batch-admission-b8-profile.ncl" ./batch-admission-b8-profile.ncl)
     (stableIdentityPath "qwen36-batch-admission-b16-policy.ncl" ./batch-admission-b16-policy.ncl)
     (stableIdentityPath "qwen36-batch-admission-b16-policy-validated.ncl" ./batch-admission-b16-policy-validated.ncl)
@@ -272,6 +277,11 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-b8-binding.ncl} "$out/share/qwen36/batch-admission-b8-binding.ncl"
     cp ${./batch-admission-b8-binding-validated.ncl} "$out/share/qwen36/batch-admission-b8-binding-validated.ncl"
     cp ${./batch-admission-b8-contracts.ncl} "$out/share/qwen36/batch-admission-b8-contracts.ncl"
+    cp ${./batch-admission-b8-contracts-v3.ncl} "$out/share/qwen36/batch-admission-b8-contracts-v3.ncl"
+    cp ${./batch-admission-b8-policy-v3.ncl} "$out/share/qwen36/batch-admission-b8-policy-v3.ncl"
+    cp ${./batch-admission-b8-policy-v3-validated.ncl} "$out/share/qwen36/batch-admission-b8-policy-v3-validated.ncl"
+    cp ${./batch-admission-b8-binding-v3.ncl} "$out/share/qwen36/batch-admission-b8-binding-v3.ncl"
+    cp ${./batch-admission-b8-profile-v3.ncl} "$out/share/qwen36/batch-admission-b8-profile-v3.ncl"
     cp ${./trace-reuse-profile.ncl} "$out/share/qwen36/trace-reuse-profile.ncl"
     cp ${./trace-reuse-policy.ncl} "$out/share/qwen36/trace-reuse-policy.ncl"
     cp ${./trace-reuse-policy-validated.ncl} "$out/share/qwen36/trace-reuse-policy-validated.ncl"
@@ -380,6 +390,14 @@ stdenvNoCC.mkDerivation {
     cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-export/batch-admission-b8-contracts.ncl
     nickel export --format json batch-admission-b8-profile-export/batch-admission-b8-profile.ncl \
       > "$out/share/qwen36/batch-admission-b8-profile.json"
+    mkdir -p batch-admission-b8-profile-v3-export
+    cp ${./batch-admission-b8-profile-v3.ncl} batch-admission-b8-profile-v3-export/batch-admission-b8-profile-v3.ncl
+    cp ${./batch-admission-b8-policy-v3.ncl} batch-admission-b8-profile-v3-export/batch-admission-b8-policy-v3.ncl
+    cp ${./batch-admission-b8-policy-v3-validated.ncl} batch-admission-b8-profile-v3-export/batch-admission-b8-policy-v3-validated.ncl
+    cp ${./batch-admission-b8-binding-v3.ncl} batch-admission-b8-profile-v3-export/batch-admission-b8-binding-v3.ncl
+    cp ${./batch-admission-b8-contracts-v3.ncl} batch-admission-b8-profile-v3-export/batch-admission-b8-contracts-v3.ncl
+    nickel export --format json batch-admission-b8-profile-v3-export/batch-admission-b8-profile-v3.ncl \
+      > "$out/share/qwen36/batch-admission-b8-profile-v3.json"
     mkdir -p batch-admission-b16-profile-export
     cp ${./batch-admission-b16-profile.ncl} batch-admission-b16-profile-export/batch-admission-b16-profile.ncl
     cp ${./batch-admission-b16-policy.ncl} batch-admission-b16-profile-export/batch-admission-b16-policy.ncl

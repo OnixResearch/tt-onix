@@ -6055,6 +6055,53 @@ def probe_batch_decode_scheduler():
 # r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
 # r[verify tenstorrent.qwen38_p150x2.batch_ttft_evidence]
 # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
+def probe_batch_admission_execution_order():
+    """The admission protocol accepts the interleaved root order and the historical
+    one, and refuses any other order."""
+    from qwen36_service.batch_admission_core import (
+        INTERLEAVED_EXECUTION_ORDER,
+        LEGACY_EXECUTION_ORDER,
+        BatchAdmissionPolicyError,
+        BatchAdmissionProfile,
+    )
+
+    profile_path = Path(__file__).with_name("batch-admission-b8-profile-v3.json")
+    with profile_path.open(encoding="utf-8") as profile_file:
+        profile_mapping = json.load(profile_file)
+    profile = BatchAdmissionProfile.from_mapping(profile_mapping)
+    require(
+        profile.execution_order == INTERLEAVED_EXECUTION_ORDER,
+        "the interleaved profile did not keep its root order",
+    )
+    for order in (INTERLEAVED_EXECUTION_ORDER, LEGACY_EXECUTION_ORDER):
+        mapping = json.loads(json.dumps(profile_mapping))
+        mapping["workload"]["execution_order"] = list(order)
+        try:
+            BatchAdmissionProfile.from_mapping(mapping)
+        except BatchAdmissionPolicyError as error:
+            require(
+                False,
+                f"an accepted execution order was refused: {order} ({error})",
+            )
+    for order in (
+        ("single", "single", "batch", "batch"),
+        ("single", "batch", "batch"),
+        ("batch", "single", "batch", "single"),
+        ("single", "batch", "single", "batch", "single", "batch", "single"),
+    ):
+        mapping = json.loads(json.dumps(profile_mapping))
+        mapping["workload"]["execution_order"] = list(order)
+        try:
+            BatchAdmissionProfile.from_mapping(mapping)
+        except BatchAdmissionPolicyError as error:
+            require(
+                "execution order" in str(error),
+                f"wrong execution-order diagnostic: {error}",
+            )
+        else:
+            require(False, f"an unsupported execution order was accepted: {order}")
+
+
 def probe_batch_admission():
     """Positive and negative tests for batch admission policy and phases."""
     from qwen36_service.batch_admission_core import (
@@ -14685,6 +14732,7 @@ def main():
     probe("prefix cache scheduler binding", probe_prefix_cache_scheduler_binding)
     probe("resident trace admission", probe_resident_trace_admission)
     probe("batch admission policy", probe_batch_admission)
+    probe("batch admission execution order", probe_batch_admission_execution_order)
     probe("tensor binding identity", probe_tensor_binding_identity)
     probe("same-width trace-reuse profile", probe_trace_reuse_profile)
     probe("startup warm-up readiness", probe_startup_readiness)

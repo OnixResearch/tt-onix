@@ -19,7 +19,23 @@ REVISION_LENGTH = 40
 NOT_MEASURED = "not-measured"
 ADMISSION_MEASUREMENT_MODE = "batch-admission"
 PRODUCTION_MEASUREMENT_MODE = "physical-batched-service"
-EXPECTED_EXECUTION_ORDER = ("single", "batch", "batch", "single")
+# The historical order, kept so the admitted receipts still validate: two roots
+# per route, the batch roots adjacent.
+LEGACY_EXECUTION_ORDER = ("single", "batch", "batch", "single")
+# The interleaved order: the routes alternate, so a drift in the host's load
+# reaches both halves of a ratio at the same point in time, and there are
+# enough roots for the median to settle.
+INTERLEAVED_EXECUTION_ORDER = (
+    "single",
+    "batch",
+    "single",
+    "batch",
+    "single",
+    "batch",
+    "single",
+    "batch",
+)
+ACCEPTED_EXECUTION_ORDERS = (LEGACY_EXECUTION_ORDER, INTERLEAVED_EXECUTION_ORDER)
 
 
 class BatchAdmissionPolicyError(ValueError):
@@ -132,7 +148,7 @@ class BatchAdmissionProfile:
         execution_order = _require_string_tuple(
             workload["execution_order"], "workload.execution_order"
         )
-        if execution_order != EXPECTED_EXECUTION_ORDER:
+        if execution_order not in ACCEPTED_EXECUTION_ORDERS:
             raise BatchAdmissionPolicyError("workload execution order is unsupported")
         prompts = _require_string_tuple(workload["prompts"], "workload.prompts")
         physically_admitted = _require_bool(
