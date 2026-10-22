@@ -1516,8 +1516,8 @@
     {
       "path": ".cairn/changes/readmit-qwen38-prefix-cache-b8/evidence/prefix-cache-abba.md",
       "class": "portable_evidence",
-      "byte_count": 6604,
-      "blake3": "165d3ffb39bd783362fde5495f75950cf4d1133013e710a385827a359431c8b6"
+      "byte_count": 6551,
+      "blake3": "adb3a59cdc19513c8a0c2a391c5e8c0fa752231a825a80cfe61d65e16c6d299a"
     },
     {
       "path": ".cairn/changes/select-qwen38-continuous-slot-b8/evidence/b8-admission-receipt-inkfvsjq.json",

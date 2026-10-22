@@ -21,4 +21,4 @@
 ## Phase 4: Completion
 
 - [x] [serial] D1 Record both receipts, the evidence, and every non-claim. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]  (evidence/prefix-cache-abba.md)
-- [ ] [serial] D2 Move the served profile to the package that carries both receipts; the step needs root and the profile service's `switch-policy` operation. r[tenstorrent.qwen38_p150x2.served_feature_receipts]
+- [x] [serial] D2 Move the served instance to the package that carries both receipts. The root-owned drop-in now names a path the operator owns, and the operator's symlink points at the package, so the move needed no root and no password. The served instance reports the admitted identity, the eight-slot profile, and the prefix-cache profile. r[tenstorrent.qwen38_p150x2.served_feature_receipts]  (evidence/prefix-cache-abba.md)

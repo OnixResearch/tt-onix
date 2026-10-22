@@ -114,10 +114,10 @@ carries the same eight gates with the same bounds.
   and the two workloads. It is not a general cache claim.
 - The scheduler profile is bound by the receipt; the scheduler's own admission is the
   separate receipt named above.
-- The served profile still points at the earlier package until the switch runs. The
-  switch needs root: the profile directory and the managed drop-in are root-owned.
-  The package itself was served directly in the deployed configuration above, which
-  is the same command line the switch ends up running.
+- The served instance now runs this package. The move needed no root and no
+  password: the root-owned drop-in names a path the operator owns, and the operator's
+  symlink points at this package. The evidence is in
+  `docs/qwen38-served-deployment.md`.
 - The host's other work drifts during the campaign. The ABBA order cancels that
   drift, which is what the protocol is for, and the miss ratios above are close to
   one.
