@@ -69,3 +69,27 @@ audit or prototype is represented as already complete.
 [B]: ../../../docs/research/qwen38-mlp-streaming-attribution.md
 [C]: ../qwen38-tp2-collective-shape-tuning/evidence/ceiling-verdict-2026-10-22.md
 [D]: ../optimize-gdn-decode-kernel-grid-and-prep/evidence/v4-kernel-hazard-audit.md
+
+## P1 verdict, 2026-10-22
+
+Under the conditional single-pass reader model, bank matching alone reduces
+**no aggregate weight bytes or page reads**. The weight-reader count is
+`Kt × per_core_N` for each assigned output-column partition, independent of
+`in0_block_w`; repartitioning those columns among eight readers does not remove
+any weight tile. Full-K participation is not evidence of full-matrix rereads
+by every core. The source facts, conditional arithmetic, and coverage bounds
+are recorded in [P1 layout evidence, section 4](evidence/p1-layout-current-2026-10-22.md#4-deeper-evidence-on-transactions-and-rereads-2026-10-22).
+
+The unconditional per-step transaction delta is not established by any
+permitted device-free authority. The actual selected-reader address/length
+stream, duplicate multiplicities, edge handling, and candidate coalescing
+have not been established. A congestion or routing improvement for unchanged
+payload must not be relabeled as a demonstrated byte/reread reduction.
+
+Therefore the candidate mechanism is **not supported device-free** and
+**must not advance to P2 as written**. A successor must establish a mechanism
+that changes aggregate bytes read or eliminates actual weight rereads, not
+placement alone, while satisfying the unchanged numerical-retention and
+separate matmul/reduce-scatter contract. The requirement and `specs/` remain
+intact as the contract for any successor; no prototype or hardware probe is
+authorized by this verdict.
