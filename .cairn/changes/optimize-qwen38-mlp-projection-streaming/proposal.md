@@ -15,13 +15,19 @@ by its appended correction ([B], “Weight-byte model and the hardware ceiling�
 
 ## What Changes
 
-- Open the candidate **MLP gate/up/down weight residency/fusion across the 64
-  layer calls**, reducing per-step weight traffic or rereads; not a proven winner.
+- Name the candidate **bank-matched DRAM-sharded weight residency** on the MLP
+  gate/up/down path across the 64 layer calls: exactly 8 DRAM reader banks,
+  compute grid bound to the 1×8 shard grid, and `per_core_N` derived from it.
+  Whether this reduces traffic or rereads remains to be established; not a proven
+  winner. Dtype, equations, accumulation, collective order, and every other
+  projection's grid remain unchanged.
   Unchanged-bytes 2× implies 531.6–581.5 GB/s, above the rated ceiling ([B],
   “Sensitivity”).
 - Require a declared traffic model, device-free evidence, and a numerical-retention
   screen before hardware: fix the NLL/perplexity floor, corpus, and comparison
   method as tasks before implementation, not assumed values.
+- Plan a device-free fail-closed legality/rejection module behind a default-off
+  admission flag; this records intended work, not an implemented variant.
 - Any variant must beat the already-rejected precision option
   `QWEN36_MLP_DOWN_BF4` (NLL rejection) and the
   `matmul_reduce_scatter_decode` decode-M=1 rejection ([A], “Collective share”

@@ -2,12 +2,18 @@
 
 ### Decision: traffic reduction is the candidate, not a demonstrated kernel
 
-**Choice:** investigate MLP gate/up/down weight residency/fusion across the 64
-layer calls to reduce per-step weight traffic or rereads. No variant is claimed
-to exist or win.
+**Choice:** the candidate is **bank-matched DRAM-sharded weight residency** on
+the MLP gate/up/down path across the 64 layer calls: width-shard weights across
+exactly the 8 DRAM reader banks, bind the compute grid to that 1×8 shard grid,
+and derive `per_core_N` from it. Dtype, equations, compute fidelity, accumulation,
+collective order, the separate matmul plus `reduce_scatter_minimal_async`
+contract, and every other projection's grid remain unchanged.
 
-The mechanism decision is pending from the implementation workstream; this
-candidate names the investigation, not an implemented variant.
+Plan a device-free fail-closed legality/rejection module behind a default-off
+admission flag, with the numerical-retention screen defined before implementation.
+Whether this layout reduces bytes or rereads relative to the packaged source
+remains to be established. No implementation or measurement is claimed; no
+variant is claimed to exist or win.
 
 **Rationale:** the source-derived per-device one-read model is 89,128,960 B
 payload / 97,484,800 B tiled storage per layer. At the separately traced 335.3 µs
