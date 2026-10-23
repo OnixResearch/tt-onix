@@ -66,3 +66,4 @@ tokenization, scored positions, and averaging rule, then measure paired BFP8
 control and MLP-layout-treatment NLL on that identical corpus. Without that corpus
 identity and matched measurement, the in-repo evidence cannot establish a new
 corpus-independent floor; do not invent one or substitute kernel relative error.
+Corpus recovery result: [P1 retention corpus identity](../../.cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-retention-corpus-identity-2026-10-22.md) records the recovered scratch passages, scoring recipe, NLLs, hashes, and remaining reproducibility limits.
