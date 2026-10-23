@@ -1462,8 +1462,8 @@
     {
       "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-layout-current-2026-10-22.md",
       "class": "portable_evidence",
-      "byte_count": 8325,
-      "blake3": "fa85514c4d22d8aa210bc1e93ecafb5a24743a5eaf724a72ccce6f0b4e0f1d46"
+      "byte_count": 16698,
+      "blake3": "e3a69c89545e8854bb12c45499cd74252c5e4f743d674d0ad444a11c30683ea7"
     },
     {
       "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-retention-corpus-identity-2026-10-22.md",
