@@ -32,3 +32,31 @@ Recommend re-scoping to the projection/MLP path as a successor change, with a se
 - No admission, performance, or request-latency claim; synchronized component and replay timings do not establish service latency or a surviving variant.
 - No claim that a fused/faster projection kernel is achievable within the retention floor. The MLP-down BF4 rejection is evidence against assuming that a precision-based shortcut will satisfy it.
 - No new hardware run, simulator run, or measurement is reported here.
+
+## Appended correction, 2026-10-22: reproducible MLP bandwidth
+
+This appends a numeric correction to the verdict above; it does not re-judge or
+change its qualitative conclusion: the MLP is bandwidth-bound, not collective-bound.
+No new measurement was performed.
+
+The quoted **300–360 GB/s** range is not reproducible from the MLP bytes/time pair
+in `step-attribution-2026-10-21.md`, “LM head”: **88 MB / 335 µs = 262.7 GB/s**.
+At its measured **335.3 µs** forward time (“Traced groups”), the shipped
+gate/up **bfloat4_b** and down **bfloat8_b** give **265.8 GB/s** with the TP2
+exponent-exclusive payload model (**89,128,960 B / 0.0003353 s**) or **290.7 GB/s**
+with exponent-inclusive tiled storage (**97,484,800 B / 0.0003353 s**).
+The tiled figure is the appropriate effective weight-byte model for tiled BFP
+weights, not a measured DRAM counter. The original 88 MB is approximate payload,
+not the tiled allocation. The forward time is not a projection-only timing.
+
+The exact packaged reference ceiling is **512 GB/s per P150a** in
+`.pi/references/tenstorrent/docs-site/core/aibs/blackhole/index.md`, “Card Comparison
+Table”, “Memory Bandwidth” row. Arithmetic gives **51.9–56.8%** utilization:
+bandwidth-bound at just over half the rated ceiling, not hardware saturation.
+This does not establish that residency/fusion work will pay off or that a variant
+exists. The byte derivation, shipped precision sources, LM-head separation and
+arithmetic-only sensitivities are in
+`docs/research/qwen38-mlp-streaming-attribution.md`, “Weight-byte model and the
+hardware ceiling” through “Sensitivity”; tile byte constants are in
+`.pi/references/tenstorrent/tt-metal-docs/tt_metal/api/tt-metalium/constants.hpp`,
+`BFLOAT4_B_TILE_HW` / `BFLOAT8_B_TILE_HW`.

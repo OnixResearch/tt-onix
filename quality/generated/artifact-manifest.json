@@ -1558,8 +1558,8 @@
     {
       "path": ".cairn/changes/qwen38-tp2-collective-shape-tuning/evidence/ceiling-verdict-2026-10-22.md",
       "class": "portable_evidence",
-      "byte_count": 3291,
-      "blake3": "77d6db247050de59cc13fd601c04dc4d1d33e3e6198ba70cbc2ccf499ca528a4"
+      "byte_count": 5072,
+      "blake3": "b015ead619734d109c83d13ef28802186e54e5bb2a08c20cc3e65b7f2f0ef50f"
     },
     {
       "path": ".cairn/changes/qwen38-tp2-collective-shape-tuning/evidence/step-attribution-2026-10-21.md",
@@ -2634,6 +2634,12 @@
       "class": "portable_evidence",
       "byte_count": 9591,
       "blake3": "87e7a98d011cdebd0ea7d7ed30bafbd0717b5c7ac8d9dc64a2dd18ffe8999049"
+    },
+    {
+      "path": "docs/research/qwen38-mlp-streaming-attribution.md",
+      "class": "portable_evidence",
+      "byte_count": 9472,
+      "blake3": "52a338cd3a6dbd448bc64e45662e68fec0ee69ac626234d4ab9991c78f24ec86"
     },
     {
       "path": "docs/research/qwen38-orcarouter-switch-2026-09-04.md",
