@@ -1460,6 +1460,12 @@
       "blake3": "a868f2ea0788cbe76489bb366dad82d2c667ef6a347e51f3abcb91cdae8a9fbc"
     },
     {
+      "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-layout-current-2026-10-22.md",
+      "class": "portable_evidence",
+      "byte_count": 8325,
+      "blake3": "fa85514c4d22d8aa210bc1e93ecafb5a24743a5eaf724a72ccce6f0b4e0f1d46"
+    },
+    {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/device-free-s1-s4.md",
       "class": "portable_evidence",
       "byte_count": 5889,
@@ -2916,6 +2922,12 @@
       "class": "portable_evidence",
       "byte_count": 3746,
       "blake3": "f0d9a1e72dfdb1722fe3c4fc8e36dd6fead1a3d7a3cf90a20e686233f28689af"
+    },
+    {
+      "path": "docs/research/qwen38-retention-screen-evidence.md",
+      "class": "portable_evidence",
+      "byte_count": 7491,
+      "blake3": "06c053f65bc4bbe2ceb52aa83e3e60d7d461a0366e6ea3df782aefaae82f7808"
     },
     {
       "path": "docs/research/toks-rwkv-tokenizer.md",
