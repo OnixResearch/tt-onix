@@ -1,0 +1,306 @@
+{
+  "profiles": [
+    {
+      "admission": {
+        "kind": "receipt-set",
+        "receipts": [
+          {
+            "blake3": "4573cea118453a339ad86b73fe67f729e38dd1c5187b9bb09a4ba527e66af11e",
+            "kind": "continuous-slot-admission",
+            "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json"
+          },
+          {
+            "blake3": "eb09b2cc9ec785b223200bbe67b11b6e2665dd25214ce20ca41500220b136f91",
+            "kind": "prefix-cache-admission",
+            "path": "pkgs/qwen36/evidence/2026-10-21/qwen38-prefix-cache-abba-admission-receipt.json"
+          }
+        ]
+      },
+      "cache": {
+        "root": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+      },
+      "checkpoint": {
+        "authority_blake3": "c319f7eef1b58911457c128ca5397710f4c9af3b98d1ccc83914005f9d3726cd",
+        "authority_kind": "generated-authority-blake3",
+        "authority_path": "pkgs/qwen36/generated/authority.json",
+        "path": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+      },
+      "entry": {
+        "argv_prefix": [
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "8000",
+          "--model-path",
+          "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+          "--model-alias",
+          "Qwen3.8-27B",
+          "--max-sequence-length",
+          "131072",
+          "--max-generation-tokens",
+          "8192",
+          "--require-systemd-notify",
+          "--continuous-slot-policy",
+          "@package@/share/qwen36/continuous-slot-policy-b8.json",
+          "--prefix-cache-policy",
+          "@package@/share/qwen36/prefix-cache-policy.json"
+        ],
+        "binary": "bin/qwen38-p150x2-serve"
+      },
+      "env": {
+        "HF_HUB_OFFLINE": "1",
+        "HF_MODEL": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "MESH_DEVICE": "P150x2",
+        "QWEN35_GDN_DECODE_FUSION": "step",
+        "QWEN35_GROUPED_PREFILL": "1",
+        "QWEN35_TEMP": "0",
+        "QWEN36_GDN_BF4": "0",
+        "QWEN36_GDN_FUSED_PREFILL": "0",
+        "QWEN36_MTP_SERVING": "0",
+        "QWEN36_SAMPLED_FUSION": "1",
+        "QWEN36_TRACED_PREFILL": "1",
+        "TT_CACHE_PATH": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+      },
+      "limits": {
+        "max_generation_tokens": 8192,
+        "max_sequence_length": 131072
+      },
+      "mesh": {
+        "fabric": "FABRIC_1D",
+        "name": "P150x2",
+        "physical_device_ids": [
+          0,
+          1
+        ],
+        "shape": [
+          1,
+          2
+        ]
+      },
+      "mode": "serve",
+      "name": "qwen38",
+      "non_claims": [
+        "the served package carries only the receipts that name it",
+        "no B=8 v3 interleaved receipt is carried by a servable package",
+        "serving readiness is not a throughput, quality, or concurrency admission"
+      ],
+      "package": {
+        "attribute": "qwen38",
+        "store_name": "-qwen38-0.1.0"
+      },
+      "port": 8000,
+      "precision": {
+        "flags": [
+          "QWEN35_GDN_DECODE_FUSION",
+          "QWEN35_GROUPED_PREFILL",
+          "QWEN36_TRACED_PREFILL",
+          "QWEN36_SAMPLED_FUSION",
+          "QWEN36_GDN_FUSED_PREFILL",
+          "QWEN36_GDN_BF4"
+        ]
+      },
+      "readiness": {
+        "kind": "http-healthz",
+        "path": "/healthz",
+        "timeout_seconds": 1250
+      },
+      "reset": {
+        "device_paths": [
+          "/dev/tenstorrent/0",
+          "/dev/tenstorrent/1"
+        ],
+        "on_release": "required-before-native"
+      },
+      "schema": "onix.runtime-profile.v1"
+    },
+    {
+      "admission": {
+        "kind": "authority-digest"
+      },
+      "cache": {
+        "key": "mlp-pad-16",
+        "root": "/home/brittonr/models/nanbeige43-cache"
+      },
+      "checkpoint": {
+        "authority_blake3": "4cc332da8d2f2626ff03a60f68ee2f2805799411c2b6cb67444571f2316d345d",
+        "authority_kind": "generated-authority-blake3",
+        "authority_path": "pkgs/nanbeige43/generated/authority.json",
+        "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+        "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee"
+      },
+      "entry": {
+        "argv_prefix": [
+          "--mesh",
+          "p150x2"
+        ],
+        "binary": "bin/nanbeige43-p150x2"
+      },
+      "env": {
+        "HF_HUB_OFFLINE": "1",
+        "PAD_MLP_CORES": "16"
+      },
+      "limits": {
+        "max_generation_tokens": 128,
+        "max_sequence_length": 8192
+      },
+      "mesh": {
+        "fabric": "FABRIC_1D",
+        "name": "p150x2",
+        "physical_device_ids": [
+          0,
+          1
+        ],
+        "shape": [
+          1,
+          2
+        ]
+      },
+      "mode": "job",
+      "name": "nanbeige43",
+      "non_claims": [
+        "no serving endpoint and no serving benchmark",
+        "batch 8 is refused; batch 32 is accepted for aggregate throughput only",
+        "host-wall timings are smoke measurements, not benchmarks"
+      ],
+      "package": {
+        "attribute": "nanbeige43",
+        "store_name": "-nanbeige43-0.1.0"
+      },
+      "precision": {
+        "flags": [],
+        "preset": "accuracy"
+      },
+      "readiness": {
+        "kind": "exit-code"
+      },
+      "reset": {
+        "device_paths": [
+          "/dev/tenstorrent/0",
+          "/dev/tenstorrent/1"
+        ],
+        "on_release": "required-before-native"
+      },
+      "schema": "onix.runtime-profile.v1"
+    },
+    {
+      "admission": {
+        "kind": "authority-digest"
+      },
+      "checkpoint": {
+        "authority_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+        "authority_kind": "model-target-profile-identity",
+        "revision": "d81965cb4e1a9f96696b4f70b84212b8f2e43216"
+      },
+      "entry": {
+        "argv_prefix": [],
+        "binary": "bin/rwkv7-p150x2-runtime"
+      },
+      "env": {},
+      "limits": {
+        "max_generation_tokens": 8,
+        "max_sequence_length": 32
+      },
+      "mesh": {
+        "fabric": "p150_x2_mesh_graph_descriptor",
+        "name": "p150_x2_mesh_graph_descriptor",
+        "physical_device_ids": [
+          0,
+          1
+        ],
+        "shape": [
+          1,
+          2
+        ]
+      },
+      "mode": "job",
+      "model_target_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+      "name": "rwkv7-ttnn",
+      "non_claims": [
+        "no serving endpoint; generation is a bounded gate",
+        "persistent decode is admitted only on the recorded profile"
+      ],
+      "package": {
+        "attribute": "rwkv7-p150x2-runtime",
+        "store_name": "-rwkv7-p150x2-runtime"
+      },
+      "precision": {
+        "flags": [],
+        "preset": "bf16_checkpoint_fp32_reference"
+      },
+      "readiness": {
+        "kind": "self-test"
+      },
+      "reset": {
+        "device_paths": [
+          "/dev/tenstorrent/0",
+          "/dev/tenstorrent/1"
+        ],
+        "on_release": "required-before-native"
+      },
+      "schema": "onix.runtime-profile.v1"
+    },
+    {
+      "admission": {
+        "gates": [
+          "rwkv7-model-checkpoint",
+          "rwkv7-layer-checkpoint",
+          "rwkv7-generate-checkpoint",
+          "rwkv7-prompt-checkpoint",
+          "rwkv7-tokenizer"
+        ],
+        "kind": "gate-exit"
+      },
+      "checkpoint": {
+        "authority_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+        "authority_kind": "model-target-profile-identity",
+        "revision": "d81965cb4e1a9f96696b4f70b84212b8f2e43216"
+      },
+      "entry": {
+        "argv_prefix": [],
+        "binary": "bin/rwkv7-model-checkpoint"
+      },
+      "env": {},
+      "limits": {
+        "max_generation_tokens": 8,
+        "max_sequence_length": 32
+      },
+      "mesh": {
+        "fabric": "none (single-card compute; no fabric)",
+        "name": "card-0",
+        "physical_device_ids": [
+          0
+        ],
+        "shape": [
+          1,
+          1
+        ]
+      },
+      "mode": "job",
+      "model_target_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+      "name": "metalium-rs-rwkv7",
+      "non_claims": [
+        "gates do not establish a sampler, stop-policy-complete endpoint, or serving parity",
+        "prompt generation uses fast matmuls; the accurate path fragments GDDR after eight tokens"
+      ],
+      "package": {
+        "attribute": "metalium-rs-rwkv7-model",
+        "store_name": "-rwkv7-model-checkpoint"
+      },
+      "precision": {
+        "flags": []
+      },
+      "readiness": {
+        "kind": "exit-code"
+      },
+      "reset": {
+        "device_paths": [
+          "/dev/tenstorrent/0"
+        ],
+        "on_release": "never"
+      },
+      "schema": "onix.runtime-profile.v1"
+    }
+  ],
+  "schema_version": 1
+}

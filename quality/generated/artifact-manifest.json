@@ -1316,6 +1316,36 @@
       "blake3": "a30af1ca44d001acaa1d45093da4454e6dc3041843c7498eae8f622aaf1cc8e1"
     },
     {
+      "path": ".cairn/changes/add-runtime-profile-registry/evidence/identity-invariance.md",
+      "class": "portable_evidence",
+      "byte_count": 1618,
+      "blake3": "db5bdd2ecf980f7eaaf5d4de9f35dbb679125452cd86d70c9c861d161a240db7"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-profile-registry/evidence/package-check.md",
+      "class": "portable_evidence",
+      "byte_count": 3083,
+      "blake3": "debed2715751c18877d3f1247a6d31701b245826b225d1e72160e32d28483d67"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-profile-registry/evidence/quality.md",
+      "class": "portable_evidence",
+      "byte_count": 2419,
+      "blake3": "b41e0f0c311c8624307b1cb2f0756c8b7a81bbb322f449e779e674a278b9ca60"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-profile-registry/evidence/registry-check.md",
+      "class": "portable_evidence",
+      "byte_count": 2528,
+      "blake3": "81877a307df9504aeaaad62d2a19fadba240ca54c2b44acd95fa24ab8be3e414"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-profile-registry/evidence/status-host.md",
+      "class": "portable_evidence",
+      "byte_count": 3764,
+      "blake3": "99c4ed9b2345705f1b668db7cabf77a52d3847e72d698c53976e774a6815e353"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/bring-up-2026-10-25.md",
       "class": "portable_evidence",
       "byte_count": 55907,
@@ -3468,6 +3498,12 @@
       "class": "generated_source",
       "byte_count": 14393,
       "blake3": "88ad86c4d1ca4b879686a78638ddb7ebdbc771717274072b4f9862fc59216aa6"
+    },
+    {
+      "path": "model-targets/generated/runtime-profiles.json",
+      "class": "generated_source",
+      "byte_count": 8940,
+      "blake3": "23b889c428323cd039f3d7b8b368afaeae252c7320fef0f23ddcdc8dcc1289e9"
     },
     {
       "path": "pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json",
@@ -5746,8 +5782,8 @@
     {
       "path": "quality/generated/required-checks.json",
       "class": "generated_source",
-      "byte_count": 278,
-      "blake3": "00a7e30d908442a23188990fadd3af2dec654706173b4dcebe93edbbe2067fac"
+      "byte_count": 324,
+      "blake3": "bade34926a2e00778d3f8e0ea33f6b191a801e45342fe0216f30858372e39a03"
     }
   ]
 }

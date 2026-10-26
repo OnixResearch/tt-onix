@@ -7,6 +7,8 @@ let NonEmpty = std.contract.from_predicate (fun value =>
   required | Array NonEmpty = [
     "migration-boundary",
     "model-target-profile-factory",
+    "model-runtime-profiles",
+    "tt-model",
     "rwkv-layer-framework-parity",
     "training-platform",
     "qwen36",

@@ -2,6 +2,8 @@
   "required": [
     "migration-boundary",
     "model-target-profile-factory",
+    "model-runtime-profiles",
+    "tt-model",
     "rwkv-layer-framework-parity",
     "training-platform",
     "qwen36",
