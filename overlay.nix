@@ -27,6 +27,17 @@ final: prev: {
   tt-topology = final.callPackage ./pkgs/tt-topology { };
   tt-umd = final.callPackage ./pkgs/tt-umd { };
   ttsim = final.callPackage ./pkgs/ttsim { };
+  # Device-free registry tooling. The owner helper is the only privileged
+  # program here; it is granted by the NixOS module, never installed by hand.
+  tt-model = final.callPackage ./pkgs/tt-model { };
+  tt-model-owner = final.callPackage ./pkgs/tt-model-owner {
+    commandName = "tt-model-owner";
+    ownerUnit = "qwen38-p150x2.service";
+    cardDevices = [
+      "/dev/tenstorrent/0"
+      "/dev/tenstorrent/1"
+    ];
+  };
   tt-lang-sim = final.callPackage ./pkgs/tt-lang-sim { };
   tenstorrent-official-skills = final.callPackage ./pkgs/tenstorrent-official-skills { };
   tenstorrent-eval-tools = final.callPackage ./pkgs/tenstorrent-eval-tools { };

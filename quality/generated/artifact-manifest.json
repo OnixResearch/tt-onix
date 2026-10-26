@@ -1346,6 +1346,24 @@
       "blake3": "99c4ed9b2345705f1b668db7cabf77a52d3847e72d698c53976e774a6815e353"
     },
     {
+      "path": ".cairn/changes/add-runtime-switch-command/evidence/host-fragment.md",
+      "class": "portable_evidence",
+      "byte_count": 2321,
+      "blake3": "3cfec13a9fc03dc3c55fca41d7d51ca846b188f07e9d813d5c1e12b95e0ec70e"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-command/evidence/quality.md",
+      "class": "portable_evidence",
+      "byte_count": 1275,
+      "blake3": "0c82662eaea29cda3425ea8bd68288b85f19716d5295cbc87677d3cd3403631b"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-command/evidence/switch-scenarios.md",
+      "class": "portable_evidence",
+      "byte_count": 2581,
+      "blake3": "292ab46df93be2cf473697a1a3dacf996e5ac2026d8de0b3b863fb7793e51b01"
+    },
+    {
       "path": ".cairn/changes/add-runtime-switch-record/evidence/check-verdicts.md",
       "class": "portable_evidence",
       "byte_count": 4076,
@@ -1362,6 +1380,30 @@
       "class": "portable_evidence",
       "byte_count": 5030,
       "blake3": "1fafad6a5afabb533b0f22d09c7ac289f4dbadb6e2eb00cd9779089f03909845"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-run/evidence/helper-boundary.md",
+      "class": "portable_evidence",
+      "byte_count": 2966,
+      "blake3": "0a348ee75bbbaf24e805d8b227a0a434071881485efcad2022b7a47c32ff09b6"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-run/evidence/quality.md",
+      "class": "portable_evidence",
+      "byte_count": 1402,
+      "blake3": "a69d66dbda830712cf2db3e4b4b9c76047adcf3d08687bdd1b4dc0d8188e6b17"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-run/evidence/run-lifecycle.md",
+      "class": "portable_evidence",
+      "byte_count": 3453,
+      "blake3": "76c9a04992b46d5dc234ed6ad9e306858f1e4a1c415baec4f5326d5cbaf9445b"
+    },
+    {
+      "path": ".cairn/changes/add-runtime-switch-run/evidence/sudo-grant.md",
+      "class": "portable_evidence",
+      "byte_count": 2297,
+      "blake3": "0dc7d796a07827737b2aa071a3ee42957bf644a1b962891798d04001368d6e34"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/bring-up-2026-10-25.md",
@@ -3520,8 +3562,8 @@
     {
       "path": "model-targets/generated/runtime-profiles.json",
       "class": "generated_source",
-      "byte_count": 9433,
-      "blake3": "01f4b10ca914aa693105cb36950c88ca15a25e9a06436c6bd4b9f2304899d821"
+      "byte_count": 9806,
+      "blake3": "a0a78ef4f54dccf9e07a5f31d2516f015f2d0f27ce00d76c3af43f94f03982f2"
     },
     {
       "path": "pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json",
@@ -5800,8 +5842,8 @@
     {
       "path": "quality/generated/required-checks.json",
       "class": "generated_source",
-      "byte_count": 324,
-      "blake3": "bade34926a2e00778d3f8e0ea33f6b191a801e45342fe0216f30858372e39a03"
+      "byte_count": 401,
+      "blake3": "ef494a95bf06aaf97a7d49deb8275260fe529e8781ef8eec798b3c8f18611ddb"
     }
   ]
 }

@@ -470,7 +470,16 @@
         inherit (pkgs) b3sum nickel python3;
         inherit modelTargets;
       };
-      ttModel = pkgs.callPackage ../pkgs/tt-model { };
+      ttModel = pkgs.tt-model;
+      ttModelOwner = pkgs.tt-model-owner;
+      ttModelOwnerCheck = pkgs.callPackage ../pkgs/tt-model-owner/check.nix {
+        owner = ttModelOwner;
+        ttModel = ttModel;
+      };
+      ttModelSudoCheck = pkgs.callPackage ../checks/tt-model-nixos-sudo.nix { inherit self; };
+      ttModelHostConfigCheck = pkgs.callPackage ../checks/tt-model-host-config.nix {
+        inherit self;
+      };
       rwkv7P150x2Runtime = rwkvTarget.runtime;
       windowEightMaximumGeneratedTokens = 8;
       # r[impl tenstorrent.rwkv7_p150x2.persistent_decode_window_8]
@@ -958,6 +967,9 @@
           model-target-profile-factory = modelTargetFactoryCheck;
           model-runtime-profiles = modelRuntimeProfilesCheck;
           tt-model = ttModel;
+          tt-model-owner = ttModelOwnerCheck;
+          tt-model-nixos-sudo = ttModelSudoCheck;
+          tt-model-host-config = ttModelHostConfigCheck;
           rwkv-layer-framework-parity = rwkvLayerHarness.passthru.frameworkParityCheck;
           training-platform = trainingPlatform;
           qwen36 = qwen38;
@@ -1289,6 +1301,7 @@
         inherit ttwkv7;
         # Reads this host's record, profile generation, and owner unit.
         tt-model = ttModel;
+        tt-model-owner = ttModelOwner;
         # The packaged TT-Metal runtime is x86_64-linux only.
         inherit nanbeige43;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
@@ -1368,6 +1381,9 @@
         ttwkv7-owner-control-package = ttwkv7OwnerControl;
         tt-metal-tracy-tools-package = ttMetalTracyTools;
         tt-model = ttModel;
+        tt-model-owner = ttModelOwnerCheck;
+        tt-model-nixos-sudo = ttModelSudoCheck;
+        tt-model-host-config = ttModelHostConfigCheck;
         repository-quality = repositoryQualityAggregate;
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;

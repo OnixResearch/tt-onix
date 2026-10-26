@@ -136,12 +136,30 @@ let contracts = import "runtime-contract.ncl" in
           },
         ],
       },
+      # scripts/qwen38-deploy:63-90 runs the package's own containment check
+      # before serving, and requires `passed: true`. `--force` must never bypass
+      # it, so a switch runs it before writing the record.
+      containment = {
+        command = "scripts/qwen38-admission-containment.py",
+        arguments = [
+          "@package@",
+          "--package-identity",
+          "@package_identity@",
+        ],
+        verdict_field = "passed",
+        verdict_value = true,
+      },
       readiness = {
         # server.py:1076-1098; the readiness timeout is
-        # scripts/qwen38-profile-service:42 (START_TIMEOUT).
+        # scripts/qwen38-profile-service:42 (START_TIMEOUT). The health payload
+        # does not carry identity today, while the decode evidence does
+        # (scripts/qwen38-deploy:121-149), so identity is read from one bounded
+        # request.
         kind = "http-healthz",
         path = "/healthz",
         timeout_seconds = 1250,
+        identity_source = "decode-evidence",
+        request_path = "/v1/chat/completions",
       },
       reset = {
         # AGENTS.md:245-247: a reset is required after a TT-Metal owner stops and

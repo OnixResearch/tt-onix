@@ -202,6 +202,24 @@ let Readiness = {
   kind | ReadinessKind,
   path | optional | NonEmpty,
   timeout_seconds | optional | Positive,
+  # Where the served instance states its own identity. Absent means `healthz`.
+  identity_source | optional | Enum "runtime profile identity source must be healthz or decode-evidence" [
+    "healthz",
+    "decode-evidence",
+  ],
+  # The request path used by decode-evidence.
+  request_path | optional | NonEmpty,
+}
+in
+
+# The model package's own containment check, run before a record is written. The
+# command is repository-relative and its arguments may only expand `@package@`
+# and `@package_identity@`. `--force` never bypasses it.
+let Containment = {
+  command | NonEmpty,
+  arguments | Array NonEmpty,
+  verdict_field | NonEmpty,
+  verdict_value | Bool,
 }
 in
 
@@ -226,6 +244,7 @@ let RuntimeProfile = {
   precision | Precision,
   admission | Admission,
   readiness | Readiness,
+  containment | optional | Containment,
   reset | Reset,
   runtime | optional | Runtime,
   model_target_name | optional | NonEmpty,
@@ -290,6 +309,14 @@ let semanticErrors = fun profile =>
       ok = std.record.has_field "model_target_name" profile
       == std.record.has_field "model_target_blake3" profile,
       message = "runtime profile model target name and identity must appear together",
+    },
+    {
+      ok =
+        let
+          source = if std.record.has_field "identity_source" profile.readiness then profile.readiness.identity_source else "healthz",
+        in
+        (source == "decode-evidence") == std.record.has_field "request_path" profile.readiness,
+      message = "runtime profile request_path must appear exactly when the identity source is decode-evidence",
     },
     {
       ok = std.array.all
@@ -382,6 +409,33 @@ let semanticErrors = fun profile =>
           message = "authority-digest admission must not declare gates",
         },
       ]
+  )
+  @ (
+    if std.record.has_field "containment" profile then
+      [
+        {
+          ok = !(std.string.is_match "^/" profile.containment.command),
+          message = "runtime profile containment command must be repository-relative",
+        },
+        {
+          ok = !(std.string.is_match "[.][.]" profile.containment.command),
+          message = "runtime profile containment command must not escape the repository",
+        },
+        {
+          ok = std.array.all
+            (fun token =>
+              let matches = std.string.find_all "@[A-Za-z_]+@" token in
+              std.array.length matches == 0
+              || std.array.all
+                (fun found =>
+                  found.matched == "@package@" || found.matched == "@package_identity@")
+                matches)
+            profile.containment.arguments,
+          message = "runtime profile containment arguments may expand only @package@ and @package_identity@",
+        },
+      ]
+    else
+      []
   )
   @ (
     if profile.checkpoint.authority_kind == "generated-authority-blake3" then

@@ -68,6 +68,10 @@ let
       file = "invalid-runtime-duplicate-name.ncl";
       message = "runtime profile names must be unique";
     }
+    {
+      file = "invalid-runtime-containment-placeholder.ncl";
+      message = "runtime profile containment arguments may expand only @package@ and @package_identity@";
+    }
   ];
   # The registry readers live in one file so the shell below stays declarative.
   verify = pkgs.writeText "verify-runtime-profile-registry.py" ''
@@ -122,12 +126,20 @@ let
                 raise SystemExit(f"{name}: model-target identity drifted from {expected}")
 
 
+    def containment(registry):
+        for entry in registry["profiles"]:
+            section = entry.get("containment")
+            if section is not None:
+                print(section["command"])
+
+
     def summary(registry):
         print(",".join(entry["name"] for entry in registry["profiles"]))
 
 
     modes = {
         "authorities": lambda registry: authorities(registry),
+        "containment": lambda registry: containment(registry),
         "gates": lambda registry: gates(registry),
         "receipts": lambda registry: receipts(registry),
         "summary": lambda registry: summary(registry),
@@ -203,7 +215,14 @@ pkgs.runCommand "model-runtime-profile-registry-check"
           test "$actual" = "$receipt_blake3"
         done <"$PWD/receipts.txt"
 
-        # A gate artifact is package-relative, so it must not be absolute and must not
+        # Every containment command is repository-relative and must exist here.
+    python3 ${verify} containment "$fresh_export" >"$PWD/containment.txt"
+    while read -r containment_command; do
+      test -f "$containment_command"
+      test -x "$containment_command"
+    done <"$PWD/containment.txt"
+
+    # A gate artifact is package-relative, so it must not be absolute and must not
     # escape its package. The digest is bound to the installed program by
     # `tt-model check`, which holds the resolved package path.
     python3 ${verify} gates "$fresh_export" >"$PWD/gates.txt"
@@ -240,6 +259,7 @@ pkgs.runCommand "model-runtime-profile-registry-check"
           echo "authority_documents_verified=$(wc -l <"$PWD/authorities.txt")"
           echo "receipts_verified=$(wc -l <"$PWD/receipts.txt")"
           echo "fixtures_rejected=${toString (lib.length fixtures)}"
+      echo "containment_commands=$(wc -l <"$PWD/containment.txt")"
           echo "rwkv_model_target_identity=$rwkvIdentity"
           echo "export_blake3=$(b3sum "$fresh_export" | cut -d' ' -f1)"
         } >"$out/summary.txt"

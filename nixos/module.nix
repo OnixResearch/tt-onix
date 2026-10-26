@@ -292,6 +292,23 @@ in
       };
     };
 
+    ttModel = {
+      enable = mkEnableOption "the tt-model owner helper and its single sudo grant";
+
+      operatorUser = mkOption {
+        type = types.str;
+        default = "brittonr";
+        description = "The one user allowed to run the owner helper without a password.";
+      };
+
+      ownerPackage = mkOption {
+        type = types.package;
+        default = pkgs.tt-model-owner;
+        defaultText = lib.literalExpression "pkgs.tt-model-owner";
+        description = "The owner helper package. Exactly one sudo rule names its binary.";
+      };
+    };
+
     training = {
       enable = mkEnableOption "the admitted dual-P150A training host profile";
 
@@ -464,6 +481,77 @@ in
         };
       };
     })
+
+    (mkIf cfg.ttModel.enable (
+      let
+        helper = "${cfg.ttModel.ownerPackage}/bin/tt-model-owner";
+        helperPackage = cfg.ttModel.ownerPackage;
+        helperRules = lib.filter (
+          rule: lib.any (command: command.command == helper) rule.commands
+        ) config.security.sudo.extraRules;
+        # Any grant for the operator that resolves inside the helper package but is
+        # not the helper binary itself is wider than the single command this module
+        # is allowed to grant.
+        widerCommands = lib.concatMap (
+          rule:
+          if !(lib.elem cfg.ttModel.operatorUser rule.users) then
+            [ ]
+          else
+            lib.filter (
+              command:
+              command.command == "${helperPackage}/bin"
+              || (lib.hasPrefix "${helperPackage}/" command.command && command.command != helper)
+            ) rule.commands
+        ) config.security.sudo.extraRules;
+      in
+      {
+        assertions = [
+          {
+            assertion = cfg.ttModel.operatorUser != "" && cfg.ttModel.operatorUser != "ALL";
+            message = "hardware.tenstorrent.ttModel.operatorUser must name one user, not ALL or an empty string";
+          }
+          {
+            assertion =
+              lib.length helperRules == 1
+              && (lib.head helperRules).users == [ cfg.ttModel.operatorUser ]
+              &&
+                (lib.head helperRules).commands == [
+                  {
+                    command = helper;
+                    options = [ "NOPASSWD" ];
+                  }
+                ];
+            message = "hardware.tenstorrent.ttModel must render exactly one NOPASSWD rule for ${helper} and no other command";
+          }
+          {
+            assertion = widerCommands == [ ];
+            message = "hardware.tenstorrent.ttModel grants ${
+              lib.concatStringsSep ", " (map (command: command.command) widerCommands)
+            } which is wider than the single helper binary";
+          }
+        ];
+
+        security.sudo.extraRules = [
+          {
+            users = [ cfg.ttModel.operatorUser ];
+            commands = [
+              {
+                command = helper;
+                options = [ "NOPASSWD" ];
+              }
+            ];
+          }
+        ];
+
+        # The root-owned record, its roots, and the pointer that tells the helper
+        # which installed copy may act. This does not enable or unmask any unit.
+        systemd.tmpfiles.rules = [
+          "d /var/lib/tenstorrent-models 0755 root root -"
+          "d /nix/var/nix/gcroots/tenstorrent-models 0755 root root -"
+          "L+ /var/lib/tenstorrent-models/owner-helper - - - - ${helperPackage}"
+        ];
+      }
+    ))
 
     (mkIf training.enable {
       assertions = [

@@ -26,6 +26,16 @@
         "path": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
         "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
       },
+      "containment": {
+        "arguments": [
+          "@package@",
+          "--package-identity",
+          "@package_identity@"
+        ],
+        "command": "scripts/qwen38-admission-containment.py",
+        "verdict_field": "passed",
+        "verdict_value": true
+      },
       "entry": {
         "argv_prefix": [
           "--host",
@@ -101,8 +111,10 @@
         ]
       },
       "readiness": {
+        "identity_source": "decode-evidence",
         "kind": "http-healthz",
         "path": "/healthz",
+        "request_path": "/v1/chat/completions",
         "timeout_seconds": 1250
       },
       "reset": {

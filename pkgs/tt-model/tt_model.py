@@ -52,12 +52,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 STATUS_SCHEMA = "onix.tt-model.status.v1"
 CHECK_SCHEMA = "onix.tt-model.check.v1"
 RECORD_SCHEMA = "onix.tt-model.record.v1"
+RUN_SCHEMA = "onix.tt-model.run.v1"
+RUN_EVENT_DIR = "runs"
+DEFAULT_OWNER_HELPER = "/run/current-system/sw/bin/tt-model-owner"
 PROFILE_SCHEMA = "onix.runtime-profile.v1"
 REGISTRY_SCHEMA_VERSION = 1
 TOOL_VERSION = "0.1.0"
@@ -689,9 +695,7 @@ def create_root(root: Path, target: str) -> None:
         ) from error
 
 
-def record_paths(
-    entry: dict[str, Any], package: str, registry: dict[str, Any], root: Path
-) -> dict[str, Any]:
+def record_paths(entry: dict[str, Any], package: str, root: Path) -> dict[str, Any]:
     """The identity tuple a record carries, resolved from the registry."""
     package_path = Path(package)
     argv = [str(package_path / entry["entry"]["binary"])] + [
@@ -775,6 +779,98 @@ def previous_record(state_root: Path) -> dict[str, Any] | None:
     }
 
 
+def build_record(
+    entry: dict[str, Any],
+    name: str,
+    package: str,
+    report: dict[str, Any],
+    root: Path,
+    state_root: Path,
+    force: bool,
+) -> tuple[dict[str, Any], bytes]:
+    """The identity tuple a switch or a record commits."""
+    try:
+        resolved = record_paths(entry, package, root)
+    except JsonInputError as error:
+        raise Refused("receipt-schema", "", str(error)) from error
+    previous = previous_record(state_root)
+    recorded_at = utc_now()
+    canonical_argv = "\0".join(resolved["argv"]).encode()
+    record = {
+        "schema": RECORD_SCHEMA,
+        "profile": name,
+        "profile_schema": entry["schema"],
+        "mode": entry["mode"],
+        "package": {
+            "path": package,
+            "store_name": entry["package"]["store_name"],
+            "execution_identity": resolved["execution_identity"],
+        },
+        "runtime": resolved["runtime"],
+        "mesh": {
+            "shape": entry["mesh"]["shape"],
+            "physical_device_ids": entry["mesh"]["physical_device_ids"],
+        },
+        "checkpoint": resolved["checkpoint"],
+        "receipts": resolved["receipts"],
+        "gates": resolved["gates"],
+        "argv": resolved["argv"],
+        "argv_blake3": b3sum_bytes(canonical_argv),
+        "env": entry["env"],
+        "port": entry.get("port"),
+        "reset": entry["reset"],
+        "admission_bypassed": bool(force and report["verdict"] != "pass"),
+        "previous": previous,
+        "recorded_at": recorded_at.isoformat(),
+        "recorded_by": f"tt-model {TOOL_VERSION} uid={os.getuid()}",
+        "registry_blake3": report["registry"]["blake3"],
+    }
+    return record, (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
+
+
+def commit_record(
+    state_root: Path,
+    gc_roots: Path,
+    name: str,
+    record: dict[str, Any],
+    data: bytes,
+    suffix: str = "",
+) -> dict[str, Any]:
+    """Root every store path the record names, then write history and the record."""
+    roots = [
+        ("package", record["package"]["path"]),
+        ("execution-identity", record["package"].get("execution_identity")),
+        ("runtime", record["runtime"]["path"]),
+    ]
+    for role, path in roots:
+        # Only a whole store path can be a GC root; a subpath of one is not a
+        # root target and the collector rejects it.
+        if isinstance(path, str) and STORE_PATH.match(path):
+            create_root(gc_roots / f"{name}-{role}", path)
+    history_dir = state_root / "history"
+    ensure_directory(history_dir, "state-root")
+    stamp = utc_now().strftime("%Y%m%dT%H%M%S.%fZ")
+    history_path = history_dir / f"{stamp}-{name}{suffix}.json"
+    try:
+        handle = os.open(history_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        with os.fdopen(handle, "wb") as output:
+            output.write(data)
+    except FileExistsError as error:
+        raise Refused(
+            "history", str(history_path), "history entry already exists"
+        ) from error
+    write_atomic(state_root / "active.json", data)
+    return {
+        "active": str(state_root / "active.json"),
+        "history": str(history_path),
+        "gc_roots": {
+            role: str(gc_roots / f"{name}-{role}")
+            for role, path in roots
+            if isinstance(path, str) and STORE_PATH.match(path)
+        },
+    }
+
+
 def record_profile(
     registry: dict[str, Any],
     name: str,
@@ -834,79 +930,786 @@ def record_profile(
                 )
         ensure_directory(gc_roots, "gc-root")
 
-        try:
-            resolved = record_paths(entry, package, registry, root)
-        except JsonInputError as error:
-            raise Refused("receipt-schema", "", str(error)) from error
-        previous = previous_record(state_root)
-        recorded_at = utc_now()
-        canonical_argv = "\0".join(resolved["argv"]).encode()
-        record = {
-            "schema": RECORD_SCHEMA,
-            "profile": name,
-            "profile_schema": entry["schema"],
-            "mode": entry["mode"],
-            "package": {
-                "path": package,
-                "store_name": entry["package"]["store_name"],
-                "execution_identity": resolved["execution_identity"],
-            },
-            "runtime": resolved["runtime"],
-            "checkpoint": resolved["checkpoint"],
-            "receipts": resolved["receipts"],
-            "gates": resolved["gates"],
-            "argv": resolved["argv"],
-            "argv_blake3": b3sum_bytes(canonical_argv),
-            "env": entry["env"],
-            "port": entry.get("port"),
-            "reset": entry["reset"],
-            "admission_bypassed": bool(force and status != OK),
-            "previous": previous,
-            "recorded_at": recorded_at.isoformat(),
-            "recorded_by": f"tt-model {TOOL_VERSION} uid={os.getuid()}",
-            "registry_blake3": report["registry"]["blake3"],
-        }
-        data = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
-
-        roots = [
-            ("package", package),
-            ("execution-identity", resolved["execution_identity"]),
-            ("runtime", resolved["runtime"]["path"]),
-        ]
-        for role, path in roots:
-            # Only a whole store path can be a GC root; a subpath of one is not a
-            # root target and the collector rejects it.
-            if isinstance(path, str) and STORE_PATH.match(path):
-                create_root(gc_roots / f"{name}-{role}", path)
-
-        history_dir = state_root / "history"
-        ensure_directory(history_dir, "state-root")
-        stamp = recorded_at.strftime("%Y%m%dT%H%M%S.%fZ")
-        history_path = history_dir / f"{stamp}-{name}.json"
-        try:
-            handle = os.open(history_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            with os.fdopen(handle, "wb") as output:
-                output.write(data)
-        except FileExistsError as error:
-            raise Refused(
-                "history", str(history_path), "history entry already exists"
-            ) from error
-        write_atomic(state_root / "active.json", data)
+        record, data = build_record(
+            entry, name, package, report, root, state_root, force
+        )
+        committed = commit_record(state_root, gc_roots, name, record, data)
         return {
             "schema": RECORD_SCHEMA,
             "profile": name,
             "package": package,
-            "active": str(state_root / "active.json"),
-            "history": str(history_path),
-            "gc_roots": {
-                role: str(gc_roots / f"{name}-{role}")
-                for role, path in roots
-                if isinstance(path, str) and STORE_PATH.match(path)
-            },
+            "active": committed["active"],
+            "history": committed["history"],
+            "gc_roots": committed["gc_roots"],
             "admission_bypassed": record["admission_bypassed"],
             "argv_blake3": record["argv_blake3"],
             "registry_blake3": record["registry_blake3"],
         }, OK
+
+
+# ---------------------------------------------------------------------------
+# Switch: make a serve profile the verified owner.
+# ---------------------------------------------------------------------------
+
+
+def http_json(port: int, path: str, timeout: float) -> dict[str, Any]:
+    url = f"http://127.0.0.1:{port}{path}"
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        payload = json.loads(response.read())
+    if not isinstance(payload, dict):
+        raise TypeError(f"{url}: response is not a JSON object")
+    return payload
+
+
+def http_decode_evidence(
+    port: int, path: str, payload: dict[str, Any], timeout: float
+) -> dict[str, Any] | None:
+    """One bounded request, read back from the instance's own decode evidence."""
+    url = f"http://127.0.0.1:{port}{path}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        for raw in response:
+            line = raw.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[len("data:") :].strip()
+            if body == "[DONE]":
+                break
+            chunk = json.loads(body)
+            if isinstance(chunk, dict) and "x_onix_decode_evidence" in chunk:
+                evidence = chunk["x_onix_decode_evidence"]
+                return evidence if isinstance(evidence, dict) else None
+    return None
+
+
+def wait_ready(entry: dict[str, Any], timeout: int) -> tuple[dict[str, Any], float]:
+    port = entry["port"]
+    path = entry["readiness"]["path"]
+    started = time.monotonic()
+    deadline = started + timeout
+    detail = "no response"
+    while time.monotonic() < deadline:
+        try:
+            payload = http_json(
+                port, path, min(5.0, max(1.0, deadline - time.monotonic()))
+            )
+        except (OSError, TypeError, ValueError, urllib.error.URLError) as error:
+            detail = str(error)
+        else:
+            if payload.get("ready") is True and payload.get("status") in (None, "ok"):
+                return payload, time.monotonic() - started
+            detail = f"ready={payload.get('ready')!r} status={payload.get('status')!r}"
+        time.sleep(1)
+    raise Refused(
+        "readiness",
+        f"127.0.0.1:{port}{path}",
+        f"not ready within {timeout}s ({detail})",
+    )
+
+
+def observed_identity(
+    entry: dict[str, Any], timeout: float
+) -> tuple[str, dict[str, Any]]:
+    """Ask the instance who it is, from the profile's declared source."""
+    readiness = entry["readiness"]
+    source = readiness.get("identity_source", "healthz")
+    if source == "healthz":
+        return "healthz", http_json(entry["port"], readiness["path"], timeout)
+    alias = None
+    argv = entry["entry"]["argv_prefix"]
+    for index, token in enumerate(argv):
+        if token == "--model-alias" and index + 1 < len(argv):
+            alias = argv[index + 1]
+    payload: dict[str, Any] = {
+        "messages": [{"role": "user", "content": "Name a color. Answer with it only."}],
+        "max_tokens": 8,
+        "stream": True,
+        "enable_thinking": False,
+    }
+    if alias is not None:
+        payload["model"] = alias
+    evidence = http_decode_evidence(
+        entry["port"], readiness["request_path"], payload, timeout
+    )
+    if evidence is None:
+        raise Refused(
+            "identity",
+            f"127.0.0.1:{entry['port']}{readiness['request_path']}",
+            "the instance returned no decode evidence",
+        )
+    return "decode-evidence", evidence
+
+
+def identity_mismatches(
+    record: dict[str, Any], fields: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Compare every identity the record pins; return one entry per mismatch."""
+    problems: list[dict[str, str]] = []
+
+    def problem(item: str, reason: str) -> None:
+        problems.append({"item": item, "reason": reason})
+
+    alias = None
+    argv = record.get("argv") or []
+    for index, token in enumerate(argv):
+        if token == "--model-alias" and index + 1 < len(argv):
+            alias = argv[index + 1]
+    revision = record["checkpoint"]["revision"]
+    model_identity = fields.get("model_identity")
+    if alias is not None:
+        expected = f"{alias}:{revision}"
+        if model_identity != expected:
+            problem("model-identity", f"{model_identity!r} != {expected!r}")
+    elif not isinstance(model_identity, str) or not model_identity.endswith(
+        f":{revision}"
+    ):
+        problem(
+            "model-identity", f"{model_identity!r} does not carry revision {revision}"
+        )
+
+    expected_package = record["package"].get("execution_identity")
+    reported_package = fields.get("package_identity")
+    if not isinstance(reported_package, str) or not reported_package:
+        problem("package-identity", "the instance reports no package identity")
+    elif expected_package is not None and reported_package != expected_package:
+        problem("package-identity", f"{reported_package!r} != {expected_package!r}")
+
+    expected_devices = record["mesh"]["physical_device_ids"]
+    reported_devices = fields.get("physical_pcie_device_ids")
+    if reported_devices != expected_devices:
+        problem("physical-device-ids", f"{reported_devices!r} != {expected_devices!r}")
+
+    if fields.get("simulated") is not False:
+        problem(
+            "simulated", f"the instance reports simulated={fields.get('simulated')!r}"
+        )
+
+    reported_runtime = fields.get("runtime_identity")
+    recorded_runtime = record["runtime"].get("identity")
+    if not isinstance(reported_runtime, str) or not reported_runtime:
+        problem("runtime-identity", "the instance reports no runtime identity")
+    elif recorded_runtime is not None and reported_runtime != recorded_runtime:
+        problem("runtime-identity", f"{reported_runtime!r} != {recorded_runtime!r}")
+
+    reported_profile = fields.get("profile_id")
+    if not isinstance(reported_profile, str) or not reported_profile:
+        problem("profile-id", "the instance reports no profile id")
+    return problems
+
+
+def run_containment(
+    entry: dict[str, Any], package: str, root: Path, execution_identity: str | None
+) -> dict[str, Any]:
+    """Run the model package's own containment check. Never bypassed by --force."""
+    section = entry["containment"]
+    command = root / section["command"]
+    if not command.is_file() or not os.access(command, os.X_OK):
+        raise Refused(
+            "containment",
+            str(command),
+            "the containment command is missing or not executable",
+        )
+    arguments = [
+        token.replace("@package@", package).replace(
+            "@package_identity@", execution_identity or ""
+        )
+        for token in section["arguments"]
+    ]
+    try:
+        result = subprocess.run(
+            [str(command), *arguments], capture_output=True, text=True, timeout=600
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused("containment", str(command), f"could not run: {error}") from error
+    if result.returncode != 0:
+        raise Refused(
+            "containment",
+            str(command),
+            f"exited {result.returncode}: {result.stderr.strip() or result.stdout.strip()}",
+        )
+    try:
+        verdict = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise Refused(
+            "containment", str(command), f"verdict is not JSON: {error}"
+        ) from error
+    if (
+        not isinstance(verdict, dict)
+        or verdict.get(section["verdict_field"]) != section["verdict_value"]
+    ):
+        raise Refused(
+            "containment",
+            str(command),
+            f"{section['verdict_field']} is not {section['verdict_value']!r}",
+        )
+    return {"command": section["command"], "verdict": verdict}
+
+
+def rollback_switch(
+    state_root: Path,
+    name: str,
+    registry: dict[str, Any],
+    helper: Path,
+    previous_bytes: bytes | None,
+    owner_was_running: bool,
+    error: Exception,
+) -> None:
+    """Restore the previous record and owner, or say plainly that it failed."""
+    active = state_root / "active.json"
+    details: dict[str, Any] = {
+        "schema": "onix.tt-model.switch-failure.v1",
+        "profile": name,
+        "reason": str(error),
+        "at": utc_now().isoformat(),
+        "restored": False,
+        "owner_restarted": False,
+    }
+    if previous_bytes is not None:
+        write_atomic(active, previous_bytes)
+        details["restored"] = True
+    elif active.exists():
+        active.unlink()
+        details["restored"] = True
+    if owner_was_running and previous_bytes is not None:
+        try:
+            previous_document = json.loads(previous_bytes)
+            previous_entry = registry["profiles"].get(previous_document.get("profile"))
+            if previous_entry is None:
+                raise RuntimeError("the previous record names an unknown profile")
+            code, output, errors = helper_command(helper, "start-owner")
+            if code != 0:
+                raise RuntimeError(
+                    f"start-owner failed with status {code}: {errors.strip() or output.strip()}"
+                )
+            timeout = int(previous_entry["readiness"].get("timeout_seconds", 300))
+            wait_ready(previous_entry, timeout)
+            _, fields = observed_identity(previous_entry, min(30, timeout))
+            mismatches = identity_mismatches(previous_document, fields)
+            if mismatches:
+                raise RuntimeError(
+                    "the restored owner does not report the previous identity: "
+                    + "; ".join(
+                        f"{item['item']}: {item['reason']}" for item in mismatches
+                    )
+                )
+            details["owner_restarted"] = True
+        except Exception as failure:  # noqa: BLE001 - report any rollback failure
+            details["rollback_error"] = str(failure)
+            # An unverified owner must not stay recorded as active.
+            if details["restored"]:
+                history_dir = state_root / "history"
+                ensure_directory(history_dir, "state-root")
+                stamp = utc_now().strftime("%Y%m%dT%H%M%S.%fZ")
+                if active.exists():
+                    write_atomic(
+                        history_dir / f"{stamp}-{name}.rollback-failed.json",
+                        active.read_bytes(),
+                    )
+                    active.unlink()
+                details["restored"] = False
+    write_atomic(
+        state_root / "switch-failure.json",
+        (json.dumps(details, indent=2, sort_keys=True) + "\n").encode(),
+    )
+    item = error.item if isinstance(error, Refused) else "switch"
+    path = error.path if isinstance(error, Refused) else name
+    rollback = (
+        "verified" if details["owner_restarted"] or not owner_was_running else "FAILED"
+    )
+    raise Refused(
+        item,
+        path,
+        f"{error}; rollback {rollback}: {details.get('rollback_error', 'previous state restored')}",
+    )
+
+
+def switch_profile(
+    registry: dict[str, Any],
+    name: str,
+    package: str | None,
+    force: bool,
+    root: Path,
+) -> tuple[dict[str, Any], int]:
+    entry = registry["profiles"].get(name)
+    if entry is None:
+        raise Refused("profile", name, "no such runtime profile")
+    if entry["mode"] != "serve":
+        raise Refused(
+            "mode",
+            name,
+            f"{name} is a job profile; use `tt-model run` to take the cards for it",
+        )
+    state_root = env_path("TT_MODEL_STATE_ROOT", DEFAULT_STATE_ROOT)
+    gc_roots = env_path("TT_MODEL_GC_ROOTS", DEFAULT_GC_ROOTS)
+    ensure_directory(state_root, "state-root")
+    lock_path = state_root / ".switch.lock"
+    with open(lock_path, "a+", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise Refused(
+                "lock",
+                str(lock_path),
+                f"another switch operation holds the lock: {error}",
+            ) from error
+
+        report, status = check_profile(registry, name, package, False, False, root)
+        if status != OK:
+            structural = [
+                failure
+                for failure in report["failures"]
+                if not failure["item"].startswith(ADMISSION_ITEMS)
+            ]
+            if structural:
+                raise Refused(
+                    "check",
+                    ",".join(sorted({failure["item"] for failure in structural})),
+                    "the profile does not check out and this failure is not an admission failure",
+                )
+            if not force:
+                raise Refused(
+                    "check",
+                    ",".join(
+                        sorted({failure["item"] for failure in report["failures"]})
+                    ),
+                    "the profile does not check out; pass --force to switch with a bypass",
+                )
+            if os.environ.get("TT_MODEL_UNATTENDED") == "1":
+                raise Refused(
+                    "force-unattended",
+                    name,
+                    "--force is refused when TT_MODEL_UNATTENDED=1",
+                )
+
+        helper = owner_helper()
+        if helper is None:
+            raise Refused(
+                "owner-helper",
+                os.environ.get("TT_MODEL_OWNER") or DEFAULT_OWNER_HELPER,
+                "the owner helper is unavailable",
+            )
+        code, output, errors = helper_command(helper, "cards")
+        if code != 0:
+            raise Refused(
+                "owner-helper",
+                str(helper),
+                f"cards failed with status {code}: {errors.strip() or output.strip()}",
+            )
+        cards = parse_cards(output)
+        owner_unit = cards["owner_name"]
+        if not owner_unit:
+            raise Refused(
+                "owner-helper", str(helper), "the helper did not report the owner unit"
+            )
+        foreign = [
+            holder for holder in cards["holders"] if holder["unit"] != owner_unit
+        ]
+        if foreign:
+            holder = foreign[0]
+            raise Refused(
+                "card-holder",
+                holder["device"],
+                f"card is held by {holder['command']} (pid {holder['pid']}) outside {owner_unit}",
+            )
+
+        owner_was_running = cards["owner_pid"] not in (None, "none")
+        owner_stopped = False
+        if owner_was_running:
+            code, output, errors = helper_command(helper, "stop-owner")
+            if code != 0:
+                raise Refused(
+                    "stop-owner",
+                    owner_unit,
+                    f"stop-owner failed with status {code}: {errors.strip() or output.strip()}",
+                )
+            owner_stopped = True
+
+        reset_required = entry["reset"]["on_release"] != "never" or owner_stopped
+        reset_performed = False
+        if reset_required:
+            code, output, errors = helper_command(helper, "reset")
+            if code != 0:
+                raise Refused(
+                    "reset",
+                    owner_unit,
+                    f"reset failed with status {code}: {errors.strip() or output.strip()}",
+                )
+            reset_performed = True
+
+        # The candidate package is verified again after the reset: a reset must not
+        # be able to hide a store that changed underneath the switch.
+        verify_report, verify_status = check_profile(
+            registry, name, package, False, False, root
+        )
+        if verify_status != OK:
+            structural = [
+                failure
+                for failure in verify_report["failures"]
+                if not failure["item"].startswith(ADMISSION_ITEMS)
+            ]
+            if structural or not force:
+                raise Refused(
+                    "recheck",
+                    ",".join(
+                        sorted({
+                            failure["item"] for failure in verify_report["failures"]
+                        })
+                    ),
+                    "the candidate package stopped checking out after the reset",
+                )
+
+        containment_result = None
+        if "containment" in entry:
+            containment_result = run_containment(
+                entry,
+                package,
+                root,
+                (verify_report.get("package") or {}).get("execution_identity"),
+            )
+
+        ensure_directory(gc_roots, "gc-root")
+        previous_bytes = (
+            (state_root / "active.json").read_bytes()
+            if (state_root / "active.json").exists()
+            else None
+        )
+        record, data = build_record(
+            entry, name, package, verify_report, root, state_root, force
+        )
+        if containment_result is not None:
+            record["containment"] = containment_result
+        committed = commit_record(state_root, gc_roots, name, record, data)
+
+        timeout = int(entry["readiness"].get("timeout_seconds", 300))
+        try:
+            code, output, errors = helper_command(helper, "start-owner")
+            if code != 0:
+                raise Refused(
+                    "start-owner",
+                    owner_unit,
+                    f"start failed with status {code}: {errors.strip() or output.strip()}",
+                )
+            _, elapsed = wait_ready(entry, timeout)
+            source, fields = observed_identity(entry, min(30, timeout))
+            mismatches = identity_mismatches(record, fields)
+            if mismatches:
+                raise Refused(
+                    "identity",
+                    f"127.0.0.1:{entry['port']}",
+                    "; ".join(
+                        f"{item['item']}: {item['reason']}" for item in mismatches
+                    ),
+                )
+        except (
+            Refused,
+            OSError,
+            ValueError,
+            TypeError,
+            subprocess.SubprocessError,
+            urllib.error.URLError,
+            KeyboardInterrupt,
+        ) as error:
+            rollback_switch(
+                state_root,
+                name,
+                registry,
+                helper,
+                previous_bytes,
+                owner_was_running,
+                error,
+            )
+
+        record["runtime"]["identity"] = fields.get("runtime_identity")
+        record["identity"] = {
+            "source": source,
+            "model": fields.get("model"),
+            "model_identity": fields.get("model_identity"),
+            "package_identity": fields.get("package_identity"),
+            "runtime_identity": fields.get("runtime_identity"),
+            "profile_id": fields.get("profile_id"),
+            "physical_pcie_device_ids": fields.get("physical_pcie_device_ids"),
+            "simulated": fields.get("simulated"),
+            "observed_at": utc_now().isoformat(),
+        }
+        record["readiness"] = {
+            "kind": entry["readiness"]["kind"],
+            "path": entry["readiness"].get("path"),
+            "observed_seconds": round(elapsed, 3),
+        }
+        final_data = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode()
+        verified = commit_record(
+            state_root, gc_roots, name, record, final_data, suffix=".verified"
+        )
+        return {
+            "schema": "onix.tt-model.switch.v1",
+            "profile": name,
+            "package": package,
+            "active": verified["active"],
+            "history": verified["history"],
+            "candidate_history": committed["history"],
+            "identity": record["identity"],
+            "readiness": record["readiness"],
+            "owner_stopped": owner_stopped,
+            "reset_performed": reset_performed,
+            "admission_bypassed": record["admission_bypassed"],
+        }, OK
+
+
+# ---------------------------------------------------------------------------
+# Run: hand the cards to a job profile and record what happened.
+# ---------------------------------------------------------------------------
+
+
+def owner_helper() -> Path | None:
+    candidate = Path(os.environ.get("TT_MODEL_OWNER") or DEFAULT_OWNER_HELPER)
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return candidate
+    return None
+
+
+def helper_command(helper: Path, mode: str) -> tuple[int, str, str]:
+    try:
+        result = subprocess.run(
+            [str(helper), mode], capture_output=True, text=True, timeout=600
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(
+            "owner-helper", str(helper), f"the helper could not run: {error}"
+        ) from error
+    return result.returncode, result.stdout, result.stderr
+
+
+def parse_cards(output: str) -> dict[str, Any]:
+    cards: dict[str, Any] = {"owner_name": None, "owner_pid": None, "holders": []}
+    for line in output.splitlines():
+        if line.startswith("owner_name="):
+            cards["owner_name"] = line.split("=", 1)[1]
+        elif line.startswith("owner_pid="):
+            cards["owner_pid"] = line.split("=", 1)[1]
+        elif line.startswith("holder "):
+            parts = line.split(None, 4)
+            if len(parts) == 5:
+                cards["holders"].append({
+                    "device": parts[1],
+                    "pid": parts[2],
+                    "unit": parts[3],
+                    "command": parts[4],
+                })
+    return cards
+
+
+def run_profile(
+    registry: dict[str, Any],
+    name: str,
+    package: str | None,
+    force: bool,
+    root: Path,
+    job_arguments: list[str],
+) -> tuple[dict[str, Any], int]:
+    entry = registry["profiles"].get(name)
+    if entry is None:
+        raise Refused("profile", name, "no such runtime profile")
+    if entry["mode"] != "job":
+        raise Refused(
+            "mode",
+            name,
+            f"{name} is a serve profile; use `tt-model switch` to make it the owner",
+        )
+    state_root = env_path("TT_MODEL_STATE_ROOT", DEFAULT_STATE_ROOT)
+    ensure_directory(state_root, "state-root")
+    lock_path = state_root / ".run.lock"
+    with open(lock_path, "a+", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise Refused(
+                "lock", str(lock_path), f"another run operation holds the lock: {error}"
+            ) from error
+
+        report, status = check_profile(registry, name, package, False, False, root)
+        if status != OK:
+            structural = [
+                failure
+                for failure in report["failures"]
+                if not failure["item"].startswith(ADMISSION_ITEMS)
+            ]
+            if structural:
+                raise Refused(
+                    "check",
+                    ",".join(sorted({failure["item"] for failure in structural})),
+                    "the profile does not check out and this failure is not an admission failure",
+                )
+            if not force:
+                raise Refused(
+                    "check",
+                    ",".join(
+                        sorted({failure["item"] for failure in report["failures"]})
+                    ),
+                    "the profile does not check out; pass --force to run the bypass",
+                )
+            if os.environ.get("TT_MODEL_UNATTENDED") == "1":
+                raise Refused(
+                    "force-unattended",
+                    name,
+                    "--force is refused when TT_MODEL_UNATTENDED=1",
+                )
+
+        helper = owner_helper()
+        if helper is None:
+            raise Refused(
+                "owner-helper",
+                os.environ.get("TT_MODEL_OWNER") or DEFAULT_OWNER_HELPER,
+                "the owner helper is unavailable",
+            )
+        code, output, errors = helper_command(helper, "cards")
+        if code != 0:
+            raise Refused(
+                "owner-helper",
+                str(helper),
+                f"cards failed with status {code}: {errors.strip() or output.strip()}",
+            )
+        cards = parse_cards(output)
+        owner_unit = cards["owner_name"]
+        if not owner_unit:
+            raise Refused(
+                "owner-helper", str(helper), "the helper did not report the owner unit"
+            )
+        foreign = [
+            holder for holder in cards["holders"] if holder["unit"] != owner_unit
+        ]
+        if foreign:
+            holder = foreign[0]
+            raise Refused(
+                "card-holder",
+                holder["device"],
+                f"card is held by {holder['command']} (pid {holder['pid']}) outside {owner_unit}",
+            )
+
+        owner_stopped = False
+        if cards["owner_pid"] not in (None, "none"):
+            code, output, errors = helper_command(helper, "stop-owner")
+            if code != 0:
+                raise Refused(
+                    "stop-owner",
+                    owner_unit,
+                    f"stop-owner failed with status {code}: {errors.strip() or output.strip()}",
+                )
+            owner_stopped = True
+
+        reset_required = entry["reset"]["on_release"] != "never" or owner_stopped
+        reset_performed = False
+        if reset_required:
+            code, output, errors = helper_command(helper, "reset")
+            if code != 0:
+                raise Refused(
+                    "reset",
+                    owner_unit,
+                    f"reset failed with status {code}: {errors.strip() or output.strip()}",
+                )
+            reset_performed = True
+
+        argv = (
+            [str(Path(package) / entry["entry"]["binary"])]
+            + [
+                token.replace("@package@", package)
+                for token in entry["entry"]["argv_prefix"]
+            ]
+            + job_arguments
+        )
+        # The job gets the profile environment and a PATH, nothing else: a
+        # caller's MESH_DEVICE or TT_CACHE_PATH must not reach it.
+        environment = dict(entry["env"])
+        environment.setdefault(
+            "PATH", os.environ.get("PATH", "/run/current-system/sw/bin")
+        )
+        started = utc_now()
+        try:
+            result = subprocess.run(
+                argv, env=environment, check=False, capture_output=True, text=True
+            )
+        except OSError as error:
+            raise Refused(
+                "exec", argv[0], f"the job could not start: {error}"
+            ) from error
+        finished = utc_now()
+        # Keep stdout for this command's own report; the job speaks on stderr.
+        if result.stdout:
+            sys.stderr.write(result.stdout)
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+
+        receipt = None
+        receipt_argument = None
+        for index, token in enumerate(job_arguments):
+            if token == "--receipt" and index + 1 < len(job_arguments):
+                receipt_argument = job_arguments[index + 1]
+            elif token.startswith("--receipt="):
+                receipt_argument = token.split("=", 1)[1]
+        if receipt_argument:
+            receipt_path = Path(receipt_argument)
+            if receipt_path.is_file():
+                try:
+                    receipt = {
+                        "path": str(receipt_path.resolve()),
+                        "blake3": b3sum_file(receipt_path),
+                    }
+                except Refused:
+                    receipt = None
+
+        event = {
+            "schema": RUN_SCHEMA,
+            "profile": name,
+            "package": package,
+            "argv": argv,
+            "argv_blake3": b3sum_bytes("\0".join(argv).encode()),
+            "receipt": receipt,
+            "exit_status": result.returncode,
+            "started": started.isoformat(),
+            "finished": finished.isoformat(),
+            "owner_stopped": owner_stopped,
+            "reset_performed": reset_performed,
+        }
+        data = (json.dumps(event, indent=2, sort_keys=True) + "\n").encode()
+        runs_dir = state_root / RUN_EVENT_DIR
+        ensure_directory(runs_dir, "state-root")
+        event_path = runs_dir / f"{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{name}.json"
+        write_atomic(event_path, data)
+        write_atomic(state_root / "last-run.json", data)
+        return (
+            {
+                "event": event,
+                "event_path": str(event_path),
+                "last_run": str(state_root / "last-run.json"),
+            },
+            OK if result.returncode == 0 else FAILED,
+        )
+
+
+def probe_last_run(state_root: Path) -> dict[str, Any] | None:
+    """The most recent job run. Informational: it never becomes the owner."""
+    path = state_root / "last-run.json"
+    if not path.exists():
+        return None
+    try:
+        document = read_json(path)
+    except JsonInputError as error:
+        return {"path": str(path), "state": "unreadable", "reason": str(error)}
+    if not isinstance(document, dict) or document.get("schema") != RUN_SCHEMA:
+        return {"path": str(path), "state": "invalid"}
+    return {
+        "path": str(path),
+        "state": "ok",
+        "profile": document.get("profile"),
+        "package": document.get("package"),
+        "exit_status": document.get("exit_status"),
+        "started": document.get("started"),
+        "finished": document.get("finished"),
+        "receipt": document.get("receipt"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1209,6 +2012,7 @@ def collect(registry: dict[str, Any]) -> tuple[dict[str, Any], int]:
     profile_root = env_path("TT_MODEL_PROFILE_ROOT", DEFAULT_PROFILE_ROOT)
 
     active = probe_record(state_root, gc_roots, profiles)
+    last_run = probe_last_run(state_root)
     operator = probe_operator_symlink(home)
     nix_profile = probe_nix_profile(profile_root, LEGACY_PROFILE)
     unit = probe_unit(LEGACY_UNIT, os.environ.get("TT_MODEL_SYSTEMCTL"))
@@ -1287,6 +2091,7 @@ def collect(registry: dict[str, Any]) -> tuple[dict[str, Any], int]:
             "profiles": sorted(profiles),
         },
         "active": active,
+        "last_run": last_run,
         "legacy": {
             "operator_symlink": operator,
             "nix_profile": nix_profile,
@@ -1331,6 +2136,16 @@ def render_status_human(report: dict[str, Any]) -> str:
         lines.append(f"  recorded at: {record.get('recorded_at')}")
     else:
         lines.append(f"active record: {active['state']} ({active['path']})")
+    last_run = report.get("last_run")
+    if last_run is None:
+        lines.append("last run: none")
+    elif last_run.get("state") != "ok":
+        lines.append(f"last run: {last_run.get('state')} ({last_run.get('path')})")
+    else:
+        lines.append(
+            f"last run: {last_run.get('profile')} {last_run.get('package')} "
+            f"exit {last_run.get('exit_status')} ({last_run.get('started')})"
+        )
     legacy = report["legacy"]
     for label, key in (
         ("operator symlink", "operator_symlink"),
@@ -1466,7 +2281,43 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument(
         "--json", action="store_true", help="emit the stable JSON schema"
     )
-    args = parser.parse_args(argv)
+    switch = subcommands.add_parser(
+        "switch", help="make a serve profile the verified owner"
+    )
+    switch.add_argument("profile")
+    switch.add_argument("--package", help="candidate package store path")
+    switch.add_argument(
+        "--repo-root", help="directory that resolves repository-relative paths"
+    )
+    switch.add_argument(
+        "--force",
+        action="store_true",
+        help="switch despite admission failures, recording the bypass",
+    )
+    switch.add_argument(
+        "--json", action="store_true", help="emit the stable JSON schema"
+    )
+    run = subcommands.add_parser("run", help="run a job profile against one package")
+    run.add_argument("profile")
+    run.add_argument("--package", help="candidate package store path")
+    run.add_argument(
+        "--repo-root", help="directory that resolves repository-relative paths"
+    )
+    run.add_argument(
+        "--force",
+        action="store_true",
+        help="run despite admission failures, recording the bypass",
+    )
+    run.add_argument("--json", action="store_true", help="emit the stable JSON schema")
+    # Job arguments come after a literal `--`, split before argparse sees them:
+    # argparse's REMAINDER would also swallow this command's own options.
+    raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    job_arguments: list[str] = []
+    if raw_arguments[:1] == ["run"] and "--" in raw_arguments:
+        split = raw_arguments.index("--")
+        job_arguments = raw_arguments[split + 1 :]
+        raw_arguments = raw_arguments[:split]
+    args = parser.parse_args(raw_arguments)
 
     try:
         registry = load_registry(registry_path(os.environ.get("TT_MODEL_REGISTRY")))
@@ -1503,6 +2354,83 @@ def main(argv: list[str] | None = None) -> int:
             if args.json
             else render_check_human(report)
         )
+        return status_code
+
+    if args.command == "switch":
+        package = args.package
+        if package is None:
+            state_root = env_path("TT_MODEL_STATE_ROOT", DEFAULT_STATE_ROOT)
+            try:
+                previous = read_json(state_root / "active.json")
+                if (
+                    isinstance(previous, dict)
+                    and previous.get("profile") == args.profile
+                ):
+                    package = (previous.get("package") or {}).get("path")
+            except JsonInputError:
+                package = None
+        try:
+            report, status_code = switch_profile(
+                registry, args.profile, package, args.force, root
+            )
+        except Refused as refusal:
+            print(
+                f"tt-model: switch refused: {refusal.item}: {refusal.path}: {refusal.reason}",
+                file=sys.stderr,
+            )
+            return FAILED
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            identity = report["identity"]
+            print(
+                f"switched {report['profile']} to {report['package']}: "
+                f"ready in {report['readiness']['observed_seconds']}s, "
+                f"owner stopped {report['owner_stopped']}, "
+                f"reset {report['reset_performed']}"
+            )
+            print(
+                f"identity: {identity['source']} "
+                f"package {identity['package_identity']} "
+                f"runtime {identity['runtime_identity']} "
+                f"devices {identity['physical_pcie_device_ids']}"
+            )
+            print(f"record: {report['active']}")
+        return status_code
+
+    if args.command == "run":
+        package = args.package
+        if package is None:
+            state_root = env_path("TT_MODEL_STATE_ROOT", DEFAULT_STATE_ROOT)
+            try:
+                previous = read_json(state_root / "active.json")
+                if (
+                    isinstance(previous, dict)
+                    and previous.get("profile") == args.profile
+                ):
+                    package = (previous.get("package") or {}).get("path")
+            except JsonInputError:
+                package = None
+        try:
+            report, status_code = run_profile(
+                registry, args.profile, package, args.force, root, job_arguments
+            )
+        except Refused as refusal:
+            print(
+                f"tt-model: run refused: {refusal.item}: {refusal.path}: {refusal.reason}",
+                file=sys.stderr,
+            )
+            return FAILED
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            event = report["event"]
+            print(
+                f"ran {event['profile']} from {event['package']}: "
+                f"exit {event['exit_status']}, owner stopped {event['owner_stopped']}, "
+                f"reset {event['reset_performed']}"
+            )
+            print(f"event: {report['event_path']}")
         return status_code
 
     try:
