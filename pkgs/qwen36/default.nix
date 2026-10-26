@@ -63,7 +63,9 @@ let
     packages.transformers
   ]);
   ttnnSitePackages = "${tt-metal}/lib/python${python3.pythonVersion}/site-packages";
-  metaliumRoot = "${tt-metal}/libexec/tt-metalium";
+  metaliumOverlay = callPackage ../tt-metal/metalium-overlay.nix {
+    inherit tt-metal tt-metal-tracy-tools;
+  };
   executionPatches = [
     ./p150x2-tp.patch
     ./generate-tp-reset.patch
@@ -91,8 +93,9 @@ let
     ./cache-hit-single-projections.patch
     # Per-user first-token readiness for the masked prefill replays: the admission
     # TTFT statistic becomes the user's own wait instead of the group's last user.
-    # Appended last because it patches the fully patched model tree.
+    # Applied after its masked-prefill trace dependencies.
     ./prefill-per-user-ttft.patch
+    ./rounded-register-swiglu.patch
   ];
   stableIdentityPath = name: path: builtins.path { inherit name path; };
   # The service source must never carry interpreter bytecode: local path:
@@ -106,6 +109,8 @@ let
   };
   executionIdentityLocalInputs = [
     (stableIdentityPath "qwen36-service" stableServiceSource)
+    (stableIdentityPath "qwen38-rounded-register-swiglu.py" ./rounded_register_swiglu.py)
+    (stableIdentityPath "qwen38-rounded-register-kernels" ./rounded_register_kernels)
     (stableIdentityPath "qwen36-execution-wrapper-contract.ncl" ./execution-wrapper-contract.ncl)
     (stableIdentityPath "qwen36-authority.ncl" ./authority.ncl)
     (stableIdentityPath "qwen36-authority-contract.ncl" ./authority-contract.ncl)
@@ -210,8 +215,12 @@ let
   # receipt; it is a mutable pointer to evidence, not policy text. If one were
   # an identity input, the identity would move exactly when the receipt is
   # admitted, so the receipt could never name a package that also carries it.
-  executionIdentityInputNames = map (input: builtins.baseNameOf (toString input)) executionIdentityInputs;
-  executionIdentityBindingInputs = builtins.filter (name: lib.hasInfix "-binding" name) executionIdentityInputNames;
+  executionIdentityInputNames = map (
+    input: builtins.baseNameOf (toString input)
+  ) executionIdentityInputs;
+  executionIdentityBindingInputs = builtins.filter (
+    name: lib.hasInfix "-binding" name
+  ) executionIdentityInputNames;
   # The other half: the identity must move when immutable policy text moves.
   # Swap the v3 policy for a fixture of different bytes and require a different
   # identity store path. The input is a builtins.path store path, so its
@@ -227,16 +236,20 @@ let
       input
   ) executionIdentityInputs;
   executionIdentityPolicyInputCount = builtins.length (
-    builtins.filter (input: lib.hasSuffix "-qwen36-batch-admission-b8-policy-v3.ncl" (toString input)) executionIdentityInputs
+    builtins.filter (
+      input: lib.hasSuffix "-qwen36-batch-admission-b8-policy-v3.ncl" (toString input)
+    ) executionIdentityInputs
   );
   executionIdentityWithPolicyDrift = mkExecutionIdentity executionIdentityInputsWithPolicyDrift;
 in
-assert lib.assertMsg (
-  builtins.length executionIdentityBindingInputs == 0
-) "a receipt binding is an execution identity input; a package built while the binding is unmeasured could never carry its own receipt (${lib.concatStringsSep ", " executionIdentityBindingInputs})";
-assert lib.assertMsg (
-  toString executionIdentity != toString executionIdentityWithPolicyDrift
-) "a policy input failed to change the Qwen execution identity (${toString executionIdentity} vs ${toString executionIdentityWithPolicyDrift}; inputs ${lib.concatStringsSep ", " executionIdentityInputNames}; drift inputs ${lib.concatStringsSep ", " (map (input: builtins.baseNameOf (toString input)) executionIdentityInputsWithPolicyDrift)}; policy input matches ${toString executionIdentityPolicyInputCount})";
+assert lib.assertMsg (builtins.length executionIdentityBindingInputs == 0)
+  "a receipt binding is an execution identity input; a package built while the binding is unmeasured could never carry its own receipt (${lib.concatStringsSep ", " executionIdentityBindingInputs})";
+assert lib.assertMsg (toString executionIdentity != toString executionIdentityWithPolicyDrift)
+  "a policy input failed to change the Qwen execution identity (${toString executionIdentity} vs ${toString executionIdentityWithPolicyDrift}; inputs ${lib.concatStringsSep ", " executionIdentityInputNames}; drift inputs ${
+    lib.concatStringsSep ", " (
+      map (input: builtins.baseNameOf (toString input)) executionIdentityInputsWithPolicyDrift
+    )
+  }; policy input matches ${toString executionIdentityPolicyInputCount})";
 assert lib.assertMsg (
   toString executionIdentity != toString executionIdentityWithDrift
 ) "an execution input failed to change the Qwen execution identity";
@@ -264,6 +277,10 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/lib/python${python3.pythonVersion}/site-packages"
     cp -r models "$out/lib/python${python3.pythonVersion}/site-packages/models"
+    qwen_mlp_root="$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt"
+    cp ${./rounded_register_swiglu.py} "$qwen_mlp_root/rounded_register_swiglu.py"
+    cp ${./rounded_register_swiglu_check.py} "$qwen_mlp_root/rounded_register_swiglu_check.py"
+    cp -r ${./rounded_register_kernels} "$qwen_mlp_root/rounded_register_kernels"
     cp -r ${stableServiceSource} \
       "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service"
     if find "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service" \
@@ -502,67 +519,7 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/bin"
 
-    # The packaged tracy python module mkdirs $TT_METAL_HOME/build/profiler/
-    # build_wasm/traces at import time (tracy/common.py). The packaged runtime
-    # is read-only, so serve TT_METAL_HOME from a package-owned overlay that
-    # already contains those directories; mkdir(exist_ok=True) then no-ops.
-    # The overlay is a symlink tree of the packaged runtime, so every real
-    # Metalium file stays reachable without copying.
-    mkdir -p "$out/libexec" "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
-    cp -as ${metaliumRoot}/. "$out/libexec/tt-metalium/"
-    # cp -as preserved the store's read-only dir modes; make every REAL
-    # directory writable (find -type d never matches symlinks) so the api
-    # subtree can be replaced below.
-    find "$out/libexec/tt-metalium" -type d -exec chmod u+w {} +
-    # The packaged 0.74 runtime include tree ships only part of
-    # tt_metal/hw/inc/api (e.g. compute/experimental lacks matmul_custom.h,
-    # which the qwen36 SDPA kernels JIT-include). Replace the api subtree with
-    # real files from the package-matched tt-metal source — the same overlay
-    # pattern the rwkv7-p150x2 runtime uses for the unary headers. (A plain
-    # merge fails: parts of api, e.g. debug/, are symlinks into the store.)
-    api_src=${tt-metal.src}/tt_metal/hw/inc/api
-    api_dst="$out/libexec/tt-metalium/tt_metal/hw/inc/api"
-    rm -rf "$api_dst"
-    cp -r --no-preserve=mode "$api_src" "$api_dst"
-    # The packaged runtime also ships only part of the ttnn C++ tree (2733 of
-    # 4691 operation files; e.g. the experimental CCL all-gather-fused-matmul
-    # kernels the qwen36 TP path JITs are absent). Replace ttnn/cpp with the
-    # full package-matched source tree so every JIT kernel source resolves.
-    ttcp_src=${tt-metal.src}/ttnn/cpp
-    ttcp_dst="$out/libexec/tt-metalium/ttnn/cpp"
-    rm -rf "$ttcp_dst"
-    cp -r --no-preserve=mode "$ttcp_src" "$ttcp_dst"
-    # `${tt-metal.src}` is pre-patch: `overrideAttrs` changes `patches`, not
-    # `src`. Any file the runtime JIT-compiles therefore has to be restored from
-    # the installed runtime after the full-tree copy, or the overlay silently
-    # reverts the patch while the host-side half of it stays compiled in.
-    #
-    # This list must stay in step with the patch list above. A patch that adds or
-    # changes a JIT kernel source MUST add its directory here; otherwise the
-    # factory would pass arguments the reverted kernel does not read.
-    for patched_jit_path in \
-      ttnn/operations/transformer/gated_delta_decode \
-      ttnn/operations/transformer/chunk_gated_delta_rule/device/kernels
-    do
-      patched_jit_src="${tt-metal}/libexec/tt-metalium/ttnn/cpp/$patched_jit_path"
-      patched_jit_dst="$ttcp_dst/$patched_jit_path"
-      test -e "$patched_jit_src" || {
-        echo "patched JIT path is absent from the installed runtime: $patched_jit_path" >&2
-        exit 1
-      }
-      rm -rf "$patched_jit_dst"
-      mkdir -p "$(dirname "$patched_jit_dst")"
-      cp -r --no-preserve=mode "$patched_jit_src" "$patched_jit_dst"
-    done
-    mkdir -p "$out/libexec/tt-metalium/build/profiler/build_wasm/traces"
-    # Host-side Tracy CLI tools matching the packaged runtime. The packaged
-    # `python -m tracy` module resolves them under
-    # $TT_METAL_HOME/build/tools/profiler/bin (see tracy/common.py).
-    mkdir -p "$out/libexec/tt-metalium/build/tools/profiler/bin"
-    ln -s ${tt-metal-tracy-tools}/bin/tracy-capture \
-      "$out/libexec/tt-metalium/build/tools/profiler/bin/tracy-capture"
-    ln -s ${tt-metal-tracy-tools}/bin/tracy-csvexport \
-      "$out/libexec/tt-metalium/build/tools/profiler/bin/tracy-csvexport"
+    ${metaliumOverlay}
     overlayRoot="$out/libexec/tt-metalium"
     makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen36" \
       --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
@@ -573,6 +530,13 @@ stdenvNoCC.mkDerivation {
       --set TT_METAL_HOME "$overlayRoot" \
       --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
       --add-flags "$out/share/qwen36/check.py"
+    makeWrapper ${pythonEnvironment}/bin/python "$out/bin/qwen38-rounded-register-swiglu-check" \
+      --set PYTHONPATH "$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+      --set TT_METAL_HOME "$overlayRoot" \
+      --set TT_METAL_RUNTIME_ROOT "$overlayRoot" \
+      --unset MESH_DEVICE \
+      --unset TT_MESH_GRAPH_DESC_PATH \
+      --add-flags "-P -m models.demos.blackhole.qwen36.tt.rounded_register_swiglu_check"
 
     # The serialized P150x2 service owns request policy and uses the validated
     # paged prefill/decode path without an external vLLM dependency.
@@ -1184,803 +1148,804 @@ stdenvNoCC.mkDerivation {
 
   doInstallCheck = true;
   installCheckPhase = ''
-        runHook preInstallCheck
+    runHook preInstallCheck
 
-        # The install checks import the packaged service and models. Keep the
-        # interpreter from writing bytecode into the output being checked.
-        export PYTHONDONTWRITEBYTECODE=1
+    # The install checks import the packaged service and models. Keep the
+    # interpreter from writing bytecode into the output being checked.
+    export PYTHONDONTWRITEBYTECODE=1
+    "$out/bin/qwen38-rounded-register-swiglu-check" --semantic
 
-        # Positive: each legacy command resolves to one executable canonical command.
-        test -x "$out/bin/qwen38-check"
-        test -x "$out/bin/qwen38-p150x2-serve"
-        test -x "$out/bin/clef-serve"
-        test -x "$out/bin/clef-flash-serve"
-        for legacy_command in "$out"/bin/qwen36*; do
-          canonical_name="qwen38''${legacy_command##*/qwen36}"
-          test -L "$legacy_command"
-          test "$(readlink "$legacy_command")" = "$canonical_name"
-          test -x "$out/bin/$canonical_name"
-          test ! -L "$out/bin/$canonical_name"
-        done
-        "$out/bin/qwen38-p150x2-serve" --help > canonical-help.log
-        "$out/bin/qwen36-p150x2-serve" --help > legacy-help.log
-        cmp canonical-help.log legacy-help.log
+    # Positive: each legacy command resolves to one executable canonical command.
+    test -x "$out/bin/qwen38-check"
+    test -x "$out/bin/qwen38-p150x2-serve"
+    test -x "$out/bin/clef-serve"
+    test -x "$out/bin/clef-flash-serve"
+    for legacy_command in "$out"/bin/qwen36*; do
+      canonical_name="qwen38''${legacy_command##*/qwen36}"
+      test -L "$legacy_command"
+      test "$(readlink "$legacy_command")" = "$canonical_name"
+      test -x "$out/bin/$canonical_name"
+      test ! -L "$out/bin/$canonical_name"
+    done
+    "$out/bin/qwen38-p150x2-serve" --help > canonical-help.log
+    "$out/bin/qwen36-p150x2-serve" --help > legacy-help.log
+    cmp canonical-help.log legacy-help.log
 
-        # Negative: both command names reject malformed arguments before device I/O.
-        for command_name in qwen38-p150x2-serve qwen36-p150x2-serve; do
-          if "$out/bin/$command_name" --model-path /nonexistent-qwen-model \
-              --unknown-package-option > "$command_name-invalid.log" 2>&1; then
-            echo "$command_name accepted an unknown option" >&2
-            exit 1
-          fi
-          grep -F 'unrecognized arguments: --unknown-package-option' "$command_name-invalid.log"
-        done
+    # Negative: both command names reject malformed arguments before device I/O.
+    for command_name in qwen38-p150x2-serve qwen36-p150x2-serve; do
+      if "$out/bin/$command_name" --model-path /nonexistent-qwen-model \
+          --unknown-package-option > "$command_name-invalid.log" 2>&1; then
+        echo "$command_name accepted an unknown option" >&2
+        exit 1
+      fi
+      grep -F 'unrecognized arguments: --unknown-package-option' "$command_name-invalid.log"
+    done
 
-        # Positive: installed layout is complete and hash-consistent.
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/model.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/qwen36_vllm.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/tp.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/clef_release_model.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/clef.py"
-        test -f "$out/share/licenses/clef/LICENSE"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/batch_admission_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/trace_reuse_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/readiness_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/systemd_notify_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/native_mtp_verifier_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_selection_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_recovery_control_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_stage_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_target_prewarm_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_core.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_adapter.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_probe.py"
-        test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
-        test -f "$out/share/qwen36/decode-profile.json"
-        test -f "$out/share/qwen36/execution-wrapper-contract.ncl"
-        nickel export --format json "$out/share/qwen36/execution-wrapper-contract.ncl" \
-          > execution-wrapper-contract.json
-        grep -F '"package_identity_kind": "nix-execution-artifact"' execution-wrapper-contract.json
-        test -f "$out/share/qwen36/batch-admission-profile.json"
-        test -f "$out/share/qwen36/batch-admission-b8-profile.json"
-        test -f "$out/share/qwen36/batch-admission-b16-profile.json"
-        b16_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json}
-        b16_receipt_blake3=$(b3sum "$b16_receipt" | cut -d' ' -f1)
-        ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
-        import json
-        with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
-            profile = json.load(handle)
-        with open("$b16_receipt") as handle:
-            receipt = json.load(handle)
-        assert profile["workload"]["candidate_width"] == 16
-        assert len(profile["workload"]["prompts"]) == 16
-        assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
-        assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
-        assert profile["admission"]["maximum_ttft_ratio"] == 9.0
-        assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
-        assert profile["identities"]["receipt_blake3"] == "$b16_receipt_blake3"
-        assert profile["physically_admitted"] == receipt["admission"]["admitted"]
-        PROFILE_CHECK
-        test -f "$out/share/qwen36/batch-admission-policy.ncl"
-        test -f "$out/share/qwen36/batch-admission-binding.ncl"
-        test -f "$out/share/qwen36/trace-reuse-profile.json"
-        test -f "$out/share/qwen36/trace-reuse-policy.ncl"
-        test -f "$out/share/qwen36/trace-reuse-binding.ncl"
-        test -L "$out/share/qwen36/execution-identity"
-        test "$(readlink "$out/share/qwen36/execution-identity")" = ${lib.escapeShellArg executionIdentity}
-        test -f "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-        grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-batch-admission-policy.ncl" ./batch-admission-policy.ncl))} \
-          "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-        if grep -F 'batch-admission-binding.ncl' \
-            "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
-          echo "mutable batch admission binding entered execution identity" >&2
-          exit 1
-        fi
-        grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl))} \
-          "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-        grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl))} \
-          "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-        if grep -F 'trace-reuse-binding.ncl' \
-            "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
-          echo "mutable trace reuse binding entered execution identity" >&2
-          exit 1
-        fi
-        grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-serve"
-        grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-batch-admission"
-        grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b8-admission"
-        grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b16-admission"
-        grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-trace-reuse-admission"
-        test -f "$out/share/qwen36/mtp-probe-profile.json"
-        test -f "$out/share/qwen36/mtp-drafter-profile.json"
-        test -f "$out/share/qwen36/mtp-selection-profile.json"
-        test -f "$out/share/qwen36/mtp-trace-profile.json"
-        test -f "$out/share/qwen36/mtp-rollback-profile.json"
-        test -f "$out/share/qwen36/decode-component-profile.json"
-        test -f "$out/share/qwen36/gdn-decode-fusion-profile.json"
-        test -f "$out/share/qwen36/ttft-control-profile.json"
-        test -x "$out/bin/qwen36-p150x2-serve"
-        test -x "$out/bin/qwen36-p150x2-trace-candidate"
-        test -x "$out/bin/qwen36-p150x2-batch-admission"
-        test -x "$out/bin/qwen36-p150x2-b8-admission"
-        test -x "$out/bin/qwen36-p150x2-trace-reuse-admission"
-        test -x "$out/bin/qwen36-p150x2-mtp-probe"
-        test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
-        test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
-        test -x "$out/bin/qwen36-p150x2-mtp-trace-probe"
-        test -x "$out/bin/qwen36-p150x2-mtp-rollback-probe"
-        test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarmed-control"
-        test -x "$out/bin/qwen36-p150x2-mtp-recovery-stage"
-        test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage"
-        test -x "$out/bin/qwen36-p150x2-decode-component-probe"
-        test -x "$out/bin/qwen36-p150x2-ttft-control"
-        "$out/bin/qwen36-p150x2-batch-admission" --help > /dev/null
-        "$out/bin/qwen36-p150x2-b8-admission" --help > /dev/null
-        "$out/bin/qwen36-p150x2-trace-reuse-admission" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-trace-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-rollback-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-recovery-prewarmed-control" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-recovery-stage" --help > /dev/null
-        "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage" --help > /dev/null
-        "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
-        "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
+    # Positive: installed layout is complete and hash-consistent.
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/model.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/qwen36_vllm.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/tp.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_layout_candidate.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/gdn/decode_fusion_candidate.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt/mlp.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/models/tt_transformers/tt/model_config.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/clef_release_model.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/clef.py"
+    test -f "$out/share/licenses/clef/LICENSE"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/batch_admission_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/trace_reuse_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/prefill_profile_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/readiness_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/systemd_notify_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/native_mtp_verifier_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_probe.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_drafter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_selection_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_trace_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_rollback_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_recovery_control_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_stage_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/mtp_target_prewarm_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/decode_component_probe.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_core.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_adapter.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/ttft_control_probe.py"
+    test -f "$out/lib/python${python3.pythonVersion}/site-packages/qwen36_service/server.py"
+    test -f "$out/share/qwen36/decode-profile.json"
+    test -f "$out/share/qwen36/execution-wrapper-contract.ncl"
+    nickel export --format json "$out/share/qwen36/execution-wrapper-contract.ncl" \
+      > execution-wrapper-contract.json
+    grep -F '"package_identity_kind": "nix-execution-artifact"' execution-wrapper-contract.json
+    test -f "$out/share/qwen36/batch-admission-profile.json"
+    test -f "$out/share/qwen36/batch-admission-b8-profile.json"
+    test -f "$out/share/qwen36/batch-admission-b16-profile.json"
+    b16_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b16-receipt.json}
+    b16_receipt_blake3=$(b3sum "$b16_receipt" | cut -d' ' -f1)
+    ${pythonEnvironment}/bin/python - <<PROFILE_CHECK
+    import json
+    with open("$out/share/qwen36/batch-admission-b16-profile.json") as handle:
+        profile = json.load(handle)
+    with open("$b16_receipt") as handle:
+        receipt = json.load(handle)
+    assert profile["workload"]["candidate_width"] == 16
+    assert len(profile["workload"]["prompts"]) == 16
+    assert profile["admission"]["minimum_aggregate_decode_speedup_ratio"] == 6.0
+    assert profile["admission"]["minimum_per_user_decode_retention_ratio"] == 0.75
+    assert profile["admission"]["maximum_ttft_ratio"] == 9.0
+    assert profile["admission"]["maximum_tail_latency_ratio"] == 1.5
+    assert profile["identities"]["receipt_blake3"] == "$b16_receipt_blake3"
+    assert profile["physically_admitted"] == receipt["admission"]["admitted"]
+    PROFILE_CHECK
+    test -f "$out/share/qwen36/batch-admission-policy.ncl"
+    test -f "$out/share/qwen36/batch-admission-binding.ncl"
+    test -f "$out/share/qwen36/trace-reuse-profile.json"
+    test -f "$out/share/qwen36/trace-reuse-policy.ncl"
+    test -f "$out/share/qwen36/trace-reuse-binding.ncl"
+    test -L "$out/share/qwen36/execution-identity"
+    test "$(readlink "$out/share/qwen36/execution-identity")" = ${lib.escapeShellArg executionIdentity}
+    test -f "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-batch-admission-policy.ncl" ./batch-admission-policy.ncl))} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    if grep -F 'batch-admission-binding.ncl' \
+        "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
+      echo "mutable batch admission binding entered execution identity" >&2
+      exit 1
+    fi
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-trace-reuse-policy.ncl" ./trace-reuse-policy.ncl))} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    grep -F ${lib.escapeShellArg (toString (stableIdentityPath "qwen36-kernel-distribution-admission-policy.ncl" ./kernel-distribution-admission-policy.ncl))} \
+      "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    if grep -F 'trace-reuse-binding.ncl' \
+        "$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"; then
+      echo "mutable trace reuse binding entered execution identity" >&2
+      exit 1
+    fi
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-serve"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-batch-admission"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b8-admission"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-b16-admission"
+    grep -F ${lib.escapeShellArg executionIdentity} "$out/bin/qwen36-p150x2-trace-reuse-admission"
+    test -f "$out/share/qwen36/mtp-probe-profile.json"
+    test -f "$out/share/qwen36/mtp-drafter-profile.json"
+    test -f "$out/share/qwen36/mtp-selection-profile.json"
+    test -f "$out/share/qwen36/mtp-trace-profile.json"
+    test -f "$out/share/qwen36/mtp-rollback-profile.json"
+    test -f "$out/share/qwen36/decode-component-profile.json"
+    test -f "$out/share/qwen36/gdn-decode-fusion-profile.json"
+    test -f "$out/share/qwen36/ttft-control-profile.json"
+    test -x "$out/bin/qwen36-p150x2-serve"
+    test -x "$out/bin/qwen36-p150x2-trace-candidate"
+    test -x "$out/bin/qwen36-p150x2-batch-admission"
+    test -x "$out/bin/qwen36-p150x2-b8-admission"
+    test -x "$out/bin/qwen36-p150x2-trace-reuse-admission"
+    test -x "$out/bin/qwen36-p150x2-mtp-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-drafter-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-selection-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-trace-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-rollback-probe"
+    test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarmed-control"
+    test -x "$out/bin/qwen36-p150x2-mtp-recovery-stage"
+    test -x "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage"
+    test -x "$out/bin/qwen36-p150x2-decode-component-probe"
+    test -x "$out/bin/qwen36-p150x2-ttft-control"
+    "$out/bin/qwen36-p150x2-batch-admission" --help > /dev/null
+    "$out/bin/qwen36-p150x2-b8-admission" --help > /dev/null
+    "$out/bin/qwen36-p150x2-trace-reuse-admission" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-drafter-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-selection-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-trace-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-rollback-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-recovery-prewarmed-control" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-recovery-stage" --help > /dev/null
+    "$out/bin/qwen36-p150x2-mtp-recovery-prewarm-stage" --help > /dev/null
+    "$out/bin/qwen36-p150x2-decode-component-probe" --help > /dev/null
+    "$out/bin/qwen36-p150x2-ttft-control" --help > /dev/null
 
-        # Positive: the adopted 9-file PR scope is present in the installed tree.
-        for f in \
-          models/demos/blackhole/qwen36/README.md \
-          models/demos/blackhole/qwen36/demo/sample_prompts/.gitignore \
-          models/demos/blackhole/qwen36/demo/text_demo.py \
-          models/demos/blackhole/qwen36/tt/gdn/tp.py \
-          models/demos/blackhole/qwen36/tt/gdn/weights.py \
-          models/demos/blackhole/qwen36/tt/mlp.py \
-          models/demos/blackhole/qwen36/tt/model.py \
-          models/demos/blackhole/qwen36/tt/qwen36_vllm.py \
-          models/tt_transformers/tt/model_config.py; do
-          test -f "$out/lib/python${python3.pythonVersion}/site-packages/$f" || {
-            echo "adopted PR file missing: $f" >&2
-            exit 1
-          }
-        done
+    # Positive: the adopted 9-file PR scope is present in the installed tree.
+    for f in \
+      models/demos/blackhole/qwen36/README.md \
+      models/demos/blackhole/qwen36/demo/sample_prompts/.gitignore \
+      models/demos/blackhole/qwen36/demo/text_demo.py \
+      models/demos/blackhole/qwen36/tt/gdn/tp.py \
+      models/demos/blackhole/qwen36/tt/gdn/weights.py \
+      models/demos/blackhole/qwen36/tt/mlp.py \
+      models/demos/blackhole/qwen36/tt/model.py \
+      models/demos/blackhole/qwen36/tt/qwen36_vllm.py \
+      models/tt_transformers/tt/model_config.py; do
+      test -f "$out/lib/python${python3.pythonVersion}/site-packages/$f" || {
+        echo "adopted PR file missing: $f" >&2
+        exit 1
+      }
+    done
 
-        # Positive: authority.ncl export is deterministic and equals the committed
-        # generated authority used for eval-time admission. The export runs from a
-        # working directory that also holds the relative authority-contract.ncl
-        # import, so the store-path copy of authority.ncl resolves it.
-        mkdir -p authority-check
-        cp ${./authority.ncl} authority-check/authority.ncl
-        cp ${./authority-contract.ncl} authority-check/authority-contract.ncl
-        nickel export --format json authority-check/authority.ncl > authority-first.json
-        nickel export --format json authority-check/authority.ncl > authority-second.json
-        cmp authority-first.json authority-second.json
-        cmp authority-first.json ${./generated/authority.json}
+    # Positive: authority.ncl export is deterministic and equals the committed
+    # generated authority used for eval-time admission. The export runs from a
+    # working directory that also holds the relative authority-contract.ncl
+    # import, so the store-path copy of authority.ncl resolves it.
+    mkdir -p authority-check
+    cp ${./authority.ncl} authority-check/authority.ncl
+    cp ${./authority-contract.ncl} authority-check/authority-contract.ncl
+    nickel export --format json authority-check/authority.ncl > authority-first.json
+    nickel export --format json authority-check/authority.ncl > authority-second.json
+    cmp authority-first.json authority-second.json
+    cmp authority-first.json ${./generated/authority.json}
 
-        # r[verify tenstorrent.qwen38_p150x2.traced_decode]
-        # Positive: the candidate profile exports deterministically.
-        mkdir -p decode-profile-check
-        cp ${./decode-profile.ncl} decode-profile-check/decode-profile.ncl
-        cp ${./decode-contracts.ncl} decode-profile-check/decode-contracts.ncl
-        nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-first.json
-        nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-second.json
-        cmp decode-profile-first.json decode-profile-second.json
-        cmp decode-profile-first.json "$out/share/qwen36/decode-profile.json"
-        grep -F '"physically_admitted": false' decode-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.traced_decode]
+    # Positive: the candidate profile exports deterministically.
+    mkdir -p decode-profile-check
+    cp ${./decode-profile.ncl} decode-profile-check/decode-profile.ncl
+    cp ${./decode-contracts.ncl} decode-profile-check/decode-contracts.ncl
+    nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-first.json
+    nickel export --format json decode-profile-check/decode-profile.ncl > decode-profile-second.json
+    cmp decode-profile-first.json decode-profile-second.json
+    cmp decode-profile-first.json "$out/share/qwen36/decode-profile.json"
+    grep -F '"physically_admitted": false' decode-profile-first.json
 
-        # r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
-        # Positive: the B=4 admission profile exports deterministically.
-        mkdir -p batch-admission-profile-check
-        cp ${./batch-admission-profile.ncl} batch-admission-profile-check/batch-admission-profile.ncl
-        cp ${./batch-admission-policy.ncl} batch-admission-profile-check/batch-admission-policy.ncl
-        cp ${./batch-admission-policy-validated.ncl} batch-admission-profile-check/batch-admission-policy-validated.ncl
-        cp ${./batch-admission-binding.ncl} batch-admission-profile-check/batch-admission-binding.ncl
-        cp ${./batch-admission-binding-validated.ncl} batch-admission-profile-check/batch-admission-binding-validated.ncl
-        cp ${./batch-admission-contracts.ncl} batch-admission-profile-check/batch-admission-contracts.ncl
-        nickel export --format json batch-admission-profile-check/batch-admission-policy-validated.ncl > batch-admission-policy.json
-        nickel export --format json batch-admission-profile-check/batch-admission-binding-validated.ncl > batch-admission-binding.json
-        nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-first.json
-        nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-second.json
-        cmp batch-admission-profile-first.json batch-admission-profile-second.json
-        cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
-        grep -F '"candidate_width": 4' batch-admission-profile-first.json
-        grep -F '"physically_admitted": true' batch-admission-profile-first.json
-        grep -F '"receipt_blake3": "489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028"' \
-          batch-admission-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.batch_performance_admission]
+    # Positive: the B=4 admission profile exports deterministically.
+    mkdir -p batch-admission-profile-check
+    cp ${./batch-admission-profile.ncl} batch-admission-profile-check/batch-admission-profile.ncl
+    cp ${./batch-admission-policy.ncl} batch-admission-profile-check/batch-admission-policy.ncl
+    cp ${./batch-admission-policy-validated.ncl} batch-admission-profile-check/batch-admission-policy-validated.ncl
+    cp ${./batch-admission-binding.ncl} batch-admission-profile-check/batch-admission-binding.ncl
+    cp ${./batch-admission-binding-validated.ncl} batch-admission-profile-check/batch-admission-binding-validated.ncl
+    cp ${./batch-admission-contracts.ncl} batch-admission-profile-check/batch-admission-contracts.ncl
+    nickel export --format json batch-admission-profile-check/batch-admission-policy-validated.ncl > batch-admission-policy.json
+    nickel export --format json batch-admission-profile-check/batch-admission-binding-validated.ncl > batch-admission-binding.json
+    nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-first.json
+    nickel export --format json batch-admission-profile-check/batch-admission-profile.ncl > batch-admission-profile-second.json
+    cmp batch-admission-profile-first.json batch-admission-profile-second.json
+    cmp batch-admission-profile-first.json "$out/share/qwen36/batch-admission-profile.json"
+    grep -F '"candidate_width": 4' batch-admission-profile-first.json
+    grep -F '"physically_admitted": true' batch-admission-profile-first.json
+    grep -F '"receipt_blake3": "489f2fbcb414ae04e536fc055857864c3255d727e4c12b79dc701a86ded3d028"' \
+      batch-admission-profile-first.json
 
-        # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
-        # Positive: the B=8 admission profile exports deterministically and stays unadmitted.
-        mkdir -p batch-admission-b8-profile-check
-        cp ${./batch-admission-b8-profile.ncl} batch-admission-b8-profile-check/batch-admission-b8-profile.ncl
-        cp ${./batch-admission-b8-policy.ncl} batch-admission-b8-profile-check/batch-admission-b8-policy.ncl
-        cp ${./batch-admission-b8-policy-validated.ncl} batch-admission-b8-profile-check/batch-admission-b8-policy-validated.ncl
-        cp ${./batch-admission-b8-binding.ncl} batch-admission-b8-profile-check/batch-admission-b8-binding.ncl
-        cp ${./batch-admission-b8-binding-validated.ncl} batch-admission-b8-profile-check/batch-admission-b8-binding-validated.ncl
-        cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-check/batch-admission-b8-contracts.ncl
-        nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-policy-validated.ncl > batch-admission-b8-policy.json
-        nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-binding-validated.ncl > batch-admission-b8-binding.json
-        nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-profile.ncl > batch-admission-b8-profile-first.json
-        nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-profile.ncl > batch-admission-b8-profile-second.json
-        cmp batch-admission-b8-profile-first.json batch-admission-b8-profile-second.json
-        cmp batch-admission-b8-profile-first.json "$out/share/qwen36/batch-admission-b8-profile.json"
-        grep -F '"candidate_width": 8' batch-admission-b8-profile-first.json
-        grep -F '"minimum_aggregate_decode_speedup_ratio": 6' batch-admission-b8-profile-first.json
-        grep -F '"maximum_ttft_ratio": 9' batch-admission-b8-profile-first.json
-        # The B=8 admission state is bound to the tracked receipt: the exported
-        # profile must name the tracked receipt's digest, and its admitted flag must
-        # equal what that receipt's own admission block says. A rejection receipt
-        # cannot sit behind an admitted binding, and a pass cannot be exported while
-        # the tracked receipt records a failure.
-        b8_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json}
-        b8_receipt_blake3=$(b3sum "$b8_receipt" | cut -d' ' -f1)
-        grep -F "\"receipt_blake3\": \"$b8_receipt_blake3\"" batch-admission-b8-profile-first.json
-        if grep -F '"admitted": true' "$b8_receipt"; then
-          grep -F '"physically_admitted": true' batch-admission-b8-profile-first.json
-        elif grep -F '"admitted": false' "$b8_receipt"; then
-          grep -F '"physically_admitted": false' batch-admission-b8-profile-first.json
-        else
-          echo "tracked B=8 receipt carries no admission verdict" >&2
-          exit 1
-        fi
+    # r[verify tenstorrent.qwen38_p150x2.batch_b8_admission]
+    # Positive: the B=8 admission profile exports deterministically and stays unadmitted.
+    mkdir -p batch-admission-b8-profile-check
+    cp ${./batch-admission-b8-profile.ncl} batch-admission-b8-profile-check/batch-admission-b8-profile.ncl
+    cp ${./batch-admission-b8-policy.ncl} batch-admission-b8-profile-check/batch-admission-b8-policy.ncl
+    cp ${./batch-admission-b8-policy-validated.ncl} batch-admission-b8-profile-check/batch-admission-b8-policy-validated.ncl
+    cp ${./batch-admission-b8-binding.ncl} batch-admission-b8-profile-check/batch-admission-b8-binding.ncl
+    cp ${./batch-admission-b8-binding-validated.ncl} batch-admission-b8-profile-check/batch-admission-b8-binding-validated.ncl
+    cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-check/batch-admission-b8-contracts.ncl
+    nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-policy-validated.ncl > batch-admission-b8-policy.json
+    nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-binding-validated.ncl > batch-admission-b8-binding.json
+    nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-profile.ncl > batch-admission-b8-profile-first.json
+    nickel export --format json batch-admission-b8-profile-check/batch-admission-b8-profile.ncl > batch-admission-b8-profile-second.json
+    cmp batch-admission-b8-profile-first.json batch-admission-b8-profile-second.json
+    cmp batch-admission-b8-profile-first.json "$out/share/qwen36/batch-admission-b8-profile.json"
+    grep -F '"candidate_width": 8' batch-admission-b8-profile-first.json
+    grep -F '"minimum_aggregate_decode_speedup_ratio": 6' batch-admission-b8-profile-first.json
+    grep -F '"maximum_ttft_ratio": 9' batch-admission-b8-profile-first.json
+    # The B=8 admission state is bound to the tracked receipt: the exported
+    # profile must name the tracked receipt's digest, and its admitted flag must
+    # equal what that receipt's own admission block says. A rejection receipt
+    # cannot sit behind an admitted binding, and a pass cannot be exported while
+    # the tracked receipt records a failure.
+    b8_receipt=${./evidence/2026-10-21/qwen38-27b-batch-admission-b8-receipt.json}
+    b8_receipt_blake3=$(b3sum "$b8_receipt" | cut -d' ' -f1)
+    grep -F "\"receipt_blake3\": \"$b8_receipt_blake3\"" batch-admission-b8-profile-first.json
+    if grep -F '"admitted": true' "$b8_receipt"; then
+      grep -F '"physically_admitted": true' batch-admission-b8-profile-first.json
+    elif grep -F '"admitted": false' "$b8_receipt"; then
+      grep -F '"physically_admitted": false' batch-admission-b8-profile-first.json
+    else
+      echo "tracked B=8 receipt carries no admission verdict" >&2
+      exit 1
+    fi
 
-        # Negative: admitted B=8 without a receipt must fail.
-        mkdir -p batch-admission-b8-profile-negative
-        cp ${./batch-admission-b8-profile.ncl} batch-admission-b8-profile-negative/batch-admission-b8-profile.ncl
-        cp ${./batch-admission-b8-policy.ncl} batch-admission-b8-profile-negative/batch-admission-b8-policy.ncl
-        cp ${./batch-admission-b8-binding.ncl} batch-admission-b8-profile-negative/batch-admission-b8-binding.ncl
-        cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-negative/batch-admission-b8-contracts.ncl
-        cp ${./fixtures/invalid-batch-admission-b8-profile.ncl} batch-admission-b8-profile-negative/invalid-batch-admission-b8-profile.ncl
-        if nickel export --format json batch-admission-b8-profile-negative/invalid-batch-admission-b8-profile.ncl \
-            > invalid-batch-admission-b8-profile.json 2> invalid-batch-admission-b8-profile.log; then
-          echo "invalid B=8 admission profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-batch-admission-b8-profile.log
+    # Negative: admitted B=8 without a receipt must fail.
+    mkdir -p batch-admission-b8-profile-negative
+    cp ${./batch-admission-b8-profile.ncl} batch-admission-b8-profile-negative/batch-admission-b8-profile.ncl
+    cp ${./batch-admission-b8-policy.ncl} batch-admission-b8-profile-negative/batch-admission-b8-policy.ncl
+    cp ${./batch-admission-b8-binding.ncl} batch-admission-b8-profile-negative/batch-admission-b8-binding.ncl
+    cp ${./batch-admission-b8-contracts.ncl} batch-admission-b8-profile-negative/batch-admission-b8-contracts.ncl
+    cp ${./fixtures/invalid-batch-admission-b8-profile.ncl} batch-admission-b8-profile-negative/invalid-batch-admission-b8-profile.ncl
+    if nickel export --format json batch-admission-b8-profile-negative/invalid-batch-admission-b8-profile.ncl \
+        > invalid-batch-admission-b8-profile.json 2> invalid-batch-admission-b8-profile.log; then
+      echo "invalid B=8 admission profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-batch-admission-b8-profile.log
 
-        # Negative: a candidate width outside the admitted set must fail its closed contract.
-        cp ${./fixtures/invalid-batch-admission-b8-width.ncl} batch-admission-b8-profile-negative/invalid-batch-admission-b8-width.ncl
-        if nickel export --format json batch-admission-b8-profile-negative/invalid-batch-admission-b8-width.ncl \
-            > invalid-batch-admission-b8-width.json 2> invalid-batch-admission-b8-width.log; then
-          echo "invalid B=8 width exported" >&2
-          exit 1
-        fi
-        test -s invalid-batch-admission-b8-width.log
+    # Negative: a candidate width outside the admitted set must fail its closed contract.
+    cp ${./fixtures/invalid-batch-admission-b8-width.ncl} batch-admission-b8-profile-negative/invalid-batch-admission-b8-width.ncl
+    if nickel export --format json batch-admission-b8-profile-negative/invalid-batch-admission-b8-width.ncl \
+        > invalid-batch-admission-b8-width.json 2> invalid-batch-admission-b8-width.log; then
+      echo "invalid B=8 width exported" >&2
+      exit 1
+    fi
+    test -s invalid-batch-admission-b8-width.log
 
-        # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
-        # Positive: the trace-reuse profile exports deterministically and stays unadmitted.
-        mkdir -p trace-reuse-profile-check
-        cp ${./trace-reuse-profile.ncl} trace-reuse-profile-check/trace-reuse-profile.ncl
-        cp ${./trace-reuse-policy.ncl} trace-reuse-profile-check/trace-reuse-policy.ncl
-        cp ${./trace-reuse-policy-validated.ncl} trace-reuse-profile-check/trace-reuse-policy-validated.ncl
-        cp ${./trace-reuse-binding.ncl} trace-reuse-profile-check/trace-reuse-binding.ncl
-        cp ${./trace-reuse-binding-validated.ncl} trace-reuse-profile-check/trace-reuse-binding-validated.ncl
-        cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-check/trace-reuse-contracts.ncl
-        nickel export --format json trace-reuse-profile-check/trace-reuse-policy-validated.ncl > trace-reuse-policy.json
-        nickel export --format json trace-reuse-profile-check/trace-reuse-binding-validated.ncl > trace-reuse-binding.json
-        nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-first.json
-        nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-second.json
-        cmp trace-reuse-profile-first.json trace-reuse-profile-second.json
-        cmp trace-reuse-profile-first.json "$out/share/qwen36/trace-reuse-profile.json"
-        grep -F '"width": 4' trace-reuse-profile-first.json
-        grep -F '"maximum_resident_trace_count": 1' trace-reuse-profile-first.json
-        grep -F '"physically_admitted": false' trace-reuse-profile-first.json
-        grep -F '"receipt_blake3": "not-measured"' trace-reuse-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.same_width_trace_reuse]
+    # Positive: the trace-reuse profile exports deterministically and stays unadmitted.
+    mkdir -p trace-reuse-profile-check
+    cp ${./trace-reuse-profile.ncl} trace-reuse-profile-check/trace-reuse-profile.ncl
+    cp ${./trace-reuse-policy.ncl} trace-reuse-profile-check/trace-reuse-policy.ncl
+    cp ${./trace-reuse-policy-validated.ncl} trace-reuse-profile-check/trace-reuse-policy-validated.ncl
+    cp ${./trace-reuse-binding.ncl} trace-reuse-profile-check/trace-reuse-binding.ncl
+    cp ${./trace-reuse-binding-validated.ncl} trace-reuse-profile-check/trace-reuse-binding-validated.ncl
+    cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-check/trace-reuse-contracts.ncl
+    nickel export --format json trace-reuse-profile-check/trace-reuse-policy-validated.ncl > trace-reuse-policy.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-binding-validated.ncl > trace-reuse-binding.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-first.json
+    nickel export --format json trace-reuse-profile-check/trace-reuse-profile.ncl > trace-reuse-profile-second.json
+    cmp trace-reuse-profile-first.json trace-reuse-profile-second.json
+    cmp trace-reuse-profile-first.json "$out/share/qwen36/trace-reuse-profile.json"
+    grep -F '"width": 4' trace-reuse-profile-first.json
+    grep -F '"maximum_resident_trace_count": 1' trace-reuse-profile-first.json
+    grep -F '"physically_admitted": false' trace-reuse-profile-first.json
+    grep -F '"receipt_blake3": "not-measured"' trace-reuse-profile-first.json
 
-        # Negative: admitted trace reuse without a receipt must fail.
-        mkdir -p trace-reuse-profile-negative
-        cp ${./trace-reuse-profile.ncl} trace-reuse-profile-negative/trace-reuse-profile.ncl
-        cp ${./trace-reuse-policy.ncl} trace-reuse-profile-negative/trace-reuse-policy.ncl
-        cp ${./trace-reuse-binding.ncl} trace-reuse-profile-negative/trace-reuse-binding.ncl
-        cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-negative/trace-reuse-contracts.ncl
-        cp ${./fixtures/invalid-trace-reuse-profile.ncl} trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl
-        if nickel export --format json trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl \
-            > invalid-trace-reuse-profile.json 2> invalid-trace-reuse-profile.log; then
-          echo "invalid trace reuse profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-trace-reuse-profile.log
+    # Negative: admitted trace reuse without a receipt must fail.
+    mkdir -p trace-reuse-profile-negative
+    cp ${./trace-reuse-profile.ncl} trace-reuse-profile-negative/trace-reuse-profile.ncl
+    cp ${./trace-reuse-policy.ncl} trace-reuse-profile-negative/trace-reuse-policy.ncl
+    cp ${./trace-reuse-binding.ncl} trace-reuse-profile-negative/trace-reuse-binding.ncl
+    cp ${./trace-reuse-contracts.ncl} trace-reuse-profile-negative/trace-reuse-contracts.ncl
+    cp ${./fixtures/invalid-trace-reuse-profile.ncl} trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl
+    if nickel export --format json trace-reuse-profile-negative/invalid-trace-reuse-profile.ncl \
+        > invalid-trace-reuse-profile.json 2> invalid-trace-reuse-profile.log; then
+      echo "invalid trace reuse profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-trace-reuse-profile.log
 
-        # Negative: an admitted batch profile without a receipt must fail.
-        mkdir -p batch-admission-profile-negative
-        cp ${./batch-admission-profile.ncl} batch-admission-profile-negative/batch-admission-profile.ncl
-        cp ${./batch-admission-policy.ncl} batch-admission-profile-negative/batch-admission-policy.ncl
-        cp ${./batch-admission-binding.ncl} batch-admission-profile-negative/batch-admission-binding.ncl
-        cp ${./batch-admission-contracts.ncl} batch-admission-profile-negative/batch-admission-contracts.ncl
-        cp ${./fixtures/invalid-batch-admission-profile.ncl} batch-admission-profile-negative/invalid-batch-admission-profile.ncl
-        if nickel export --format json batch-admission-profile-negative/invalid-batch-admission-profile.ncl \
-            > invalid-batch-admission-profile.json 2> invalid-batch-admission-profile.log; then
-          echo "invalid batch admission profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-batch-admission-profile.log
+    # Negative: an admitted batch profile without a receipt must fail.
+    mkdir -p batch-admission-profile-negative
+    cp ${./batch-admission-profile.ncl} batch-admission-profile-negative/batch-admission-profile.ncl
+    cp ${./batch-admission-policy.ncl} batch-admission-profile-negative/batch-admission-policy.ncl
+    cp ${./batch-admission-binding.ncl} batch-admission-profile-negative/batch-admission-binding.ncl
+    cp ${./batch-admission-contracts.ncl} batch-admission-profile-negative/batch-admission-contracts.ncl
+    cp ${./fixtures/invalid-batch-admission-profile.ncl} batch-admission-profile-negative/invalid-batch-admission-profile.ncl
+    if nickel export --format json batch-admission-profile-negative/invalid-batch-admission-profile.ncl \
+        > invalid-batch-admission-profile.json 2> invalid-batch-admission-profile.log; then
+      echo "invalid batch admission profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-batch-admission-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
-        # Negative: more refills per boundary than slots must fail the typed contract.
-        mkdir -p continuous-slot-policy-negative
-        cp ${./continuous-slot-contracts.ncl} continuous-slot-policy-negative/continuous-slot-contracts.ncl
-        cp ${./fixtures/invalid-continuous-slot-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl
-        if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl \
-            > invalid-continuous-slot-policy.json 2> invalid-continuous-slot-policy.log; then
-          echo "invalid continuous-slot policy exported" >&2
-          exit 1
-        fi
-        test -s invalid-continuous-slot-policy.log
+    # r[verify tenstorrent.qwen38_p150x2.continuous_slot_policy]
+    # Negative: more refills per boundary than slots must fail the typed contract.
+    mkdir -p continuous-slot-policy-negative
+    cp ${./continuous-slot-contracts.ncl} continuous-slot-policy-negative/continuous-slot-contracts.ncl
+    cp ${./fixtures/invalid-continuous-slot-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-policy.ncl \
+        > invalid-continuous-slot-policy.json 2> invalid-continuous-slot-policy.log; then
+      echo "invalid continuous-slot policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-continuous-slot-policy.log
 
-        # r[verify tenstorrent.qwen38_p150x2.continuous_slot_admission]
-        # Negative: an admission without exact candidate parity must fail its contract.
-        cp ${./continuous-slot-admission-contracts.ncl} continuous-slot-policy-negative/continuous-slot-admission-contracts.ncl
-        cp ${./fixtures/invalid-continuous-slot-admission-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl
-        if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl \
-            > invalid-continuous-slot-admission-policy.json 2> invalid-continuous-slot-admission-policy.log; then
-          echo "invalid continuous-slot admission policy exported" >&2
-          exit 1
-        fi
-        test -s invalid-continuous-slot-admission-policy.log
+    # r[verify tenstorrent.qwen38_p150x2.continuous_slot_admission]
+    # Negative: an admission without exact candidate parity must fail its contract.
+    cp ${./continuous-slot-admission-contracts.ncl} continuous-slot-policy-negative/continuous-slot-admission-contracts.ncl
+    cp ${./fixtures/invalid-continuous-slot-admission-policy.ncl} continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-continuous-slot-admission-policy.ncl \
+        > invalid-continuous-slot-admission-policy.json 2> invalid-continuous-slot-admission-policy.log; then
+      echo "invalid continuous-slot admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-continuous-slot-admission-policy.log
 
-        # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
-        # Negative: a minimum prefix off the chunk boundary must fail its contract.
-        cp ${./prefix-cache-contracts.ncl} continuous-slot-policy-negative/prefix-cache-contracts.ncl
-        cp ${./fixtures/invalid-prefix-cache-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl
-        if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl \
-            > invalid-prefix-cache-policy.json 2> invalid-prefix-cache-policy.log; then
-          echo "invalid prefix cache policy exported" >&2
-          exit 1
-        fi
-        test -s invalid-prefix-cache-policy.log
-        cp ${./prefix-cache-admission-contracts.ncl} continuous-slot-policy-negative/prefix-cache-admission-contracts.ncl
-        cp ${./fixtures/invalid-prefix-cache-admission-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl
-        if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl \
-            > invalid-prefix-cache-admission-policy.json 2> invalid-prefix-cache-admission-policy.log; then
-          echo "invalid prefix cache admission policy exported" >&2
-          exit 1
-        fi
-        test -s invalid-prefix-cache-admission-policy.log
-        cp ${./resident-trace-admission-contracts.ncl} continuous-slot-policy-negative/resident-trace-admission-contracts.ncl
-        cp ${./fixtures/invalid-resident-trace-admission-policy.ncl} continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl
-        if nickel export --format json continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl \
-            > invalid-resident-trace-admission-policy.json 2> invalid-resident-trace-admission-policy.log; then
-          echo "invalid resident trace admission policy exported" >&2
-          exit 1
-        fi
-        test -s invalid-resident-trace-admission-policy.log
+    # r[verify tenstorrent.qwen38_p150x2.hybrid_prefix_admission]
+    # Negative: a minimum prefix off the chunk boundary must fail its contract.
+    cp ${./prefix-cache-contracts.ncl} continuous-slot-policy-negative/prefix-cache-contracts.ncl
+    cp ${./fixtures/invalid-prefix-cache-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-policy.ncl \
+        > invalid-prefix-cache-policy.json 2> invalid-prefix-cache-policy.log; then
+      echo "invalid prefix cache policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-prefix-cache-policy.log
+    cp ${./prefix-cache-admission-contracts.ncl} continuous-slot-policy-negative/prefix-cache-admission-contracts.ncl
+    cp ${./fixtures/invalid-prefix-cache-admission-policy.ncl} continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-prefix-cache-admission-policy.ncl \
+        > invalid-prefix-cache-admission-policy.json 2> invalid-prefix-cache-admission-policy.log; then
+      echo "invalid prefix cache admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-prefix-cache-admission-policy.log
+    cp ${./resident-trace-admission-contracts.ncl} continuous-slot-policy-negative/resident-trace-admission-contracts.ncl
+    cp ${./fixtures/invalid-resident-trace-admission-policy.ncl} continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl
+    if nickel export --format json continuous-slot-policy-negative/invalid-resident-trace-admission-policy.ncl \
+        > invalid-resident-trace-admission-policy.json 2> invalid-resident-trace-admission-policy.log; then
+      echo "invalid resident trace admission policy exported" >&2
+      exit 1
+    fi
+    test -s invalid-resident-trace-admission-policy.log
 
-        # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
-        # Negative: an invalid slot count must fail its typed contract.
-        mkdir -p decode-profile-negative
-        cp ${./decode-profile.ncl} decode-profile-negative/decode-profile.ncl
-        cp ${./decode-contracts.ncl} decode-profile-negative/decode-contracts.ncl
-        cp ${./fixtures/invalid-decode-profile.ncl} decode-profile-negative/invalid-decode-profile.ncl
-        if nickel export --format json decode-profile-negative/invalid-decode-profile.ncl \
-            > invalid-decode-profile.json 2> invalid-decode-profile.log; then
-          echo "invalid decode profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-decode-profile.log
+    # r[verify tenstorrent.qwen38_p150x2.traced_decode.fallback]
+    # Negative: an invalid slot count must fail its typed contract.
+    mkdir -p decode-profile-negative
+    cp ${./decode-profile.ncl} decode-profile-negative/decode-profile.ncl
+    cp ${./decode-contracts.ncl} decode-profile-negative/decode-contracts.ncl
+    cp ${./fixtures/invalid-decode-profile.ncl} decode-profile-negative/invalid-decode-profile.ncl
+    if nickel export --format json decode-profile-negative/invalid-decode-profile.ncl \
+        > invalid-decode-profile.json 2> invalid-decode-profile.log; then
+      echo "invalid decode profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-decode-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.mtp_verification_probe]
-        # Positive: the diagnostic target-probe profile exports deterministically.
-        mkdir -p mtp-probe-profile-check
-        cp ${./mtp-probe-profile.ncl} mtp-probe-profile-check/mtp-probe-profile.ncl
-        cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-check/mtp-probe-contracts.ncl
-        nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-first.json
-        nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-second.json
-        cmp mtp-probe-profile-first.json mtp-probe-profile-second.json
-        cmp mtp-probe-profile-first.json "$out/share/qwen36/mtp-probe-profile.json"
-        grep -F '"diagnostic_only": true' mtp-probe-profile-first.json
-        authority_blake3="$(b3sum authority-first.json | cut -d ' ' -f 1)"
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-probe-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.mtp_verification_probe]
+    # Positive: the diagnostic target-probe profile exports deterministically.
+    mkdir -p mtp-probe-profile-check
+    cp ${./mtp-probe-profile.ncl} mtp-probe-profile-check/mtp-probe-profile.ncl
+    cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-check/mtp-probe-contracts.ncl
+    nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-first.json
+    nickel export --format json mtp-probe-profile-check/mtp-probe-profile.ncl > mtp-probe-profile-second.json
+    cmp mtp-probe-profile-first.json mtp-probe-profile-second.json
+    cmp mtp-probe-profile-first.json "$out/share/qwen36/mtp-probe-profile.json"
+    grep -F '"diagnostic_only": true' mtp-probe-profile-first.json
+    authority_blake3="$(b3sum authority-first.json | cut -d ' ' -f 1)"
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-probe-profile-first.json
 
-        # Negative: a changed width set or admission mode must fail its typed contract.
-        mkdir -p mtp-probe-profile-negative
-        cp ${./mtp-probe-profile.ncl} mtp-probe-profile-negative/mtp-probe-profile.ncl
-        cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-negative/mtp-probe-contracts.ncl
-        cp ${./fixtures/invalid-mtp-probe-profile.ncl} mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl
-        if nickel export --format json mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl \
-            > invalid-mtp-probe-profile.json 2> invalid-mtp-probe-profile.log; then
-          echo "invalid MTP probe profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-probe-profile.log
+    # Negative: a changed width set or admission mode must fail its typed contract.
+    mkdir -p mtp-probe-profile-negative
+    cp ${./mtp-probe-profile.ncl} mtp-probe-profile-negative/mtp-probe-profile.ncl
+    cp ${./mtp-probe-contracts.ncl} mtp-probe-profile-negative/mtp-probe-contracts.ncl
+    cp ${./fixtures/invalid-mtp-probe-profile.ncl} mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl
+    if nickel export --format json mtp-probe-profile-negative/invalid-mtp-probe-profile.ncl \
+        > invalid-mtp-probe-profile.json 2> invalid-mtp-probe-profile.log; then
+      echo "invalid MTP probe profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-probe-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.mtp_drafter_probe]
-        # Positive: the diagnostic drafter profile exports deterministically.
-        mkdir -p mtp-drafter-profile-check
-        cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-check/mtp-drafter-profile.ncl
-        cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-check/mtp-drafter-contracts.ncl
-        nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-first.json
-        nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-second.json
-        cmp mtp-drafter-profile-first.json mtp-drafter-profile-second.json
-        cmp mtp-drafter-profile-first.json "$out/share/qwen36/mtp-drafter-profile.json"
-        grep -F '"draft_token_count": 3' mtp-drafter-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-drafter-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.mtp_drafter_probe]
+    # Positive: the diagnostic drafter profile exports deterministically.
+    mkdir -p mtp-drafter-profile-check
+    cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-check/mtp-drafter-profile.ncl
+    cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-check/mtp-drafter-contracts.ncl
+    nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-first.json
+    nickel export --format json mtp-drafter-profile-check/mtp-drafter-profile.ncl > mtp-drafter-profile-second.json
+    cmp mtp-drafter-profile-first.json mtp-drafter-profile-second.json
+    cmp mtp-drafter-profile-first.json "$out/share/qwen36/mtp-drafter-profile.json"
+    grep -F '"draft_token_count": 3' mtp-drafter-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-drafter-profile-first.json
 
-        # Negative: weakened drafter bounds must fail the typed contract.
-        mkdir -p mtp-drafter-profile-negative
-        cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-negative/mtp-drafter-profile.ncl
-        cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-negative/mtp-drafter-contracts.ncl
-        cp ${./fixtures/invalid-mtp-drafter-profile.ncl} mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl
-        if nickel export --format json mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl \
-            > invalid-mtp-drafter-profile.json 2> invalid-mtp-drafter-profile.log; then
-          echo "invalid MTP drafter profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-drafter-profile.log
+    # Negative: weakened drafter bounds must fail the typed contract.
+    mkdir -p mtp-drafter-profile-negative
+    cp ${./mtp-drafter-profile.ncl} mtp-drafter-profile-negative/mtp-drafter-profile.ncl
+    cp ${./mtp-drafter-contracts.ncl} mtp-drafter-profile-negative/mtp-drafter-contracts.ncl
+    cp ${./fixtures/invalid-mtp-drafter-profile.ncl} mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl
+    if nickel export --format json mtp-drafter-profile-negative/invalid-mtp-drafter-profile.ncl \
+        > invalid-mtp-drafter-profile.json 2> invalid-mtp-drafter-profile.log; then
+      echo "invalid MTP drafter profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-drafter-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.mtp_draft_selection]
-        # Positive: the paired selector profile exports deterministically.
-        mkdir -p mtp-selection-profile-check
-        cp ${./mtp-selection-profile.ncl} mtp-selection-profile-check/mtp-selection-profile.ncl
-        cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-check/mtp-selection-contracts.ncl
-        nickel export --format json mtp-selection-profile-check/mtp-selection-profile.ncl > mtp-selection-profile-first.json
-        nickel export --format json mtp-selection-profile-check/mtp-selection-profile.ncl > mtp-selection-profile-second.json
-        cmp mtp-selection-profile-first.json mtp-selection-profile-second.json
-        cmp mtp-selection-profile-first.json "$out/share/qwen36/mtp-selection-profile.json"
-        grep -F '"maximum_selector_ratio": 0.95' mtp-selection-profile-first.json
-        grep -F '"shard-local-top1"' mtp-selection-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-selection-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.mtp_draft_selection]
+    # Positive: the paired selector profile exports deterministically.
+    mkdir -p mtp-selection-profile-check
+    cp ${./mtp-selection-profile.ncl} mtp-selection-profile-check/mtp-selection-profile.ncl
+    cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-check/mtp-selection-contracts.ncl
+    nickel export --format json mtp-selection-profile-check/mtp-selection-profile.ncl > mtp-selection-profile-first.json
+    nickel export --format json mtp-selection-profile-check/mtp-selection-profile.ncl > mtp-selection-profile-second.json
+    cmp mtp-selection-profile-first.json mtp-selection-profile-second.json
+    cmp mtp-selection-profile-first.json "$out/share/qwen36/mtp-selection-profile.json"
+    grep -F '"maximum_selector_ratio": 0.95' mtp-selection-profile-first.json
+    grep -F '"shard-local-top1"' mtp-selection-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-selection-profile-first.json
 
-        # Negative: changed route order must fail the typed selector contract.
-        mkdir -p mtp-selection-profile-negative/fixtures
-        cp ${./mtp-selection-profile.ncl} mtp-selection-profile-negative/mtp-selection-profile.ncl
-        cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-negative/mtp-selection-contracts.ncl
-        cp ${./fixtures/invalid-mtp-selection-profile.ncl} mtp-selection-profile-negative/fixtures/invalid-mtp-selection-profile.ncl
-        if nickel export --format json mtp-selection-profile-negative/fixtures/invalid-mtp-selection-profile.ncl \
-            > invalid-mtp-selection-profile.json 2> invalid-mtp-selection-profile.log; then
-          echo "invalid MTP selection profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-selection-profile.log
+    # Negative: changed route order must fail the typed selector contract.
+    mkdir -p mtp-selection-profile-negative/fixtures
+    cp ${./mtp-selection-profile.ncl} mtp-selection-profile-negative/mtp-selection-profile.ncl
+    cp ${./mtp-selection-contracts.ncl} mtp-selection-profile-negative/mtp-selection-contracts.ncl
+    cp ${./fixtures/invalid-mtp-selection-profile.ncl} mtp-selection-profile-negative/fixtures/invalid-mtp-selection-profile.ncl
+    if nickel export --format json mtp-selection-profile-negative/fixtures/invalid-mtp-selection-profile.ncl \
+        > invalid-mtp-selection-profile.json 2> invalid-mtp-selection-profile.log; then
+      echo "invalid MTP selection profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-selection-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.mtp_draft_trace]
-        # Positive: the matched trace profile exports deterministically.
-        mkdir -p mtp-trace-profile-check
-        cp ${./mtp-trace-profile.ncl} mtp-trace-profile-check/mtp-trace-profile.ncl
-        cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-check/mtp-trace-contracts.ncl
-        nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-first.json
-        nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-second.json
-        cmp mtp-trace-profile-first.json mtp-trace-profile-second.json
-        cmp mtp-trace-profile-first.json "$out/share/qwen36/mtp-trace-profile.json"
-        grep -F '"minimum_samples_per_route": 6' mtp-trace-profile-first.json
-        grep -F '"maximum_traced_draft_ratio": 0.95' mtp-trace-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-trace-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.mtp_draft_trace]
+    # Positive: the matched trace profile exports deterministically.
+    mkdir -p mtp-trace-profile-check
+    cp ${./mtp-trace-profile.ncl} mtp-trace-profile-check/mtp-trace-profile.ncl
+    cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-check/mtp-trace-contracts.ncl
+    nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-first.json
+    nickel export --format json mtp-trace-profile-check/mtp-trace-profile.ncl > mtp-trace-profile-second.json
+    cmp mtp-trace-profile-first.json mtp-trace-profile-second.json
+    cmp mtp-trace-profile-first.json "$out/share/qwen36/mtp-trace-profile.json"
+    grep -F '"minimum_samples_per_route": 6' mtp-trace-profile-first.json
+    grep -F '"maximum_traced_draft_ratio": 0.95' mtp-trace-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-trace-profile-first.json
 
-        # Negative: fewer retained samples must fail the typed trace contract.
-        mkdir -p mtp-trace-profile-negative/fixtures
-        cp ${./mtp-trace-profile.ncl} mtp-trace-profile-negative/mtp-trace-profile.ncl
-        cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-negative/mtp-trace-contracts.ncl
-        cp ${./fixtures/invalid-mtp-trace-profile.ncl} mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl
-        if nickel export --format json mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl \
-            > invalid-mtp-trace-profile.json 2> invalid-mtp-trace-profile.log; then
-          echo "invalid MTP trace profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-trace-profile.log
+    # Negative: fewer retained samples must fail the typed trace contract.
+    mkdir -p mtp-trace-profile-negative/fixtures
+    cp ${./mtp-trace-profile.ncl} mtp-trace-profile-negative/mtp-trace-profile.ncl
+    cp ${./mtp-trace-contracts.ncl} mtp-trace-profile-negative/mtp-trace-contracts.ncl
+    cp ${./fixtures/invalid-mtp-trace-profile.ncl} mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl
+    if nickel export --format json mtp-trace-profile-negative/fixtures/invalid-mtp-trace-profile.ncl \
+        > invalid-mtp-trace-profile.json 2> invalid-mtp-trace-profile.log; then
+      echo "invalid MTP trace profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-trace-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
-        # r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stability]
-        # Positive: the matched persistent recovery profile exports deterministically.
-        mkdir -p mtp-rollback-profile-check
-        cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-check/mtp-rollback-profile.ncl
-        cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-check/mtp-rollback-contracts.ncl
-        nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-first.json
-        nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-second.json
-        cmp mtp-rollback-profile-first.json mtp-rollback-profile-second.json
-        cmp mtp-rollback-profile-first.json "$out/share/qwen36/mtp-rollback-profile.json"
-        grep -F '"schema_version": 2' mtp-rollback-profile-first.json
-        grep -F '"recovery_execution_mode": "persistent-traced"' mtp-rollback-profile-first.json
-        grep -F '"required_process_trace_capture_count": 1' mtp-rollback-profile-first.json
-        grep -F '"snapshot_row_count": 2' mtp-rollback-profile-first.json
-        grep -F '"maximum_snapshot_recovery_ratio": 0.8' mtp-rollback-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-rollback-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.mtp_kv_rollback]
+    # r[verify tenstorrent.qwen38_p150x2.mtp_recovery_stability]
+    # Positive: the matched persistent recovery profile exports deterministically.
+    mkdir -p mtp-rollback-profile-check
+    cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-check/mtp-rollback-profile.ncl
+    cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-check/mtp-rollback-contracts.ncl
+    nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-first.json
+    nickel export --format json mtp-rollback-profile-check/mtp-rollback-profile.ncl > mtp-rollback-profile-second.json
+    cmp mtp-rollback-profile-first.json mtp-rollback-profile-second.json
+    cmp mtp-rollback-profile-first.json "$out/share/qwen36/mtp-rollback-profile.json"
+    grep -F '"schema_version": 2' mtp-rollback-profile-first.json
+    grep -F '"recovery_execution_mode": "persistent-traced"' mtp-rollback-profile-first.json
+    grep -F '"required_process_trace_capture_count": 1' mtp-rollback-profile-first.json
+    grep -F '"snapshot_row_count": 2' mtp-rollback-profile-first.json
+    grep -F '"maximum_snapshot_recovery_ratio": 0.8' mtp-rollback-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" mtp-rollback-profile-first.json
 
-        # Negative: a full-cache row count must fail the typed rollback contract.
-        mkdir -p mtp-rollback-profile-negative/fixtures
-        cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-negative/mtp-rollback-profile.ncl
-        cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-negative/mtp-rollback-contracts.ncl
-        cp ${./fixtures/invalid-mtp-rollback-profile.ncl} mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl
-        if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl \
-            > invalid-mtp-rollback-profile.json 2> invalid-mtp-rollback-profile.log; then
-          echo "invalid MTP rollback profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-rollback-profile.log
+    # Negative: a full-cache row count must fail the typed rollback contract.
+    mkdir -p mtp-rollback-profile-negative/fixtures
+    cp ${./mtp-rollback-profile.ncl} mtp-rollback-profile-negative/mtp-rollback-profile.ncl
+    cp ${./mtp-rollback-contracts.ncl} mtp-rollback-profile-negative/mtp-rollback-contracts.ncl
+    cp ${./fixtures/invalid-mtp-rollback-profile.ncl} mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl
+    if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-rollback-profile.ncl \
+        > invalid-mtp-rollback-profile.json 2> invalid-mtp-rollback-profile.log; then
+      echo "invalid MTP rollback profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-rollback-profile.log
 
-        # Negative: more than one trace capture must fail the stability contract.
-        cp ${./fixtures/invalid-mtp-recovery-stability-profile.ncl} \
-          mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl
-        if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl \
-            > invalid-mtp-recovery-stability-profile.json 2> invalid-mtp-recovery-stability-profile.log; then
-          echo "invalid MTP recovery stability profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-mtp-recovery-stability-profile.log
+    # Negative: more than one trace capture must fail the stability contract.
+    cp ${./fixtures/invalid-mtp-recovery-stability-profile.ncl} \
+      mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl
+    if nickel export --format json mtp-rollback-profile-negative/fixtures/invalid-mtp-recovery-stability-profile.ncl \
+        > invalid-mtp-recovery-stability-profile.json 2> invalid-mtp-recovery-stability-profile.log; then
+      echo "invalid MTP recovery stability profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-mtp-recovery-stability-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
-        # Positive: component policy exports deterministically and binds authority.
-        mkdir -p decode-component-profile-check
-        cp ${./decode-component-profile.ncl} decode-component-profile-check/decode-component-profile.ncl
-        cp ${./decode-component-contracts.ncl} decode-component-profile-check/decode-component-contracts.ncl
-        nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-first.json
-        nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-second.json
-        cmp decode-component-profile-first.json decode-component-profile-second.json
-        cmp decode-component-profile-first.json "$out/share/qwen36/decode-component-profile.json"
-        grep -F '"diagnostic_only": true' decode-component-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-component-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.decode_component_attribution]
+    # Positive: component policy exports deterministically and binds authority.
+    mkdir -p decode-component-profile-check
+    cp ${./decode-component-profile.ncl} decode-component-profile-check/decode-component-profile.ncl
+    cp ${./decode-component-contracts.ncl} decode-component-profile-check/decode-component-contracts.ncl
+    nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-first.json
+    nickel export --format json decode-component-profile-check/decode-component-profile.ncl > decode-component-profile-second.json
+    cmp decode-component-profile-first.json decode-component-profile-second.json
+    cmp decode-component-profile-first.json "$out/share/qwen36/decode-component-profile.json"
+    grep -F '"diagnostic_only": true' decode-component-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" decode-component-profile-first.json
 
-        # Negative: production eligibility must fail the typed component contract.
-        mkdir -p decode-component-profile-negative
-        cp ${./decode-component-profile.ncl} decode-component-profile-negative/decode-component-profile.ncl
-        cp ${./decode-component-contracts.ncl} decode-component-profile-negative/decode-component-contracts.ncl
-        cp ${./fixtures/invalid-decode-component-profile.ncl} decode-component-profile-negative/invalid-decode-component-profile.ncl
-        if nickel export --format json decode-component-profile-negative/invalid-decode-component-profile.ncl \
-            > invalid-decode-component-profile.json 2> invalid-decode-component-profile.log; then
-          echo "invalid decode component profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-decode-component-profile.log
+    # Negative: production eligibility must fail the typed component contract.
+    mkdir -p decode-component-profile-negative
+    cp ${./decode-component-profile.ncl} decode-component-profile-negative/decode-component-profile.ncl
+    cp ${./decode-component-contracts.ncl} decode-component-profile-negative/decode-component-contracts.ncl
+    cp ${./fixtures/invalid-decode-component-profile.ncl} decode-component-profile-negative/invalid-decode-component-profile.ncl
+    if nickel export --format json decode-component-profile-negative/invalid-decode-component-profile.ncl \
+        > invalid-decode-component-profile.json 2> invalid-decode-component-profile.log; then
+      echo "invalid decode component profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-decode-component-profile.log
 
-        # r[verify tenstorrent.qwen38_p150x2.gdn_decode_fusion]
-        # Positive: fusion policy exports deterministically with fixed gates.
-        mkdir -p gdn-decode-fusion-profile-check
-        cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl
-        cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-contracts.ncl
-        nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-first.json
-        nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-second.json
-        cmp gdn-decode-fusion-profile-first.json gdn-decode-fusion-profile-second.json
-        cmp gdn-decode-fusion-profile-first.json "$out/share/qwen36/gdn-decode-fusion-profile.json"
-        grep -F '"diagnostic_only": true' gdn-decode-fusion-profile-first.json
-        grep -F '"maximum_gdn_median_ratio": 0.95' gdn-decode-fusion-profile-first.json
-        grep -F '"maximum_full_step_median_ratio": 0.97' gdn-decode-fusion-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" gdn-decode-fusion-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.gdn_decode_fusion]
+    # Positive: fusion policy exports deterministically with fixed gates.
+    mkdir -p gdn-decode-fusion-profile-check
+    cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl
+    cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-check/gdn-decode-fusion-contracts.ncl
+    nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-first.json
+    nickel export --format json gdn-decode-fusion-profile-check/gdn-decode-fusion-profile.ncl > gdn-decode-fusion-profile-second.json
+    cmp gdn-decode-fusion-profile-first.json gdn-decode-fusion-profile-second.json
+    cmp gdn-decode-fusion-profile-first.json "$out/share/qwen36/gdn-decode-fusion-profile.json"
+    grep -F '"diagnostic_only": true' gdn-decode-fusion-profile-first.json
+    grep -F '"maximum_gdn_median_ratio": 0.95' gdn-decode-fusion-profile-first.json
+    grep -F '"maximum_full_step_median_ratio": 0.97' gdn-decode-fusion-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" gdn-decode-fusion-profile-first.json
 
-        # Negative: retain valid imports and require a contract error, not a parser error.
-        mkdir -p gdn-decode-fusion-profile-negative/fixtures
-        cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-profile.ncl
-        cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-contracts.ncl
-        cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/fixtures/profile.ncl
-        cp ${./fixtures/invalid-gdn-decode-fusion-modes.ncl} gdn-decode-fusion-profile-negative/fixtures/modes.ncl
-        cp ${./fixtures/invalid-gdn-decode-fusion-parity.ncl} gdn-decode-fusion-profile-negative/fixtures/parity.ncl
-        for fixture in profile modes parity; do
-          if nickel export --format json "gdn-decode-fusion-profile-negative/fixtures/$fixture.ncl" \
-              > "invalid-gdn-decode-fusion-$fixture.json" 2> "invalid-gdn-decode-fusion-$fixture.log"; then
-            echo "invalid GDN decode fusion $fixture exported" >&2
-            exit 1
-          fi
-          grep -Fi "contract broken" "invalid-gdn-decode-fusion-$fixture.log"
-        done
+    # Negative: retain valid imports and require a contract error, not a parser error.
+    mkdir -p gdn-decode-fusion-profile-negative/fixtures
+    cp ${./gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-profile.ncl
+    cp ${./gdn-decode-fusion-contracts.ncl} gdn-decode-fusion-profile-negative/gdn-decode-fusion-contracts.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-profile.ncl} gdn-decode-fusion-profile-negative/fixtures/profile.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-modes.ncl} gdn-decode-fusion-profile-negative/fixtures/modes.ncl
+    cp ${./fixtures/invalid-gdn-decode-fusion-parity.ncl} gdn-decode-fusion-profile-negative/fixtures/parity.ncl
+    for fixture in profile modes parity; do
+      if nickel export --format json "gdn-decode-fusion-profile-negative/fixtures/$fixture.ncl" \
+          > "invalid-gdn-decode-fusion-$fixture.json" 2> "invalid-gdn-decode-fusion-$fixture.log"; then
+        echo "invalid GDN decode fusion $fixture exported" >&2
+        exit 1
+      fi
+      grep -Fi "contract broken" "invalid-gdn-decode-fusion-$fixture.log"
+    done
 
-        # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
-        # Positive: the TTFT control profile exports deterministically and binds authority.
-        mkdir -p ttft-control-profile-check
-        cp ${./ttft-control-profile.ncl} ttft-control-profile-check/ttft-control-profile.ncl
-        cp ${./ttft-control-contracts.ncl} ttft-control-profile-check/ttft-control-contracts.ncl
-        nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-first.json
-        nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-second.json
-        cmp ttft-control-profile-first.json ttft-control-profile-second.json
-        cmp ttft-control-profile-first.json "$out/share/qwen36/ttft-control-profile.json"
-        grep -F '"diagnostic_only": true' ttft-control-profile-first.json
-        grep -F '"material_regression_ratio": 1.05' ttft-control-profile-first.json
-        grep -F "\"authority_blake3\": \"$authority_blake3\"" ttft-control-profile-first.json
+    # r[verify tenstorrent.qwen38_p150x2.traced_ttft_control]
+    # Positive: the TTFT control profile exports deterministically and binds authority.
+    mkdir -p ttft-control-profile-check
+    cp ${./ttft-control-profile.ncl} ttft-control-profile-check/ttft-control-profile.ncl
+    cp ${./ttft-control-contracts.ncl} ttft-control-profile-check/ttft-control-contracts.ncl
+    nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-first.json
+    nickel export --format json ttft-control-profile-check/ttft-control-profile.ncl > ttft-control-profile-second.json
+    cmp ttft-control-profile-first.json ttft-control-profile-second.json
+    cmp ttft-control-profile-first.json "$out/share/qwen36/ttft-control-profile.json"
+    grep -F '"diagnostic_only": true' ttft-control-profile-first.json
+    grep -F '"material_regression_ratio": 1.05' ttft-control-profile-first.json
+    grep -F "\"authority_blake3\": \"$authority_blake3\"" ttft-control-profile-first.json
 
-        # Negative: a production-eligible TTFT control must fail its typed contract.
-        mkdir -p ttft-control-profile-negative
-        cp ${./ttft-control-profile.ncl} ttft-control-profile-negative/ttft-control-profile.ncl
-        cp ${./ttft-control-contracts.ncl} ttft-control-profile-negative/ttft-control-contracts.ncl
-        cp ${./fixtures/invalid-ttft-control-profile.ncl} ttft-control-profile-negative/invalid-ttft-control-profile.ncl
-        if nickel export --format json ttft-control-profile-negative/invalid-ttft-control-profile.ncl \
-            > invalid-ttft-control-profile.json 2> invalid-ttft-control-profile.log; then
-          echo "invalid TTFT control profile exported" >&2
-          exit 1
-        fi
-        test -s invalid-ttft-control-profile.log
+    # Negative: a production-eligible TTFT control must fail its typed contract.
+    mkdir -p ttft-control-profile-negative
+    cp ${./ttft-control-profile.ncl} ttft-control-profile-negative/ttft-control-profile.ncl
+    cp ${./ttft-control-contracts.ncl} ttft-control-profile-negative/ttft-control-contracts.ncl
+    cp ${./fixtures/invalid-ttft-control-profile.ncl} ttft-control-profile-negative/invalid-ttft-control-profile.ncl
+    if nickel export --format json ttft-control-profile-negative/invalid-ttft-control-profile.ncl \
+        > invalid-ttft-control-profile.json 2> invalid-ttft-control-profile.log; then
+      echo "invalid TTFT control profile exported" >&2
+      exit 1
+    fi
+    test -s invalid-ttft-control-profile.log
 
-        # Negative: a drifted authority (wrong upstream commit) must be rejected by
-        # the Nickel contract shape (commit no longer a 40-hex revision).
-        printf '%s\n' \
-          'let a = import "authority-check/authority.ncl" in' \
-          'a with { upstream = a.upstream & { commit = "deadbeef" } }' \
-          > authority-drifted.ncl
-        if nickel export --format json authority-drifted.ncl > /dev/null 2> drifted.log; then
-          echo "drifted authority exported despite a malformed commit" >&2
-          exit 1
-        fi
-        grep -F "commit" drifted.log
+    # Negative: a drifted authority (wrong upstream commit) must be rejected by
+    # the Nickel contract shape (commit no longer a 40-hex revision).
+    printf '%s\n' \
+      'let a = import "authority-check/authority.ncl" in' \
+      'a with { upstream = a.upstream & { commit = "deadbeef" } }' \
+      > authority-drifted.ncl
+    if nickel export --format json authority-drifted.ncl > /dev/null 2> drifted.log; then
+      echo "drifted authority exported despite a malformed commit" >&2
+      exit 1
+    fi
+    grep -F "commit" drifted.log
 
-        # Negative: an empty artifact list must be rejected by the contract.
-        printf '%s\n' \
-          'let a = import "authority-check/authority.ncl" in' \
-          'a with { release = a.release & { artifacts = [] } }' \
-          > authority-no-artifacts.ncl
-        if nickel export --format json authority-no-artifacts.ncl > /dev/null 2> no-artifacts.log; then
-          echo "authority with no artifacts exported" >&2
-          exit 1
-        fi
-        grep -F "artifacts" no-artifacts.log
+    # Negative: an empty artifact list must be rejected by the contract.
+    printf '%s\n' \
+      'let a = import "authority-check/authority.ncl" in' \
+      'a with { release = a.release & { artifacts = [] } }' \
+      > authority-no-artifacts.ncl
+    if nickel export --format json authority-no-artifacts.ncl > /dev/null 2> no-artifacts.log; then
+      echo "authority with no artifacts exported" >&2
+      exit 1
+    fi
+    grep -F "artifacts" no-artifacts.log
 
-        # Positive: the AdmittedAuthority eval gate passed (this derivation only
-        # evaluates when the committed authority exactly matches the validator).
-        test -n "${toString admittedAuthority.schema_version}"
+    # Positive: the AdmittedAuthority eval gate passed (this derivation only
+    # evaluates when the committed authority exactly matches the validator).
+    test -n "${toString admittedAuthority.schema_version}"
 
-        # Positive: device-free check of the adopted stack against the packaged
-        # tt-metal runtime.
-        "$out/bin/qwen36-check"
-        for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py} ${./mtp-width-check.py} ${./prefix-cache-identity-check.py} ${./format-assignment-check.py}; do
-          PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
-            TT_METAL_HOME="$out/libexec/tt-metalium" \
-            TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
-            ${pythonEnvironment}/bin/python "$probe"
-        done
+    # Positive: device-free check of the adopted stack against the packaged
+    # tt-metal runtime.
+    "$out/bin/qwen36-check"
+    for probe in ${./sequence-probe-check.py} ${./warmup-tail-check.py} ${./mtp-serving-check.py} ${./mtp-serving-round-check.py} ${./mtp-convolution-window-check.py} ${./mtp-prefix-trace-check.py} ${./mtp-kv-tail-check.py} ${./mtp-width-check.py} ${./prefix-cache-identity-check.py} ${./format-assignment-check.py}; do
+      PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages:${ttnnSitePackages}" \
+        TT_METAL_HOME="$out/libexec/tt-metalium" \
+        TT_METAL_RUNTIME_ROOT="$out/libexec/tt-metalium" \
+        ${pythonEnvironment}/bin/python "$probe"
+    done
 
-        PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
-          ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
+    PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
+      ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
 
-        # r[verify tenstorrent.qwen38_p150x2.receipt_bootstrap]
-        # Positive: the execution identity's own input manifest carries no
-        # receipt binding, and it carries the immutable v3 policy text. A
-        # binding is a mutable receipt pointer: if it were an identity input,
-        # the identity would move exactly when the receipt is admitted, and no
-        # build could carry its own receipt.
-        execution_inputs="$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
-        test -f "$execution_inputs"
-        grep -Fq 'schema=onix.qwen36.execution-identity.v1' "$execution_inputs"
-        if grep -F -- '-binding' "$execution_inputs"; then
-          echo "execution identity carries a receipt binding" >&2
-          exit 1
-        fi
-        grep -Fq 'qwen36-batch-admission-b8-contracts-v3.ncl' "$execution_inputs"
-        grep -Fq 'qwen36-batch-admission-b8-policy-v3.ncl' "$execution_inputs"
-        grep -Fq 'qwen36-batch-admission-b8-policy-v3-validated.ncl' "$execution_inputs"
-        grep -Fq 'qwen36-batch-admission-b8-profile-v3.ncl' "$execution_inputs"
+    # r[verify tenstorrent.qwen38_p150x2.receipt_bootstrap]
+    # Positive: the execution identity's own input manifest carries no
+    # receipt binding, and it carries the immutable v3 policy text. A
+    # binding is a mutable receipt pointer: if it were an identity input,
+    # the identity would move exactly when the receipt is admitted, and no
+    # build could carry its own receipt.
+    execution_inputs="$out/share/qwen36/execution-identity/share/qwen36/execution-inputs"
+    test -f "$execution_inputs"
+    grep -Fq 'schema=onix.qwen36.execution-identity.v1' "$execution_inputs"
+    if grep -F -- '-binding' "$execution_inputs"; then
+      echo "execution identity carries a receipt binding" >&2
+      exit 1
+    fi
+    grep -Fq 'qwen36-batch-admission-b8-contracts-v3.ncl' "$execution_inputs"
+    grep -Fq 'qwen36-batch-admission-b8-policy-v3.ncl' "$execution_inputs"
+    grep -Fq 'qwen36-batch-admission-b8-policy-v3-validated.ncl' "$execution_inputs"
+    grep -Fq 'qwen36-batch-admission-b8-profile-v3.ncl' "$execution_inputs"
 
-        # Positive: the shipped v3 profile is admitted and names the committed
-        # receipt. The receipt may name an earlier identity; deploy's guard
-        # refuses that rather than the package pretending the admission moved.
-        v3_receipt=${./evidence/2026-10-22/qwen38-batch-admission-b8-v3-receipt.json}
-        v3_receipt_blake3=$(b3sum "$v3_receipt" | cut -d' ' -f1)
-        grep -Fq '"physically_admitted": true' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
-        grep -Fq "\"receipt_blake3\": \"$v3_receipt_blake3\"" "$out/share/qwen36/batch-admission-b8-profile-v3.json"
-        grep -Fq '"profile_id": "qwen38-p150x2-batched-throughput-b8-v3"' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+    # Positive: the shipped v3 profile is admitted and names the committed
+    # receipt. The receipt may name an earlier identity; deploy's guard
+    # refuses that rather than the package pretending the admission moved.
+    v3_receipt=${./evidence/2026-10-22/qwen38-batch-admission-b8-v3-receipt.json}
+    v3_receipt_blake3=$(b3sum "$v3_receipt" | cut -d' ' -f1)
+    grep -Fq '"physically_admitted": true' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+    grep -Fq "\"receipt_blake3\": \"$v3_receipt_blake3\"" "$out/share/qwen36/batch-admission-b8-profile-v3.json"
+    grep -Fq '"profile_id": "qwen38-p150x2-batched-throughput-b8-v3"' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
 
-        # Positive: a receipt-only promotion changes the exported profile and
-        # not the execution identity. Re-export the identical immutable v3 text
-        # with the binding reverted to not-measured. The profile must become
-        # unadmitted and differ from the shipped one; the identity manifest has
-        # no binding input (asserted above) and mkExecutionIdentity is a pure
-        # function of that manifest, so the same tree with the binding reverted
-        # keeps its execution identity.
-        mkdir -p batch-admission-b8-profile-v3-reverted
-        cp ${./batch-admission-b8-profile-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl
-        cp ${./batch-admission-b8-policy-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3.ncl
-        cp ${./batch-admission-b8-policy-v3-validated.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3-validated.ncl
-        cp ${./batch-admission-b8-contracts-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-contracts-v3.ncl
-        cp ${./fixtures/batch-admission-b8-binding-v3-not-measured.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-binding-v3.ncl
-        nickel export --format json batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl \
-          > batch-admission-b8-profile-v3-reverted.json
-        grep -Fq '"physically_admitted": false' batch-admission-b8-profile-v3-reverted.json
-        grep -Fq '"receipt_blake3": "not-measured"' batch-admission-b8-profile-v3-reverted.json
+    # Positive: a receipt-only promotion changes the exported profile and
+    # not the execution identity. Re-export the identical immutable v3 text
+    # with the binding reverted to not-measured. The profile must become
+    # unadmitted and differ from the shipped one; the identity manifest has
+    # no binding input (asserted above) and mkExecutionIdentity is a pure
+    # function of that manifest, so the same tree with the binding reverted
+    # keeps its execution identity.
+    mkdir -p batch-admission-b8-profile-v3-reverted
+    cp ${./batch-admission-b8-profile-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl
+    cp ${./batch-admission-b8-policy-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3.ncl
+    cp ${./batch-admission-b8-policy-v3-validated.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-policy-v3-validated.ncl
+    cp ${./batch-admission-b8-contracts-v3.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-contracts-v3.ncl
+    cp ${./fixtures/batch-admission-b8-binding-v3-not-measured.ncl} batch-admission-b8-profile-v3-reverted/batch-admission-b8-binding-v3.ncl
+    nickel export --format json batch-admission-b8-profile-v3-reverted/batch-admission-b8-profile-v3.ncl \
+      > batch-admission-b8-profile-v3-reverted.json
+    grep -Fq '"physically_admitted": false' batch-admission-b8-profile-v3-reverted.json
+    grep -Fq '"receipt_blake3": "not-measured"' batch-admission-b8-profile-v3-reverted.json
 
-        # Positive, exact: the promotion changes exactly two fields. Delete
-        # `physically_admitted` and `identities.receipt_blake3` from both exports
-        # and require the whole remainder to be equal. Anything else is a
-        # promotion that moved immutable policy text, not just the receipt
-        # pointer, and fails with the exact differing paths. The admission
-        # fields themselves must be false/not-measured (reverted) and
-        # true/committed receipt BLAKE3 (shipped).
-        "${pythonEnvironment}/bin/python" - \
-          "$out/share/qwen36/batch-admission-b8-profile-v3.json" \
-          batch-admission-b8-profile-v3-reverted.json \
-          "$v3_receipt_blake3" <<'PY'
-        import difflib
-        import json
-        import sys
+    # Positive, exact: the promotion changes exactly two fields. Delete
+    # `physically_admitted` and `identities.receipt_blake3` from both exports
+    # and require the whole remainder to be equal. Anything else is a
+    # promotion that moved immutable policy text, not just the receipt
+    # pointer, and fails with the exact differing paths. The admission
+    # fields themselves must be false/not-measured (reverted) and
+    # true/committed receipt BLAKE3 (shipped).
+    "${pythonEnvironment}/bin/python" - \
+      "$out/share/qwen36/batch-admission-b8-profile-v3.json" \
+      batch-admission-b8-profile-v3-reverted.json \
+      "$v3_receipt_blake3" <<'PY'
+    import difflib
+    import json
+    import sys
 
-        shipped_path, reverted_path, receipt_blake3 = sys.argv[1:4]
-
-
-        def load(path):
-            with open(path, "r", encoding="utf-8") as handle:
-                return json.load(handle)
+    shipped_path, reverted_path, receipt_blake3 = sys.argv[1:4]
 
 
-        def admission_fields(profile, path):
-            if not isinstance(profile, dict):
-                raise SystemExit(f"{path}: exported profile is not a JSON object")
-            if "physically_admitted" not in profile:
-                raise SystemExit(f"{path}: exported profile lacks physically_admitted")
-            identities = profile.get("identities")
-            if not isinstance(identities, dict):
-                raise SystemExit(f"{path}: exported profile lacks the identities object")
-            if "receipt_blake3" not in identities:
-                raise SystemExit(f"{path}: identities lacks receipt_blake3")
-            return profile["physically_admitted"], identities["receipt_blake3"]
+    def load(path):
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
 
 
-        def strip_admission(profile):
-            del profile["physically_admitted"]
-            del profile["identities"]["receipt_blake3"]
-            return profile
+    def admission_fields(profile, path):
+        if not isinstance(profile, dict):
+            raise SystemExit(f"{path}: exported profile is not a JSON object")
+        if "physically_admitted" not in profile:
+            raise SystemExit(f"{path}: exported profile lacks physically_admitted")
+        identities = profile.get("identities")
+        if not isinstance(identities, dict):
+            raise SystemExit(f"{path}: exported profile lacks the identities object")
+        if "receipt_blake3" not in identities:
+            raise SystemExit(f"{path}: identities lacks receipt_blake3")
+        return profile["physically_admitted"], identities["receipt_blake3"]
 
 
-        shipped = load(shipped_path)
-        reverted = load(reverted_path)
+    def strip_admission(profile):
+        del profile["physically_admitted"]
+        del profile["identities"]["receipt_blake3"]
+        return profile
 
-        shipped_admitted, shipped_receipt = admission_fields(shipped, shipped_path)
-        reverted_admitted, reverted_receipt = admission_fields(reverted, reverted_path)
 
-        if shipped_admitted is not True:
-            raise SystemExit(
-                f"{shipped_path}: shipped v3 profile is not admitted "
-                f"physically_admitted={shipped_admitted!r}"
-            )
-        if shipped_receipt != receipt_blake3:
-            raise SystemExit(
-                f"{shipped_path}: shipped receipt_blake3={shipped_receipt!r} "
-                f"does not name the committed receipt {receipt_blake3!r}"
-            )
-        if reverted_admitted is not False:
-            raise SystemExit(
-                f"{reverted_path}: reverted v3 profile is not unadmitted "
-                f"physically_admitted={reverted_admitted!r}"
-            )
-        if reverted_receipt != "not-measured":
-            raise SystemExit(
-                f"{reverted_path}: reverted receipt_blake3={reverted_receipt!r} "
-                'is not "not-measured"'
-            )
+    shipped = load(shipped_path)
+    reverted = load(reverted_path)
 
-        shipped_remainder = strip_admission(shipped)
-        reverted_remainder = strip_admission(reverted)
-        if shipped_remainder != reverted_remainder:
-            shipped_text = json.dumps(shipped_remainder, indent=2, sort_keys=True).splitlines()
-            reverted_text = json.dumps(reverted_remainder, indent=2, sort_keys=True).splitlines()
-            diff = "\n".join(
-                difflib.unified_diff(
-                    shipped_text,
-                    reverted_text,
-                    fromfile=f"{shipped_path} minus admission fields",
-                    tofile=f"{reverted_path} minus admission fields",
-                )
-            )
-            raise SystemExit(
-                "receipt promotion changed more than physically_admitted and "
-                "identities.receipt_blake3:\n" + diff
-            )
+    shipped_admitted, shipped_receipt = admission_fields(shipped, shipped_path)
+    reverted_admitted, reverted_receipt = admission_fields(reverted, reverted_path)
 
-        print(
-            "receipt promotion changed exactly physically_admitted and "
-            "identities.receipt_blake3"
+    if shipped_admitted is not True:
+        raise SystemExit(
+            f"{shipped_path}: shipped v3 profile is not admitted "
+            f"physically_admitted={shipped_admitted!r}"
         )
-        PY
+    if shipped_receipt != receipt_blake3:
+        raise SystemExit(
+            f"{shipped_path}: shipped receipt_blake3={shipped_receipt!r} "
+            f"does not name the committed receipt {receipt_blake3!r}"
+        )
+    if reverted_admitted is not False:
+        raise SystemExit(
+            f"{reverted_path}: reverted v3 profile is not unadmitted "
+            f"physically_admitted={reverted_admitted!r}"
+        )
+    if reverted_receipt != "not-measured":
+        raise SystemExit(
+            f"{reverted_path}: reverted receipt_blake3={reverted_receipt!r} "
+            'is not "not-measured"'
+        )
 
-        # Negative: env-gated BF4 cache names must never collide; the check script
-        # itself rejects a missing .bfp4 distinction.
-        if find "$out" \( -name '__pycache__' -o -name '*.pyc' \) -print -quit | grep -q .; then
-          echo "packaged Qwen output contains interpreter bytecode" >&2
-          exit 1
-        fi
-        runHook postInstallCheck
+    shipped_remainder = strip_admission(shipped)
+    reverted_remainder = strip_admission(reverted)
+    if shipped_remainder != reverted_remainder:
+        shipped_text = json.dumps(shipped_remainder, indent=2, sort_keys=True).splitlines()
+        reverted_text = json.dumps(reverted_remainder, indent=2, sort_keys=True).splitlines()
+        diff = "\n".join(
+            difflib.unified_diff(
+                shipped_text,
+                reverted_text,
+                fromfile=f"{shipped_path} minus admission fields",
+                tofile=f"{reverted_path} minus admission fields",
+            )
+        )
+        raise SystemExit(
+            "receipt promotion changed more than physically_admitted and "
+            "identities.receipt_blake3:\n" + diff
+        )
+
+    print(
+        "receipt promotion changed exactly physically_admitted and "
+        "identities.receipt_blake3"
+    )
+    PY
+
+    # Negative: env-gated BF4 cache names must never collide; the check script
+    # itself rejects a missing .bfp4 distinction.
+    if find "$out" \( -name '__pycache__' -o -name '*.pyc' \) -print -quit | grep -q .; then
+      echo "packaged Qwen output contains interpreter bytecode" >&2
+      exit 1
+    fi
+    runHook postInstallCheck
   '';
 
   passthru = {

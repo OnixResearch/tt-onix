@@ -8,6 +8,12 @@ The later [approved hardware attempts](evidence/tt-metal-0.77/hardware-attempt.m
 
 The 0.77 package builds. The Qwen device-free checks and the basic Blackhole simulator smoke pass. The fused GDN numerical smoke remains blocked by a TTsim limitation. This branch is not a production runtime release.
 
+The later rounded-register SwiGLU component now passes exact B1/B8 simulated BF16
+comparison with this same installed TT-Metal 0.77.0 package. Its TTsim 1.10.6
+source build carries the bounded Blackhole dense-L1 zero-flag model extension;
+this is not a 1.10.9 library substitution and does not resolve GDN's separate
+`ALU_ACC_CTRL` limitation. See [the component gate and provenance](research/qwen38-rounded-register-swiglu.md).
+
 No production service restart, hardware probe, kernel-module activation, firmware update, or push ran during this port.
 
 ## Package changes

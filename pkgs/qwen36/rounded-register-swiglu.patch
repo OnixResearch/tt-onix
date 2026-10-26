@@ -1,0 +1,58 @@
+--- a/models/demos/blackhole/qwen36/tt/mlp.py
++++ b/models/demos/blackhole/qwen36/tt/mlp.py
+@@ -200,9 +200,14 @@
+             math_fidelity=ttnn.MathFidelity.LoFi, fp32_dest_acc_en=True, packer_l1_acc=True
+         )
+ 
+-    def forward(self, x):
++    def forward(self, x, mode="decode"):
++        from models.demos.blackhole.qwen36.tt.rounded_register_swiglu import select_decode
++
++        register_decode = select_decode(mode)
++        if register_decode and self.num_devices != 2:
++            raise ValueError("rounded register SwiGLU model path requires Qwen3.8 TP2")
+         if self.num_devices > 1:
+-            return self._forward_tp(x)
++            return self._forward_tp(x, register_decode=register_decode)
+         w = self.weights
+         T = x.shape[1] if len(x.shape) >= 3 else 1
+         ckc = self.compute_kernel_config_decode if T <= 1 else self.compute_kernel_config
+@@ -223,7 +228,7 @@
+         ttnn.deallocate(hidden)
+         return output
+ 
+-    def _forward_tp(self, x):
++    def _forward_tp(self, x, *, register_decode=False):
+         """TP forward: replicated input; reduce-scatter output fractured on hidden dim."""
+         from models.demos.blackhole.qwen36.tt import tp_common as tpc
+         from models.tt_transformers.tt.ccl import tt_all_reduce
+@@ -237,7 +242,15 @@
+         _silu_fused = False
+         # Prefill: x is K-sharded (ff_norm skipped AG); fused AG + [gate|up] + SwiGLU
+         _fused_gu = self._fuse_gateup_agmm and x.shape[-2] > ttnn.TILE_SIZE and w.w_gate_up is not None
+-        if _fused_gu:
++        if register_decode:
++            from models.demos.blackhole.qwen36.tt.rounded_register_swiglu import gate_up
++
++            if not self._mlp_1d_decode or self._dram_sharded:
++                raise ValueError("rounded register SwiGLU requires the interleaved-weight 1D decode path")
++            hidden = gate_up(x, w.w1, w.w3)
++            # Only skips the composed gate/up product below; does not admit AGMM.
++            _fused_gu = True
++        elif _fused_gu:
+             hidden = tpc.all_gather_swiglu_prefill(
+                 x, w.w_gate_up, self.tt_ccl, self.compute_kernel_config_agmm, args.ccl_topology()
+             )
+--- a/models/demos/blackhole/qwen36/tt/layer.py
++++ b/models/demos/blackhole/qwen36/tt/layer.py
+@@ -252,1 +252,1 @@
+-        ff_output = self.feed_forward.forward(ff_input)
++        ff_output = self.feed_forward.forward(ff_input, mode=mode)
+--- a/models/demos/blackhole/qwen36/tt/model.py
++++ b/models/demos/blackhole/qwen36/tt/model.py
+@@ -3500,1 +3500,1 @@
+-            ff_out = layer.feed_forward.forward(ff_in)
++            ff_out = layer.feed_forward.forward(ff_in, mode="prefill")
+@@ -4165,1 +4165,1 @@
+-                    ff_out = layer.feed_forward.forward(ff_in)
++                    ff_out = layer.feed_forward.forward(ff_in, mode="prefill")

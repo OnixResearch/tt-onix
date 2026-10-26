@@ -1,0 +1,46 @@
+{
+  "schema": "onix.qwen38.rounded-register-swiglu-hardware.v1",
+  "date": "2026-10-23",
+  "operator": "parent-managed isolated silicon window; this worker did not open hardware",
+  "scope": "one physical chip, full TP2-local BF4 projection geometry; not TP2 model or serving admission",
+  "simulated": false,
+  "runtime": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "interpreter_package": "/nix/store/4nlmwk45g052x9m9s7pr9r9i3ymackp5-qwen38-0.1.0",
+  "source_mode": "corrected local module/kernels plus separately exercised installed command",
+  "physical_device_ids": [0],
+  "environment_unset": ["TT_METAL_SIMULATOR", "TT_METAL_SLOW_DISPATCH_MODE", "TT_MESH_GRAPH_DESC_PATH", "MESH_DEVICE"],
+  "sha256": {
+    "rounded_register_swiglu.py": "2354ff4314e3d76fbda9a088892424607fa0af17f5b65748d7848aebcd778540",
+    "compute.cpp": "4425619fdf61c7c9c3eca590a7e950fd2376c0dc986bb75e99f3d98bf587a4fb",
+    "reader.cpp": "434acf777167ac8ed883c6b069d38e805cfad4b09b892e0f10504cd8aa5fb016",
+    "writer.cpp": "5c9c2102fec441119e3a0a5463aa8d23ce597a7ea37501a9138eeab0fc07b480"
+  },
+  "rounding_diagnosis": {
+    "prior_RNE_cast_candidate": {"batch": 1, "candidate_relative_l2": 0.00012721269740723073, "candidate_max_abs": 0.0001220703125, "exact_equivalence": "rejected", "baseline_repeats_exact": true},
+    "correction": "native BF16 pack ties-away at gate/up boundaries: cast Prgm0=0, Prgm1=0x8000, Prgm2=0xffff0000; BF16 product remains native software RNE",
+    "relaxed_component_tolerances": "removed; no guessed numerical tolerance admitted"
+  },
+  "runs": [
+    {"batch": 1, "K": 5120, "N": 8704, "iterations": 3, "candidate_unequal_elements_each_repeat": [0, 0, 0], "candidate_max_abs_each_repeat": [0.0, 0.0, 0.0], "candidate_relative_l2_each_repeat": [0.0, 0.0, 0.0], "baseline_repeats_exact": true, "baseline_host_wall_median_seconds": 0.0002935109996542451, "candidate_host_wall_median_seconds": 0.000744388000384788, "exact_component_verdict": "passed"},
+    {"batch": 8, "K": 5120, "N": 8704, "iterations": 3, "candidate_unequal_elements_each_repeat": [0, 0, 0], "candidate_max_abs_each_repeat": [0.0, 0.0, 0.0], "candidate_relative_l2_each_repeat": [0.0, 0.0, 0.0], "baseline_repeats_exact": true, "baseline_host_wall_median_seconds": 0.00049171299997397, "candidate_host_wall_median_seconds": 0.0010377590006100945, "exact_component_verdict": "passed"}
+  ],
+  "installed_repetition": {
+    "package": "/nix/store/9p6q10s8cc4s17k1l2fxpy2d4rjl23p8-qwen38-0.1.0",
+    "command": "$package/bin/qwen38-rounded-register-swiglu-check --device --device-id 0 --batch B --iterations 3",
+    "runs": [
+      {"batch": 1, "iterations": 3, "unequal_elements_each_repeat": [0, 0, 0], "max_abs_each_repeat": [0.0, 0.0, 0.0], "relative_l2_each_repeat": [0.0, 0.0, 0.0], "baseline_host_wall_median_seconds": 0.000411392, "candidate_host_wall_median_seconds": 0.000928172, "verdict": "passed exact component comparison"},
+      {"batch": 8, "iterations": 3, "unequal_elements_each_repeat": [0, 0, 0], "max_abs_each_repeat": [0.0, 0.0, 0.0], "relative_l2_each_repeat": [0.0, 0.0, 0.0], "baseline_host_wall_median_seconds": 0.000537680, "candidate_host_wall_median_seconds": 0.002236750, "verdict": "passed exact component comparison"}
+    ]
+  },
+  "consolidated_checker_package": {
+    "package": "/nix/store/87idjn2x4lmsr0nmpjy7dk0q2fai8cvl-qwen38-0.1.0",
+    "exercised_runtime_equivalence": "parent sha256sum confirms identical compute.cpp and rounded_register_swiglu.py to installed9p6 component package",
+    "compute_cpp_sha256": "4425619fdf61c7c9c3eca590a7e950fd2376c0dc986bb75e99f3d98bf587a4fb",
+    "operation_module_sha256": "2354ff4314e3d76fbda9a088892424607fa0af17f5b65748d7848aebcd778540",
+    "difference": "qualification command adds separate actual-model continuation smoke; runtime numerical implementation unchanged"
+  },
+  "timing_scope": "synchronized host wall including Python and dispatch, not device profiler",
+  "performance_verdict": "slower than baseline at both measured shapes; no promotion",
+  "serving_admitted": false,
+  "default_enabled": false
+}

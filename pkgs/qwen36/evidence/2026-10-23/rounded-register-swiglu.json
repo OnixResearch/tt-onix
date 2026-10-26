@@ -1,0 +1,106 @@
+{
+  "schema": "onix.qwen38.rounded-register-swiglu-evidence.v1",
+  "date": "2026-10-23",
+  "candidate": "rounded-register-resident-swiglu-b1-b8-tp2-local",
+  "default_enabled": false,
+  "serving_admitted": false,
+  "runtime": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "runtime_source": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source",
+  "model_source": "d102e7f4512060e09e580e40cf26a870bfa88c55",
+  "checkpoint_revision_declaration": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "normal_package_acceptance": {"command": "nix build .#qwen38 .#checks.x86_64-linux.qwen38 .#tt-lang-sim .#tenstorrent-official-skills .#tenstorrent-eval-tools --no-link --print-out-paths", "all_install_checks_enabled": true, "output": "/nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0", "exit_code": 0, "elapsed_seconds": 143.18, "scope": "post-Ruff/Nixfmt normal package acceptance; earlier semantic/component/hardware runtime receipts retain their exact scoped package identities; no hardware repeat for semantic-neutral cleanup"},
+  "normal_qwen_check": {"command": "nix build .#qwen38 .#checks.x86_64-linux.qwen38 .#tt-lang-sim .#tenstorrent-official-skills .#tenstorrent-eval-tools --no-link --print-out-paths", "output": "/nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0", "passed": true},
+  "post_cleanup_semantic": {"command": "/nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0/bin/qwen38-rounded-register-swiglu-check --semantic", "observed": {"batches": [1, 8], "prefill": "unchanged", "rounding": "gate_after_silu_and_up_BF16_then_BF16_product", "semantic": "passed", "unsupported_decode": "rejected"}, "exit_code": 0, "scope": "host semantic contract, not a new hardware or retention run"},
+  "final_owner_state": {"command": "systemctl is-active qwen38-p150x2.service", "output": "inactive", "exit_code": 3, "restored": false},
+  "geometry": {"logical_batches": [1, 8], "K": 5120, "local_N": 8704, "weight_dtype": "bfloat4_b", "activation_and_product_dtype": "bfloat16", "math_fidelity": "LoFi", "fp32_dest_acc_en": true, "math_approx_mode": true},
+  "semantic": {
+    "status": "passed",
+    "command": "/nix/store/87idjn2x4lmsr0nmpjy7dk0q2fai8cvl-qwen38-0.1.0/bin/qwen38-rounded-register-swiglu-check --semantic",
+    "observed": {"batches": [1, 8], "prefill": "unchanged", "rounding": "gate_after_silu_and_up_BF16_then_BF16_product", "semantic": "passed", "unsupported_decode": "rejected"},
+    "scope": "host arithmetic and mode/shape contract; not device SFPU approximation equivalence"
+  },
+  "simulator": {
+    "status": "passed-exact-BF16-B1-B8",
+    "date": "2026-10-23",
+    "simulator_version": "1.10.6",
+    "source_revision": "a5276e15a52729465c8ddd71f0965df4ca2f0cc1",
+    "source_hash": "sha256-MuyVw0CQ3H+45fkd4gl4liNj8PcwcA52ecLzMGkX6fM=",
+    "model_revision": "blackhole-pacr-zero-flags-v1",
+    "model_patch_sha256": "f400d6789abcdfd9d8e9697b6904725d3f175f52054e2065f9b24e855bfe7dea",
+    "normal_package": {
+      "command": "nix build .#ttsim .#checks.x86_64-linux.ttsim-runtime-bundle --no-link --print-out-paths --option builders '' -L",
+      "output": "/nix/store/zyz9cf71yy9gcpnh7cz4r3wk49hvw6yc-ttsim-1.10.6",
+      "runtime_bundle_check": "/nix/store/77g1yzbgfp0rqg73rz15bydf01wsgm7i-ttsim-runtime-bundle-check",
+      "exit_code": 0,
+      "elapsed_seconds": 59.02,
+      "all_package_checks_enabled": true,
+      "backend": "explicit local source bootstrap; not the remote-builder repair acceptance"
+    },
+    "exercised_simulator": "/nix/store/79c70kb7av879mjdz5q8a06pgynzjwhs-ttsim-1.10.6",
+    "final_and_exercised_blackhole_library_sha256": "5278438f067f53a7677e81169763474b725719b3205b572502c85799a097d94a",
+    "binary_binding": "sha256sum measured equal Blackhole-x1 canonical library bytes in the exercised package and final normal package; intervening changes formatted the regression runner and Nix expression only",
+    "qwen_package": "/nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0",
+    "installed_and_worktree_compute_kernel_sha256": "4425619fdf61c7c9c3eca590a7e950fd2376c0dc986bb75e99f3d98bf587a4fb",
+    "tt_metal_package": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+    "runtime_compatibility": "same packaged TT-Metal 0.77.0/UMD loads the source-built 1.10.6 library, opens the simulated device, executes both numerical paths, synchronizes and closes cleanly",
+    "B1": {
+      "command": "/nix/store/79c70kb7av879mjdz5q8a06pgynzjwhs-ttsim-1.10.6/bin/ttsim-blackhole-sfpu /nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0/bin/qwen38-rounded-register-swiglu-check --device --batch 1 --iterations 1",
+      "exit_code": 0,
+      "elapsed_seconds": 104.19,
+      "observed": {"K": 5120, "N": 8704, "batch": 1, "device_component": "passed", "errors": [{"max_abs": 0.0, "path": "baseline", "relative_l2": 0.0, "unequal_elements": 0}, {"max_abs": 0.0, "path": "candidate", "relative_l2": 0.0, "unequal_elements": 0}], "simulated": true, "serving_admitted": false}
+    },
+    "B8": {
+      "command": "/nix/store/79c70kb7av879mjdz5q8a06pgynzjwhs-ttsim-1.10.6/bin/ttsim-blackhole-sfpu /nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0/bin/qwen38-rounded-register-swiglu-check --device --batch 8 --iterations 1",
+      "exit_code": 0,
+      "elapsed_seconds": 117.59,
+      "observed": {"K": 5120, "N": 8704, "batch": 8, "device_component": "passed", "errors": [{"max_abs": 0.0, "path": "baseline", "relative_l2": 0.0, "unequal_elements": 0}, {"max_abs": 0.0, "path": "candidate", "relative_l2": 0.0, "unequal_elements": 0}], "simulated": true, "serving_admitted": false}
+    },
+    "model_regression": {
+      "normal_check": "64 full-face PACR cases, BF16 ties-away and overwrite/zero-accumulate/overwrite transitions passed; Dst data and validity preserved",
+      "retained_failures": ["compression: Disable_zero_compress", "threshold: Exp_threshold_en", "metadata: set_signals_mode=1"],
+      "failing_before": "clean pinned source rejects Disable_pack_zero_flags",
+      "defective_model_controls": ["bypassing Dst validity fails stale-Dst overwrite: got 0x3f80 instead of 0", "disabling L1 accumulation fails zero-face accumulation: got 0 instead of 0x4000"],
+      "scope": "actual pinned PACR translation unit, not a copy or mock"
+    },
+    "version_contract_cleanup": {
+      "change": "deleted the Nix lib.hasInfix/readFile assertion against Rust source text; no replacement source or wiring assertion",
+      "cargo": "/nix/store/8qpipx2iknrsnyl4f52wn52kmq5d1v14-rust-default-1.97.1/bin/cargo",
+      "commands": ["cargo test --manifest-path pkgs/ttsim-runtime-validator/Cargo.toml --locked --offline rejects_previous_simulator_version", "cargo test --manifest-path pkgs/ttsim-runtime-validator/Cargo.toml --locked --offline admits_complete_simulated_receipt"],
+      "results": "each targeted existing behavioral test passed; supported complete receipt accepted and older simulator versions rejected"
+    },
+    "numerical_comparison_completed": true,
+    "simulator_specific_kernel_branch": false,
+    "native_stack_ttsim_1_10_9_unchanged": true,
+    "scope": "single simulated chip, TP2-local BF4 gate/up and rounded product only; no full-model, multi-chip, silicon, profiling, serving or performance promotion; separate GDN ALU_ACC_CTRL remains unsupported"
+  },
+  "original_simulator_attempt": {
+    "status": "blocked-after-candidate-JIT",
+    "simulator": "/nix/store/0qvnw9q02agnjbnm5pwvfpxhmrkqczii-ttsim-1.10.6",
+    "command": "/nix/store/0qvnw9q02agnjbnm5pwvfpxhmrkqczii-ttsim-1.10.6/bin/ttsim-blackhole-sfpu /nix/store/9p6q10s8cc4s17k1l2fxpy2d4rjl23p8-qwen38-0.1.0/bin/qwen38-rounded-register-swiglu-check --device --batch 1 --iterations 1",
+    "compiled": ["reader", "writer", "compute"],
+    "diagnostic": "[89736] ERROR: UnsupportedFunctionality: tensix_pacr: Disable_pack_zero_flags",
+    "exit_code": 1,
+    "numerical_comparison_completed": false,
+    "simulator_specific_kernel_branch": false,
+    "phase_localization": {
+      "date": "2026-10-23",
+      "package": "/nix/store/wxnsxbhlx59vx4cfwi0881szxjfb32lm-qwen38-0.1.0",
+      "method": "Throwaway wrapper printed before and after the unchanged installed op.gate_up call, then ran the unchanged installed device_check at B1/one iteration using ttsim-blackhole-sfpu with TT_MESH_GRAPH_DESC_PATH and MESH_DEVICE unset.",
+      "observed_stdout_in_order": ["PACR_LOCALIZE candidate_begin", "PACR_LOCALIZE candidate_returned", "[89736] ERROR: UnsupportedFunctionality: tensix_pacr: Disable_pack_zero_flags"],
+      "exit_code": 1,
+      "elapsed_seconds": 47.31,
+      "diagnosis": "The candidate call returns successfully; the original fused-SiLU baseline enables packer L1 accumulation and rejects Disable_pack_zero_flags. This is not a candidate JIT or final-pack failure, and does not complete the numerical comparison.",
+      "ambient_mesh_diagnostic": "The first localization attempt bypassed the simulator wrapper's environment cleanup and stopped at an inherited TT-Metal0.74 P150x2 mesh descriptor before candidate execution; the corrected command used the packaged wrapper. No simulator or kernel arithmetic changed."
+    }
+  },
+  "gates": {
+    "B1_B8_silicon_component_comparison": "passed finite exact BF16 equality, three repeats each, corrected installed command; see rounded-register-swiglu-hardware.json",
+    "actual_TP2_prefill_decode_recurrent_continuation": "passed bounded B8 prefill and two traced steps on physical IDs 0,1; source-checker receipt rounded-register-swiglu-model-b8.json; not B8 retention",
+    "model_retention_original_six_passages_delta_NLL_max": 0.010,
+    "model_retention_status": "passed fresh content-bound installed B1 original-six comparison, mean NLL 0.7451044766709086 both, all passage deltas 0; see rounded-register-retention.json; not global quality or B8 retention",
+    "exact_shape_device_performance": "not device-profiled; synchronized component host-wall times slower at B1 and B8; no promotion",
+    "historical_MLP_down_BF4_delta_NLL": 0.0192,
+    "historical_MLP_down_BF4_verdict": "rejected; unchanged",
+    "FUSED_MLP_GATEUP_ADMITTED": false
+  }
+}

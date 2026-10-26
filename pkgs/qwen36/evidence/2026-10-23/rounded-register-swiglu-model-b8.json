@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-23",
+  "simulated": false,
+  "physical_device_ids": [0, 1],
+  "batch": 8,
+  "iterations": 2,
+  "candidate_requested": true,
+  "runtime_package": "/nix/store/87idjn2x4lmsr0nmpjy7dk0q2fai8cvl-qwen38-0.1.0",
+  "checker": "pkgs/qwen36/rounded_register_swiglu_check.py",
+  "checker_sha256": "97bb05878fc042fedd6e6494f066683f66db3de6d167ff2e1407ec39dfa66707",
+  "checkpoint_revision_declaration": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "command": "env -u TT_METAL_SIMULATOR -u TT_METAL_SLOW_DISPATCH_MODE -u TT_MESH_GRAPH_DESC_PATH -u MESH_DEVICE QWEN35_GDN_DECODE_FUSION=step QWEN36_MLP_DOWN_BF4=0 QWEN38_ROUNDED_REGISTER_SWIGLU=1 /nix/store/87idjn2x4lmsr0nmpjy7dk0q2fai8cvl-qwen38-0.1.0/bin/qwen38 pkgs/qwen36/rounded_register_swiglu_check.py --model-device --model-path $MODEL --decode-profile /nix/store/87idjn2x4lmsr0nmpjy7dk0q2fai8cvl-qwen38-0.1.0/share/qwen36/decode-profile.json --batch 8 --iterations 2",
+  "result": "completed",
+  "first_token_ids": [11751, 2250, 279, 220, 271, 30994, 9514, 4097],
+  "continuation_token_ids": [[13, 13, 2315, 18, 32, 13, 13, 13], [198, 198, 220, 17, 13, 271, 198, 198]],
+  "positions_after": [7, 8, 7, 8, 8, 8, 7, 6],
+  "prefill_route": "unchanged",
+  "wall_seconds": 167.88,
+  "scope": "Actual TP2 model prefill for eight distinct prompts and two traced recurrent continuation steps; source checker with installed runtime, not installed-wrapper admission, retention or performance qualification",
+  "weight_content_limit": "This route smoke is not a before/after weight-content-bound retention collection; final B1 retention is separately collected with the corrected installed content-bound tool",
+  "serving_admitted": false
+}

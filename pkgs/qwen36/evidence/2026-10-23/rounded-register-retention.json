@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-23",
+  "physical_device_ids": [
+    0,
+    1
+  ],
+  "simulated": false,
+  "batch": 1,
+  "tool_package": "/nix/store/b2wy5v9fkqc2kafybwjyrz5wi2lmx7x1-tenstorrent-eval-tools-0.1.0",
+  "qwen_package": "/nix/store/9p6q10s8cc4s17k1l2fxpy2d4rjl23p8-qwen38-0.1.0",
+  "runtime": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "runtime_python": "/nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python",
+  "model_content_identity": "weights-sha256:72437a18012f39c8abfe4be4889b8e33a2c3481b5910d5802ccf317df0977855",
+  "checkpoint_revision_declaration": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "weight_manifest": "rounded-register-weight-content.json",
+  "weight_content_policy": "Exact index and all 66 referenced shard contents hashed before loading and again before export in each fresh collection; changes rejected",
+  "cache_identity": "Same resolved existing cache in both actual runs; private absolute path omitted from this public summary",
+  "baseline_flags": {
+    "QWEN36_MLP_DOWN_BF4": "0",
+    "QWEN35_GDN_DECODE_FUSION": "step"
+  },
+  "treatment_flags": {
+    "QWEN36_MLP_DOWN_BF4": "0",
+    "QWEN35_GDN_DECODE_FUSION": "step",
+    "QWEN38_ROUNDED_REGISTER_SWIGLU": "1"
+  },
+  "execution": "hardware:P150x2:devices-0,1:B1:step",
+  "corpus_sha256": "07b95ff60e0a5f596c3751502c4819eab79233ab181aee5afad660a7cd53e77b",
+  "model_config_sha256": "74227dd615bf1ea975aa676bdf355a0379858c12f394b5365cd9dfa5fc2c70bc",
+  "tokenizer_assets_sha256": {
+    "tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "tokenizer_config.json": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+    "vocab.json": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
+    "merges.txt": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d",
+    "chat_template.jinja": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+  },
+  "vocabulary_size": 248320,
+  "scored_token_counts": [
+    76,
+    122,
+    50,
+    46,
+    42,
+    49
+  ],
+  "baseline_passage_nll": [
+    0.8437592094805272,
+    0.12953256808947505,
+    0.9946418787190416,
+    0.8727227987705922,
+    1.2131943407421244,
+    0.4167760642236913
+  ],
+  "treatment_passage_nll": [
+    0.8437592094805272,
+    0.12953256808947505,
+    0.9946418787190416,
+    0.8727227987705922,
+    1.2131943407421244,
+    0.4167760642236913
+  ],
+  "baseline_mean_nll": 0.7451044766709086,
+  "treatment_mean_nll": 0.7451044766709086,
+  "baseline_logits_sha256": "734839ab2c6a4d2fa703283a4ad4476008d09cc1b7bc096865bb052a64af492f",
+  "treatment_logits_sha256": "d23459e668a450a58c4c487889e91046db5eaba4af8ef511385cfa4b218090ad",
+  "comparison": {
+    "baseline_sha256": "d49458353600ba3c686cbc4e45c7643194cf757989ef5bbddc1bc14b6639267d",
+    "treatment_sha256": "1d50110b709f6406cdb922a27e8ac48877fb1a8450ea7d32b107d8d97000d05c",
+    "mean_nll_delta": 0.0,
+    "passage_nll_delta": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scope": "six historical passages only; not global quality admission",
+    "original_diagnostic": {
+      "ceiling_delta_nats": 0.01,
+      "passes": true,
+      "scope": "original six-passage diagnostic only; no global floor"
+    }
+  },
+  "collection_env": {
+    "unset": [
+      "TT_METAL_SIMULATOR",
+      "TT_METAL_SLOW_DISPATCH_MODE",
+      "TT_MESH_GRAPH_DESC_PATH",
+      "QWEN38_ROUNDED_REGISTER_SWIGLU"
+    ],
+    "TT_METAL_HOME": "$QWEN_PACKAGE/libexec/tt-metalium",
+    "TT_METAL_RUNTIME_ROOT": "$QWEN_PACKAGE/libexec/tt-metalium",
+    "MESH_DEVICE": "P150x2",
+    "QWEN35_GDN_DECODE_FUSION": "step",
+    "QWEN36_MLP_DOWN_BF4": "0"
+  },
+  "baseline_collection_command": "$TOOL/bin/tenstorrent-eval retention collect --runtime-python $RUNTIME_PYTHON --corpus $TOOL/share/tenstorrent-eval-tools/data/qwen38-six-passages.json --model $MODEL --package $QWEN_PACKAGE --runtime $RUNTIME --cache $MODEL --out $BASELINE_EXPORT",
+  "treatment_collection_command": "$TOOL/bin/tenstorrent-eval retention collect --runtime-python $RUNTIME_PYTHON --corpus $TOOL/share/tenstorrent-eval-tools/data/qwen38-six-passages.json --model $MODEL --package $QWEN_PACKAGE --runtime $RUNTIME --cache $MODEL --decode-flags '{\"QWEN38_ROUNDED_REGISTER_SWIGLU\":\"1\"}' --out $TREATMENT_EXPORT",
+  "scoring_recipe": "targets-13-end:f32-to-f64-logsoftmax:equal-six-passage-means",
+  "scoring_engine": "torch-2.12.0:cpu",
+  "comparison_command": "$TOOL/bin/tenstorrent-eval retention compare --baseline $BASELINE_SCORE --treatment $TREATMENT_SCORE --original-diagnostic --out $COMPARISON",
+  "old_outputs_status": "Earlier config-only exports were not relabeled; these are fresh collections with the corrected installed content-bound tool",
+  "normal_qwen_package_build": "nix build .#qwen38 --no-link --print-out-paths => /nix/store/sxb2p796i6va54yxpr85xnypkr359xfv-qwen38-0.1.0 (all install checks enabled)",
+  "scope": "Original six-passage B1 retention diagnostic only; does not establish global quality or B8 retention",
+  "performance_admitted": false,
+  "serving_admitted": false
+}
