@@ -1,0 +1,227 @@
+{
+  "schema": "nanbeige43-p0-profiler-summary/v2",
+  "package_identity": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "run_receipt": "receipts/P0-replacement-run.json",
+  "profiler_dir": "/home/brittonr/models/nanbeige43-evidence/P0-replacement-2026-10-25",
+  "csv": "/home/brittonr/models/nanbeige43-evidence/P0-replacement-2026-10-25/.logs/cpp_device_perf_report.csv",
+  "csv_bytes": 2583755,
+  "csv_sha256": "1d97326421df2d1f478952b6b7a1503c311ba4b153900160f6f851470a9c43ae",
+  "total_rows": 10844,
+  "traced_rows": 5100,
+  "named_traced_rows": 5100,
+  "unnamed_traced_rows": 0,
+  "name_coverage": 1.0,
+  "distinct_op_names": 18,
+  "replay_device_groups": 4,
+  "per_replay_device": {
+    "device 0 replay 1": {
+      "rows": 1275,
+      "kernel_ms": 76.650334,
+      "named": 1275
+    },
+    "device 0 replay 2": {
+      "rows": 1275,
+      "kernel_ms": 76.649315,
+      "named": 1275
+    },
+    "device 1 replay 1": {
+      "rows": 1275,
+      "kernel_ms": 76.638438,
+      "named": 1275
+    },
+    "device 1 replay 2": {
+      "rows": 1275,
+      "kernel_ms": 76.646457,
+      "named": 1275
+    }
+  },
+  "totals_across_replays_and_devices": {
+    "kernel_ms": 306.584544,
+    "per_replay_device_kernel_ms": 76.646136,
+    "categories_ms": {
+      "matmul": 277.798824,
+      "sdpa": 2.010164,
+      "collectives": 13.160691,
+      "other": 13.614865
+    },
+    "categories_per_replay_device_ms": {
+      "matmul": 69.449706,
+      "sdpa": 0.502541,
+      "collectives": 3.29017275,
+      "other": 3.40371625
+    }
+  },
+  "per_op": [
+    {
+      "op_name": "MatmulDeviceOperation",
+      "programs": 1064,
+      "kernel_ms": 277.798824,
+      "us_per_program": 261.08912030075186,
+      "per_replay_device_ms": 69.449706
+    },
+    {
+      "op_name": "AllGatherAsyncDeviceOperation",
+      "programs": 424,
+      "kernel_ms": 6.979437,
+      "us_per_program": 16.46093632075472,
+      "per_replay_device_ms": 1.74485925
+    },
+    {
+      "op_name": "ReduceScatterMinimalAsyncDeviceOperation",
+      "programs": 416,
+      "kernel_ms": 6.181254,
+      "us_per_program": 14.858783653846155,
+      "per_replay_device_ms": 1.5453135
+    },
+    {
+      "op_name": "BinaryNgDeviceOperation",
+      "programs": 624,
+      "kernel_ms": 4.680557,
+      "us_per_program": 7.500892628205128,
+      "per_replay_device_ms": 1.17013925
+    },
+    {
+      "op_name": "LayerNormDeviceOperation",
+      "programs": 420,
+      "kernel_ms": 2.754971,
+      "us_per_program": 6.559454761904762,
+      "per_replay_device_ms": 0.68874275
+    },
+    {
+      "op_name": "NLPCreateQKVHeadsDecodeDeviceOperation",
+      "programs": 208,
+      "kernel_ms": 2.646435,
+      "us_per_program": 12.723245192307692,
+      "per_replay_device_ms": 0.66160875
+    },
+    {
+      "op_name": "SdpaDecodeDeviceOperation",
+      "programs": 208,
+      "kernel_ms": 2.010164,
+      "us_per_program": 9.66425,
+      "per_replay_device_ms": 0.502541
+    },
+    {
+      "op_name": "PagedFusedUpdateCacheDeviceOperation",
+      "programs": 208,
+      "kernel_ms": 1.142558,
+      "us_per_program": 5.493067307692308,
+      "per_replay_device_ms": 0.2856395
+    },
+    {
+      "op_name": "ReshardDeviceOperation",
+      "programs": 624,
+      "kernel_ms": 0.764806,
+      "us_per_program": 1.2256506410256411,
+      "per_replay_device_ms": 0.1912015
+    },
+    {
+      "op_name": "RotaryEmbeddingLlamaFusedQKDeviceOperation",
+      "programs": 208,
+      "kernel_ms": 0.473684,
+      "us_per_program": 2.277326923076923,
+      "per_replay_device_ms": 0.118421
+    },
+    {
+      "op_name": "ShardedToInterleavedDeviceOperation",
+      "programs": 232,
+      "kernel_ms": 0.365539,
+      "us_per_program": 1.5755991379310343,
+      "per_replay_device_ms": 0.09138475
+    },
+    {
+      "op_name": "NLPConcatHeadsDecodeDeviceOperation",
+      "programs": 208,
+      "kernel_ms": 0.260629,
+      "us_per_program": 1.2530240384615385,
+      "per_replay_device_ms": 0.06515725
+    },
+    {
+      "op_name": "UntilizeCodegenDeviceOperation",
+      "programs": 4,
+      "kernel_ms": 0.216538,
+      "us_per_program": 54.1345,
+      "per_replay_device_ms": 0.0541345
+    },
+    {
+      "op_name": "InterleavedToShardedDeviceOperation",
+      "programs": 220,
+      "kernel_ms": 0.13892,
+      "us_per_program": 0.6314545454545455,
+      "per_replay_device_ms": 0.03473
+    },
+    {
+      "op_name": "EmbeddingsDeviceOperation",
+      "programs": 12,
+      "kernel_ms": 0.092665,
+      "us_per_program": 7.722083333333333,
+      "per_replay_device_ms": 0.02316625
+    },
+    {
+      "op_name": "ConcatDeviceOperation",
+      "programs": 4,
+      "kernel_ms": 0.035924,
+      "us_per_program": 8.981,
+      "per_replay_device_ms": 0.008981
+    },
+    {
+      "op_name": "TransposeDeviceOperation",
+      "programs": 8,
+      "kernel_ms": 0.028898,
+      "us_per_program": 3.61225,
+      "per_replay_device_ms": 0.0072245
+    },
+    {
+      "op_name": "SliceDeviceOperation",
+      "programs": 8,
+      "kernel_ms": 0.012741,
+      "us_per_program": 1.592625,
+      "per_replay_device_ms": 0.00318525
+    }
+  ],
+  "dropped_zones": false,
+  "lm_head_attribution": "not separable from MatmulDeviceOperation by OP NAME; the CSV carries no program hash or source label, so attention projections, MLP projections, and the LM head share the matmul bucket",
+  "scope": "one traced generate run (3 greedy tokens, trace capture plus replay), 2 replays on each of 2 devices; attribution-only",
+  "non_claims": [
+    "Profiler reads synchronize and drain device buffers; these timings are not wall-time admission or serving benchmarks.",
+    "One run of one configuration; no repeat-run variance is reported.",
+    "The matmul bucket is not decomposed into attention, MLP, and LM head."
+  ],
+  "command": [
+    "/nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python",
+    "-m",
+    "tracy",
+    "--no-capture-tool",
+    "-r",
+    "--check-exit-code",
+    "--op-support-count",
+    "5000",
+    "-o",
+    "/home/brittonr/models/nanbeige43-evidence/P0-replacement-2026-10-25",
+    "-m",
+    "p0_profile_hook",
+    "generate",
+    "--mesh",
+    "p150x2",
+    "--max-tokens",
+    "3",
+    "--checkpoint",
+    "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "--cache-root",
+    "/home/brittonr/models/nanbeige43-cache",
+    "--receipt",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/P0-replacement-run.json"
+  ],
+  "environment": {
+    "TT_METAL_PROFILER_DIR": "/home/brittonr/models/nanbeige43-evidence/P0-replacement-2026-10-25",
+    "TT_METAL_DEVICE_PROFILER": "1",
+    "TTNN_OP_PROFILER": "1",
+    "TT_METAL_PROFILER_CPP_POST_PROCESS": "1",
+    "TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT": "5000",
+    "TT_METAL_PROFILER_TRACE_TRACKING": "1"
+  },
+  "hook": "runner-side wrapper calls ttnn.ReadDeviceProfiler(session.mesh_device) after run_session and before mesh close; not shipped",
+  "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/P0-replacement.log",
+  "exit_status": 0
+}

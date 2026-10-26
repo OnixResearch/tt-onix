@@ -1,0 +1,46 @@
+{
+  "schema": "nanbeige43-component-diagnostic/v1",
+  "source_receipt": "P0-diagnostic-run.json",
+  "source_sha256": "c7651ccf3efc71fe252e2ccb1455a5048293e321d80f6f81dc4e8298e0e67237",
+  "command": [
+    "timeout",
+    "1500",
+    "/nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python",
+    "/home/brittonr/models/nanbeige43-evidence/scratch/p0_components.py",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/P0-components.json",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/O1-bench-trace.json",
+    "compare",
+    "--mesh",
+    "p150x2",
+    "--checkpoint",
+    "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "--reference",
+    "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+    "--cache-root",
+    "/home/brittonr/models/nanbeige43-cache",
+    "--receipt",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/P0-diagnostic-run.json"
+  ],
+  "exit_status": 1,
+  "serialization_error": "'str' object has no attribute 'parent'",
+  "measurement_completed": true,
+  "sample_steps": 24,
+  "trace_anchor_equals_O1": true,
+  "eager_logits_exactly_equal_trace": true,
+  "inclusive_component_median_ms": {
+    "attention": 1031.8792160105659,
+    "mlp": 887.5902314757695,
+    "lm_head": 11.172718499437906
+  },
+  "exclusive_component_ms": {
+    "attention:linear": 185.0930319633335,
+    "collective:tt_all_reduce": 314.5914975029882,
+    "collective:tt_all_gather": 48.375571437645704,
+    "attention": 598.4834536357084,
+    "mlp:linear": 294.14614936104044,
+    "mlp": 435.0668096158188,
+    "lm_head:linear": 6.536841028719209,
+    "lm_head": 4.346745001384988
+  },
+  "verdict": "Inconclusive for actual traced device-cost attribution: >20x synchronized/eager perturbation. Not a performance benchmark or evidence of largest actionable device target. Samples recovered offline, no hardware rerun for serialization."
+}

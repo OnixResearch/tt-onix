@@ -1,0 +1,265 @@
+{
+  "schema": "nanbeige43-p1-final-verification/v1",
+  "package_identity": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0",
+  "checks": [
+    {
+      "check": "P1 bench identity and median decode > 9.69 tok/s",
+      "passed": true,
+      "observed": {
+        "package": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0",
+        "median": 11.177832096491146,
+        "samples": [
+          11.177832096491146,
+          11.191965566751271,
+          11.197489659226258,
+          10.864023130885935,
+          10.968718569240888
+        ]
+      }
+    },
+    {
+      "check": "P1 bench ids equal O1 ids and are stable across every warmed run",
+      "passed": true,
+      "observed": {
+        "ids_equal_o1": true,
+        "stable": true
+      }
+    },
+    {
+      "check": "P1 bench all gates passed",
+      "passed": true,
+      "observed": [
+        {
+          "gate": "bench outputs identical across all runs",
+          "passed": true,
+          "observed": true
+        },
+        {
+          "gate": "every batch row identical in every run",
+          "passed": true,
+          "observed": true
+        },
+        {
+          "gate": "output ids equal O1-bench-trace.json",
+          "passed": true,
+          "observed": {
+            "first_divergence": null
+          }
+        }
+      ]
+    },
+    {
+      "check": "batch 4 bench rows stable and row ids equal the admitted receipt",
+      "passed": true,
+      "observed": {
+        "median": 10.158246482698969,
+        "rows_identical": true,
+        "stable": true,
+        "ids_equal_baseline": true,
+        "first_divergence_from_O1": null
+      }
+    },
+    {
+      "check": "batch 16 bench rows stable and row ids equal the admitted receipt",
+      "passed": true,
+      "observed": {
+        "median": 10.05062844058798,
+        "rows_identical": true,
+        "stable": true,
+        "ids_equal_baseline": true,
+        "first_divergence_from_O1": 101
+      }
+    },
+    {
+      "check": "differential batch 1: real-logit equality, stop transitions, ids repeat prior run",
+      "passed": true,
+      "observed": {
+        "steps": 8,
+        "same_tokens_as_prior": true,
+        "tokens": [
+          [
+            6562
+          ],
+          [
+            609
+          ],
+          [
+            322
+          ],
+          [
+            1472
+          ],
+          [
+            152385
+          ],
+          [
+            35906
+          ],
+          [
+            166101
+          ],
+          [
+            166101
+          ]
+        ]
+      }
+    },
+    {
+      "check": "differential batch 4: real-logit equality, stop transitions, ids repeat prior run",
+      "passed": true,
+      "observed": {
+        "steps": 8,
+        "same_tokens_as_prior": true,
+        "tokens": [
+          [
+            6562,
+            6562,
+            6562,
+            6562
+          ],
+          [
+            609,
+            609,
+            609,
+            609
+          ],
+          [
+            322,
+            322,
+            322,
+            322
+          ],
+          [
+            1472,
+            1472,
+            1472,
+            1472
+          ],
+          [
+            152385,
+            152395,
+            152394,
+            152408
+          ],
+          [
+            35906,
+            35906,
+            35906,
+            35906
+          ],
+          [
+            166101,
+            166101,
+            166101,
+            166101
+          ],
+          [
+            166101,
+            166101,
+            166101,
+            166101
+          ]
+        ]
+      }
+    },
+    {
+      "check": "compare teacher-forced top-1/top-5 and prefill equal O1 and meet L3b gates",
+      "passed": true,
+      "observed": {
+        "top1": 0.921875,
+        "top5": 0.990234375,
+        "prefill_pcc": 0.9970285618713378
+      }
+    },
+    {
+      "check": "compare 512 teacher-forced predictions exactly equal O1 and accepted accuracy receipt",
+      "passed": true,
+      "observed": {
+        "positions": 512
+      }
+    },
+    {
+      "check": "compare decode PCC min/mean exactly equal O1",
+      "passed": true,
+      "observed": {
+        "min": 0.8946782572786218,
+        "mean": 0.9961258976020395
+      }
+    },
+    {
+      "check": "compare fixed-prompt rows exactly equal O1 and the accepted accuracy receipt",
+      "passed": true,
+      "observed": {
+        "prompts": [
+          {
+            "name": "plain-capital",
+            "prefill_pcc": 0.9989173842746066,
+            "decode_steps": 32
+          },
+          {
+            "name": "chat-sky",
+            "prefill_pcc": 0.9983922394079209,
+            "decode_steps": 32
+          },
+          {
+            "name": "plain-fibonacci",
+            "prefill_pcc": 0.9969198946208857,
+            "decode_steps": 32
+          }
+        ]
+      }
+    },
+    {
+      "check": "compare gates all passed",
+      "passed": true,
+      "observed": [
+        {
+          "gate": "plain-capital prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9989173842746066
+        },
+        {
+          "gate": "chat-sky prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9983922394079209
+        },
+        {
+          "gate": "plain-fibonacci prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9969198946208857
+        },
+        {
+          "gate": "corpus prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9970285618713378
+        },
+        {
+          "gate": "teacher-forced top1>=0.87",
+          "passed": true,
+          "observed": 0.921875
+        },
+        {
+          "gate": "teacher-forced top5>=0.97",
+          "passed": true,
+          "observed": 0.990234375
+        }
+      ]
+    },
+    {
+      "check": "L3b receipt numbers unchanged (top-1 0.921875, top-5 0.990234375)",
+      "passed": true,
+      "observed": {
+        "top1": 0.921875,
+        "top5": 0.990234375
+      }
+    },
+    {
+      "check": "device-free check passed including hidden corrupted user regression",
+      "passed": true,
+      "observed": {
+        "checks": 44
+      }
+    }
+  ],
+  "passed": true
+}

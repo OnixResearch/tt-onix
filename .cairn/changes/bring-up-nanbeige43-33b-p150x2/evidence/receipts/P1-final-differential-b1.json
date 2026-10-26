@@ -1,0 +1,251 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "compare",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": {
+    "path": "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+    "sha256": "583b0fd24aabba7da31a75ae8835e7c5ab943657587358a0a9a364e40e060670"
+  },
+  "preset": "accuracy",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 512
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 1,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-25T22:46:24-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "differential": {
+    "steps": [
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          6562
+        ],
+        "old_tokens": [
+          6562
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.0653590050060302,
+        "new_host_seconds": 0.011856762022944167
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          609
+        ],
+        "old_tokens": [
+          609
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.05663883298984729,
+        "new_host_seconds": 0.01709611900150776
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          322
+        ],
+        "old_tokens": [
+          322
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.023836593987653032,
+        "new_host_seconds": 0.00489483997807838
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          1472
+        ],
+        "old_tokens": [
+          1472
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.048017665976658463,
+        "new_host_seconds": 0.009977442998206243
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          152385
+        ],
+        "old_tokens": [
+          152385
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.026108399993972853,
+        "new_host_seconds": 0.006694028008496389
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          35906
+        ],
+        "old_tokens": [
+          35906
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.028663768025580794,
+        "new_host_seconds": 0.005017329996917397
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          166101
+        ],
+        "old_tokens": [
+          166101
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.02415104501415044,
+        "new_host_seconds": 0.00800468900706619
+      },
+      {
+        "tokens_equal": true,
+        "active_logits_equal": true,
+        "replicas_equal": true,
+        "tokens": [
+          166101
+        ],
+        "old_tokens": [
+          166101
+        ],
+        "max_tie_counts": [
+          1
+        ],
+        "old_host_seconds": 0.027033628022763878,
+        "new_host_seconds": 0.006953716016141698
+      }
+    ],
+    "generation_stop_cases": [
+      {
+        "case": "length cap",
+        "same_ids": true,
+        "ids": [
+          152375,
+          6562,
+          609,
+          322,
+          1472,
+          152385,
+          35906,
+          166101
+        ]
+      },
+      {
+        "case": "stop at observed token index 0",
+        "same_ids": true,
+        "same_stopped": true,
+        "ids": [
+          152375
+        ]
+      },
+      {
+        "case": "stop at observed token index 1",
+        "same_ids": true,
+        "same_stopped": true,
+        "ids": [
+          152375,
+          6562
+        ]
+      },
+      {
+        "case": "stop at observed token index 3",
+        "same_ids": true,
+        "same_stopped": true,
+        "ids": [
+          152375,
+          6562,
+          609,
+          322
+        ]
+      }
+    ],
+    "distinct_prompts": [
+      "What is 2 plus one?"
+    ],
+    "scope": "real traced readback replicas and all active rows; host-only conversion timings are perturbed diagnostics, not throughput"
+  },
+  "gates": [
+    {
+      "gate": "old/new real active logits and ids equal, replicas equal",
+      "passed": true
+    },
+    {
+      "gate": "generation length/stop transitions unchanged",
+      "passed": true
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2999926784,
+    "peak": 66241572864
+  },
+  "finished": "2026-10-25T22:48:32-0400",
+  "passed": true
+}

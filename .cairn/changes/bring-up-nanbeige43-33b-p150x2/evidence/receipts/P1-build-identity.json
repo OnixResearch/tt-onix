@@ -1,0 +1,23 @@
+{
+  "schema": "nanbeige43-build-identity/v1",
+  "change": "bring-up-nanbeige43-33b-p150x2 P1 final identity",
+  "drv_path": "/nix/store/1nl1masny9yp2px4s65nm4x1cnl3q96y-nanbeige43-0.1.0.drv",
+  "output": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0",
+  "build_command": "nix build .#nanbeige43 --no-link --print-out-paths",
+  "build_exit": 0,
+  "rebuild_command": "nix build .#nanbeige43 --no-link --print-out-paths --rebuild --keep-failed -L",
+  "rebuild_exit": 1,
+  "rebuild_result": "The forced rebuild re-ran installPhase and installCheckPhase; the install check passed. The fresh output differs from the store output only in 13 interpreter __pycache__ .pyc files. All eight runner .py files, every wrapper, the authority JSON, and every other output file are byte-identical.",
+  "rebuild_retained_output": "/nix/store/zc0fsdycib8kazc0wp0rk4n24wxjh8bq-nanbeige43-0.1.0.check",
+  "rebuild_retained_output_is_transient": true,
+  "nondeterminism_scope": "pre-existing: installCheckPhase imports the runner inside the build sandbox, writing .pyc bytecode whose embedded source timestamps differ between builds; the package does not clean those files before fixup",
+  "runner_python_equal_to_source": true,
+  "ruff_check": "passed",
+  "ruff_format_check": "passed",
+  "qwen38_drv_path": "/nix/store/af68qaa6rimz65g49yhgkvv031znrsp4-qwen38-0.1.0.drv",
+  "log_path": "/home/brittonr/models/nanbeige43-evidence/scratch/p1-final-rebuild-keep.log",
+  "non_claims": [
+    "The rebuild check is an identity/install-check result, not evidence of byte-reproducible builds.",
+    "The .check output is not a delivered or substituted package identity; the delivered identity is the output path above."
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "generate",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/ybgkdmpl4qfjpdrs00bqsnmz7rf0bkdr-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "accuracy",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 256
+  },
+  "prompt_mode": "prefill",
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-25T16:58:49-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 76.2956371307373,
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "generation": {
+    "prompt_tokens": 45,
+    "output_ids": [
+      764,
+      13690,
+      322,
+      6361,
+      1109,
+      6558,
+      152402,
+      152350,
+      10569,
+      102359,
+      1480,
+      13969,
+      6361,
+      25842,
+      290,
+      27997,
+      602,
+      703,
+      631,
+      10434,
+      1884,
+      298,
+      261,
+      11566,
+      2196,
+      361,
+      55146,
+      11577,
+      152361,
+      166101
+    ],
+    "stopped_at_eos": true,
+    "first_token_seconds": 0.40340471267700195,
+    "decode_seconds": 4.467494249343872,
+    "decode_tokens_per_second": 6.491334600880381,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain in one sentence why the sky is blue."
+      }
+    ],
+    "enable_thinking": false,
+    "text": "The sky is blue because Earth's atmosphere scatters shorter blue wavelengths of sunlight more than other colors due to a phenomenon known as Rayleigh scattering."
+  },
+  "gates": [
+    {
+      "gate": "generation produced tokens",
+      "passed": true,
+      "observed": 30
+    }
+  ],
+  "finished": "2026-10-25T17:00:15-0400",
+  "passed": true
+}

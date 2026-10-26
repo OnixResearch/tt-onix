@@ -1,0 +1,114 @@
+{
+  "schema": "nanbeige43-p2-verification/v1",
+  "package_identity": "/nix/store/kn85q95rgk3py9rb1fyw4c7bvkajdjg2-nanbeige43-0.1.0",
+  "checks": [
+    {
+      "check": "batch-32 bench on the batch-32 package",
+      "passed": true,
+      "observed": {
+        "package": "/nix/store/kn85q95rgk3py9rb1fyw4c7bvkajdjg2-nanbeige43-0.1.0",
+        "batch": 32
+      }
+    },
+    {
+      "check": "batch-32 bench rows identical in every run and to each other",
+      "passed": true,
+      "observed": {
+        "rows_identical": true,
+        "outputs_identical": true
+      }
+    },
+    {
+      "check": "batch-32 bench row capacity covers prompt plus 128 tokens",
+      "passed": true,
+      "observed": {
+        "page_block": 32,
+        "page_blocks": 512,
+        "row_positions": 512
+      }
+    },
+    {
+      "check": "batch-32 aggregate decode exceeds 160.81 tok/s",
+      "passed": true,
+      "observed": {
+        "median": 313.55129016134174,
+        "min": 261.54849305968895,
+        "samples": [
+          265.0846194974383,
+          261.54849305968895,
+          327.8278946016589,
+          313.55129016134174,
+          320.8912407039789
+        ]
+      }
+    },
+    {
+      "check": "batch-32 ids equal batch-16 exactly; divergence from batch 1 recorded",
+      "passed": true,
+      "observed": {
+        "first_divergence_vs_b16": null,
+        "first_divergence_vs_b1": 101
+      }
+    },
+    {
+      "check": "batch-32 compare on the batch-32 package with 1024 positions per row",
+      "passed": true,
+      "observed": {
+        "package": "/nix/store/kn85q95rgk3py9rb1fyw4c7bvkajdjg2-nanbeige43-0.1.0",
+        "batch": 32,
+        "row_positions": 1024
+      }
+    },
+    {
+      "check": "batch-32 compare worst-row fallback gates",
+      "passed": true,
+      "observed": {
+        "top1": 0.912109375,
+        "top5": 0.99609375,
+        "corpus_prefill_pcc": 0.9970285618713378,
+        "fixed_prompt_pccs": [
+          0.9989173842746066,
+          0.9983922394079209,
+          0.9969198946208857
+        ]
+      }
+    },
+    {
+      "check": "batch-32 compare runner gates all passed",
+      "passed": true,
+      "observed": [
+        {
+          "gate": "plain-capital prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9989173842746066
+        },
+        {
+          "gate": "chat-sky prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9983922394079209
+        },
+        {
+          "gate": "plain-fibonacci prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9969198946208857
+        },
+        {
+          "gate": "corpus prefill pcc>=0.94",
+          "passed": true,
+          "observed": 0.9970285618713378
+        },
+        {
+          "gate": "teacher-forced top1>=0.87",
+          "passed": true,
+          "observed": 0.912109375
+        },
+        {
+          "gate": "teacher-forced top5>=0.97",
+          "passed": true,
+          "observed": 0.99609375
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,393 @@
+{
+ "log": [
+  {
+   "layer": 0,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 1,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 2,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 3,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 4,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 5,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 6,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 7,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 8,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 9,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 10,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 11,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 12,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 13,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 14,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 15,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 16,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 17,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 18,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 19,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 20,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 21,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 22,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 23,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 24,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 25,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 26,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 27,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 28,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 29,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 30,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 31,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 32,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 33,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 34,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 35,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 36,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 37,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 38,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 39,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 40,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 41,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 42,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 43,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 44,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 45,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 46,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 47,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 48,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 49,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 50,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "layer": 51,
+   "mode": "Mode.PREFILL",
+   "allocated_per_bank": 4352,
+   "largest_free": 1454976,
+   "x_memory": "BufferType.DRAM"
+  },
+  {
+   "event": "prefill-done"
+  },
+  {
+   "layer": 0,
+   "mode": "Mode.DECODE",
+   "allocated_per_bank": 28928,
+   "largest_free": 1430400,
+   "x_memory": "BufferType.L1"
+  },
+  {
+   "layer": 1,
+   "mode": "Mode.DECODE",
+   "allocated_per_bank": 37120,
+   "largest_free": 1405824,
+   "x_memory": "BufferType.L1"
+  },
+  {
+   "layer": 2,
+   "mode": "Mode.DECODE",
+   "allocated_per_bank": 37120,
+   "largest_free": 1397632,
+   "x_memory": "BufferType.L1"
+  }
+ ],
+ "error": "Object_MakeTpCall+0x1a2) [0x7d476ff36ac2]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x36be) [0x7d477018bd0e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x2734cb) [0x7d47700224cb]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d758) [0x7d476ff3c758]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d4770188f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(PyEval_EvalCode+0x153) [0x7d477019af73]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x3f305b) [0x7d47701a205b]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x3f3277) [0x7d47701a2277]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x3f582e) [0x7d47701a482e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(Py_RunMain+0x144e) [0x7d47701a6d0e]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x2b285) [0x7d476faa5285]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(__libc_start_main+0x88) [0x7d476faa5338]\n --- /nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python(_start+0x25) [0x567e163eb085]\n\n"
+}

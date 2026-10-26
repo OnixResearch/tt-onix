@@ -1,0 +1,30 @@
+{
+  "compute_dtype": "bfloat16",
+  "pcc_emulated_vs_fp32_min": 0.9999085377971303,
+  "rows": 27,
+  "device_vs_fp32_top1_equal": 25,
+  "device_vs_bfp8_emulated_top1_equal": 25,
+  "bfp8_emulated_vs_fp32_top1_equal": 27,
+  "device_fp32_mismatch_rows": [
+    {
+      "prompt": "plain-capital",
+      "row": 1,
+      "fp32_top1": 125260,
+      "bfp8_emulated_top1": 125260,
+      "device_top1": 132976,
+      "device_equals_fp32": false,
+      "device_equals_bfp8_emulated": false,
+      "pcc_emulated_vs_fp32": 0.9999238179792139
+    },
+    {
+      "prompt": "plain-fibonacci",
+      "row": 0,
+      "fp32_top1": 91036,
+      "bfp8_emulated_top1": 91036,
+      "device_top1": 97131,
+      "device_equals_fp32": false,
+      "device_equals_bfp8_emulated": false,
+      "pcc_emulated_vs_fp32": 0.9999085377971303
+    }
+  ]
+}

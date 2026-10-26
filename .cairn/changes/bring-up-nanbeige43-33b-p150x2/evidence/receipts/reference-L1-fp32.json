@@ -1,0 +1,53 @@
+{
+  "schema": "nanbeige43-reference/v1",
+  "output": "reference/L1-fp32.pt",
+  "output_sha256": "3f1ce177d7565a866f7532d452d3fb34c7ea624243e517ca5ee7cc8e6fe20091",
+  "checkpoint": {
+    "kind": "reduced",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6-L1",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 1,
+    "manifest_sha256": "80d45f76eed7b0c2caf2238991a81b8b7d36b46ef9bbba3f9143511d12eadb43",
+    "files_sha256_digest": "7032b3386b9d4110e25c7a4223dcb34d48ee32d4775e56f1039e600d756760fb"
+  },
+  "dtype": "float32",
+  "versions": {
+    "torch": "2.12.0",
+    "transformers": "5.5.4",
+    "python": "3.13.13"
+  },
+  "load_seconds": 2.4,
+  "total_seconds": 8.9,
+  "prompts": [
+    {
+      "name": "plain-capital",
+      "prompt_tokens": 6,
+      "continuation_ids": [
+        69542,
+        21482
+      ],
+      "continuation_text": "认定事实不清",
+      "greedy_forward_argmax_mismatches": 0
+    },
+    {
+      "name": "chat-sky",
+      "prompt_tokens": 45,
+      "continuation_ids": [
+        51142,
+        135519
+      ],
+      "continuation_text": "reed如初",
+      "greedy_forward_argmax_mismatches": 0
+    },
+    {
+      "name": "plain-fibonacci",
+      "prompt_tokens": 8,
+      "continuation_ids": [
+        122735,
+        143284
+      ],
+      "continuation_text": "又不失传统教育",
+      "greedy_forward_argmax_mismatches": 0
+    }
+  ]
+}

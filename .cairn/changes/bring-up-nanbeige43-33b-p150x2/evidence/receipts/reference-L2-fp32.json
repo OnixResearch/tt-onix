@@ -1,0 +1,71 @@
+{
+  "schema": "nanbeige43-reference/v1",
+  "output": "reference/L2-fp32.pt",
+  "output_sha256": "a3008f544294f4c59984b0ab34c9239a62ad3edfd30f0609d132fe8e785ecda0",
+  "checkpoint": {
+    "kind": "reduced",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6-L2",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 2,
+    "manifest_sha256": "c7bd8b992b33bc41f872c8bc33954efb9b80789f6033d618ba29952822cf93d3",
+    "files_sha256_digest": "1d6fed95bef3537773a4fe8a46a197250423bbb8a88a096dd586149e34c61f05"
+  },
+  "dtype": "float32",
+  "versions": {
+    "torch": "2.12.0",
+    "transformers": "5.5.4",
+    "python": "3.13.13"
+  },
+  "load_seconds": 1.7,
+  "total_seconds": 22.6,
+  "prompts": [
+    {
+      "name": "plain-capital",
+      "prompt_tokens": 6,
+      "continuation_ids": [
+        8134,
+        125260,
+        69250,
+        115335,
+        153405,
+        55312,
+        155577,
+        33499
+      ],
+      "continuation_text": "情况下 Taver对所罗门拥着你們Turn",
+      "greedy_forward_argmax_mismatches": 0
+    },
+    {
+      "name": "chat-sky",
+      "prompt_tokens": 45,
+      "continuation_ids": [
+        46221,
+        32553,
+        100631,
+        75790,
+        152159,
+        51563,
+        121216,
+        147493
+      ],
+      "continuation_text": "世界上最oden克雷用户信息选择适合自己的在被微信公众平台 BID",
+      "greedy_forward_argmax_mismatches": 0
+    },
+    {
+      "name": "plain-fibonacci",
+      "prompt_tokens": 8,
+      "continuation_ids": [
+        91036,
+        50262,
+        141858,
+        133815,
+        41174,
+        8962,
+        64758,
+        10953
+      ],
+      "continuation_text": "率在座的 Bov作业时打好 fer了多少bur",
+      "greedy_forward_argmax_mismatches": 0
+    }
+  ]
+}

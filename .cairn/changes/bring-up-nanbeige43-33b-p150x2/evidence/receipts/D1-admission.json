@@ -1,0 +1,92 @@
+{
+  "schema": "nanbeige43-precision-screen-admission/v1",
+  "baseline_top1": 0.921875,
+  "runner_passed_scope": "original L3b floors only; campaign retention gates below are authoritative for D1",
+  "screens": [
+    {
+      "preset": "bfp8",
+      "receipt": "D1-compare-bfp8.json",
+      "sha256": "9799e9b70e35a2324383f530c2993a51df8dcbc47e87ca2c4524a987931d5fda",
+      "runner_passed": true,
+      "top1": 0.908203125,
+      "top5": 0.994140625,
+      "top1_drop": 0.013671875,
+      "prefill_pcc_min": 0.9968535197566657,
+      "gates": {
+        "top1_at_least_087": true,
+        "top5_at_least_097": true,
+        "top1_drop_at_most_002": true,
+        "every_prefill_pcc_at_least_099": true
+      },
+      "screen_passed": true,
+      "tp1_admitted": false
+    },
+    {
+      "preset": "bfp4-ff13",
+      "receipt": "D1-compare-bfp4-ff13.json",
+      "sha256": "f6105e73a4dfa38dbe22af8c64d7c208ef749ce2ee7f28731b1af475b00ca0ad",
+      "runner_passed": false,
+      "top1": 0.85546875,
+      "top5": 0.982421875,
+      "top1_drop": 0.06640625,
+      "prefill_pcc_min": 0.9937294961573596,
+      "gates": {
+        "top1_at_least_087": false,
+        "top5_at_least_097": true,
+        "top1_drop_at_most_002": false,
+        "every_prefill_pcc_at_least_099": true
+      },
+      "screen_passed": false,
+      "tp1_admitted": false
+    },
+    {
+      "preset": "bfp4-ff13-l13-39",
+      "receipt": "D1-compare-bfp4-ff13-l13-39.json",
+      "sha256": "1055c06094a6e12f9e4f7ce7ad00eecd53f26c544ceed85fb5aef0675df01147",
+      "runner_passed": true,
+      "top1": 0.87890625,
+      "top5": 0.990234375,
+      "top1_drop": 0.04296875,
+      "prefill_pcc_min": 0.9953885850610408,
+      "gates": {
+        "top1_at_least_087": true,
+        "top5_at_least_097": true,
+        "top1_drop_at_most_002": false,
+        "every_prefill_pcc_at_least_099": true
+      },
+      "screen_passed": false,
+      "tp1_admitted": false
+    },
+    {
+      "preset": "bfp4-ff2",
+      "receipt": "D1-compare-bfp4-ff2.json",
+      "sha256": "6489ca6b9e1ee1f0308eee83537f8140327be0a281c612f22d4f917a1ee33fe3",
+      "runner_passed": false,
+      "top1": 0.8515625,
+      "top5": 0.984375,
+      "top1_drop": 0.0703125,
+      "prefill_pcc_min": 0.9933852897255024,
+      "gates": {
+        "top1_at_least_087": false,
+        "top5_at_least_097": true,
+        "top1_drop_at_most_002": false,
+        "every_prefill_pcc_at_least_099": true
+      },
+      "screen_passed": false,
+      "tp1_admitted": false
+    }
+  ],
+  "untested": [
+    "G",
+    "H"
+  ],
+  "pruning": "heuristic; no numerical dominance proof",
+  "D2": {
+    "status": "skipped_blocked",
+    "reason": "No tested mix both passed D1 and fit TP1: B exceeds physical capacity; D/M27/E fail accuracy gates."
+  },
+  "D3": {
+    "status": "skipped_blocked",
+    "reason": "D2 has no admitted single-card instance; DP code and wrappers removed."
+  }
+}

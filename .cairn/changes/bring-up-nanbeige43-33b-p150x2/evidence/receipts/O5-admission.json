@@ -1,0 +1,39 @@
+{
+  "schema": "nanbeige43-optimization-admission/v1",
+  "campaign": "O5",
+  "source_receipt": {
+    "path": "O5-bench-bfp8.json",
+    "sha256": "b099b6960951f28e517d82a7e3223937794d63a02ae2871380d6bdaffd056a50",
+    "package_identity": "/nix/store/4y81xvhibhh5wa4fp0m33x01zvifvc3a-nanbeige43-0.1.0",
+    "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0"
+  },
+  "command": [
+    "timeout",
+    "1500",
+    "/nix/store/4y81xvhibhh5wa4fp0m33x01zvifvc3a-nanbeige43-0.1.0/bin/nanbeige43-p150x2",
+    "bench",
+    "--preset",
+    "bfp8",
+    "--checkpoint",
+    "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "--cache-root",
+    "/home/brittonr/models/nanbeige43-cache",
+    "--receipt",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/O5-bench-bfp8.json"
+  ],
+  "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/O5-bench-bfp8.log",
+  "exit_status": 0,
+  "runner_passed": true,
+  "runner_passed_scope": "determinism across all runs and rows only; not speed or default admission",
+  "outputs_identical_across_runs": true,
+  "median_decode_tokens_per_second": 5.714878949318242,
+  "threshold": {
+    "operator": ">",
+    "decode_tokens_per_second": 9.69,
+    "baseline_receipt": "O1-bench-trace.json"
+  },
+  "speed_passed": false,
+  "admitted": false,
+  "delivered_default": "accuracy",
+  "disposition": "Not promoted. No speed retry; no BFP8 batch 4/16 qualification or delivered-default BFP8 compare because speed admission failed."
+}

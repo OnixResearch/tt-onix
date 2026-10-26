@@ -1,0 +1,125 @@
+{
+  "schema": "nanbeige43-delivery-validation/v1",
+  "package_identity": "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "command_timeout_seconds": 1500,
+  "build": {
+    "command": [
+      "timeout",
+      "1500",
+      "/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0/bin/nix",
+      "build",
+      ".#nanbeige43",
+      "--no-link",
+      "--print-out-paths",
+      "--option",
+      "build-hook",
+      "/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0/bin/nix __build-remote",
+      "-L"
+    ],
+    "exit_status": 0,
+    "derivation": "/nix/store/3005yffr2k290m0lhdlc3ffh10g4ykg3-nanbeige43-0.1.0.drv",
+    "saved_build_log": "/home/brittonr/models/nanbeige43-evidence/scratch/review-package-build.log"
+  },
+  "device_free": {
+    "command": [
+      "timeout",
+      "1500",
+      "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0/bin/nanbeige43-check",
+      "--report",
+      "/home/brittonr/models/nanbeige43-evidence/L0-review-check.json"
+    ],
+    "exit_status": 0,
+    "log_path": "/home/brittonr/models/nanbeige43-evidence/scratch/review-check.log",
+    "checks": 43
+  },
+  "hardware": [
+    {
+      "command": [
+        "timeout",
+        "1500",
+        "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0/bin/nanbeige43-p150x2",
+        "compare",
+        "--checkpoint",
+        "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+        "--reference",
+        "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+        "--cache-root",
+        "/home/brittonr/models/nanbeige43-cache",
+        "--receipt",
+        "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b1.json"
+      ],
+      "exit_status": 0,
+      "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b1.log",
+      "receipt": "review-compare-accuracy-b1.json",
+      "sha256": "f3d37850581e761983c59dcc5fe4f11fa01cd4b308e5205410f9ef3512efbed6",
+      "preset": "accuracy",
+      "passed": true,
+      "top1": 0.921875,
+      "top5": 0.990234375,
+      "all_rows_retained": true
+    },
+    {
+      "command": [
+        "timeout",
+        "1500",
+        "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0/bin/nanbeige43-p150x2",
+        "compare",
+        "--batch",
+        "4",
+        "--checkpoint",
+        "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+        "--reference",
+        "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+        "--cache-root",
+        "/home/brittonr/models/nanbeige43-cache",
+        "--receipt",
+        "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b4.json"
+      ],
+      "exit_status": 0,
+      "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b4.log",
+      "receipt": "review-compare-accuracy-b4.json",
+      "sha256": "80a4d0c6b73bbd48aff02323cd1c67d35718e2db2f85749c70bb92f162f60f58",
+      "preset": "accuracy",
+      "passed": true,
+      "top1": 0.923828125,
+      "top5": 0.994140625,
+      "all_rows_retained": true
+    },
+    {
+      "command": [
+        "timeout",
+        "1500",
+        "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0/bin/nanbeige43-p150x2",
+        "compare",
+        "--batch",
+        "16",
+        "--page-blocks",
+        "512",
+        "--checkpoint",
+        "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+        "--reference",
+        "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+        "--cache-root",
+        "/home/brittonr/models/nanbeige43-cache",
+        "--receipt",
+        "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b16.json"
+      ],
+      "exit_status": 0,
+      "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/review-compare-accuracy-b16.log",
+      "receipt": "review-compare-accuracy-b16.json",
+      "sha256": "d3eac0b0d93a3d7e674910a28cb1240e3110044790b11de1fa19709772d8edf4",
+      "preset": "accuracy",
+      "passed": true,
+      "top1": 0.912109375,
+      "top5": 0.99609375,
+      "all_rows_retained": true
+    }
+  ],
+  "batch1_predictions_equal_O1": true,
+  "batch1_full_prompt_rows_equal_O1": true,
+  "qwen38_drvPath": "/nix/store/af68qaa6rimz65g49yhgkvv031znrsp4-qwen38-0.1.0.drv",
+  "qwen_services_restarted": false,
+  "DP_executed": false,
+  "BFP8_bench_retried": false
+}

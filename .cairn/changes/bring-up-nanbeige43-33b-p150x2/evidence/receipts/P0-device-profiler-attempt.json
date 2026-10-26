@@ -1,0 +1,99 @@
+{
+  "schema": "nanbeige43-device-profiler-attempt/v1",
+  "command": [
+    "timeout",
+    "1500",
+    "/nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python",
+    "-m",
+    "tracy",
+    "-r",
+    "-p",
+    "--op-support-count",
+    "5000",
+    "--check-exit-code",
+    "-o",
+    "/home/brittonr/models/nanbeige43-evidence/P0-tracy",
+    "-m",
+    "nanbeige43_runner.run",
+    "generate",
+    "--mesh",
+    "p150x2",
+    "--max-tokens",
+    "3",
+    "--checkpoint",
+    "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "--cache-root",
+    "/home/brittonr/models/nanbeige43-cache",
+    "--receipt",
+    "/home/brittonr/models/nanbeige43-evidence/receipts/P0-tracy-run.json"
+  ],
+  "exit_status": 1,
+  "package_identity": "/nix/store/psqg2c6lqslmgyx2hakj24wb71fwjaj0-nanbeige43-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "source_identity": "/nix/store/5cafvl5cvjzck5hjl36ixj48mpx6j28f-source",
+  "profiler_controls": {
+    "TT_METAL_DEVICE_PROFILER": "1 (tracy launcher)",
+    "TTNN_OP_PROFILER": "1",
+    "TT_METAL_PROFILER_TRACE_TRACKING": "1",
+    "TT_METAL_PROFILER_PROGRAM_SUPPORT_COUNT": "5000",
+    "TT_METAL_PROFILER_DIR": "/home/brittonr/models/nanbeige43-evidence/P0-tracy"
+  },
+  "log_path": "/home/brittonr/models/nanbeige43-evidence/receipts/P0-tracy.log",
+  "device_trace_groups": [
+    {
+      "device": "0",
+      "replay": "1",
+      "programs": 1275,
+      "sum_kernel_ms": 76.642159,
+      "span_ms": 77.53155407407408,
+      "kernel_max_ms": 0.388293
+    },
+    {
+      "device": "0",
+      "replay": "2",
+      "programs": 1275,
+      "sum_kernel_ms": 76.637986,
+      "span_ms": 77.52814518518518,
+      "kernel_max_ms": 0.38828
+    },
+    {
+      "device": "1",
+      "replay": "1",
+      "programs": 1275,
+      "sum_kernel_ms": 76.641098,
+      "span_ms": 77.5347874074074,
+      "kernel_max_ms": 0.388306
+    },
+    {
+      "device": "1",
+      "replay": "2",
+      "programs": 1275,
+      "sum_kernel_ms": 76.637242,
+      "span_ms": 77.5313674074074,
+      "kernel_max_ms": 0.388233
+    }
+  ],
+  "total_report_rows": 10844,
+  "empty_op_name_rows": 10844,
+  "trace_report_rows": 5100,
+  "raw_artifacts": [
+    {
+      "path": "/home/brittonr/models/nanbeige43-evidence/P0-tracy/.logs/profile_log_device.csv",
+      "bytes": 1725639830,
+      "sha256": "feac77eeae88097c6b2dae0cc9ce40b6af2f322a3ad5aea150de4545ab6ea59e"
+    },
+    {
+      "path": "/home/brittonr/models/nanbeige43-evidence/P0-tracy/.logs/cpp_device_perf_report.csv",
+      "bytes": 2219102,
+      "sha256": "89ae3bf4bff0174c7992b04cf7008abd0ad7fa25ca019ef2a1eda45db768205d"
+    },
+    {
+      "path": "/home/brittonr/models/nanbeige43-evidence/P0-tracy/.logs/tracy_profile_log_host.tracy",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "category_attribution": "blocked: host Tracy capture empty; all OP NAME fields blank; only generic firmware source zones, no reliable attention/MLP/LM-head/collective labels",
+  "error": "No profiling data could be captured. Please make sure you are on a Tracy-enabled build (default).",
+  "interpretation": "Actual traced kernel timing available; category attribution inconclusive. No full runtime rebuild or speculative device optimization."
+}

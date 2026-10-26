@@ -1,0 +1,71 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "accuracy",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 256
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 1,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-25T18:20:35-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 69.31823134422302,
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "error": {
+    "type": "StatisticsError",
+    "message": "no median for empty data",
+    "traceback": "Traceback (most recent call last):\n  File \"/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 591, in main\n    run_device(args, spec, identity, reference, receipt)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 442, in run_device\n    run_session(args, session, identity, reference, receipt)\n    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 464, in run_session\n    result = bench(session, ids, corpus_tokens(tokenizer, max(args.prefill_lengths)), args)\n  File \"/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 400, in bench\n    prefill.append({\"input_tokens\": length, \"tokens_per_second\": summary(samples)})\n                                                                 ~~~~~~~^^^^^^^^^\n  File \"/nix/store/fc5b7bngipvnscbamgksmgq0vk9jkfzs-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 353, in summary\n    return {\"median\": statistics.median(values), \"p90\": percentile(values, 0.9), \"min\": min(values), \"max\": max(values), \"samples\": values}\n                      ~~~~~~~~~~~~~~~~~^^^^^^^^\n  File \"/nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/lib/python3.13/statistics.py\", line 637, in median\n    raise StatisticsError(\"no median for empty data\")\nstatistics.StatisticsError: no median for empty data\n"
+  },
+  "gates": [
+    {
+      "gate": "device run completed",
+      "passed": false,
+      "observed": "StatisticsError"
+    }
+  ],
+  "finished": "2026-10-25T18:23:19-0400",
+  "passed": false
+}

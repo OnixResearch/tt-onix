@@ -1,0 +1,35 @@
+{
+  "schema": "nanbeige43-review-proof/v1",
+  "scope": "CPU-only; no mesh open",
+  "baseline_bad_row_reproduction": {
+    "row0_pcc": 1.0,
+    "other_row_logits": "reference.flip(0)",
+    "old_full_gate_accepted": true
+  },
+  "regression": {
+    "self_test_comparison_exit_status": 0,
+    "matching_batch1_accepted": true,
+    "matching_users_accepted": true,
+    "hidden_corrupted_user_rejected": true
+  },
+  "precision_probe": {
+    "runtime_package": "/nix/store/4y81xvhibhh5wa4fp0m33x01zvifvc3a-nanbeige43-0.1.0",
+    "decoder_layers": 52,
+    "prefetcher": false,
+    "bfp8": "WQKV/WO/KV/FF1-FF3/FF2 BFP8 on all layers",
+    "bfp4-ff13": "FF1/FF3 BFP4 on all layers; other groups BFP8",
+    "bfp4-ff13-l13-39": "FF1/FF3 BFP4 exactly on layers 13..39 inclusive; all other layers/groups BFP8",
+    "bfp4-ff2": "FF2 BFP4 on all layers; other groups BFP8"
+  },
+  "capacity_estimate_bytes": {
+    "physical": 34225520640,
+    "B": 36915249152,
+    "D": 28709093376,
+    "E": 32812171264,
+    "M27": 32654360576,
+    "trace_reserve_included": 134217728
+  },
+  "capacity_scope": "Tensor-size estimate, not measured DRAM allocation",
+  "qwen38_drvPath": "/nix/store/af68qaa6rimz65g49yhgkvv031znrsp4-qwen38-0.1.0.drv",
+  "qwen38_drvPath_unchanged": true
+}
