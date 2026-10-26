@@ -1832,10 +1832,46 @@
       "blake3": "9b91afd73b048ada03153d2f67ddca146a28f20115036019bdf4a4a758c2ba2d"
     },
     {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/package-reproducibility-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 1576,
+      "blake3": "569a4d6e3566962d3ddefa14a1babbd784e05d2855724fd552159a00b390d1c2"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-amendment-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 3494,
+      "blake3": "9a48e2e6b8e6420691c25b11549aa36f8f0b644a02a59d88c663aabea0112653"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-campaign-provenance-2026-10-26.json",
+      "class": "portable_evidence",
+      "byte_count": 52412,
+      "blake3": "64f437627e9d82e7bb86cc7a9080748a29f9213294eb7999cd9490524a452735"
+    },
+    {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md",
       "class": "portable_evidence",
-      "byte_count": 29432,
-      "blake3": "23ac5c56a476f5fc5c6088fd7d791effa553948ebe6e4b6fb7fe8498f6cc385c"
+      "byte_count": 29919,
+      "blake3": "aa6a98f35896b12100ba4c9b11abcdfa7bec8ebd8ea876ac07f332c4f407c143"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-promotion-gate-2026-10-26.json",
+      "class": "portable_evidence",
+      "byte_count": 895,
+      "blake3": "11e785259e2c0e15a55de5d0e8f0bf5eb21457b9e0734e1faa72eb064a9c4c60"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-receipt-validation-2026-10-26.json",
+      "class": "portable_evidence",
+      "byte_count": 466,
+      "blake3": "f201b2ce0e4013614f7aad821342562e58a2198a293e84da6cc94f9b153e8271"
+    },
+    {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-result-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 7931,
+      "blake3": "70dbdf926f33cbf794cf059fe09bcaf7ae1fd1242474fec97bb491dafc268455"
     },
     {
       "path": ".cairn/changes/isolated-tt-lang-sim-official-skills/evidence/final-aggregate-2026-10-23.json",
@@ -5580,6 +5616,12 @@
       "class": "portable_evidence",
       "byte_count": 9915,
       "blake3": "c89ebd4a9b3796dcbdd79542f5365a10b6235147a115f6253a99256a96f98d2c"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 144045,
+      "blake3": "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",

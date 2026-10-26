@@ -1,0 +1,14 @@
+{
+  "failures": [],
+  "fresh_receipt_blake3": "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55",
+  "fresh_receipt_path": "/home/brittonr/git/tenstorrent.nix/pkgs/qwen36/evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json",
+  "identity_equal": true,
+  "measured_package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
+  "passed": true,
+  "profile_only_admission_fields_changed": true,
+  "promoted_package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
+  "promoted_package_store_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0",
+  "promoted_profile_blake3": "e72acbb37e3b20686ef5959a1e013575e662c8c080a5c79baca26d4297c016e1",
+  "schema": "onix.qwen38.b8-promotion-gate.v1",
+  "twin_profile_blake3": "28abfd7c4bdb5196676e52940374f39018f0404cd6969ed1277068ba3653c19f"
+}

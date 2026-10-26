@@ -3,5 +3,5 @@
 # produced, or stays unmeasured until that campaign runs.
 {
   physically_admitted = true,
-  receipt_blake3 = "af2365ffb09002bb5674e175374efda1a81ea1a665c1f199b16a069344ac785e",
+  receipt_blake3 = "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55",
 }

@@ -58,6 +58,18 @@ The stored receipt names `l4arf461…`, which this tree does not reproduce, and 
 served package exports `…-b8-v2`. Even if the structural bootstrap rule is now
 correct, the historical receipt's numbers do not name a buildable identity.
 
+### Update 2026-10-26: the re-earn ran
+
+The campaign this decision predeclared has run on the tree's own package with the
+serving route (`step` GDN fusion, grouped and traced prefill), and the binding
+now names the fresh receipt `cf9fc9d4…`, whose `identity.package_identity` is
+`qwnxwc…` — the identity this tree builds. The promoted package
+`/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0` carries the same
+identity, so the mismatch described above is closed rather than carried. The
+record, the six-gate table, the independent validation and the promotion gate
+are in `evidence/re-earn-result-2026-10-26.md`; the statements in this document
+describe the state that motivated the bootstrap fix.
+
 ## Risks / Trade-offs
 
 - The residual structural assumption above: a build could add an identity input

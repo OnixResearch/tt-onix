@@ -1,0 +1,15 @@
+{
+ "passed": true,
+ "failures": [],
+ "gates": {
+  "aggregate_decode_speedup_ratio": 7.413064511924144,
+  "per_user_decode_retention_ratio": 0.926633063990518,
+  "ttft_ratio": 4.528489373221108,
+  "ttft_group_max_ratio": 7.6899560592593295,
+  "tail_latency_ratio": 1.0996582381547741,
+  "exact_token_parity": true,
+  "exact_text_parity": true
+ },
+ "parity_pairs_recomputed": 96,
+ "receipt_blake3": "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55"
+}

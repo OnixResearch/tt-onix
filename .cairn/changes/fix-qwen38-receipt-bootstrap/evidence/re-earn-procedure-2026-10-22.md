@@ -286,3 +286,12 @@ is wrong and is kept only as history; it is not a waiver of anything below.
 
 Recorded in `bootstrap-gate.json` and `bootstrap-gate-2026-10-22.md`; no
 hardware, campaign, receipt, admission or promotion was run.
+
+## Amendment 2026-10-26: the measurement profile is the unmeasured twin
+
+The builder guard ("input profile must be unadmitted and unmeasured") stays
+exactly as written. The containment rule above is amended so the profile passed
+to the server and the builder is an unmeasured twin of the packaged admitted
+profile, with twin provenance as a hard precondition. All six gates and the
+promotion gate are unchanged. See
+[`re-earn-amendment-2026-10-26.md`](re-earn-amendment-2026-10-26.md).

@@ -15,3 +15,9 @@
 ## Phase 3: Completion
 
 - [x] [serial] D1 Record the identity mismatch and the predeclared re-earn procedure under `evidence/`, making no claim that a campaign or a new admission was run. r[tenstorrent.qwen38_p150x2.receipt_bootstrap]
+
+## Phase 4: Re-earn on the buildable identity
+
+- [x] [serial] R1 Run the predeclared eight-root interleaved B=8 campaign on the tree's own package with the serving route (`QWEN35_GDN_DECODE_FUSION=step`, grouped and traced prefill), recording per-root provenance, all 192 measured responses and the frozen launch environment. r[tenstorrent.qwen38_p150x2.receipt_bootstrap]
+- [x] [serial] R2 Build the receipt from those responses with the unmeasured twin as the input profile and validate it independently: the six gates and every structural gate pass, `admitted = true` with no reasons. r[tenstorrent.qwen38_p150x2.receipt_bootstrap]
+- [x] [serial] R3 Move the binding and the pinned receipt to the fresh digest, rebuild device-free, and prove the promotion gate: promoted execution identity equals the measured identity and the profile delta is exactly `physically_admitted` plus `identities.receipt_blake3`. r[tenstorrent.qwen38_p150x2.receipt_bootstrap]

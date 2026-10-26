@@ -1822,7 +1822,7 @@ stdenvNoCC.mkDerivation {
     # Positive: the shipped v3 profile is admitted and names the committed
     # receipt. The receipt may name an earlier identity; deploy's guard
     # refuses that rather than the package pretending the admission moved.
-    v3_receipt=${./evidence/2026-10-22/qwen38-batch-admission-b8-v3-receipt.json}
+    v3_receipt=${./evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json}
     v3_receipt_blake3=$(b3sum "$v3_receipt" | cut -d' ' -f1)
     grep -Fq '"physically_admitted": true' "$out/share/qwen36/batch-admission-b8-profile-v3.json"
     grep -Fq "\"receipt_blake3\": \"$v3_receipt_blake3\"" "$out/share/qwen36/batch-admission-b8-profile-v3.json"
