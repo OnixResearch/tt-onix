@@ -1748,6 +1748,36 @@
       "blake3": "23ac5c56a476f5fc5c6088fd7d791effa553948ebe6e4b6fb7fe8498f6cc385c"
     },
     {
+      "path": ".cairn/changes/isolated-tt-lang-sim-official-skills/evidence/final-aggregate-2026-10-23.json",
+      "class": "portable_evidence",
+      "byte_count": 2142,
+      "blake3": "6f4c11b34fc206789347e605bc8a17a77168877fc289a06e45a11a81cc132d27"
+    },
+    {
+      "path": ".cairn/changes/isolated-tt-lang-sim-official-skills/evidence/installed-tooling-2026-10-23.json",
+      "class": "portable_evidence",
+      "byte_count": 22771,
+      "blake3": "47c3f058f55f23a9cdd4b56a0be92fe826c58dc9827fcbdecc4a25003c1311d4"
+    },
+    {
+      "path": ".cairn/changes/native-decode-strip-matvec-view-consumers/evidence/decode-matvec.md",
+      "class": "portable_evidence",
+      "byte_count": 6165,
+      "blake3": "c6fe876f2215551d8095b81c5a2fc39a1a52654e4a45fce8decb3c762a6e27c4"
+    },
+    {
+      "path": ".cairn/changes/native-decode-strip-matvec-view-consumers/evidence/kernel-card0-2026-10-23.json",
+      "class": "portable_evidence",
+      "byte_count": 2299,
+      "blake3": "87bdb6dcba07fcc258b6d4aa2cd9d2c637f50877cc4d0c082757f28454b66c77"
+    },
+    {
+      "path": ".cairn/changes/native-decode-strip-matvec-view-consumers/evidence/model-card0-2026-10-23.json",
+      "class": "portable_evidence",
+      "byte_count": 7735,
+      "blake3": "36a5818442e8ea46988201a33bc8cd0b773ac21834c6f31dfd77d993e444b700"
+    },
+    {
       "path": ".cairn/changes/optimize-gdn-decode-kernel-grid-and-prep/evidence/a1-a4-attribution.md",
       "class": "portable_evidence",
       "byte_count": 6147,
@@ -1838,10 +1868,88 @@
       "blake3": "e3a69c89545e8854bb12c45499cd74252c5e4f743d674d0ad444a11c30683ea7"
     },
     {
+      "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-reader-transactions-2026-10-25.md",
+      "class": "portable_evidence",
+      "byte_count": 23536,
+      "blake3": "ed40d81f34c5f21c67fd996a563a4b02461d91e41e20bfb147ce954d643a1342"
+    },
+    {
       "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-retention-corpus-identity-2026-10-22.md",
       "class": "portable_evidence",
       "byte_count": 7858,
       "blake3": "d0f02e61f677c38c21f46b3afce9bedeb7fe216cb2a20c6eb0d6b3336a19246f"
+    },
+    {
+      "path": ".cairn/changes/optimize-qwen38-mlp-projection-streaming/evidence/p1-retention-screen-2026-10-25.md",
+      "class": "portable_evidence",
+      "byte_count": 9905,
+      "blake3": "f1943d53717fca5c0faacac2e9d7bdb7f15e6784ba26db0fbf4bc0a0fbb01288"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/historical/bf4-GDN.json",
+      "class": "portable_evidence",
+      "byte_count": 1315739,
+      "blake3": "7b8469f4ed9ae2f70fbcf3b59603ea962a3c87e018d2e4396ec90f5b36444adf"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/historical/bf4-LM_HEAD.json",
+      "class": "portable_evidence",
+      "byte_count": 1316169,
+      "blake3": "aada4dc0339dddb515e1cca1e1d43dfeec719a090a603f55605ee13accf0305c"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/historical/bf4-MLP_DOWN.json",
+      "class": "portable_evidence",
+      "byte_count": 1314743,
+      "blake3": "bb8c109dba81a48d0736bbbfd88b6ba8501f6a037b728cd4f732fd677da050c4"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/historical/bf4_eval.py.txt",
+      "class": "portable_evidence",
+      "byte_count": 10062,
+      "blake3": "20cad561ba6581f3716b81d62307f9f5b270f5cad338c5cedfdf4624bf4eb6a6"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/historical/ref-bf8-step.json",
+      "class": "portable_evidence",
+      "byte_count": 1314798,
+      "blake3": "e32990fca3f43445b72b82b5fe6b802cf9558d90e10e58e6f6c25e26df079add"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/synthetic-cpu-baseline.json",
+      "class": "portable_evidence",
+      "byte_count": 1666,
+      "blake3": "6ba3c60fed937019646eb407398ff1bc9d62ee28207c101973dd04d45609a954"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/synthetic-cpu-comparison.json",
+      "class": "portable_evidence",
+      "byte_count": 555,
+      "blake3": "0e1a8c76a5e572c668cc52777b6206fd890b5519b3680c60c31dbad2ef1244fe"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/synthetic-cpu-treatment.json",
+      "class": "portable_evidence",
+      "byte_count": 1796,
+      "blake3": "e6f1c856c16753fe51d707430237bf30a1c420f45bad3e9da615017834f9a80c"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/traffic-qwen-down-b8.json",
+      "class": "portable_evidence",
+      "byte_count": 3358,
+      "blake3": "572890d466eef458cd74fff27716954cf812e947c2622aab84a462e898249c94"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/traffic-qwen-gate-b1.json",
+      "class": "portable_evidence",
+      "byte_count": 3361,
+      "blake3": "e3ecba2f77d2b88ca095885d5b1ab2703986cd11fa85d29137c18d255cc0260b"
+    },
+    {
+      "path": ".cairn/changes/package-traffic-retention-cli/evidence/verification.md",
+      "class": "portable_evidence",
+      "byte_count": 10588,
+      "blake3": "309e42c7b447f7124b241d45df5af1a3131fcb1979eda99d38a1dc448ab595dc"
     },
     {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/device-free-s1-s4.md",
@@ -3308,6 +3416,12 @@
       "blake3": "24652791cc40594a964ddba68cbb20775d8d7fc2c974144dc50e268c23eb9fbc"
     },
     {
+      "path": "docs/research/qwen38-rounded-register-swiglu.md",
+      "class": "portable_evidence",
+      "byte_count": 15631,
+      "blake3": "6e548b4eb4c62d6b19cb884dc20e5306d875f1288868a307a61cefc741119991"
+    },
+    {
       "path": "docs/research/toks-rwkv-tokenizer.md",
       "class": "portable_evidence",
       "byte_count": 2296,
@@ -3354,6 +3468,12 @@
       "class": "generated_source",
       "byte_count": 14393,
       "blake3": "88ad86c4d1ca4b879686a78638ddb7ebdbc771717274072b4f9862fc59216aa6"
+    },
+    {
+      "path": "pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json",
+      "class": "portable_evidence",
+      "byte_count": 6011,
+      "blake3": "5e003bcb6a4cf2f8f5063b4e9eb8571bd4be3b8c0a97d8039d54d9cb47438437"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-19/hw-9b-paged-generate.log",
@@ -5328,6 +5448,42 @@
       "class": "portable_evidence",
       "byte_count": 1802,
       "blake3": "e0834a06301a5a51f7080edbd3ad72d9f938f09608a861c506183fd356b440f7"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-retention-comparison.json",
+      "class": "portable_evidence",
+      "byte_count": 516,
+      "blake3": "fa174bd7c627066e0bdf50755f4ffa43194da8602294da2be3f6061def55b644"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-retention.json",
+      "class": "portable_evidence",
+      "byte_count": 5109,
+      "blake3": "859a6fecf18e1d11bbd644d75e73ef1764d13fa93ea75cba20cccee3fd880ef7"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-swiglu-hardware.json",
+      "class": "portable_evidence",
+      "byte_count": 4093,
+      "blake3": "43dc247f16c2d7cfdc2c2f7949c0f133feba860b6e1c3e652b372feea3b425cd"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-swiglu-model-b8.json",
+      "class": "portable_evidence",
+      "byte_count": 1696,
+      "blake3": "b4c8bf568cb69452080d780e8f1fd5aa5b9fa21de6891e42a3656b90007e81c3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-swiglu.json",
+      "class": "portable_evidence",
+      "byte_count": 10130,
+      "blake3": "41a7835e6263ae3a3625708538ab691fccd939012e85269fd2329904f9f3d0c3"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-23/rounded-register-weight-content.json",
+      "class": "portable_evidence",
+      "byte_count": 9915,
+      "blake3": "c89ebd4a9b3796dcbdd79542f5365a10b6235147a115f6253a99256a96f98d2c"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
