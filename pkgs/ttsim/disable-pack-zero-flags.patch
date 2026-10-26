@@ -1,0 +1,68 @@
+From: tenstorrent.nix maintainers
+Subject: [PATCH] Support Blackhole packer zero-flag suppression in the dense data path
+
+Applies to TTsim v1.10.6, a5276e15a52729465c8ddd71f0965df4ca2f0cc1.
+
+Disable_pack_zero_flags controls output all-zero sideband metadata, not the
+DstRowValid mask. The modeled Blackhole subset already writes every datum to
+dense SRAM and performs near-memory accumulation on actual L1 data. Compression
+and all sideband metadata consumers fail closed independently, so both values
+are observationally equivalent within this supported subset. Keep the Wormhole
+restriction and every unrelated unsupported guard unchanged. See the README
+addition for immutable Blackhole-specific LLK and ISA authorities.
+
+Focused behavioral regression lives beside this patch in
+packer-zero-flags-regression.cpp; run-packer-zero-flags-regression.py compiles
+and executes the actual model, not a copy of its arithmetic.
+
+--- a/src/tensix.cpp
++++ b/src/tensix.cpp
+@@ -2126,7 +2126,17 @@
+ #endif
+     PACK_VERIFY_THCON0(Exp_threshold_en);
+     PACK_VERIFY_THCON0(Exp_threshold);
++#if TT_ARCH_VERSION == 0
+     PACK_VERIFY_THCON0(Disable_pack_zero_flags);
++#else
++    // Blackhole Disable_pack_zero_flags controls output AllZeroFlags metadata, not DstRowValid
++    // (tt-llk tt_llk_blackhole/common/inc/cpack_common.h: reconfigure_packer_l1_acc).
++    // This model always materializes every output datum in dense SRAM, including zeroes from
++    // invalid Dst rows, then accumulates against the actual L1 datum when Pack_L1_Acc is set.
++    // Both flag values therefore have the same supported data-path semantics. Compression and
++    // all sideband metadata reads remain unsupported; do not infer metadata from pre-accumulate
++    // zeroes, or bypass read_dst16b/read_dst32b when the output metadata flag is disabled.
++#endif
+ #undef PACK_VERIFY_THCON0
+ 
+     uint32_t intermediate_format = p_config->ALU_FORMAT_SPEC_REG2_Dstacc;
+--- a/README.md
++++ b/README.md
+@@ -28,6 +28,28 @@
+   work. Some basic Tensix SFPU, packer, and unpacker functionality works. More tests and features
+   are under active debug and bringup.
+ 
++### Local Blackhole packer data-path extension
++
++Both values of `THCON_SEC0_REG1_Disable_pack_zero_flags` are supported for the existing
++uncompressed Blackhole `PACR` data path. This is an output zero-metadata control, not the
++`DstRowValid` mask maintained by `ZEROACC`. The model materializes every datum in dense L1
++SRAM, including zeros from invalid Dst rows, and performs L1 accumulation on the actual L1
++value. Suppressing output zero metadata therefore needs no additional data-path state.
++In particular, packing a zero face during accumulation must not erase a nonzero L1 face.
++Dst contents, Dst validity, packer rounding, and accumulation arithmetic are unchanged.
++
++The Blackhole-specific control rationale is in
++[TT-Metal 0.77.0](https://github.com/tenstorrent/tt-metal/tree/9f9cd4fd590f4b606bd0981a4fe0b6403eb38ec9),
++`tt_metal/tt-llk/tt_llk_blackhole/common/inc/cpack_common.h:333-342`, function
++`reconfigure_packer_l1_acc`: the zero flags describe the packer's outgoing face before
++the near-memory accumulation. In
++[the ISA contract](https://github.com/tenstorrent/tt-isa-documentation/tree/02d919f4c9c85ee23ce251b0e95c52300ec617d8),
++the Blackhole `Packers/README.md`, `TDMA-RISC.md`, and `SETDMAREG_Special.md` pages explicitly
++share their contracts with Wormhole; the latter two expose output zero flags as sideband metadata.
++This equivalence is restricted to the modeled data path: compression, sideband metadata
++reads (including tile headers), and Wormhole flag support remain unsupported. It does not
++implement or claim exact sideband zero-flag generation semantics.
++
+ ## Getting Started
+ 
+ ### Prerequisites

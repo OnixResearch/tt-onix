@@ -53,16 +53,17 @@ let
     if stdenv.hostPlatform.system == "x86_64-linux" then armBlackhole else x86Blackhole;
   oppositeHostAsset = fetchurl {
     url = "https://github.com/tenstorrent/ttsim/releases/download/v${ttsim.version}/${oppositeBlackhole.name}";
-    hash = oppositeBlackhole.hash;
+    hash = oppositeBlackhole.upstreamReleaseHash;
   };
 in
-# Reject a package bump that leaves emitted receipts on an older version.
+# Reject a package bump that leaves emitted receipts on an older version. The
+# source build keeps version 1.10.6, so this consistency check stays valid.
 assert lib.hasInfix ''pub const SUPPORTED_SIMULATOR_VERSION: &str = "${ttsim.version}";'' (
   builtins.readFile ../ttsim-runtime-validator/src/lib.rs
 );
 assert x86Blackhole.name == "libttsim_bh.so";
 assert armBlackhole.name == "libttsim_bh_aarch64.so";
-assert x86Blackhole.hash != armBlackhole.hash;
+assert x86Blackhole.upstreamReleaseHash != armBlackhole.upstreamReleaseHash;
 assert unsupportedSystem.success == false;
 assert unsupportedChip.success == false;
 assert missingAsset.success == false;
@@ -180,7 +181,7 @@ runCommand "ttsim-runtime-bundle-check"
       > "$TMPDIR/sfpu-wrapper-environment"
     grep -Fx '1' "$TMPDIR/sfpu-wrapper-environment"
 
-    jq -e '.schemaVersion == 1' ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
+    jq -e '.schemaVersion == 2' ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
     jq -e '.unsupported.quasar | contains("no admitted Quasar simulator runtime")' \
       ${ttsim}/share/ttsim/runtime-manifest.json >/dev/null
     jq -e '.unsupported.multiChip | contains("packages no reviewed blackhole_P300 descriptor")' \

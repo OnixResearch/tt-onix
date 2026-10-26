@@ -173,6 +173,9 @@ It does not expose TT-Metal host APIs and does not replace the existing TT-Metal
 Its pinned inputs are ttsim `v1.10.9`, tt-kmd `ttkmd-2.11.0` (IOCTL API version 2),
 tt-metal `cfg_defines.h` at commit `81989dcdb8f9b340c932ae7a71a346f4f08703eb`,
 and Burn `=0.21.0`. These differ from local pins; the ttsim versions are not interchangeable.
+The TT-Metal/Qwen simulator package remains 1.10.6, built from its pinned source
+with the bounded `blackhole-pacr-zero-flags-v1` dense-L1 model extension; this is
+not a swap to the native stack's 1.10.9 libraries. See `docs/ttsim-runtime.md`.
 The local host runs tt-kmd `2.10.0`. The 2.11.0 header only adds `SMC_MSG` and does not change
 the structures this tree uses, but its ABI gate compiles against the 2.11.0 header.
 

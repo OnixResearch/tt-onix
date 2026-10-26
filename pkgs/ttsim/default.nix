@@ -1,7 +1,7 @@
 {
   lib,
   stdenv,
-  fetchurl,
+  fetchFromGitHub,
   autoPatchelfHook,
   makeWrapper,
   binutils,
@@ -9,25 +9,25 @@
   b3sum,
   jq,
   gcc-unwrapped,
+  python3,
   tt-metal,
 }:
 let
   # r[impl tenstorrent.ttsim.runtime_bundle]
   version = "1.10.6";
-  releaseBaseUrl = "https://github.com/tenstorrent/ttsim/releases/download/v${version}";
+  sourceRevision = "a5276e15a52729465c8ddd71f0965df4ca2f0cc1";
+  sourceHash = "sha256-MuyVw0CQ3H+45fkd4gl4liNj8PcwcA52ecLzMGkX6fM=";
+  modelRevision = "blackhole-pacr-zero-flags-v1";
   assetAuthority = import ./assets.nix { inherit lib; };
   hostSystem = stdenv.hostPlatform.system;
   selectedAssets = assetAuthority.flattenSystemAssets hostSystem;
-  fetchedAssets = map (
+  buildTarget =
     asset:
-    asset
-    // {
-      source = fetchurl {
-        url = "${releaseBaseUrl}/${asset.name}";
-        inherit (asset) hash;
-      };
-    }
-  ) selectedAssets;
+    let
+      chip = if asset.chip == "blackhole" then "bh" else "wh";
+      topology = lib.optionalString (asset.topology != "x1") "_${asset.topology}";
+    in
+    "src/_out/release_${chip}${topology}/libttsim.so";
 
   descriptors = {
     blackhole = "${tt-metal}/libexec/tt-metalium/tt_metal/soc_descriptors/blackhole_140_arch.yaml";
@@ -44,9 +44,9 @@ let
   ) (lib.attrNames assetAuthority.supportedRuntimeTopologies);
 
   installAssets = lib.concatMapStringsSep "\n" (asset: ''
-    install -Dm755 ${asset.source} "$out/lib/ttsim/assets/${asset.name}"
+    install -Dm755 ${buildTarget asset} "$out/lib/ttsim/assets/${asset.name}"
     ln -s "ttsim/assets/${asset.name}" "$out/lib/${asset.name}"
-  '') fetchedAssets;
+  '') selectedAssets;
 
   installRuntimes = lib.concatMapStringsSep "\n" (asset: ''
     runtime_dir="$out/lib/ttsim/runtimes/${asset.chip}-${asset.topology}"
@@ -77,7 +77,7 @@ let
       nm -D --defined-only "$out/lib/ttsim/assets/${asset.name}" \
         | grep -E "[[:space:]]$symbol$" >/dev/null
     done
-  '') fetchedAssets;
+  '') selectedAssets;
 
   validateRuntimes = lib.concatMapStringsSep "\n" (asset: ''
     runtime_dir="$out/lib/ttsim/runtimes/${asset.chip}-${asset.topology}"
@@ -87,19 +87,26 @@ let
   '') runtimeAssets;
 
   runtimeManifest = builtins.toJSON {
-    schemaVersion = 1;
+    schemaVersion = 2;
     simulatorVersion = version;
     ttMetalVersion = tt-metal.version;
     inherit hostSystem requiredAbiSymbols;
+    source = {
+      revision = sourceRevision;
+      hash = sourceHash;
+      inherit modelRevision;
+      patchSha256 = builtins.hashFile "sha256" ./disable-pack-zero-flags.patch;
+    };
     assets = map (asset: {
       inherit (asset)
         chip
         elfMachine
-        hash
+        upstreamReleaseHash
         hostSystem
         name
         topology
         ;
+      provenance = "built-from-patched-pinned-source";
     }) selectedAssets;
     runtimes = map (asset: {
       inherit (asset) chip topology;
@@ -116,7 +123,33 @@ stdenv.mkDerivation (finalAttrs: {
   pname = "ttsim";
   inherit version;
 
-  dontUnpack = true;
+  src = fetchFromGitHub {
+    owner = "tenstorrent";
+    repo = "ttsim";
+    rev = sourceRevision;
+    hash = sourceHash;
+  };
+  patchFlags = [
+    "-p1"
+    "--fuzz=0"
+  ];
+  patches = [ ./disable-pack-zero-flags.patch ];
+
+  buildPhase = ''
+    runHook preBuild
+    python3 make.py --inherit-env -j "$NIX_BUILD_CORES" ${lib.escapeShellArgs (map buildTarget selectedAssets)}
+    runHook postBuild
+  '';
+
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+    mkdir -p "$TMPDIR/packer-regression"
+    cp ${./run-packer-zero-flags-regression.py} "$TMPDIR/packer-regression/run.py"
+    cp ${./packer-zero-flags-regression.cpp} "$TMPDIR/packer-regression/packer-zero-flags-regression.cpp"
+    python3 "$TMPDIR/packer-regression/run.py" .
+    runHook postCheck
+  '';
   dontStrip = true;
 
   nativeBuildInputs = [
@@ -125,6 +158,7 @@ stdenv.mkDerivation (finalAttrs: {
     binutils
     jq
     makeWrapper
+    python3
   ];
 
   buildInputs = [
@@ -222,6 +256,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   passthru = {
     inherit assetAuthority requiredAbiSymbols;
+    inherit modelRevision;
     manifest = runtimeManifest;
     runtimes = {
       blackhole = "${finalAttrs.finalPackage}/lib/ttsim/runtimes/blackhole-x1";
@@ -234,6 +269,6 @@ stdenv.mkDerivation (finalAttrs: {
     homepage = "https://github.com/tenstorrent/ttsim";
     license = lib.licenses.asl20;
     platforms = assetAuthority.supportedHostSystems;
-    sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
+    sourceProvenance = with lib.sourceTypes; [ fromSource ];
   };
 })
