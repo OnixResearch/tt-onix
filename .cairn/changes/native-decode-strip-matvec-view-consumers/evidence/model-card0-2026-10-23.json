@@ -1,0 +1,75 @@
+{
+  "physical_device": 0,
+  "simulated": false,
+  "checkpoint_revision": "d81965cb4e1a9f96696b4f70b84212b8f2e43216",
+  "checkpoint_sha256": "b96a8bdc21e15f71e0c95653dcc3be89e564b619ad5073c9edbfbd07f7849453",
+  "binary_sha256": {
+    "rwkv7-model-gate": "598e9117e58251daf2e4c8d0cbe1e5ceb8b07db162b31c48a95f27ba4cff2bd5",
+    "rwkv7-generate-gate": "fa4565722f8fb1f94101e5caf4e5eb1e9b685b37a0aeb726db937be48cc59224"
+  },
+  "runs": [
+    {
+      "command": "rwkv7-model-gate --checkpoint $PINNED_CHECKPOINT --oracle $PINNED_ORACLE --card 0 --fused --tiles 12 --fast",
+      "env": {},
+      "exit_code": 0,
+      "wall_seconds": 1.6441830440003287,
+      "output": "checkpoint read: 0.314 s\nflex run: 0.159 s\nflex control run: 0.163 s\nflex: final hidden max 74.441063, logits max 19.674410, recurrent max 54.999863; control gap 25.011158\nflex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017\nflex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)\nflex logits vs oracle: gap 1.717e-5 (bound 1.0e0)\nflex states vs oracle: gap 3.052e-5 (bound 1.0e0)\ndevice run: 0.624 s\ncard 0: final hidden gap 1.211e-1 (max 7.444e1, relative 1.627e-3)\ncard 0: logits gap 3.929e-2 (max 1.967e1, relative 1.997e-3)\ncard 0: recurrent state gap 3.027e-2 (max 5.500e1, relative 5.503e-4)\ntt greedy: token 2 logit 2.8634434, runner 33 logit 0.9018615, margin 1.9615818\ntt hidden vs oracle: gap 1.210e-1 (bound 5.0e-1)\ntt logits vs oracle: gap 3.928e-2 (bound 1.0e0)\ntt states vs oracle: gap 3.027e-2 (bound 1.0e0)\nmodel gate PASS\n"
+    },
+    {
+      "command": "rwkv7-model-gate --checkpoint $PINNED_CHECKPOINT --oracle $PINNED_ORACLE --card 0 --fused --tiles 12 --fast",
+      "env": {
+        "TT_DECODE_MATVEC": "1"
+      },
+      "exit_code": 0,
+      "wall_seconds": 1.5841778240001076,
+      "output": "checkpoint read: 0.291 s\nflex run: 0.164 s\nflex control run: 0.183 s\nflex: final hidden max 74.441063, logits max 19.674410, recurrent max 54.999863; control gap 25.011158\nflex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017\nflex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)\nflex logits vs oracle: gap 1.717e-5 (bound 1.0e0)\nflex states vs oracle: gap 3.052e-5 (bound 1.0e0)\ndevice run: 0.605 s\ncard 0: final hidden gap 1.211e-1 (max 7.444e1, relative 1.627e-3)\ncard 0: logits gap 3.929e-2 (max 1.967e1, relative 1.997e-3)\ncard 0: recurrent state gap 3.027e-2 (max 5.500e1, relative 5.503e-4)\ntt greedy: token 2 logit 2.8634434, runner 33 logit 0.9018615, margin 1.9615818\ntt hidden vs oracle: gap 1.210e-1 (bound 5.0e-1)\ntt logits vs oracle: gap 3.928e-2 (bound 1.0e0)\ntt states vs oracle: gap 3.027e-2 (bound 1.0e0)\nmodel gate PASS\n"
+    },
+    {
+      "command": "rwkv7-model-gate --checkpoint $PINNED_CHECKPOINT --oracle $PINNED_ORACLE --card 0 --fused --tiles 12 --fast",
+      "env": {
+        "TT_WKV7_STATE_VIEW": "1"
+      },
+      "exit_code": 0,
+      "wall_seconds": 1.6313087250000535,
+      "output": "checkpoint read: 0.296 s\nflex run: 0.185 s\nflex control run: 0.153 s\nflex: final hidden max 74.441063, logits max 19.674410, recurrent max 54.999863; control gap 25.011158\nflex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017\nflex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)\nflex logits vs oracle: gap 1.717e-5 (bound 1.0e0)\nflex states vs oracle: gap 3.052e-5 (bound 1.0e0)\ndevice run: 0.605 s\ncard 0: final hidden gap 1.211e-1 (max 7.444e1, relative 1.627e-3)\ncard 0: logits gap 3.929e-2 (max 1.967e1, relative 1.997e-3)\ncard 0: recurrent state gap 3.027e-2 (max 5.500e1, relative 5.503e-4)\ntt greedy: token 2 logit 2.8634434, runner 33 logit 0.9018615, margin 1.9615818\ntt hidden vs oracle: gap 1.210e-1 (bound 5.0e-1)\ntt logits vs oracle: gap 3.928e-2 (bound 1.0e0)\ntt states vs oracle: gap 3.027e-2 (bound 1.0e0)\nmodel gate PASS\n"
+    },
+    {
+      "command": "rwkv7-model-gate --checkpoint $PINNED_CHECKPOINT --oracle $PINNED_ORACLE --card 0 --fused --tiles 12 --fast",
+      "env": {
+        "TT_DECODE_MATVEC": "1",
+        "TT_WKV7_STATE_VIEW": "1"
+      },
+      "exit_code": 0,
+      "wall_seconds": 1.763112896000166,
+      "output": "checkpoint read: 0.318 s\nflex run: 0.187 s\nflex control run: 0.154 s\nflex: final hidden max 74.441063, logits max 19.674410, recurrent max 54.999863; control gap 25.011158\nflex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017\nflex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)\nflex logits vs oracle: gap 1.717e-5 (bound 1.0e0)\nflex states vs oracle: gap 3.052e-5 (bound 1.0e0)\ndevice run: 0.585 s\ncard 0: final hidden gap 1.211e-1 (max 7.444e1, relative 1.627e-3)\ncard 0: logits gap 3.929e-2 (max 1.967e1, relative 1.997e-3)\ncard 0: recurrent state gap 3.027e-2 (max 5.500e1, relative 5.503e-4)\ntt greedy: token 2 logit 2.8634434, runner 33 logit 0.9018615, margin 1.9615818\ntt hidden vs oracle: gap 1.210e-1 (bound 5.0e-1)\ntt logits vs oracle: gap 3.928e-2 (bound 1.0e0)\ntt states vs oracle: gap 3.027e-2 (bound 1.0e0)\nmodel gate PASS\n"
+    },
+    {
+      "command": "rwkv7-model-gate --checkpoint $PINNED_CHECKPOINT --oracle $PINNED_ORACLE --card 0 --fused --tiles 12",
+      "env": {
+        "TT_DECODE_MATVEC": "1",
+        "TT_WKV7_STATE_VIEW": "1"
+      },
+      "exit_code": 0,
+      "wall_seconds": 5.941933605000031,
+      "output": "checkpoint read: 0.305 s\nflex run: 0.174 s\nflex control run: 0.155 s\nflex: final hidden max 74.441063, logits max 19.674410, recurrent max 54.999863; control gap 25.011158\nflex greedy: token 2 logit 2.8641133, runner 33 logit 0.8964117, margin 1.9677017\nflex hidden vs oracle: gap 7.629e-5 (bound 5.0e-1)\nflex logits vs oracle: gap 1.717e-5 (bound 1.0e0)\nflex states vs oracle: gap 3.052e-5 (bound 1.0e0)\ndevice run: 4.913 s\ncard 0: final hidden gap 1.671e-3 (max 7.444e1, relative 2.245e-5)\ncard 0: logits gap 2.708e-4 (max 1.967e1, relative 1.377e-5)\ncard 0: recurrent state gap 4.168e-4 (max 5.500e1, relative 7.577e-6)\ntt greedy: token 2 logit 2.8639960, runner 33 logit 0.8964142, margin 1.9675819\ntt hidden vs oracle: gap 1.619e-3 (bound 5.0e-1)\ntt logits vs oracle: gap 2.756e-4 (bound 1.0e0)\ntt states vs oracle: gap 4.101e-4 (bound 1.0e0)\nmodel gate PASS\n"
+    },
+    {
+      "command": "rwkv7-generate-gate --checkpoint $PINNED_CHECKPOINT --card 0 --fused --tiles 12 --fast",
+      "env": {
+        "TT_DECODE_MATVEC": "1",
+        "TT_WKV7_STATE_VIEW": "1"
+      },
+      "exit_code": 0,
+      "wall_seconds": 1.446783508000408,
+      "output": "flex step 0: token 1 logit 0.04495239 (expected token 1 logit 0.04493069)\nflex step 1: token 1 logit 6.95438051 (expected token 1 logit 6.95438337)\nflex step 2: token 1 logit 6.48672342 (expected token 1 logit 6.48672581)\ntt step 0: token 1 logit 0.02618879 (expected token 1 logit 0.04493069)\ntt step 1: token 1 logit 6.95412874 (expected token 1 logit 6.95438337)\ntt step 2: token 1 logit 6.49761677 (expected token 1 logit 6.48672581)\ndecode gate PASS\n"
+    }
+  ],
+  "oracle_sha256": {
+    "final_hidden.f32": "f2531d339065bee2c518bc5f3e9ed32a67f32e161fef00c1ebf31a6aeda96f4e",
+    "logits.f32": "c12eb0eb011dba3c04cc954a32f14dd6661e247229220a9d869d3eff141cc6b9",
+    "states.f32": "1f1f17a2f464cdf32443e5a0eaba03d2575b90f17605938c17bb8d70de21f446"
+  },
+  "checkpoint_store_path": "/nix/store/x9czgfz6spvwg438pv6hfgsla6lnv1j4-rwkv7-goose-world2.8-0.1b-d81965cb4e1a9f96696b4f70b84212b8f2e43216.safetensors",
+  "oracle_recipe": "cairn/changes/adopt-metalium-rs-native-stack/evidence/rwkv_make_reference.py",
+  "admission": "Numerical model and three-token continuation accepted; defaults unchanged; timings in these runs are smoke measurements, not warmed full-model benchmarks."
+}

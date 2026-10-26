@@ -7,6 +7,29 @@ and run IDs. Newest dated sections come first, then the undated baseline section
 (streaming rollout, GDDR6, core path, Ethernet) and the 2026-10-03 reader/writer split.
 The chronology is the [Change log](#change-log).
 
+## Native decode live-row and state-view consumers (2026-10-23, card 0)
+
+Release silicon run `1792780405` passed the independent numerical matvec gate,
+the real-dimension warmed benchmark and both exact/stateful state-view gates.
+`TT_DECODE_MATVEC=1` skips padding-row MVMUL groups for M=1 using the existing
+F32 storage and K-streaming schedule; it is not bank-matching or a weight-traffic
+reduction. Baseline/candidate medians in μs: 768→768 **467.107/469.912**,
+768→3072 **1827.080/1827.271**, 3072→768 **1684.692/1679.833**,
+768→65536 **33776.860/33806.856**. Sparse independent-oracle weights use the real
+RWKV checkpoint dimensions. Near-flat results reject performance promotion.
+
+`TT_WKV7_STATE_VIEW=1` directly consumes the next recurrence's `[12,64,64]`
+F32 state from its `[768,96]` parent. Compact/direct medians were **817/807 μs**
+on one worker, with nine/zero standalone transfer packets across two warmups
+and seven samples. The real Burn two-token path submitted zero copies/downloads;
+its unsupported transposed fallback correctly copied once. Full 12-layer
+checkpoint/oracle runs passed each flag independently and together, including
+the accurate route; the three-token generation gate passed both together.
+Both defaults remain off: these bounded gates do not admit serving or establish
+full-model throughput improvement. Exact commands, checkpoint/binary/oracle
+hashes and raw outputs are in the
+[qualification receipts](../../../.cairn/changes/native-decode-strip-matvec-view-consumers/evidence/decode-matvec.md).
+
 ## Index of sections
 
 | Section | Date | Note |

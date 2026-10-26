@@ -494,6 +494,10 @@ pub fn wkv7_step(
 /// head order. The result is `[768, 96]`: head `h` occupies rows
 /// `64h..64h+64`, its state in columns 0..64 and its output (replicated) in
 /// 64..96. `tt_kernels::wkv7::split_batched` reads the host vectors back.
+/// `TT_WKV7_STATE_VIEW=1` opts into consuming the state slice of a preceding
+/// combined result directly, without a compact GDDR copy. Only the exact
+/// origin-zero head-major F32 view is admitted; other layouts use the existing
+/// native materialization path. The default remains disabled.
 #[allow(clippy::too_many_arguments)]
 pub fn wkv7_step_batched(
     state: TtTensor,
@@ -536,7 +540,23 @@ pub fn wkv7_step_batched(
     for (head, t) in v.iter().enumerate() {
         check(&format!("v[{head}]"), t, &[HEAD_SIZE, 1]);
     }
-    let state = plain_dram(&state);
+    // The preceding fused recurrence leaves the state in the first two tile
+    // columns of its three-column result. Keep that parent's actual pitch in
+    // the consuming WKV gather instead of materialising a compact state.
+    // Reuse Strided; all other layouts retain the existing native copy path.
+    let parent = (std::env::var("TT_WKV7_STATE_VIEW").as_deref() == Ok("1"))
+        .then(|| state.as_strided())
+        .flatten()
+        .filter(|v| {
+            !v.src.transposed
+                && v.src.buffer.storage == crate::storage::StorageFormat::F32
+                && [v.src.buffer.rows, v.src.buffer.cols]
+                    == [HEADS * HEAD_SIZE, tt_kernels::wkv7::STEP_COLS]
+                && v.base == [0, 0]
+                && v.strides == [[HEAD_SIZE, 0], [1, 0], [0, 1]]
+        })
+        .map(|v| v.src);
+    let state = parent.unwrap_or_else(|| plain_dram(&state));
     let a = plain_dram(&a);
     let b = plain_dram(&b);
     let w = plain_dram(&w);

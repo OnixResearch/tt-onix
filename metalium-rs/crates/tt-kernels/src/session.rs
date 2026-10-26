@@ -427,6 +427,7 @@ pub struct Session<T: Transport> {
     /// overlap its kernels (`Session::set_pipeline`, checklist 9.15). On by
     /// default.
     pipeline: bool,
+    decode_matvec: bool,
     /// How many units an op runs on ([`Session::set_spread`]).
     spread: Spread,
     matmul_k_block_limit: Option<std::num::NonZeroUsize>,
@@ -1760,6 +1761,7 @@ impl<T: Transport> Session<T> {
             images,
             profile: runtime::Profile::default(),
             pipeline: true,
+            decode_matvec: false,
             spread: Spread::All,
             matmul_k_block_limit: None,
             host: HostTimes::new(),
@@ -4794,10 +4796,12 @@ impl<T: Transport> Session<T> {
     /// own gather, kernel and scatter, dealt over the session's units. A
     /// one-tile session runs them in order; more tiles run heads in parallel.
     ///
-    /// `state` is `[768, 64]` (head-major), each row vector `a`, `b`, `w`,
-    /// `k`, `r` one `[1, 768]` row, and `v` twelve `[64, 1]` columns in head
-    /// order. The result is `[768, 96]`: each head's state in columns 0..64
-    /// and its output in 64..96 (`wkv7::split_batched`).
+    /// `state` is `[768,64]` (head-major), or a preceding combined `[768,96]`
+    /// result whose first 64 columns are consumed directly at their physical
+    /// tile pitch. No state copy or parent padding change is made. Each row
+    /// vector `a`, `b`, `w`, `k`, `r` is `[1,768]`, and `v` is twelve `[64,1]`
+    /// columns in head order, all F32. The result is `[768,96]`: each head's
+    /// state in columns 0..64 and output in 64..96 (`wkv7::split_batched`).
     #[allow(clippy::too_many_arguments)]
     pub fn wkv7_step_batched(
         &mut self,
@@ -4961,6 +4965,7 @@ impl<T: Transport> Session<T> {
         let allow_mop = false;
         let pipeline = self.pipeline;
         let max_k_tiles = self.matmul_k_block_limit;
+        let decode_matvec = self.decode_matvec;
         let out = self
             .dram_state()
             .and_then(|d| {
@@ -4976,6 +4981,7 @@ impl<T: Transport> Session<T> {
                     allow_mop,
                     pipeline,
                     max_k_tiles,
+                    decode_matvec,
                 )
             })
             .and_then(|work| self.execute_on(work, units, budget));
@@ -5417,6 +5423,13 @@ impl<T: Transport> Session<T> {
 
     pub fn set_pipeline(&mut self, on: bool) {
         self.pipeline = on;
+    }
+
+    /// Opt into the M=1 live-row Matrix Unit specialization. Other matrix
+    /// shapes retain their normal kernel; storage, fidelity and K order do
+    /// not change. Off by default until model and performance qualification.
+    pub fn set_decode_matvec(&mut self, on: bool) {
+        self.decode_matvec = on;
     }
 
     /// How an element-wise op or reduction queued now may overlap its runs

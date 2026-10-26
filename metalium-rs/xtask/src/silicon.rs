@@ -108,6 +108,7 @@ pub const SMOKE: &[&str] = &[
     "step186_wkv7::",
     "step187_wkv7_burn::",
     "step188_wkv7_layer::",
+    "step191_wkv7_state_view::",
     "step19_eltwise::",
     "step27_burn_eltwise::",
     "step32_burn_softmax::",
@@ -226,6 +227,7 @@ pub const SMOKE: &[&str] = &[
     // SmolLM2's decode step with fixed shapes, traced and replayed at every position (roadmap
     // Track 2 item 6).
     "step185_fixed_decode::",
+    "step192_decode_matvec::decode_matches_independent_integer_oracle_and_fractional_baseline",
     "step167_smollm2::smollm2_in_f32",
     "step168_smollm2_mixed_precision::",
     "step165_resnet18::",

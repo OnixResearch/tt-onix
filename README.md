@@ -247,19 +247,31 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and evidence policy.
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
 See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
 
-The rounded-register Qwen candidate passed exact B=1/B=8 physical numerical
-parity after matching native BF16 pack rounding, but its installed bounded
-component medians were about **2.3× slower at B=1 and 4.2× at B=8**, so it is
-**not promoted**. The unchanged installed Qwen checker now also passes exact
-BF16 comparison at B=1/B=8 on source-built TTsim 1.10.6 with the bounded
-Blackhole dense-L1 zero-flag model extension. This is simulated single-chip
-component acceptance, not full-model, multi-chip, physical or performance
-admission. The separate GDN simulator limitation remains. The checker
-also provides `--model-device --batch 8 --iterations 2` for bounded two-card
-continuation, with explicit local model path and decode profile; see
-[the Qwen candidate guide](docs/research/qwen38-rounded-register-swiglu.md)
-for exact geometry, arithmetic and command prerequisites. These candidate checks
-do not confer serving admission.
+New kernel candidates remain opt-in and default-off:
+`TT_DECODE_MATVEC=1` selects the native decode strip matvec, and
+`TT_WKV7_STATE_VIEW=1` selects direct eligible recurrent-state views through
+the existing native model gates. The Qwen package supplies
+`qwen38-rounded-register-swiglu-check --semantic` (device-free) and
+`--device --batch 1 --device-id 0 --iterations 3` (physical hardware required;
+`--batch 8` is also supported). `QWEN38_ROUNDED_REGISTER_SWIGLU=1` selects the
+decode-only candidate in the real MLP path; it does not admit fused gate/up
+projection or change service defaults. For example, with exclusive device
+ownership and the existing local checkpoint prerequisites:
+
+```sh
+TT_DECODE_MATVEC=1 TT_WKV7_STATE_VIEW=1 nix run .#metalium-rs-rwkv7-model -- --fast
+nix build .#qwen38 -o result-qwen38
+./result-qwen38/bin/qwen38-rounded-register-swiglu-check --semantic
+./result-qwen38/bin/qwen38-rounded-register-swiglu-check --device --batch 1 --device-id 0 --iterations 3
+```
+
+The 2026-10-23 physical card-0 native gate passed all four kernel tests,
+all-12-layer checkpoint/oracle comparisons with neither/either/both flags, and
+three-token continuation with both flags. The strip-matvec component medians
+were near-flat (some slightly slower), so it is **not promoted for performance**.
+The eligible direct state view removed the nine compact-copy transfer packets
+in its bounded consumer experiment (817→807 μs), not a model-throughput claim.
+See [the native receipts](.cairn/changes/native-decode-strip-matvec-view-consumers/evidence/decode-matvec.md).
 
 The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
 

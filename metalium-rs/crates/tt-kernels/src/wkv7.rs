@@ -465,12 +465,12 @@ fn write_tile(x: &crate::tensor::DramTensor, first: usize, at: u64) -> [[u32; 8]
 /// deals the jobs over its units, so a session with several tiles runs heads in
 /// parallel and one with a single tile runs them in order.
 ///
-/// Inputs: the state as `[12*64, 64]` (head-major), each row vector `a`, `b`,
-/// `w`, `k`, `r` as one `[1, 12*64]` row (head `h` is tiles `2h` and `2h+1`),
-/// and `v` as twelve `[64, 1]` columns in head order -- the column broadcast
-/// reads a whole tile per half. The output's rows are head-major: head `h`
-/// occupies rows `64h..64h+64`, its state in columns 0..64 and its output in
-/// 64..96.
+/// Inputs: state as compact `[12*64,64]` or the first 64 columns of the
+/// preceding combined `[12*64,96]` result. The consumer reads state tiles
+/// with the parent's physical pitch; the final 32 columns are never read.
+/// Each row vector `a`, `b`, `w`, `k`, `r` is `[1,12*64]`, and `v` is twelve
+/// `[64,1]` columns. All operands are F32. The output's rows are head-major:
+/// head `h` occupies rows `64h..64h+64`, state in 0..64 and output in 64..96.
 #[allow(clippy::too_many_arguments)]
 pub fn work_batched(
     alloc: &mut crate::tensor::DramAlloc,
@@ -501,7 +501,14 @@ pub fn work_batched(
         }
         Ok(())
     };
-    expect(state, "state", HEADS * HEAD_SIZE, HEAD_SIZE)?;
+    if !matches!(state.cols, HEAD_SIZE | STEP_COLS) {
+        return Err(TensorError::Shape(format!(
+            "wkv7 batched state: {} columns, expected {HEAD_SIZE} or {STEP_COLS}",
+            state.cols
+        )));
+    }
+    expect(state, "state", HEADS * HEAD_SIZE, state.cols)?;
+    let state_ct = state.cols / 32;
     for (name, t) in [("a", a), ("b", b), ("w", w), ("k", k), ("r", r)] {
         expect(t, name, 1, HEADS * HEAD_SIZE)?;
     }
@@ -525,10 +532,10 @@ pub fn work_batched(
         for i in 0..STATE_TILES {
             gather.extend(read_tile(
                 state,
-                head * STATE_TILES + i,
+                (2 * head + i / 2) * state_ct + i % 2,
                 layout.state_in[i],
                 0,
-                2,
+                state_ct,
             ));
         }
         // Row vectors: two tiles each, read from the flat row.

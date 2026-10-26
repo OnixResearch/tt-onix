@@ -3627,6 +3627,15 @@ pub(crate) fn kmd_engine_with_elementwise(
             Ok("0") => session.set_pipeline(false),
             Ok(v) => return Err(TtError::Device(format!("TT_PIPELINE={v}: expected 0 or 1"))),
         }
+        match std::env::var("TT_DECODE_MATVEC").as_deref() {
+            Err(_) | Ok("0") => {}
+            Ok("1") => session.set_decode_matvec(true),
+            Ok(v) => {
+                return Err(TtError::Device(format!(
+                    "TT_DECODE_MATVEC={v}: expected 0 or 1"
+                )))
+            }
+        }
         // `TT_SPREAD`: how many of the session's tiles each op runs on
         // (`Session::set_spread`): `all` (the default), a count, or
         // `work:<share>[:<min>]`, one tile for each `share` of the op's work and at

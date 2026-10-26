@@ -556,6 +556,23 @@ pub fn matmul_kernel(
     ([u.words, m.words, p.words], [u.mop, m.mop, p.mop])
 }
 
+/// Decode-only M=1 specialization. Keep the original K/fidelity traversal,
+/// but issue only the first eight-row MVMUL group; the other 31 logical
+/// rows are padding. Full Dst clearing and packing retain zero output padding.
+pub(crate) fn decode_matvec_kernel(
+    outputs: &[OutputTile],
+    sems: MatmulSemaphores,
+    in_fmt: L1Format,
+    out_fmt: u32,
+    fidelity: Fidelity,
+) -> ([Vec<Instruction>; 3], [Option<MopConfig>; 3]) {
+    let items = matmul_items_reloading(outputs, sems, in_fmt, out_fmt, fidelity, None, true);
+    (
+        items.map(|items| crate::loops::lower_with(&items, false).words),
+        [None; 3],
+    )
+}
+
 /// Key of the matmul's shared block (`crate::loops::Item::Shared`): one tile
 /// pair's face block on the unpack role, where the pairs are not evenly
 /// spaced.
@@ -628,8 +645,28 @@ pub(crate) fn k_block_kernel(
         out_fmt,
         fidelity,
         reload,
+        false,
     );
     items.map(|items| crate::loops::lower_with(&items, false).words)
+}
+
+pub(crate) fn decode_k_block_kernel(
+    layout: &Layout,
+    reload: Option<Reload>,
+    route: SrcRoute,
+    fidelity: Fidelity,
+) -> [Vec<Instruction>; 3] {
+    let (in_fmt, out_fmt) = route.formats();
+    matmul_items_reloading(
+        &layout.outputs,
+        layout.sems,
+        in_fmt,
+        out_fmt,
+        fidelity,
+        reload,
+        true,
+    )
+    .map(|items| crate::loops::lower_with(&items, false).words)
 }
 
 /// The three role programs of [`matmul_roles`] as loop items, before
@@ -656,7 +693,7 @@ pub fn matmul_items(
     out_fmt: u32,
     fidelity: Fidelity,
 ) -> [Vec<Item>; 3] {
-    matmul_items_reloading(outputs, sems, in_fmt, out_fmt, fidelity, None)
+    matmul_items_reloading(outputs, sems, in_fmt, out_fmt, fidelity, None, false)
 }
 
 fn matmul_items_reloading(
@@ -666,6 +703,7 @@ fn matmul_items_reloading(
     out_fmt: u32,
     fidelity: Fidelity,
     reload: Option<Reload>,
+    decode: bool,
 ) -> [Vec<Item>; 3] {
     assert!(
         outputs.iter().all(|o| !o.pairs.is_empty()),
@@ -701,6 +739,14 @@ fn matmul_items_reloading(
     // halves, every phase -- all but its last `MVMUL`, which the caller issues
     // with the group's flips and its end.
     let group = |out: &mut Vec<Instruction>, dst: u32, mut loaded: Banks<Loaded, Loaded>| {
+        if decode {
+            for _ in 0..phases - 1 {
+                let (i, next) = loaded.mvmul(mv(dst, MATH_AM_PHASE)).unwrap();
+                out.push(i);
+                loaded = next;
+            }
+            return loaded;
+        }
         for half in 0..2u32 {
             let last = if half == 0 { phases } else { phases - 1 };
             for phase in 0..last {
@@ -732,7 +778,7 @@ fn matmul_items_reloading(
     let mut ub = Vec::new();
     let mut unit: Option<Vec<Instruction>> = None;
     let mut banks = Banks::after_reset();
-    for fi in 0..2u32 {
+    for fi in 0..if decode { 1 } else { 2u32 } {
         let mut mb = Vec::new();
         for k in 0..2u32 {
             // `A` is in0 and goes to `SrcB`: its face `(fi, k)`.
@@ -744,14 +790,20 @@ fn matmul_items_reloading(
             let (u, both) = with_b.unpack_a(base).unwrap();
             ub.push(u);
             let loaded = group(&mut mb, 0, both);
-            let (m, only_b) = loaded.mvmul_release_a(mv(8, MATH_AM_GROUP)).unwrap();
+            let row = if decode { 0 } else { 8 };
+            let (m, only_b) = loaded.mvmul_release_a(mv(row, MATH_AM_GROUP)).unwrap();
             mb.push(m);
             ub.push(zw(Unpacker::SrcA, 2 * k + 1));
             let (u, both) = only_b.unpack_a(base).unwrap();
             ub.push(u);
             let loaded = group(&mut mb, 16, both);
-            let end = if k == 0 { MATH_AM_GROUP } else { MATH_AM_FI };
-            let (m, empty) = loaded.mvmul_release_both(mv(24, end)).unwrap();
+            let end = if k == 0 || decode {
+                MATH_AM_GROUP
+            } else {
+                MATH_AM_FI
+            };
+            let row = if decode { 16 } else { 24 };
+            let (m, empty) = loaded.mvmul_release_both(mv(row, end)).unwrap();
             mb.push(m);
             banks = empty;
         }
@@ -776,7 +828,7 @@ fn matmul_items_reloading(
         vec![
             Item::I(reset),
             Item::Repeat {
-                times: 2,
+                times: if decode { 1 } else { 2 },
                 body: i(unit.iter().copied()).collect(),
             },
         ]

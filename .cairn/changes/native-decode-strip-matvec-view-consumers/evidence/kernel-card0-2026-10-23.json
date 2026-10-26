@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-23",
+  "simulated": false,
+  "physical_device_ids": [0],
+  "native_toolchain": "Rust 1.97.1",
+  "simulator_precondition": "TTsim 1.10.9 numerical gate passed; wrong-row mutation failed element 0: 0 vs -3 and restored gate passed",
+  "command_cwd": "metalium-rs",
+  "command": "TT_WKV7_STATE_VIEW=1 nix develop .#metalium-rs --command cargo xtask silicon --release --device 0 --filter step192_decode_matvec --filter step191_wkv7_state_view --timeout-secs 300",
+  "run_id": "1792780405",
+  "result": "4 run, 4 passed, 0 failed",
+  "matvec": {
+    "units": 12,
+    "storage": "F32 tiled weights in original [N,K] orientation, transpose-aware gather",
+    "source_route": "TF32-from-F32",
+    "fidelity": "Lo",
+    "warmups": 2,
+    "samples": 7,
+    "timing": "synchronized host compute submission; output validated after timing on every run",
+    "weights": "sparse independent integer oracle at real RWKV dimensions, not checkpoint weights",
+    "median_us": [
+      {"shape": [1,768,768], "baseline": 467.107, "candidate": 469.912},
+      {"shape": [1,768,3072], "baseline": 1827.080, "candidate": 1827.271},
+      {"shape": [1,3072,768], "baseline": 1684.692, "candidate": 1679.833},
+      {"shape": [1,768,65536], "baseline": 33776.860, "candidate": 33806.856}
+    ],
+    "decision": "Implemented and numerically accepted, but near-flat/slightly regressed timings reject performance promotion; default remains off"
+  },
+  "state_view": {
+    "units": 1,
+    "tile": [3,4],
+    "logical_state": [12,64,64],
+    "parent": [768,96],
+    "warmups": 2,
+    "samples": 7,
+    "median_us": {"compact_copy_plus_consumer": 817, "direct_consumer": 807},
+    "direct_to_compact_ratio": 0.988343,
+    "transfer_packets_including_warmups": {"compact": 9, "direct": 0},
+    "compute_batches_including_warmups": {"compact": 108, "direct": 108},
+    "burn_route": [
+      {"token": 0, "state_materializations": 0, "downloads": 0},
+      {"token": 1, "state_materializations": 0, "downloads": 0},
+      {"token": 2, "layout": "unsupported transposed state", "state_materializations": 1, "downloads": 0}
+    ],
+    "decision": "Exact compact/direct parity and copy removal accepted; bounded consumer median passes nonregression, not broad model throughput admission; default remains off"
+  }
+}

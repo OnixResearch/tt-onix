@@ -1230,6 +1230,7 @@ pub fn matmul_dram(
         allow_mop,
         pipeline,
         None,
+        false,
     )
 }
 
@@ -1246,6 +1247,7 @@ pub(crate) fn matmul_dram_limited(
     allow_mop: bool,
     pipeline: bool,
     max_k_tiles: Option<std::num::NonZeroUsize>,
+    decode_matvec: bool,
 ) -> Result<Work> {
     a.expect("a matmul", Elem::F32)?;
     b.expect("a matmul", Elem::F32)?;
@@ -1298,6 +1300,7 @@ pub(crate) fn matmul_dram_limited(
         route,
         fidelity,
         allow_mop,
+        decode_matvec: decode_matvec && m == 1,
     };
     if let Err(e) = plan.push_jobs(&mut jobs, [ra, rb, rc], [a_transposed, b_transposed]) {
         alloc.free(&c.placement);
@@ -1317,6 +1320,7 @@ struct BlockPlan {
     route: SrcRoute,
     fidelity: Fidelity,
     allow_mop: bool,
+    decode_matvec: bool,
 }
 
 impl BlockPlan {
@@ -1378,7 +1382,7 @@ impl BlockPlan {
                 ];
                 // The cache tells the stagings and halves apart: their programs
                 // name different addresses.
-                let variant = half.map_or(0, |h| 1 + h);
+                let variant = half.map_or(0, |h| 1 + h) | if self.decode_matvec { 0x40 } else { 0 };
                 let (fidelity, allow_mop) = (self.fidelity, self.allow_mop);
                 let (roles, mop) = matmul::kernel_programs(
                     tiles,
@@ -1387,7 +1391,15 @@ impl BlockPlan {
                     fidelity,
                     sems,
                     allow_mop,
-                    || matmul::matmul_kernel(&outputs, sems, in_fmt, out_fmt, fidelity, allow_mop),
+                    || {
+                        if self.decode_matvec {
+                            matmul::decode_matvec_kernel(&outputs, sems, in_fmt, out_fmt, fidelity)
+                        } else {
+                            matmul::matmul_kernel(
+                                &outputs, sems, in_fmt, out_fmt, fidelity, allow_mop,
+                            )
+                        }
+                    },
                 );
                 // Only the datums go back: the packer writes nothing else, and the
                 // unpacker skips the header whatever it holds (`step18_dram_matmul`).
@@ -1524,7 +1536,8 @@ impl BlockPlan {
                             rc.encode()[1],
                         ]);
                     }
-                    let variant = if k0 > 0 { 0x81 } else { 0x80 };
+                    let variant = (if k0 > 0 { 0x81 } else { 0x80 })
+                        | if self.decode_matvec { 0x40 } else { 0 };
                     let (roles, _) = matmul::kernel_programs(
                         [1, count, 1],
                         variant,
@@ -1534,12 +1547,21 @@ impl BlockPlan {
                         false,
                         || {
                             (
-                                matmul::k_block_kernel(
-                                    &layout,
-                                    (k0 > 0).then_some(reload),
-                                    self.route,
-                                    self.fidelity,
-                                ),
+                                if self.decode_matvec {
+                                    matmul::decode_k_block_kernel(
+                                        &layout,
+                                        (k0 > 0).then_some(reload),
+                                        self.route,
+                                        self.fidelity,
+                                    )
+                                } else {
+                                    matmul::k_block_kernel(
+                                        &layout,
+                                        (k0 > 0).then_some(reload),
+                                        self.route,
+                                        self.fidelity,
+                                    )
+                                },
                                 [None; 3],
                             )
                         },
@@ -1759,6 +1781,7 @@ pub(crate) fn matmul_dram_batched_limited(
         route,
         fidelity,
         allow_mop,
+        decode_matvec: false,
     };
     let rows = if batch == 1 { m } else { batch * mt * 32 };
     let c = DramTensor::alloc(alloc, rows, n)?;
