@@ -3,6 +3,7 @@ final: prev: {
   llama-cpp-metalium = final.callPackage ./pkgs/llama-cpp-metalium { };
   luwen = final.callPackage ./pkgs/luwen { };
   tt-metal-tracy-tools = final.callPackage ./pkgs/tt-metal-tracy-tools { };
+  nanbeige43 = final.callPackage ./pkgs/nanbeige43 { };
   qwen38 = final.callPackage ./pkgs/qwen36 { };
   qwen38-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   # Compatibility aliases. The checkpoint is Qwen3.8-27B, not Qwen3.6.

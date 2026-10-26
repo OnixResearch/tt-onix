@@ -882,6 +882,10 @@
       qwen38 = pkgs.callPackage ../pkgs/qwen36 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
       };
+      # r[impl tenstorrent.nanbeige43_p150x2.mesh]
+      nanbeige43 = pkgs.callPackage ../pkgs/nanbeige43 {
+        "tt-metal-tracy-tools" = ttMetalTracyTools;
+      };
       # Same package on the GDN grid variant runtime. Device-free only: this is the
       # gate that proves the chunked runtime still imports and still satisfies every
       # pure contract. It carries no physical or admission claim.
@@ -1332,6 +1336,7 @@
         repository-quality-artifacts = repositoryQuality.artifactQuality;
         repository-quality-cairn = repositoryQuality.cairnQuality;
         inherit qwen38;
+        inherit nanbeige43;
         qwen38-authority-negative = qwen36AuthorityNegativeCheck;
         qwen38-nixos-service = qwenServiceCheck;
         qwen36 = qwen38; # Compatibility aliases for existing check callers.

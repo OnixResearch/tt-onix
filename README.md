@@ -30,7 +30,7 @@ nixpkgs.overlays = [ tenstorrent.overlays.default ];
 ```
 
 Provides top-level `tt-umd`, `tt-logger`, `tt-metal`, `tt-smi`, `tt-burnin`,
-`tt-topology`, `tt-system-tools`, `luwen`, and `qwen38`. It extends every Python
+`tt-topology`, `tt-system-tools`, `luwen`, `qwen38`, and `nanbeige43`. It extends every Python
 package set with `pyluwen`, `tt-flash`, and `tt-tools-common`. It also extends
 kernel package sets with `tt-kmd`.
 
