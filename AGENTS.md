@@ -10,6 +10,16 @@ Do not treat the successful basic simulator smoke as recurrent-state or hardware
 
 The user grants standing authority for Tenstorrent maintenance: service stops, hardware probes, recovery, and firmware updates need no further task approval. Service restoration is not required. Use the existing `ttwkv7-owner-control` helper for passwordless service isolation and restoration. This authority does not bypass OS permissions or authorize unrelated system changes. Firmware changes still require compatibility checks and a recovery procedure.
 
+## Repository quality and remote builders
+
+Run `nix run .#quality` from the repository root. Its launcher builds only the
+matched `nix-patched-build-remote` bootstrap locally, then supplies the documented
+`build-hook` argv vector for normal evaluation and the aggregate build with the
+configured machines and plugin files unchanged. Do not shorten credential-bearing
+URIs, assume shell environment reaches daemon plugins, or disable remote builds
+as a permanent fix. The slot-lock repair preserves short-URI and upload-lock
+coordination; see `docs/repository-quality.md` and the sanitized remote proof.
+
 ## Local pi skills
 
 The `.pi/skills/` directory holds pi skills copied from the reference checkouts.

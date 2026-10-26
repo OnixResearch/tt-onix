@@ -27,6 +27,7 @@
         url = "https://huggingface.co/RWKV/RWKV7-Goose-World2.8-0.1B-HF/resolve/d81965cb4e1a9f96696b4f70b84212b8f2e43216/rwkv_vocab_v20230424.txt";
         hash = "sha256-5t7j1OMbTVxArJlQisbHAc7vS+1oG/IWfOmpCFUryok=";
       };
+      nixPatched = pkgs.callPackage ../pkgs/nix-patched-build-remote { };
       mkMetaliumGate =
         {
           name,
@@ -998,6 +999,11 @@
           pkgs.nix
         ];
         text = lib.removePrefix "#!/usr/bin/env bash\n" (builtins.readFile ../checks/run-quality.sh);
+        # This wrapper must exist before its script can select the repaired hook.
+        derivationArgs = {
+          preferLocalBuild = true;
+          allowSubstitutes = false;
+        };
       };
 
       developmentAppSpecs = {
@@ -1230,25 +1236,11 @@
         metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerGate;
         metalium-rs-rwkv7-generate = metaliumRsGenerateGate;
         metalium-rs-rwkv7-prompt = metaliumRsPromptGate;
-      }
-      // lib.optionalAttrs isSupportedSystem {
-        inherit ttwkv7;
+        nix-patched-build-remote = nixPatched;
         rwkv7-chat = rwkv7Chat;
         rwkv-lab = rwkvLab;
         rwkv-layer-harness = rwkvLayerHarness;
-        rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
-        rwkv7-p150x2-fetch-queue-diagnostic-runtime = rwkv7P150x2DiagnosticRuntime;
-        rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
-        rwkv7-p150x2-window8-candidate-runtime = rwkv7P150x2Window8CandidateRuntime;
-        rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
-        rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
-        rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
-        rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
-        rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
-        rwkv7-p150x2-window16-high-precision-matmul-diagnostic-runtime =
-          rwkv7P150x2Window16HighPrecisionMatmulDiagnosticRuntime;
         rwkv7-window16-cpu-recurrent-diagnostic = rwkv7Window16CpuRecurrentDiagnostic;
-        rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
         model-target-consumer-generator = modelTargetConsumerGenerator;
         model-target-report = modelTargetReport;
         training-platform-tools = trainingPlatform.tools;
@@ -1257,9 +1249,6 @@
         rwkv7-lora-p150a-core = rwkv7LoraP150a.passthru.core;
         rwkv7-lora-dual-p150a-tools = rwkv7LoraDualP150a.passthru.tools;
         rwkv7-lora-dual-p150a-core = rwkv7LoraDualP150a.passthru.core;
-        rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
-        rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
-        rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
         tt-vibethinker-bench = ttVibeThinkerBench;
         ttwkv7-owner-control = ttwkv7OwnerControl;
         tt-metal-tracy-tools = ttMetalTracyTools;
@@ -1272,6 +1261,26 @@
         clef-checkpoint = clefModels.clef;
         clef-flash-checkpoint = clefModels.clef-flash;
         qwen36 = qwen38; # Compatibility alias.
+      }
+      // lib.optionalAttrs isSupportedSystem {
+        inherit ttwkv7;
+        # The packaged TT-Metal runtime is x86_64-linux only.
+        inherit nanbeige43;
+        rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
+        rwkv7-p150x2-fetch-queue-diagnostic-runtime = rwkv7P150x2DiagnosticRuntime;
+        rwkv7-p150x2-evidence = rwkv7P150x2Evidence;
+        rwkv7-p150x2-window8-candidate-runtime = rwkv7P150x2Window8CandidateRuntime;
+        rwkv7-p150x2-window8-candidate-evidence = rwkv7P150x2Window8CandidateEvidence;
+        rwkv7-p150x2-window16-candidate-runtime = rwkv7P150x2Window16CandidateRuntime;
+        rwkv7-p150x2-window16-readout-diagnostic-runtime = rwkv7P150x2Window16ReadoutDiagnosticRuntime;
+        rwkv7-p150x2-window16-candidate-evidence = rwkv7P150x2Window16CandidateEvidence;
+        rwkv7-p150x2-window16-candidate-v2-runtime = rwkv7P150x2Window16CandidateV2Runtime;
+        rwkv7-p150x2-window16-high-precision-matmul-diagnostic-runtime =
+          rwkv7P150x2Window16HighPrecisionMatmulDiagnosticRuntime;
+        rwkv7-p150x2-window16-candidate-v2-evidence = rwkv7P150x2Window16CandidateV2Evidence;
+        rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDevice;
+        rwkv-ttwkv7-persistent-device = rwkvTtwkv7PersistentDevice;
+        rwkv-ttwkv7-persistent-receipt-validator = rwkvTtwkv7PersistentReceiptValidator;
       };
 
       checks = {

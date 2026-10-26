@@ -1,0 +1,22 @@
+--- a/build-remote/build-remote.cc
++++ b/build-remote/build-remote.cc
+@@ -40,7 +40,18 @@ static std::filesystem::path currentLoad;
+ 
+ static AutoCloseFD openSlotLock(const Machine & m, uint64_t slot)
+ {
+-    return openLockFile(currentLoad / fmt("%s-%d", escapeUri(m.storeUri.render()), slot), true);
++    auto uri = m.storeUri.render();
++    try {
++        return openLockFile(currentLoad / fmt("%s-%d", escapeUri(uri), slot), true);
++    } catch (SystemError & e) {
++        if (!e.is(std::errc::filename_too_long))
++            throw;
++        // Preserve the existing namespace whenever the filesystem accepts it.
++        // Only the lock key is hashed; the transport still uses the full URI.
++        auto h = hashString(HashAlgorithm::SHA256, uri);
++        return openLockFile(
++            currentLoad / fmt("%s-%d", h.to_string(HashFormat::Base16, false), slot), true);
++    }
+ }
+ 
+ static bool allSupportedLocally(Store & store, const StringSet & requiredFeatures)

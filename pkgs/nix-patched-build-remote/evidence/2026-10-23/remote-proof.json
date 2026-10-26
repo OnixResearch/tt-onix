@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-23",
+  "scope": "Nix build-remote slot-lock ENAMETOOLONG repair; actual daemon-mediated gRPC remote build, not SSH backend evidence",
+  "source": {
+    "repository": "onixcomputer/nix",
+    "revision": "388dea6acc4d45c7d47c9debcc105435ed0a995e",
+    "version": "2.36.0",
+    "component": "nixComponents2.nix-cli",
+    "unmodified_derivation_matches_installed": "/nix/store/bbysj1afh25692x2438bs1dxjj504k27-nix-2.36.0.drv",
+    "source_component": "/nix/store/42mgzb7am4ar5r8yy8y6lasiqn80mgh3-source/src/nix",
+    "change": "Try the legacy slot filename first; only ENAMETOOLONG retries with the full SHA256 of the rendered URI and the original slot suffix. Transport URI and existing MD5/Base64 upload-lock fallback are unchanged."
+  },
+  "final_package_build": {
+    "command": "nix build .#nix-patched-build-remote --builders '' --max-jobs 1 --cores 2 --no-link --print-out-paths -L",
+    "derivation": "/nix/store/838j8sqjgnqs6ygqrjm3wgcwm7va28b7-nix-2.36.0.drv",
+    "output": "/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0",
+    "exit": 0,
+    "elapsed_seconds": 135.82,
+    "install_check": "Passed actual installed-hook protocol regression: legacy 255-byte filename, one-byte overflow, deterministic inode reuse, distinct long URIs, 4KiB URI. An occupied real flock slot yields postpone without network access.",
+    "before_fix": "The same regression against installed /nix/store/6rwk5j1qqk7na4la5m2ka34p734braxa-nix-2.36.0/bin/nix failed at the first overflow with File name too long."
+  },
+  "remote_build": {
+    "hook_package": "/nix/store/0cs1psbjm0hh2v2i4vah96ylz5pfjz8v-nix-2.36.0",
+    "artifact_note": "Remote-tested package used exactly the final C++ patch and matched Nix libraries. The final package was rebuilt after formatting only the Python install-check script; its installed-hook regression also passed. No duplicate remote build was performed.",
+    "invocation": "nix --option build-hook '<hook-package>/bin/nix __build-remote' build --impure --expr '<derivation below>' --max-jobs 0 --option fallback false --option substitute false --no-link --print-out-paths --log-format internal-json -vv",
+    "derivation_expression": "derivation { name = \"long-uri-slot-lock-proof-64490870cbac49b895b19f885a5fc6dd\"; system = \"x86_64-linux\"; builder = \"${builtins.storePath /nix/store/zh1ijdhb6gng1509b1zrilb6xlzx60j6-bash-5.3p9}/bin/bash\"; args = [ \"-c\" \"printf 'remote-slot-lock-proof:64490870cbac49b895b19f885a5fc6dd\\\\n' > $out\" ]; preferLocalBuild = false; allowSubstitutes = false; }",
+    "timeout_seconds": 1200,
+    "exit": 0,
+    "elapsed_seconds": 5.85,
+    "builders_file": "/etc/nix/machines",
+    "configured_uri_bytes": 339,
+    "rendered_uri_bytes": 297,
+    "transport_equivalent_to_configured_uri": true,
+    "transport_equivalence_check": "scheme, authority, decoded path, and sorted decoded query pairs matched between configured URI and the real actBuild remote URI",
+    "observed_events": [
+      "connecting to grpc://[REDACTED]",
+      "actBuild type 105: building derivation on grpc://[REDACTED]",
+      "waiting for the upload lock to grpc://[REDACTED]",
+      "copying dependencies to grpc://[REDACTED]",
+      "copying outputs from grpc://[REDACTED]",
+      "actCopyPath type 100: copying result from grpc://[REDACTED] to local"
+    ],
+    "derivation": "/nix/store/sh9zkpj0vh0rns6jf5sllxwrr7hc2q0h-long-uri-slot-lock-proof-64490870cbac49b895b19f885a5fc6dd.drv",
+    "output": "/nix/store/5hhdr7a45p109f4m593k5mqdr82hg5lw-long-uri-slot-lock-proof-64490870cbac49b895b19f885a5fc6dd",
+    "output_content": "remote-slot-lock-proof:64490870cbac49b895b19f885a5fc6dd\n",
+    "slot_lock_directory": "/nix/var/nix/current-load",
+    "slot_lock_key": "6cd7f550cdd873f391941b7026ee6a2e96c2eabb9d604f24282bb45f13563ed0",
+    "observed_slot_suffixes": "-0 through -31, all present, each zero bytes",
+    "unchanged_upload_lock_present": "IgyL4I8fqHlx_y9ugdwq0w==.upload-lock",
+    "auxiliary_direct_store_query": "Not verified: unprivileged client cannot read the configured ca-cert; sudo -n requires a password. This does not alter the successful daemon-mediated build and remote-to-local copy evidence.",
+    "initial_smoke_fixture_failure": "The first tiny derivation omitted string context for the bash store path and failed remotely with No such file or directory. Declaring builtins.storePath supplied its real closure; the corrected derivation passed."
+  },
+  "final_hook_consumer_build": {
+    "command": "nix --option build-hook '/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0/bin/nix __build-remote' build .#repository-quality --no-link --print-out-paths -L",
+    "purpose": "Realize the artifact-manifest generator before final integration, not a duplicate tiny remote proof",
+    "hook_package": "/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0",
+    "derivation": "/nix/store/d5pr3cf6n747c8fslnmvzzx9sd3vg6x6-repository-quality-0.1.0.drv",
+    "output": "/nix/store/n5qcv835nhmr010xzfca30n20gi6z3hk-repository-quality-0.1.0",
+    "exit": 0,
+    "elapsed_seconds": 53.33,
+    "observed": "Final tracked hook scheduled the actual package on the configured full gRPC URI, uploaded dependencies, compiled the release package remotely in 4.57s, and copied the output back",
+    "forced_remote": false,
+    "actual_remote_execution": true,
+    "scope": "Final packaged hook runtime and plugin compatibility demonstrated by real consumer build; the final aggregate remains separate"
+  },
+  "launcher": {
+    "bootstrap_only": "Build the matching patched CLI locally with --builders '' --max-jobs 1",
+    "quality_build": "Pass the documented build-hook argv vector explicitly; preserve configured builders, plugin-files and credentials. No environment fallback or system configuration mutation.",
+    "scoped_checks": "bash -n checks/run-quality.sh and ruff check pkgs/nix-patched-build-remote/test-slot-locks.py passed",
+    "aggregate": "Not run by this workstream; parent coordinates the final aggregate."
+  }
+}

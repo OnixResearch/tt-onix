@@ -14,6 +14,53 @@ store even when present locally. Add new source or fixture files to the Git
 index before running the gate; untracked files are not tested. The gate still
 does not review tracked files for publication safety.
 
+### Matched remote hook bootstrap
+
+The small launcher derivation itself is local-only (`preferLocalBuild = true`,
+`allowSubstitutes = false`): its script cannot repair the hook until the wrapper
+exists. Nixpkgs `writeShellApplication` otherwise defaults to remote scheduling,
+which would hit the original overlong slot key before any bootstrap code ran.
+The launcher then builds `.#nix-patched-build-remote` with builders disabled for
+that bootstrap only. It passes the documented `build-hook` argv vector
+`<package>/bin/nix __build-remote` to the normal flake evaluation and aggregate
+build. Configured machines, full transport URIs and plugin files remain in use;
+no certificate path, credential or assumed daemon environment is added by the
+launcher. The machine configuration and daemon are not changed.
+
+Both evaluation and aggregate execution use the bootstrapped package's matched
+Nix 2.36.0 **CLI and hook**. The original Nix is used only for the local bootstrap;
+that one invocation clears `plugin-files` because it performs no remote operation
+and an older bootstrap client cannot load the configured 2.36 plugin. The matched
+phases retain the original plugin files and full builder URI.
+
+The package uses the actual matched Nix 2.36.0 component recipe and libraries,
+overriding only the CLI source patch. It keeps the plugin ABI instead of copying
+build inputs into an unrelated build system. The original component recipe
+reproduced the installed Nix derivation before applying the repair.
+
+Nix's legacy slot filename contains the escaped full builder URI. The repair
+retains that namespace when opening succeeds, catches only `ENAMETOOLONG`, then
+retries with the **full SHA-256** URI digest and unchanged slot suffix. It does
+not truncate transport URIs or change the separate upload lock's existing
+MD5/Base64 fallback. The installed-hook regression exercises the real protocol,
+the 255-byte boundary, overflow, deterministic reuse, distinct long URIs and a
+4-KiB URI; the unpatched hook fails on the overlong case.
+
+The [sanitized remote receipt](../pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json)
+records an actual root-daemon gRPC build with `max-jobs=0`, fallback disabled and
+substitution disabled, plus exact nonce output and all 32 SHA-256 slot locks.
+The current configured URI measures 339 bytes and its canonical rendering 297
+bytes, still above the filesystem's component limit. The complete decoded
+transport parameters were verified unchanged. This is stronger than a store
+ping or intended-backend flag. An auxiliary unprivileged direct query failed
+certificate-file permissions and is not reported as passed; daemon-mediated
+remote build and output copying succeeded independently.
+
+All-system evaluation preserves supported ARM tools while exposing the declared
+x86-only ttWKV7/P150 deployment packages only under the existing
+`isSupportedSystem` boundary. Their coupled apps and checks already use that same
+boundary. This does not enable unsupported systems or reduce the x86 aggregate.
+
 ## Baseline from 2026-08-07
 
 The pre-change flake evaluation and three focused Nix builds passed.

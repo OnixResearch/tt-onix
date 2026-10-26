@@ -240,6 +240,14 @@ The command uses pinned Rust, shell, Python, Nix, Nickel, and Cairn tools.
 It does not acquire a Tenstorrent device. See
 [`docs/repository-quality.md`](docs/repository-quality.md) for the parser and artifact workflows.
 
+The launcher bootstraps `.#nix-patched-build-remote` locally, then passes its
+matched Nix 2.36.0 `__build-remote` hook to the normal evaluation and aggregate
+build. Only the bootstrap disables builders; the gate retains configured remote
+builders and plugin files. The minimal repair hashes an overlong slot-lock key
+after `ENAMETOOLONG`, without changing transport credentials, short-URI lock names
+or the existing upload-lock protocol. The [remote proof](pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json)
+records an actual forced gRPC build, not a local fallback or connectivity probe.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and evidence policy.
 
 ## Onix packages
