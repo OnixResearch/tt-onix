@@ -31,7 +31,9 @@ pub fn build(root: &Path, release: bool, select: &[String]) -> Result<Vec<Built>
     let out = Command::new(env!("CARGO"))
         .arg("test")
         .args(select)
-        .args(["--no-run", "--message-format=json"])
+        // Keep artifact JSON for discovery, but render compiler diagnostics to
+        // inherited stderr instead of discarding them with captured stdout.
+        .args(["--no-run", "--message-format=json-render-diagnostics"])
         .args(release.then_some("--release"))
         .current_dir(root)
         .stderr(Stdio::inherit())

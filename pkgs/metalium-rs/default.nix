@@ -122,6 +122,12 @@ rustPlatform.buildRustPackage {
   doCheck = true;
   checkType = "debug";
 
+  # Keep debug assertions, overflow checks and the debug-profile gate selections,
+  # but optimize the host-side simulator plumbing and independent numerical
+  # oracles. Unoptimized workspace checks exceed the normal package time limit;
+  # switching to release would also change cfg(debug_assertions) test coverage.
+  CARGO_PROFILE_TEST_OPT_LEVEL = "3";
+
   cargoTestFlags = [
     "--workspace"
     "--no-fail-fast"

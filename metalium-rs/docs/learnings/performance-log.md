@@ -7,6 +7,75 @@ and run IDs. Newest dated sections come first, then the undated baseline section
 (streaming rollout, GDDR6, core path, Ethernet) and the 2026-10-03 reader/writer split.
 The chronology is the [Change log](#change-log).
 
+## Native package check profile (2026-10-23, ttsim)
+
+The normal `nix build .#metalium-rs --no-link --print-out-paths` previously timed
+out at 1,500 seconds on the remote builder. Its release build completed in
+52 seconds and unoptimized test compilation in 68 seconds; the last observed
+line was `step155_interpolate::lanczos3_gradient_matches_the_adjoint` running for
+over 60 seconds. This was an aggregate check timeout, not a reported assertion
+failure. The original receipt is
+[`installed-tooling-2026-10-23.json`](../../../.cairn/changes/isolated-tt-lang-sim-official-skills/evidence/installed-tooling-2026-10-23.json)
+under `final_integration_validation`; that failed build was not repeated to
+reconfirm it.
+
+Source inspection found two distinct costs in step155. The native gradient
+transposes a sparse forward tap table in position/tap order, then gathers,
+multiplies and reduces on the device. Its independent oracle materializes a
+dense Flex impulse matrix and computes the adjoint in f64. The largest case
+uses 1,024 input impulses and 2,048 outputs per impulse, and both coordinate
+maps and negative controls are exercised. There is no evidence of a deadlock
+or failed numerical comparison in the timeout receipt; unoptimized host work
+also accumulates across all earlier workspace suites.
+
+The package now retains `checkType = "debug"` and sets
+`CARGO_PROFILE_TEST_OPT_LEVEL=3`. This preserves debug assertions, overflow
+checks, test names, cases, independent oracles, negative controls and numerical
+bounds. No native algorithm, firmware, simulator arithmetic or runner timeout
+changes. Switching the whole lane to release is not equivalent: the SFPU gates
+`no_float_reduces_closer_than_the_hardest` and
+`every_fit_and_its_evaluation_are_within_their_parts` deliberately choose
+different sample strides with `cfg!(debug_assertions)`.
+
+Scoped host timings use Rust 1.97.1 and pinned ttsim 1.10.9; these are simulated
+validation timings, not silicon performance measurements. Rebuilding the current
+source in the release profile took **38.13 seconds**; the exact Lanczos3 adjoint
+gate then passed in **68.78 seconds** (107.45 seconds total command wall time):
+
+```bash
+cargo test -p tt-tests --release --test step155_interpolate \
+  lanczos3_gradient_matches_the_adjoint -- --exact --nocapture
+```
+
+The source-matched unoptimized-debug, optimized-test and release binaries list
+the identical **14 tests, 0 benchmarks**. No test was removed or filtered for
+the complete optimized-test step155 run. An older cached release binary listed
+15 tests and is not accepted as a source-matched timing comparison.
+
+The complete source-matched optimized-test interpolation binary passed **14/14**
+in **116.45 seconds** (116.62 wall, 298.62 user, 1.17 system, 95,368 KiB maximum
+RSS), including the Lanczos3 adjoint, Flex/image comparisons, negative controls,
+residency, views, ragged consumers and special values. Build and direct run:
+
+```bash
+CARGO_PROFILE_TEST_OPT_LEVEL=3 cargo test -p tt-tests \
+  --test step155_interpolate --no-run --offline
+/usr/bin/time -f 'elapsed=%e user=%U system=%S maxrss=%M' \
+  /home/brittonr/.cargo-target/debug/deps/step155_interpolate-37e830c3eb2b3898 \
+  --nocapture
+```
+
+The profile-sensitive
+`sfpu::ops::transcendental::no_float_reduces_closer_than_the_hardest` gate also
+passed in **0.02 seconds** with `CARGO_PROFILE_TEST_OPT_LEVEL=3 cargo test -p
+tt-kernels --lib <gate> -- --exact --nocapture`. A throwaway Cargo smoke with
+the same profile variable verified `cfg!(debug_assertions)`, a trapping
+`debug_assert!`, and trapping integer overflow. Its verbose compiler command
+contained both `-C opt-level=3` and `-C debug-assertions=on`; the scaffold was
+removed. No full normal-package pass is inferred from these scoped receipts;
+the coordinated normal Nix build remains the package acceptance gate.
+
+
 ## Native decode live-row and state-view consumers (2026-10-23, card 0)
 
 Release silicon run `1792780405` passed the independent numerical matvec gate,

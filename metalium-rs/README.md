@@ -56,6 +56,22 @@ build that depends on it. `rust-toolchain.toml` requests the
 `--keep-going`, `--timeout-secs`, `--include-ignored`, `--list`). See
 [`xtask/README.md`](xtask/README.md).
 
+The enclosing Nix package (`nix build .#metalium-rs --no-link --print-out-paths`)
+checks the whole workspace with `--no-fail-fast`, using the test profile with
+`CARGO_PROFILE_TEST_OPT_LEVEL=3`. This optimizes host-side simulator plumbing and
+numerical oracles without disabling debug assertions or overflow checks, changing
+`cfg(debug_assertions)` gate selections, or changing device firmware/arithmetic.
+To reproduce that profile locally for a scoped gate, use, for example:
+
+```bash
+CARGO_PROFILE_TEST_OPT_LEVEL=3 cargo test -p tt-tests --test step155_interpolate
+```
+
+An unoptimized normal package check exceeded 1,500 seconds; this is not a reason
+to ignore a gate or weaken its numerical bounds. See the
+[check-profile timing evidence](docs/learnings/performance-log.md#native-package-check-profile-2026-10-23-ttsim).
+
+
 ## Layout
 
 | Crate | Ships | What it is |

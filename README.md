@@ -272,6 +272,37 @@ were near-flat (some slightly slower), so it is **not promoted for performance**
 The eligible direct state view removed the nine compact-copy transfer packets
 in its bounded consumer experiment (817→807 μs), not a model-throughput claim.
 See [the native receipts](.cairn/changes/native-decode-strip-matvec-view-consumers/evidence/decode-matvec.md).
+The normal native package check retains the full debug-assertion workspace tier
+and optimizes its host simulator plumbing and independent numerical oracles with
+`CARGO_PROFILE_TEST_OPT_LEVEL=3`. The original 1500-second timeout ended at the
+Lanczos3 adjoint's dense Flex impulse oracle, not a reported assertion failure.
+The source-matched optimized interpolation binary passed all **14 tests in
+116.45 seconds**, including the original adjoint and negative controls; debug
+assertions, integer overflow checks and profile-sensitive sample coverage remain
+enabled. This scoped proof does not substitute for the full normal package gate.
+See [the profile diagnosis](metalium-rs/docs/learnings/performance-log.md#native-package-check-profile-2026-10-23-ttsim).
+
+The full normal package gate then **passed in 937.98 seconds** on the configured
+gRPC builder using the matched repaired hook: **1,556 passed, 0 failed, 46
+existing ignored, 0 filtered**, across 258 runtime binaries and 14 doctest
+crates. All 14 interpolation tests passed there in 28.86 seconds. The original
+1500-second bound and full workspace/debug-assertion coverage were unchanged;
+the separate failed local four-job compilation attempt remains in the
+[qualification record](.cairn/changes/isolated-tt-lang-sim-official-skills/evidence/installed-tooling-2026-10-23.json).
+
+The rounded-register Qwen candidate passed exact B=1/B=8 physical numerical
+parity after matching native BF16 pack rounding, but its installed bounded
+component medians were about **2.3× slower at B=1 and 4.2× at B=8**, so it is
+**not promoted**. The unchanged installed Qwen checker now also passes exact
+BF16 comparison at B=1/B=8 on source-built TTsim 1.10.6 with the bounded
+Blackhole dense-L1 zero-flag model extension. This is simulated single-chip
+component acceptance, not full-model, multi-chip, physical or performance
+admission. The separate GDN simulator limitation remains. The checker
+also provides `--model-device --batch 8 --iterations 2` for bounded two-card
+continuation, with explicit local model path and decode profile; see
+[the Qwen candidate guide](docs/research/qwen38-rounded-register-swiglu.md)
+for exact geometry, arithmetic and command prerequisites. These candidate checks
+do not confer serving admission.
 
 The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
 

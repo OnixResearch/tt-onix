@@ -183,7 +183,7 @@ Its model coverage is ResNet-18, ViT-Tiny, and SmolLM2-135M over Burn; it has no
 Qwen3.6/3.8, MoE, or gated-delta implementation. Treat its conformance counts, model agreement,
 and performance numbers as upstream claims until this repository reproduces them.
 
-The in-tree stack passes the validation tier: 1,551 passed, 0 failed, 46 ignored across 269 test binaries (the WKV7 kernel, session and layer gates add seven tests). The same tier runs inside the Nix package check with pinned specification, ttsim,
+The normal Nix package check passed on 2026-10-23: 1,556 passed, 0 failed, 46 existing ignored and 0 filtered across 258 runtime binaries and 14 doctest crates. It retains the debug-assertion tier with optimized host oracles. The same tier runs inside the Nix package check with pinned specification, ttsim,
 MNIST, `cfg_defines.h`, and `ioctl.h` inputs. The `metalium-rs` package uses a pinned Rust 1.97.1
 toolchain with `riscv32im-unknown-none-elf` and `llvm-tools`, builds the shipped stack plus
 `tt-mnist`, `wkv7-gate`, `rwkv7-layer-gate`, `rwkv7-model-gate`,
