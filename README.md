@@ -115,6 +115,66 @@ See [Cloudflare Clef on Tenstorrent](docs/clef-tenstorrent.md) for the
 separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
 `/v1/systemone` services and their bounded physical smoke.
 
+Use `nix build .#nanbeige43` for Nanbeige4.3-33B (revision
+`c1093c501cc6460427c0ac634db7223d0450c0ee`, a plain `LlamaForCausalLM`) on the
+P150x2 `1x2` mesh. It runs the runtime-matched TT-Metal 0.77 `tt_transformers`
+generic path with TP2, the upstream `accuracy` preset (BF16 attention and KV,
+BFP8 MLP), and `PAD_MLP_CORES=16`. `nanbeige43-check` runs the device-free
+checks and admits a checkpoint by SHA-256. `nanbeige43-reference` writes the
+CPU reference. `nanbeige43-reduce-checkpoint` derives reduced-layer checkpoints.
+`nanbeige43-p150x2 compare|generate|bench` is the production command,
+fail-closed on PCIe devices 0 and 1. On 2026-10-25 the full model passed the
+teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
+over 512 positions, prefill PCC ≥ 0.9969. Decode capture and replay is the
+default; `--no-trace` selects eager decode. The host greedy path reads one
+gathered replica and slices active rows and vocabulary before conversion;
+`compare` keeps the full-logit path. On the delivered package the O0-protocol
+traced batch-1 bench reached a median 9.97 tokens/s (min 9.36; O1 9.69) with
+128/128 ids identical to O1 and a median first token of 0.21 s. The host-path change did not establish a batch-1
+wall-clock gain: 9.966 vs O1's 9.694 is +2.8 % with a 9.36-10.86 spread,
+within run-to-run noise, and the earlier 11.178 was a single measurement on
+the now-GC'd package. It is retained because it does strictly less host work
+per step (one gathered replica, active-row/vocabulary slicing before FP32
+conversion, no dummy log-probs or cat) with byte-identical tokens, not because
+it made decode measurably faster. Batch 32's 313.6 vs 160.8 aggregate is the
+only established throughput improvement. `bench --batch 16`
+reached 160.8 tokens/s aggregate at 10.05 tokens/s per user with every row
+identical and ids equal to the admitted batch-16 receipt; it passed the
+teacher-forced gate on every row and is not bit-identical to batch 1
+(divergence at id 101). Batch 4 stayed O1-identical at 10.16 tokens/s per
+user. `bench --batch 32` reached 313.6 tokens/s aggregate at 9.80 tokens/s
+per user with 32/32 rows identical; its ids exactly match batch 16 and
+retain the id-101 divergence from batch 1. `compare --batch 32` passed the
+fallback gate on every row (worst top-1 0.9121, top-5 0.9961, prefill PCC
+>= 0.99692). Batch 1 remains the default; batch 32 is accepted for aggregate
+throughput. A replacement profiler run named all 5,100 traced decode rows: matmul
+operations held 90.6 % of the 76.65 ms per-replay-device kernel sum, with
+collectives 4.3 % and SDPA 0.7 %. The matmul bucket still mixes attention, MLP,
+and LM-head work, so no full four-way device attribution is claimed. The supported
+prefetcher is closed by L1 arithmetic (minimum ring 115 unpadded or 118 padded,
+against reachable rings up to 80), so no supported precision-preserving decode
+knob remains; a prefetcher entry or hand-built DRAM-sharded program config would
+need its own declared experiment. Batch 8 corrupts rows 5–7 and
+is refused. These batch claims apply to the
+`accuracy` preset. The upstream `performance` preset and the tested
+single-card BFP4 mixes failed accuracy retention. All-BFP8 passed the TP2
+accuracy screen. Its O5 bench median was 5.71 tokens/s (required > 9.69), so it
+was not promoted, but that run is not evidence that lower precision costs
+speed: `accuracy` already runs a BFP8 MLP, so the mix changes only WQKV/WO and
+KV and cuts streamed bytes by 14.2 %; it also drops attention from HIFI4 to
+HIFI2, and the same run's decode samples spanned 8.456/5.715/4.985/4.279/7.682
+tok/s while its prefill was above accuracy at 1024/4096 tokens
+(2719/2753 vs 2548/2530) and below at 128 (726 vs 790). `accuracy` remains
+default. No tested mix both passed accuracy and fit on
+one card; no independent two-instance DP run or DP throughput is claimed,
+and unexercised DP wrappers are not shipped. Fixed-prompt comparisons now
+retain all batch rows and gate on worst-row prefill PCC; historical O3
+fixed-prompt receipts covered row 0, while corpus gates covered every row.
+These are host-wall smoke measurements, not a serving benchmark, and there
+is no serving endpoint. See
+`.cairn/changes/bring-up-nanbeige43-33b-p150x2/` for design, receipts, and
+non-claims.
+
 To benchmark OMP `task` subagents on the running P150x2 Qwen3.8-27B service,
 run `python3 scripts/qwen38-subagent-benchmark.py --timeout-seconds 600 --output /tmp/qwen38-subagents.json`.
 The bounded three-worker workload compares three sequential task calls with
