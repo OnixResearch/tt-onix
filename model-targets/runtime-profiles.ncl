@@ -149,6 +149,13 @@ let contracts = import "runtime-contract.ncl" in
         on_release = "required-before-native",
         device_paths = [ "/dev/tenstorrent/0", "/dev/tenstorrent/1" ],
       },
+      # pkgs/qwen36/default.nix builds libexec/tt-metalium beside the wrappers and
+      # exports share/qwen36/execution-identity as a symlink to the identity
+      # derivation.
+      runtime = {
+        root = "libexec/tt-metalium",
+        execution_identity = "share/qwen36/execution-identity",
+      },
       non_claims = [
         "the served package carries only the receipts that name it",
         "no B=8 v3 interleaved receipt is carried by a servable package",
@@ -233,6 +240,10 @@ let contracts = import "runtime-contract.ncl" in
         on_release = "required-before-native",
         device_paths = [ "/dev/tenstorrent/0", "/dev/tenstorrent/1" ],
       },
+      # pkgs/nanbeige43/default.nix sets TT_METAL_HOME to $out/libexec/tt-metalium.
+      runtime = {
+        root = "libexec/tt-metalium",
+      },
       non_claims = [
         "no serving endpoint and no serving benchmark",
         "batch 8 is refused; batch 32 is accepted for aggregate throughput only",
@@ -304,6 +315,7 @@ let contracts = import "runtime-contract.ncl" in
         on_release = "required-before-native",
         device_paths = [ "/dev/tenstorrent/0", "/dev/tenstorrent/1" ],
       },
+      model_target_name = "rwkv7-goose-world2.8-0.1b-p150x2",
       model_target_blake3 = "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
       non_claims = [
         "no serving endpoint; generation is a bounded gate",
@@ -362,13 +374,19 @@ let contracts = import "runtime-contract.ncl" in
         flags = [],
       },
       admission = {
+        # Each gate is its own writeShellApplication derivation
+        # (flake-modules/onix-packages.nix:43-67), so only the whole-model gate
+        # lives in this profile's package. The other four are named without an
+        # artifact: a package-relative path for them does not exist, and an
+        # absolute store path would go stale on every metalium-rs rebuild. `check`
+        # verifies the artifact and digest of any gate that records one.
         kind = "gate-exit",
         gates = [
-          "rwkv7-model-checkpoint",
-          "rwkv7-layer-checkpoint",
-          "rwkv7-generate-checkpoint",
-          "rwkv7-prompt-checkpoint",
-          "rwkv7-tokenizer",
+          { name = "rwkv7-model-checkpoint" },
+          { name = "rwkv7-layer-checkpoint" },
+          { name = "rwkv7-generate-checkpoint" },
+          { name = "rwkv7-prompt-checkpoint" },
+          { name = "rwkv7-tokenizer" },
         ],
       },
       readiness = {
@@ -379,6 +397,7 @@ let contracts = import "runtime-contract.ncl" in
         on_release = "never",
         device_paths = [ "/dev/tenstorrent/0" ],
       },
+      model_target_name = "rwkv7-goose-world2.8-0.1b-p150x2",
       model_target_blake3 = "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
       non_claims = [
         "gates do not establish a sampler, stop-policy-complete endpoint, or serving parity",

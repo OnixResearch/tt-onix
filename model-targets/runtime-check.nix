@@ -32,6 +32,11 @@ let
       throw "runtime profile '${name}' must appear exactly once";
   rwkvTarget = modelTargets.getProfile "rwkv7-goose-world2.8-0.1b-p150x2";
   rwkvIdentity = rwkvTarget.profile_identity;
+  modelTargetReferences = lib.filter (entry: entry ? model_target_name) data.profiles;
+  modelTargetReferenceMismatch = lib.filter (
+    entry:
+    (modelTargets.getProfile entry.model_target_name).profile_identity != entry.model_target_blake3
+  ) modelTargetReferences;
   # A fixture is a profile mutation the contract must refuse, paired with the
   # message it must print. Each message names a rule in runtime-contract.ncl.
   fixtures = [
@@ -97,6 +102,13 @@ let
                 print(path, receipt["blake3"])
 
 
+    def gates(registry):
+        for entry in registry["profiles"]:
+            for gate in entry.get("admission", {}).get("gates", []):
+                if "artifact" in gate:
+                    print(entry["name"], gate["artifact"])
+
+
     def model_targets(registry, expected):
         referenced = {
             entry["name"]: entry["model_target_blake3"]
@@ -116,6 +128,7 @@ let
 
     modes = {
         "authorities": lambda registry: authorities(registry),
+        "gates": lambda registry: gates(registry),
         "receipts": lambda registry: receipts(registry),
         "summary": lambda registry: summary(registry),
     }
@@ -144,6 +157,14 @@ assert lib.assertMsg (
 assert lib.assertMsg (
   (profile "metalium-rs-rwkv7").model_target_blake3 == rwkvIdentity
 ) "the metalium-rs-rwkv7 profile must reference the live RWKV model-target identity";
+assert lib.assertMsg (
+  modelTargetReferences != [ ]
+) "at least one runtime profile must reference a model-target identity";
+assert lib.assertMsg (modelTargetReferenceMismatch == [ ]) ''
+  runtime profile model-target names must resolve to the identity each profile records: ${
+    lib.concatMapStringsSep ", " (entry: entry.name) modelTargetReferenceMismatch
+  }
+'';
 pkgs.runCommand "model-runtime-profile-registry-check"
   {
     nativeBuildInputs = [
@@ -182,7 +203,20 @@ pkgs.runCommand "model-runtime-profile-registry-check"
           test "$actual" = "$receipt_blake3"
         done <"$PWD/receipts.txt"
 
-        # Every model-target reference must be the identity the target registry holds.
+        # A gate artifact is package-relative, so it must not be absolute and must not
+    # escape its package. The digest is bound to the installed program by
+    # `tt-model check`, which holds the resolved package path.
+    python3 ${verify} gates "$fresh_export" >"$PWD/gates.txt"
+    while read -r gate_profile gate_artifact; do
+      case "$gate_artifact" in
+        /* | *..*)
+          echo "gate artifact must be package-relative: $gate_profile $gate_artifact" >&2
+          exit 1
+          ;;
+      esac
+    done <"$PWD/gates.txt"
+
+    # Every model-target reference must be the identity the target registry holds.
         python3 ${verify} model-targets "$fresh_export" "$rwkvIdentity"
 
     ${lib.concatMapStringsSep "\n" (entry: ''

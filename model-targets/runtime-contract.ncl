@@ -168,10 +168,33 @@ let Receipt = {
 }
 in
 
+# One gate a gate-exit profile runs. `artifact` is package-relative, and its
+# digest binds the recorded gate name to the installed program, not to a gate
+# result. Both are optional and must appear together: a sibling gate wrapper that
+# lives in another derivation cannot be named package-relatively, and an
+# absolute store path would go stale on every rebuild.
+let Gate = {
+  name | NonEmpty,
+  artifact | optional | NonEmpty,
+  blake3 | optional | Blake3,
+}
+in
+
 let Admission = {
   kind | AdmissionKind,
   receipts | optional | Array Receipt,
-  gates | optional | Array NonEmpty,
+  gates | optional | Array Gate,
+}
+in
+
+# The runtime a profile launches, as a package-relative root. Absent when the
+# package is its own runtime (the native stack) or when the runtime lives outside
+# the package (the TT-NN RWKV-7 wrapper points TT_METAL_HOME at a symlinkJoin).
+let Runtime = {
+  root | NonEmpty,
+  # Package-relative symlink naming the package's execution identity, when the
+  # package exports one.
+  execution_identity | optional | NonEmpty,
 }
 in
 
@@ -204,6 +227,8 @@ let RuntimeProfile = {
   admission | Admission,
   readiness | Readiness,
   reset | Reset,
+  runtime | optional | Runtime,
+  model_target_name | optional | NonEmpty,
   model_target_blake3 | optional | Blake3,
   non_claims | Array NonEmpty,
 }
@@ -260,6 +285,17 @@ let semanticErrors = fun profile =>
     {
       ok = derived.placeholder_is_prefix,
       message = "runtime profile argv @package@ placeholder must prefix its token",
+    },
+    {
+      ok = std.record.has_field "model_target_name" profile
+      == std.record.has_field "model_target_blake3" profile,
+      message = "runtime profile model target name and identity must appear together",
+    },
+    {
+      ok = std.array.all
+        (fun gate => std.record.has_field "artifact" gate == std.record.has_field "blake3" gate)
+        (if std.record.has_field "gates" profile.admission then profile.admission.gates else []),
+      message = "runtime profile gate artifact and digest must appear together",
     },
   ]
   @ (

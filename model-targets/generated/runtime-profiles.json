@@ -112,6 +112,10 @@
         ],
         "on_release": "required-before-native"
       },
+      "runtime": {
+        "execution_identity": "share/qwen36/execution-identity",
+        "root": "libexec/tt-metalium"
+      },
       "schema": "onix.runtime-profile.v1"
     },
     {
@@ -181,6 +185,9 @@
         ],
         "on_release": "required-before-native"
       },
+      "runtime": {
+        "root": "libexec/tt-metalium"
+      },
       "schema": "onix.runtime-profile.v1"
     },
     {
@@ -215,6 +222,7 @@
       },
       "mode": "job",
       "model_target_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+      "model_target_name": "rwkv7-goose-world2.8-0.1b-p150x2",
       "name": "rwkv7-ttnn",
       "non_claims": [
         "no serving endpoint; generation is a bounded gate",
@@ -243,11 +251,21 @@
     {
       "admission": {
         "gates": [
-          "rwkv7-model-checkpoint",
-          "rwkv7-layer-checkpoint",
-          "rwkv7-generate-checkpoint",
-          "rwkv7-prompt-checkpoint",
-          "rwkv7-tokenizer"
+          {
+            "name": "rwkv7-model-checkpoint"
+          },
+          {
+            "name": "rwkv7-layer-checkpoint"
+          },
+          {
+            "name": "rwkv7-generate-checkpoint"
+          },
+          {
+            "name": "rwkv7-prompt-checkpoint"
+          },
+          {
+            "name": "rwkv7-tokenizer"
+          }
         ],
         "kind": "gate-exit"
       },
@@ -278,6 +296,7 @@
       },
       "mode": "job",
       "model_target_blake3": "d33ed1051c7595327368cce7b42e16f025e8fc78d96addb0353fba2e86314a88",
+      "model_target_name": "rwkv7-goose-world2.8-0.1b-p150x2",
       "name": "metalium-rs-rwkv7",
       "non_claims": [
         "gates do not establish a sampler, stop-policy-complete endpoint, or serving parity",
