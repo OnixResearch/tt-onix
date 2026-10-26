@@ -1,0 +1,32 @@
+{
+  "schema": "tenstorrent.delivery.aggregate-acceptance.v1",
+  "acceptance_date": "2026-10-23",
+  "recorded_date": "2026-10-25",
+  "evidence_kind": "historical-device-free-aggregate-acceptance",
+  "command": "nix run .#quality",
+  "exit_code": 0,
+  "elapsed_seconds": 222.97,
+  "aggregate_derivation": "/nix/store/848n1s57z9kawbzw5pvhz88nb57wfcpa-tenstorrent-repository-quality.drv",
+  "aggregate_output": "/nix/store/8hfj3fppv6gfjnb6ids47ydh1w3l8rzk-tenstorrent-repository-quality",
+  "observed_backend": "aggregate built on aspen1.local:50051; output copied back from grpc://aspen1.local:50051",
+  "execution_boundary": "Local-only launcher and matched Nix 2.36 bootstrap; all-system evaluation and aggregate use matched CLI/build-hook with configured transport URIs and plugin files unchanged.",
+  "source_evidence": {
+    "command_output_artifact": "artifact://2387",
+    "terminal_observations": [
+      "building '/nix/store/848n1s57z9kawbzw5pvhz88nb57wfcpa-tenstorrent-repository-quality.drv' on aspen1.local:50051...",
+      "copying path '/nix/store/8hfj3fppv6gfjnb6ids47ydh1w3l8rzk-tenstorrent-repository-quality' from 'grpc://aspen1.local:50051'..."
+    ],
+    "result_provenance": "Exit status and elapsed time are the recorded final result accompanying the existing command output; this receipt does not claim those fields are printed inside the log."
+  },
+  "historical_manifest": {
+    "entries": 893,
+    "boundary": "Documentation and manifest were frozen during the original passing run. This receipt and the later delivery-record reconciliation were not inside that run's source snapshot."
+  },
+  "subsequent_validation": "Artifact/Cairn/documentation checks after delivery-record reconciliation are separate results, not part of this historical exact aggregate run.",
+  "non_claims": [
+    "No rerun of native, numerical simulator or hardware gates during receipt reconstruction",
+    "No publication review, commit, deployment, service restart or serving admission",
+    "No performance promotion or change to default-off candidate flags",
+    "No resolution of the separate GDN ALU_ACC_CTRL simulator limitation"
+  ]
+}

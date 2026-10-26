@@ -1,0 +1,317 @@
+{
+  "date": "2026-10-23",
+  "focused_build_command": [
+    "nix",
+    "build",
+    ".#tt-lang-sim",
+    ".#tenstorrent-official-skills",
+    "--no-link",
+    "--print-out-paths"
+  ],
+  "focused_build_outputs": [
+    "/nix/store/b7x5lpif8pb83927cg9zc44m689dyj8j-tt-lang-sim-1.1.6",
+    "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209"
+  ],
+  "simulator": {
+    "schema": "tenstorrent.isolated-evaluation.v1",
+    "evidence_kind": "device-free-upstream-simulator",
+    "hardware_execution": false,
+    "physical_device_ids": [],
+    "checkpoint": null,
+    "simulator_version": "1.1.6",
+    "wheel_sha256": "2b75ed9e5943f338542841dcf310f451a4ae3b468a3379ccfb37142165de3a7d",
+    "package": "/nix/store/b7x5lpif8pb83927cg9zc44m689dyj8j-tt-lang-sim-1.1.6",
+    "command": [
+      "/nix/store/b7x5lpif8pb83927cg9zc44m689dyj8j-tt-lang-sim-1.1.6/bin/tt-lang-sim",
+      "/tmp/tt-lang-sim-installed-smoke.py",
+      "--trace",
+      "/tmp/tt-lang-sim-installed-smoke.jsonl",
+      "--grid",
+      "1,1",
+      "--num-devices",
+      "1"
+    ],
+    "environment_overrides": {
+      "PYTHONPATH": "/deliberately-invalid-production-ttnn",
+      "PYTHONHOME": "/deliberately-invalid-home"
+    },
+    "smoke_source_sha256": "26efd0dba0021407b91854a06f7c1496bf91c9ea1f15da66381a235e76bfa801",
+    "numerical_output": {
+      "evidence": "upstream-tt-lang-sim-not-hardware",
+      "results": {
+        "add": {
+          "max_abs_error": 0.0,
+          "shape": [
+            32,
+            32
+          ]
+        },
+        "matmul": {
+          "max_abs_error": 0.0,
+          "shape": [
+            32,
+            32
+          ]
+        }
+      }
+    },
+    "trace_dram_tiles": {
+      "read": 4,
+      "write": 2
+    },
+    "statistics_command": [
+      "/nix/store/b7x5lpif8pb83927cg9zc44m689dyj8j-tt-lang-sim-1.1.6/bin/tt-lang-sim-stats",
+      "/tmp/tt-lang-sim-installed-smoke.jsonl"
+    ],
+    "statistics_output": "\n====================================================================================================================================\nTensor Access Statistics\n====================================================================================================================================\nTensor                 Local L1 R   Local L1 W   Remote L1 R   Remote L1 W    DRAM R    DRAM W   Tiles R   Tiles W\n------------------------------------------------------------------------------------------------------------------------------------\na                               0            0             0             0         2         0         2         0\nb                               0            0             0             0         2         0         2         0\ny                               0            0             0             0         0         2         0         2\n------------------------------------------------------------------------------------------------------------------------------------\nTOTAL                           0            0             0             0         4         2         4         2\n====================================================================================================================================\n\n====================================================================================\nDataflow Buffer Statistics\n====================================================================================\nDFB                  Node           Reserves      Waits   Tiles Reserved   Tiles Waited\n------------------------------------------------------------------------------------\ndfb_0710             node0                 1          1                1              1\ndfb_3950             node0                 1          1                1              1\ndfb_9a70             node0                 1          1                1              1\ndfb_a060             node0                 1          1                1              1\ndfb_eb70             node0                 1          1                1              1\ndfb_f020             node0                 1          1                1              1\n------------------------------------------------------------------------------------\nTOTAL                                      6          6                6              6\n====================================================================================\n",
+    "limits": [
+      "Not cycle-accurate or physical traffic evidence",
+      "No hardware, checkpoint, SFPI or TT-Metal execution",
+      "Integer-valued float32 one-tile add and matmul only"
+    ],
+    "smoke_source": "import json\nimport sys\n\nimport torch\nimport ttl\nimport ttnn\n\nassert ttnn.__name__ == \"ttl.sim.ttnnsim\", ttnn.__name__\nassert not any(\"site-packages/ttnn\" in str(getattr(m, \"__file__\", \"\")) for m in sys.modules.values())\n\n\n@ttl.operation(grid=(1, 1))\ndef add(a, b, y):\n    aa = ttl.make_dataflow_buffer_like(a, shape=(1, 1), block_count=2)\n    bb = ttl.make_dataflow_buffer_like(b, shape=(1, 1), block_count=2)\n    yy = ttl.make_dataflow_buffer_like(y, shape=(1, 1), block_count=2)\n\n    @ttl.datamovement()\n    def read():\n        with aa.reserve() as av, bb.reserve() as bv:\n            ttl.copy(a[0, 0], av).wait()\n            ttl.copy(b[0, 0], bv).wait()\n\n    @ttl.compute()\n    def compute():\n        with aa.wait() as av, bb.wait() as bv, yy.reserve() as yv:\n            yv.store(av + bv)\n\n    @ttl.datamovement()\n    def write():\n        with yy.wait() as yv:\n            ttl.copy(yv, y[0, 0]).wait()\n\n\n@ttl.operation(grid=(1, 1))\ndef matmul(a, b, y):\n    aa = ttl.make_dataflow_buffer_like(a, shape=(1, 1), block_count=2)\n    bb = ttl.make_dataflow_buffer_like(b, shape=(1, 1), block_count=2)\n    yy = ttl.make_dataflow_buffer_like(y, shape=(1, 1), block_count=2)\n\n    @ttl.datamovement()\n    def read():\n        with aa.reserve() as av, bb.reserve() as bv:\n            ttl.copy(a[0, 0], av).wait()\n            ttl.copy(b[0, 0], bv).wait()\n\n    @ttl.compute()\n    def compute():\n        with aa.wait() as av, bb.wait() as bv, yy.reserve() as yv:\n            yv.store(av @ bv)\n\n    @ttl.datamovement()\n    def write():\n        with yy.wait() as yv:\n            ttl.copy(yv, y[0, 0]).wait()\n\n\ndevice = ttnn.open_device(device_id=0)\ntry:\n    a = torch.arange(1024, dtype=torch.float32).reshape(32, 32) % 7\n    b = (torch.arange(1024, dtype=torch.float32).reshape(32, 32) % 5) - 2\n\n    def upload(value):\n        return ttnn.from_torch(value, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT,\n                               device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG)\n\n    ta, tb = upload(a), upload(b)\n    results = {}\n    for name, operation, expected in ((\"add\", add, a + b), (\"matmul\", matmul, a @ b)):\n        y = upload(torch.zeros_like(a))\n        operation(ta, tb, y)\n        actual = ttnn.to_torch(y)\n        torch.testing.assert_close(actual, expected, rtol=0, atol=0)\n        results[name] = {\"max_abs_error\": (actual - expected).abs().max().item(), \"shape\": list(actual.shape)}\n    print(json.dumps({\"evidence\": \"upstream-tt-lang-sim-not-hardware\", \"results\": results}))\nfinally:\n    ttnn.close_device(device)\n"
+  },
+  "official_skills": {
+    "evidence_kind": "installed-read-only-reference-closure",
+    "revision": "b6752095f329a04bf6573fb4022b13bc45799167",
+    "source_hash": "sha256-GbuRhOKPRRGCFxjF3LfDt1sbGQj3NTyEaFRuG1NGeaA=",
+    "package": "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209",
+    "command": [
+      "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209/bin/tenstorrent-official-skills",
+      "resolve",
+      "precision",
+      "trace",
+      "precision"
+    ],
+    "core_first_resolved": [
+      "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209/share/tenstorrent-official-skills/skills/common/tt-review-core/SKILL.md",
+      "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209/share/tenstorrent-official-skills/skills/models/tt-precision-review/SKILL.md",
+      "/nix/store/9da797hhn6zjdybnfb1nqn6chz606gwl-tenstorrent-official-skills-2026-10-23-b675209/share/tenstorrent-official-skills/skills/models/tt-trace-review/SKILL.md"
+    ],
+    "read_reference_files": [
+      "skills/common/tt-review-core/references/false-positive-guards.md",
+      "skills/common/tt-review-core/references/output-format.md",
+      "skills/common/tt-review-core/references/scope-and-evidence.md",
+      "skills/models/tt-precision-review/references/special-values.md",
+      "skills/metal/tt-l1-memory-review/references/data-movement-tiers.md",
+      "skills/metal/tt-l1-memory-review/references/reduce-accumulate-constraints.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/cb-ownership.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/control-flow-and-inplace.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/init-and-reconfig.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/op-input-validation.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/program-cache-hashing.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/program-cache-runtime-args.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/semaphores.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/trisc-sync.md",
+      "skills/ttnn/ttnn-op-kernel-review/references/work-distribution.md"
+    ],
+    "relative_link_closure": [
+      {
+        "from": "SOURCES.md",
+        "to": "LICENSE"
+      },
+      {
+        "from": "SOURCES.md",
+        "to": "NOTICE"
+      },
+      {
+        "from": "SOURCES.md",
+        "to": "LICENSES"
+      },
+      {
+        "from": "docs/models/tt-trace-review.md",
+        "to": "skills/models/tt-trace-review/SKILL.md"
+      },
+      {
+        "from": "docs/models/tt-trace-review.md",
+        "to": "SOURCES.md"
+      },
+      {
+        "from": "docs/models/tt-precision-review.md",
+        "to": "skills/models/tt-precision-review/SKILL.md"
+      },
+      {
+        "from": "docs/models/tt-precision-review.md",
+        "to": "SOURCES.md"
+      },
+      {
+        "from": "docs/ttnn/ttnn-op-kernel-review.md",
+        "to": "skills/ttnn/ttnn-op-kernel-review/SKILL.md"
+      },
+      {
+        "from": "docs/ttnn/ttnn-op-kernel-review.md",
+        "to": "SOURCES.md"
+      },
+      {
+        "from": "docs/common/tt-review-core.md",
+        "to": "skills/common/tt-review-core/SKILL.md"
+      },
+      {
+        "from": "docs/common/tt-review-core.md",
+        "to": "SOURCES.md"
+      },
+      {
+        "from": "docs/metal/tt-l1-memory-review.md",
+        "to": "skills/metal/tt-l1-memory-review/SKILL.md"
+      },
+      {
+        "from": "docs/metal/tt-l1-memory-review.md",
+        "to": "SOURCES.md"
+      }
+    ],
+    "rejections": {
+      "read precision trace l1": {
+        "returncode": 2,
+        "last_error": "reference.py: error: select at most two domain skills in addition to automatic review-core"
+      },
+      "read l1 --file ../../../../etc/passwd": {
+        "returncode": 2,
+        "last_error": "reference.py: error: --file must resolve to an installed file within the selected domain"
+      },
+      "read l1 --file /etc/passwd": {
+        "returncode": 2,
+        "last_error": "reference.py: error: --file must resolve to an installed file within the selected domain"
+      },
+      "--root /tmp list": {
+        "returncode": 2,
+        "last_error": "reference.py: error: argument command: invalid choice: '/tmp' (choose from list, resolve, read)"
+      }
+    },
+    "physical_device_ids": [],
+    "checkpoint": null
+  },
+  "evaluation_exposure": {
+    "supported_system": "x86_64-linux",
+    "app": "tenstorrent-eval",
+    "package_and_check": "tenstorrent-eval-tools",
+    "aarch64_app_present": false,
+    "aarch64_package_present": false,
+    "verification": "Scoped nix eval of x86_64-linux app program and package meta.platforms; aarch64-linux hasAttr queries both returned false."
+  },
+  "final_tooling_build": {
+    "command": "nix build .#qwen38 .#checks.x86_64-linux.qwen38 .#tt-lang-sim .#tenstorrent-official-skills .#tenstorrent-eval-tools --no-link --print-out-paths",
+    "outputs": [
+      "/nix/store/b7x5lpif8pb83927cg9zc44m689dyj8j-tt-lang-sim-1.1.6",
+      "/nix/store/vlbsna4y6fapmqan6ml85rnykigdcsnx-tenstorrent-official-skills-2026-10-23-b675209",
+      "/nix/store/iflk60v2hsh5wwz434hh6wjjjv5rdhmv-tenstorrent-eval-tools-0.1.0"
+    ]
+  },
+  "post_cleanup_validation": {
+    "source_changes": "Pinned Ruff import/unused-import cleanup and formatting of the eight maintained task Python files; analytic aggregation lambda replaced by an equivalent named function; pinned Nixfmt on Qwen default.nix. No hardware repeat.",
+    "normal_build_exit_code": 0,
+    "normal_build_elapsed_seconds": 143.18,
+    "normal_tool_checks_command": "nix build .#checks.x86_64-linux.tt-lang-sim .#checks.x86_64-linux.tenstorrent-official-skills .#checks.x86_64-linux.tenstorrent-eval-tools --no-link --print-out-paths",
+    "normal_tool_checks_exit_code": 0,
+    "normal_tool_checks_elapsed_seconds": 27.05,
+    "installed_commands": [
+      "/nix/store/vlbsna4y6fapmqan6ml85rnykigdcsnx-tenstorrent-official-skills-2026-10-23-b675209/bin/tenstorrent-official-skills resolve precision trace",
+      "/nix/store/iflk60v2hsh5wwz434hh6wjjjv5rdhmv-tenstorrent-eval-tools-0.1.0/bin/tenstorrent-eval traffic --m 1 --k 5120 --n 8704 --b-dtype bfloat4_b --bn 4 --bk 4 --cols 4 --multicast"
+    ],
+    "installed_commands_exit_codes": [0, 0],
+    "installed_observed": "Skills resolved review-core, precision, trace in order; analytic traffic totals matched final_flake_command_smoke. This is source-cleanup proof, not new hardware/model-retention evidence.",
+    "historical_script": ".cairn/changes/package-traffic-retention-cli/evidence/historical/bf4_eval.py.txt",
+    "historical_script_sha256": "6b71aabe18822b84ad3a06b09d99dc725727832913262630054d8ced6be0a58d",
+    "historical_script_scope": "Byte-preserved original bf4_eval.py renamed as raw archival evidence, not a maintained executable."
+  },
+  "final_flake_command_smoke": {
+    "simulator_command": "nix run .#tt-lang-sim -- --version",
+    "simulator_output": "tt-lang-sim 1.1.6",
+    "skills_command": "nix run .#tenstorrent-official-skills -- resolve precision trace",
+    "resolved_domain_order": ["review-core", "precision", "trace"],
+    "traffic_command": "nix run .#tenstorrent-eval -- traffic --m 1 --k 5120 --n 8704 --b-dtype bfloat4_b --bn 4 --bk 4 --cols 4 --multicast",
+    "traffic_evidence_kind": "analytic-model-not-hardware-counters",
+    "traffic_observed_totals": {
+      "compulsory_bytes": 26509312,
+      "reread_bytes": 5242880,
+      "fused_bytes": 31752192,
+      "unfused_bytes": 33980416,
+      "intermediate_saved_bytes": 2228224,
+      "l1_bytes_per_core": 100352
+    }
+  },
+  "final_integration_validation": {
+    "nix_format_command": "nix fmt -- pkgs/tt-lang-sim/default.nix pkgs/tenstorrent-official-skills/default.nix pkgs/tenstorrent-eval-tools/default.nix overlay.nix flake.nix flake-modules/onix-packages.nix",
+    "nix_format_result": "6 files processed, 1 changed; exit 0",
+    "rust_format_command": "cargo fmt --all from metalium-rs with the package-pinned Rust 1.97.1 PATH",
+    "rust_format_result": "exit 0",
+    "native_package_command": "nix build .#metalium-rs --no-link --print-out-paths",
+    "native_package_checks_disabled": false,
+    "native_package_result": "unresolved: command timed out after 1500 seconds; no accepted output path",
+    "native_package_derivation": "/nix/store/4dg1gilkqkwzia9sh2aryzbmgx04si3j-metalium-rs-0.1.0-unstable-2026-10-19.drv",
+    "observed_native_build_phase": "release profile completed in 52 seconds; test profile compiled in 68 seconds; subsequent check suites ran",
+    "last_observed_native_check": "step155_interpolate::lanczos3_gradient_matches_the_adjoint reported running for over 60 seconds",
+    "native_timeout_cleanup": {
+      "transport": "ssh root@aspen1.local",
+      "remote_command": "printf 'REMOTE_STATUS_REACHABLE\\n'; pgrep -af '[s]tep155_interpolate|[4]dg1gilkqkwzia9sh2aryzbmgx04si3j|[m]etalium-rs-0.1.0-unstable-2026-10-19'; status=$?; printf 'NATIVE_TARGET_PGREP_STATUS=%s\\n' \"$status\"; test \"$status\" -eq 1",
+      "remote_stdout": "REMOTE_STATUS_REACHABLE\nNATIVE_TARGET_PGREP_STATUS=1\n",
+      "remote_exit_code": 0,
+      "remote_warning": "Certificate invalid: name is not a listed principal",
+      "warning_scope": "The warning was non-fatal: the remote sentinel and explicit target status prove remote execution, not an SSH-permission blocker.",
+      "additional_remote_process_root_probe": "Enumerated /proc/[0-9]*/root with readlink, selecting the exact timed-out derivation hash or native package name.",
+      "additional_remote_stdout": "REMOTE_STATUS_REACHABLE\nREMOTE_NATIVE_SANDBOX_COUNT=0\n",
+      "additional_remote_exit_code": 0,
+      "local_target_status": "Earlier local targeted pgrep returned exit 1 with no matches.",
+      "verdict": "No matching timed-out native test, derivation, or native build sandbox remained; normal native package acceptance remains TIMEOUT, not PASS."
+    },
+    "post_format_evaluation_tool_output": "/nix/store/iflk60v2hsh5wwz434hh6wjjjv5rdhmv-tenstorrent-eval-tools-0.1.0",
+    "cairn_contract_repair": "Added substantive delta specs and linked serial task records for all four scoped spec-driven changes after Cairn exposed the missing contract artifacts; direct validation then reported valid=true for thirty changes with all issue arrays empty",
+    "scope": "No failing assertion was observed, but the full native package check did not finish and is not accepted. No skipping, relaxed assertions, or passing substitute check was used."
+  },
+  "native_profile_and_backend_repair": {
+    "scope": "Completed scoped profile proof and first follow-up attempt; not a full normal package pass",
+    "source": "pkgs/metalium-rs/default.nix keeps checkType=debug, cargo test --workspace --no-fail-fast and CARGO_PROFILE_TEST_OPT_LEVEL=3",
+    "diagnosis": "Independent Lanczos3 adjoint oracle materializes dense Flex impulses and computes the f64 adjoint; largest case has 1024 input impulses and 2048 outputs per impulse. Original timeout reported no assertion failure or deadlock.",
+    "unchanged": ["all workspace test names and cases", "independent oracle and negative controls", "numerical bounds", "debug assertion and integer overflow checks", "cfg(debug_assertions) sample coverage", "native algorithms and firmware", "native TTsim 1.10.9 pin", "1500-second command bound"],
+    "scoped_proof": {
+      "rust": "1.97.1",
+      "simulator": "1.10.9",
+      "interpolation_test_count": 14,
+      "interpolation_passed": 14,
+      "interpolation_elapsed_seconds": 116.45,
+      "source_matched_test_lists": "unoptimized debug, optimized test and release each list 14 tests and 0 benchmarks; older cached 15-test release binary excluded",
+      "profile_contract": "throwaway smoke observed cfg(debug_assertions), trapping debug_assert and integer overflow; compiler flags include opt-level=3 and debug-assertions=on",
+      "profile_sensitive_sfpu_gate": "no_float_reduces_closer_than_the_hardest passed in 0.02 seconds",
+      "record": "metalium-rs/docs/learnings/performance-log.md#native-package-check-profile-2026-10-23-ttsim"
+    },
+    "local_followup_attempt": {
+      "command": "nix build .#metalium-rs --no-link --print-out-paths -L --option builders 'ssh-ng://root@aspen1.local x86_64-linux - 32 1 nixos-test,big-parallel,kvm - -'",
+      "derivation": "/nix/store/zwyzl979mj1qyrhqgxdl6rbxif85yz4h-metalium-rs-0.1.0-unstable-2026-10-19.drv",
+      "result": "TIMEOUT",
+      "elapsed_seconds": 1500.26,
+      "actual_backend": "daemon SSH connection failed; Nix fell back to local cargo -j4, not the intended remote 32-job builder",
+      "release_build_seconds": 256,
+      "phase_at_timeout": "full workspace optimized-test compilation, last preserved line Compiling xtask; no tests started or failed",
+      "diagnosis": "local four-job full test compilation exhausted the same command bound; distinct from the original unoptimized Lanczos runtime cost",
+      "cleanup": "exact Nix/cargo/shell PIDs absent; zero native/hash process matches and zero matching process sandbox roots; no orphan build work"
+    },
+    "permanent_backend_repair": "quality launcher bootstraps the matched patched Nix2.36 build-remote component locally, then uses the configured full gRPC URI and plugin through the explicit build-hook argv vector; actual final-hook remote consumer build passed. No global machine configuration or credential rewrite."
+  },
+  "native_package_resolution": {
+    "status": "passed",
+    "command": "nix build .#metalium-rs --no-link --print-out-paths -L --option build-hook '/nix/store/vijj9gv3w29arrp2llqliv1r5ywqlifg-nix-2.36.0/bin/nix __build-remote'",
+    "timeout_seconds": 1500,
+    "elapsed_seconds": 937.98,
+    "output": "/nix/store/0x4g7ynj9bng8rvq12mhv0h88yc92a04-metalium-rs-0.1.0-unstable-2026-10-19",
+    "derivation": "/nix/store/zwyzl979mj1qyrhqgxdl6rbxif85yz4h-metalium-rs-0.1.0-unstable-2026-10-19.drv",
+    "actual_backend": "configured gRPC aspen1.local:50051; build and check cargo -j32; remote output copied back",
+    "command_flags_note": "The corrected attempt started before the later max-jobs=0/fallback=false request reached its owner; those flags are not claimed. The full log independently proves actual remote execution. The separate forced remote builder proof did use both flags.",
+    "all_checks_enabled": true,
+    "check_type": "debug",
+    "test_opt_level": 3,
+    "release_compile_seconds": 47.70,
+    "test_compile_seconds": 127,
+    "check_phase_seconds": 825,
+    "passed": 1556,
+    "failed": 0,
+    "existing_ignored": 46,
+    "filtered_out": 0,
+    "measured": 0,
+    "runtime_test_binaries": 258,
+    "doctest_crates": 14,
+    "result_summaries": 272,
+    "interpolation": {"passed": 14, "failed": 0, "elapsed_seconds": 28.86, "includes": "lanczos3_gradient_matches_the_adjoint and all existing negative controls"},
+    "cleanup": "All native-owned jobs settled; no further native source writes or package retries",
+    "scope": "Full normal package build, workspace check, install and fixup; not a new hardware, model-quality or performance qualification. Original failed attempts are preserved separately above."
+  },
+  "reproduction": "Write simulator.smoke_source to /tmp/tt-lang-sim-installed-smoke.py, build the packages, then run simulator.command and simulator.statistics_command. The files under /tmp are throwaway, not permanent regression tests."
+}

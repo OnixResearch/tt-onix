@@ -1,0 +1,175 @@
+"""Throwaway cross-run quality/timing evaluation for weight-precision candidates (P150x2, B=1).
+
+Runs the fused-step decode route. EVAL_REF_SAVE writes a reference (greedy tokens, teacher-forced
+top-64 log-probs, passage NLL); EVAL_REF_LOAD compares against it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import statistics
+import time
+from pathlib import Path
+
+import torch
+import ttnn
+from transformers import AutoTokenizer
+
+from models.demos.blackhole.qwen36.tt.model import Qwen36Model
+from qwen36_service import decode_component_probe as dcp
+from qwen36_service.decode_adapter import TracedDecodeAdapter
+from qwen36_service.decode_component_adapter import DecodeComponentProbeAdapter
+
+GEN = 96
+TOPK = 64
+PROMPTS = [
+    "The capital of France is",
+    "Explain why deterministic cleanup matters for recurrent state.",
+    "Write a Python function that returns the n-th Fibonacci number using iteration.",
+    "Q: A train travels 120 km in 1.5 hours. What is its average speed in km/h?\nA:",
+    "List three differences between TCP and UDP.",
+    "Summarize the plot of Romeo and Juliet in two sentences.",
+    "Translate to French: The weather is nice today and we are going to the park.",
+    "What is 17 multiplied by 23? Answer with the number only.",
+]
+PASSAGES = [
+    "The mitochondrion is an organelle found in the cells of most eukaryotes. It uses aerobic respiration "
+    "to generate adenosine triphosphate, which is used throughout the cell as a source of chemical energy. "
+    "Mitochondria have their own genome, which is inherited maternally in most species, and they are thought "
+    "to have originated from an ancient symbiosis between a host cell and an alphaproteobacterium.",
+    "def merge_sort(values):\n    if len(values) <= 1:\n        return values\n    middle = len(values) // 2\n"
+    "    left = merge_sort(values[:middle])\n    right = merge_sort(values[middle:])\n    merged = []\n"
+    "    i = j = 0\n    while i < len(left) and j < len(right):\n        if left[i] <= right[j]:\n"
+    "            merged.append(left[i])\n            i += 1\n        else:\n            merged.append(right[j])\n"
+    "            j += 1\n    merged.extend(left[i:])\n    merged.extend(right[j:])\n    return merged\n",
+    "In 1905, Albert Einstein published four papers that changed physics. The first explained the "
+    "photoelectric effect by proposing that light is made of discrete quanta. The second gave a "
+    "quantitative account of Brownian motion. The third introduced special relativity, and the fourth "
+    "derived the equivalence of mass and energy.",
+    "To make a simple tomato sauce, heat olive oil in a pan over medium heat and add chopped garlic. "
+    "Cook until fragrant, then add crushed tomatoes, a pinch of salt, and a few basil leaves. Let the sauce "
+    "simmer for about twenty minutes, stirring occasionally, until it thickens.",
+    "The derivative of a function measures how its output changes as its input changes. For example, the "
+    "derivative of x squared is two x, and the derivative of the sine function is the cosine function. "
+    "Integration is the inverse operation, and the fundamental theorem of calculus connects the two.",
+    "SELECT customers.name, COUNT(orders.id) AS order_count\nFROM customers\nLEFT JOIN orders ON "
+    "orders.customer_id = customers.id\nWHERE customers.created_at >= '2024-01-01'\nGROUP BY customers.name\n"
+    "ORDER BY order_count DESC\nLIMIT 10;\n",
+]
+PASSAGE_PREFIX = 12
+
+
+def main():
+    model_path = Path(os.environ["QWEN38_MODEL"])
+    package = Path(os.environ["QWEN38_PACKAGE"])
+    share = package / "share" / "qwen36"
+    decode_profile = dcp._load_decode_profile(share / "decode-profile.json")
+    component_profile = dcp._load_component_profile(share / "decode-component-profile.json")
+    os.environ["HF_MODEL"] = str(model_path)
+    os.environ["TT_CACHE_PATH"] = str(model_path)
+    pcie = tuple(int(d) for d in ttnn.get_pcie_device_ids())
+    identity = dcp.DecodeComponentIdentity(
+        runtime_identity=os.environ["QWEN38_RUNTIME"], package_identity=str(package),
+        model_identity=f"{dcp.MODEL_ALIAS}:{component_profile.checkpoint_revision}",
+        authority_blake3=component_profile.authority_blake3,
+        checkpoint_revision=component_profile.checkpoint_revision,
+        model_source_revision=component_profile.model_source_revision,
+        tokenizer_revision=component_profile.tokenizer_revision,
+    )
+    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D, ttnn.FabricReliabilityMode.STRICT_INIT, None,
+                           ttnn.FabricTensixConfig.DISABLED, ttnn.FabricUDMMode.DISABLED,
+                           ttnn.FabricManagerMode.DEFAULT)
+    mesh = ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(*component_profile.mesh_shape),
+                                 l1_small_size=dcp.L1_SMALL_SIZE_BYTES, num_command_queues=1,
+                                 trace_region_size=component_profile.trace_region_size_bytes)
+    mesh.enable_program_cache()
+    label = os.environ.get("EVAL_LABEL", "run")
+    out = {"label": label, "flags": {k: v for k, v in os.environ.items() if k.startswith("QWEN36_") or k.startswith("QWEN35_GDN")}}
+    try:
+        load_started = time.monotonic()
+        model = Qwen36Model.from_pretrained(mesh, max_batch_size=1,
+                                            max_seq_len=component_profile.maximum_sequence_length)
+        out["load_seconds"] = time.monotonic() - load_started
+        tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        adapter = TracedDecodeAdapter(model=model, profile=decode_profile,
+                                      runtime_identity=identity.runtime_identity,
+                                      package_identity=identity.package_identity,
+                                      model_identity=identity.model_identity, slot_id="eval",
+                                      buffer_generation=1)
+        probe = DecodeComponentProbeAdapter(model=model, decode_adapter=adapter, profile=component_profile,
+                                            identity=identity, physical_pcie_device_ids=pcie)
+
+        def prefill(ids):
+            return probe._prefill(torch.tensor([ids], dtype=torch.int32), generation_tokens=GEN + 200)
+
+        def run(ids, forced=None, steps=GEN, logits=True):
+            n, first = prefill(ids)
+            token, toks, rows = first, [first], []
+            for step in range(steps):
+                token = adapter.decode_traced(token=forced[step] if forced is not None else token, position=n + step)
+                if logits:
+                    rows.append(adapter.read_trace_logits().float().clone())
+                toks.append(token)
+            return toks, rows
+
+        prompt_ids = [tok(p, add_special_tokens=True).input_ids for p in PROMPTS]
+        passage_ids = [tok(p, add_special_tokens=True).input_ids for p in PASSAGES]
+        n, first = prefill(prompt_ids[0])
+        probe._prompt_state = adapter._snapshot_tp_gdn_state()
+        full, _ = probe._measure_full_trace(token=first, position=n)
+        out["full_step_us"] = statistics.median(s.device_seconds * 1e6 for s in full)
+        print(label, "full step us", round(out["full_step_us"]), flush=True)
+        ref = json.loads(Path(os.environ["EVAL_REF_LOAD"]).read_text()) if os.environ.get("EVAL_REF_LOAD") else None
+        greedy = [run(ids, logits=False)[0] for ids in prompt_ids]
+        out["greedy"] = greedy
+        out["greedy_text"] = [tok.decode(g[:48]) for g in greedy]
+        tf_top = []
+        agree, kl = [], []
+        for i, ids in enumerate(prompt_ids):
+            forced = ref["greedy"][i] if ref else greedy[i]
+            _, rows = run(ids, forced=forced)
+            lp = torch.log_softmax(torch.stack(rows).double(), -1)
+            values, indices = lp.topk(TOPK, -1)
+            tf_top.append({"indices": indices.tolist(), "logprobs": values.tolist()})
+            if ref:
+                r_idx = torch.tensor(ref["tf_top"][i]["indices"])
+                r_lp = torch.tensor(ref["tf_top"][i]["logprobs"], dtype=torch.float64)
+                agree.append(float((lp.argmax(-1) == r_idx[:, 0]).double().mean()))
+                # KL(ref || run) restricted to the reference's top-64 support.
+                run_lp = lp.gather(-1, r_idx)
+                kl.append(float((r_lp.exp() * (r_lp - run_lp)).sum(-1).mean()))
+        out["tf_top"] = tf_top
+        nll = []
+        for ids in passage_ids:
+            pre, rest = ids[:PASSAGE_PREFIX], ids[PASSAGE_PREFIX:]
+            steps = len(rest) - 1
+            _, rows = run(pre, forced=rest, steps=steps)
+            lp = torch.log_softmax(torch.stack(rows).double(), -1)
+            nll.append(float(-lp[torch.arange(steps), torch.tensor(rest[1:steps + 1])].mean()))
+        out["passage_nll"] = nll
+        summary = {"full_step_us": out["full_step_us"], "passage_nll": nll, "mean_nll": sum(nll) / len(nll)}
+        if ref:
+            div = []
+            for g0, g1 in zip(ref["greedy"], greedy):
+                div.append(next((j for j in range(min(len(g0), len(g1))) if g0[j] != g1[j]), None))
+            summary.update(tf_top1=agree, mean_tf_top1=sum(agree) / len(agree), tf_kl_top64=kl,
+                           mean_kl=sum(kl) / len(kl), greedy_divergence=div,
+                           mean_nll_delta=summary["mean_nll"] - sum(ref["passage_nll"]) / len(ref["passage_nll"]),
+                           step_ratio=out["full_step_us"] / ref["full_step_us"])
+        out["summary"] = summary
+        print(label, "SUMMARY", json.dumps(summary), flush=True)
+        for text in out["greedy_text"]:
+            print(label, "GREEDY", repr(text), flush=True)
+        Path(os.environ["EVAL_OUTPUT"]).write_text(json.dumps(out))
+        adapter.close()
+        model.free_kv_caches()
+    finally:
+        for sub in mesh.get_submeshes():
+            ttnn.close_mesh_device(sub)
+        ttnn.close_mesh_device(mesh)
+        ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
+
+
+if __name__ == "__main__":
+    main()

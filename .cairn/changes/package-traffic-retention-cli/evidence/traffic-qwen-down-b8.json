@@ -1,0 +1,153 @@
+{
+  "evidence_kind": "analytic-model-not-hardware-counters",
+  "operation": "y=act(a@b+c)",
+  "logical_shape_mkn": [
+    8,
+    8704,
+    5120
+  ],
+  "padded_shape_mkn": [
+    32,
+    8704,
+    5120
+  ],
+  "logical_payload_bytes": {
+    "a": 139264.0,
+    "b": 44564480.0,
+    "c": 81920.0,
+    "y": 81920.0
+  },
+  "payload_semantics": "logical_payload_bytes excludes padding/exponents; all storage entries count padded tile payload plus explicit exponent bytes",
+  "block_tiles_mnk": [
+    1,
+    4,
+    4
+  ],
+  "grid_columns_rows": [
+    4,
+    1
+  ],
+  "multicast": true,
+  "compulsory": {
+    "a": {
+      "tiles": 272,
+      "payload_bytes": 557056,
+      "exponent_bytes": 0,
+      "packed_bytes": 557056
+    },
+    "b": {
+      "tiles": 43520,
+      "payload_bytes": 44564480,
+      "exponent_bytes": 2785280,
+      "packed_bytes": 47349760
+    },
+    "c": {
+      "tiles": 160,
+      "payload_bytes": 327680,
+      "exponent_bytes": 0,
+      "packed_bytes": 327680
+    },
+    "y": {
+      "tiles": 160,
+      "payload_bytes": 327680,
+      "exponent_bytes": 0,
+      "packed_bytes": 327680
+    }
+  },
+  "fused_streams": {
+    "a": {
+      "tiles": 2720,
+      "payload_bytes": 5570560,
+      "exponent_bytes": 0,
+      "packed_bytes": 5570560
+    },
+    "b": {
+      "tiles": 43520,
+      "payload_bytes": 44564480,
+      "exponent_bytes": 2785280,
+      "packed_bytes": 47349760
+    },
+    "c": {
+      "tiles": 160,
+      "payload_bytes": 327680,
+      "exponent_bytes": 0,
+      "packed_bytes": 327680
+    },
+    "y": {
+      "tiles": 160,
+      "payload_bytes": 327680,
+      "exponent_bytes": 0,
+      "packed_bytes": 327680
+    }
+  },
+  "rereads": {
+    "a": {
+      "tiles": 2448,
+      "payload_bytes": 5013504,
+      "exponent_bytes": 0,
+      "packed_bytes": 5013504
+    },
+    "b": {
+      "tiles": 0,
+      "payload_bytes": 0,
+      "exponent_bytes": 0,
+      "packed_bytes": 0
+    }
+  },
+  "multicast_saved_bytes": 16711680,
+  "unfused_intermediates": {
+    "y1_write_read": {
+      "tiles": 320,
+      "payload_bytes": 655360,
+      "exponent_bytes": 0,
+      "packed_bytes": 655360
+    },
+    "y2_write_read": {
+      "tiles": 320,
+      "payload_bytes": 655360,
+      "exponent_bytes": 0,
+      "packed_bytes": 655360
+    }
+  },
+  "l1_buffers_per_core": {
+    "a": {
+      "tiles": 8,
+      "payload_bytes": 16384,
+      "exponent_bytes": 0,
+      "packed_bytes": 16384
+    },
+    "b": {
+      "tiles": 32,
+      "payload_bytes": 32768,
+      "exponent_bytes": 2048,
+      "packed_bytes": 34816
+    },
+    "c": {
+      "tiles": 8,
+      "payload_bytes": 16384,
+      "exponent_bytes": 0,
+      "packed_bytes": 16384
+    },
+    "accumulator": {
+      "tiles": 8,
+      "payload_bytes": 32768,
+      "exponent_bytes": 0,
+      "packed_bytes": 32768
+    },
+    "y": {
+      "tiles": 8,
+      "payload_bytes": 16384,
+      "exponent_bytes": 0,
+      "packed_bytes": 16384
+    }
+  },
+  "totals": {
+    "compulsory_bytes": 48562176,
+    "reread_bytes": 5013504,
+    "fused_bytes": 53575680,
+    "unfused_bytes": 54886400,
+    "intermediate_saved_bytes": 1310720,
+    "l1_bytes_per_core": 116736
+  },
+  "limits": "Tile padding explicit; no cache/residency, NoC, collectives, allocator or throughput prediction. L1 is data buffers only, not firmware/reserved capacity. C and Y use output dtype; intermediates materialize in output dtype."
+}

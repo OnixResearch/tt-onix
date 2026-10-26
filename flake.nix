@@ -62,6 +62,8 @@
               tt-topology
               tt-umd
               ttsim
+              tt-lang-sim
+              tenstorrent-official-skills
               ttsim-blackhole-smoke
               ttsim-runtime-validator
               ;
@@ -73,7 +75,11 @@
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
+            inherit (pkgs)
+              qwen38-trace-reuse-host1
+              qwen36-trace-reuse-host1
+              tenstorrent-eval-tools
+              ;
           };
 
           apps.ttsim-blackhole-smoke = {
@@ -96,6 +102,8 @@
               tt-topology
               tt-umd
               ttsim
+              tt-lang-sim
+              tenstorrent-official-skills
               ttsim-runtime-validator
               ;
             ttsim-runtime-bundle = pkgs.ttsim-check;
@@ -110,7 +118,11 @@
             inherit (pkgs.linuxPackagesFor pkgs.linux) tt-kmd;
           }
           // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-            inherit (pkgs) qwen38-trace-reuse-host1 qwen36-trace-reuse-host1;
+            inherit (pkgs)
+              qwen38-trace-reuse-host1
+              qwen36-trace-reuse-host1
+              tenstorrent-eval-tools
+              ;
           };
         };
     };

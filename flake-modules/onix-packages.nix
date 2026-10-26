@@ -1169,6 +1169,18 @@
     in
     {
       apps = {
+        tt-lang-sim = {
+          type = "app";
+          program = "${pkgs.tt-lang-sim}/bin/tt-lang-sim";
+        };
+        tt-lang-sim-stats = {
+          type = "app";
+          program = "${pkgs.tt-lang-sim}/bin/tt-lang-sim-stats";
+        };
+        tenstorrent-official-skills = {
+          type = "app";
+          program = "${pkgs.tenstorrent-official-skills}/bin/tenstorrent-official-skills";
+        };
         metalium-rs-mnist = {
           type = "app";
           program = "${metaliumRs}/bin/tt-mnist";
@@ -1213,6 +1225,10 @@
       // lib.optionalAttrs isSupportedSystem (
         developmentApps
         // {
+          tenstorrent-eval = {
+            type = "app";
+            program = "${pkgs.tenstorrent-eval-tools}/bin/tenstorrent-eval";
+          };
           clef-serve = {
             type = "app";
             program = "${qwen38}/bin/clef-serve";

@@ -27,6 +27,9 @@ final: prev: {
   tt-topology = final.callPackage ./pkgs/tt-topology { };
   tt-umd = final.callPackage ./pkgs/tt-umd { };
   ttsim = final.callPackage ./pkgs/ttsim { };
+  tt-lang-sim = final.callPackage ./pkgs/tt-lang-sim { };
+  tenstorrent-official-skills = final.callPackage ./pkgs/tenstorrent-official-skills { };
+  tenstorrent-eval-tools = final.callPackage ./pkgs/tenstorrent-eval-tools { };
   ttsim-check = final.callPackage ./pkgs/ttsim/check.nix { };
   ttsim-runtime-validator = final.callPackage ./pkgs/ttsim-runtime-validator { };
   ttsim-blackhole-smoke = final.callPackage ./pkgs/ttsim/smoke.nix { };

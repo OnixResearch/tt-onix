@@ -1,0 +1,46 @@
+{
+  "schema": "qwen38-six-passage-v1",
+  "recipe": "targets-13-end:f32-to-f64-logsoftmax:equal-six-passage-means",
+  "corpus_sha256": "07b95ff60e0a5f596c3751502c4819eab79233ab181aee5afad660a7cd53e77b",
+  "logits_sha256": "818b3e75fd3e9cc0a1b61425a10bdae94df58b7340d4f50b0435fa50605491d1",
+  "provenance": {
+    "model": "SYNTHETIC-LOGITS-NOT-MODEL-RETENTION",
+    "checkpoint": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "runtime": "torch-cpu-synthetic-scoring",
+    "package": "tenstorrent-eval-tools-0.1.0",
+    "cache": "none-synthetic",
+    "precision_flags": {
+      "SYNTHETIC_TREATMENT": "0"
+    },
+    "execution": "synthetic-cpu-scoring-validation-NOT-model-inference"
+  },
+  "tokenizer_assets_sha256": {
+    "tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "tokenizer_config.json": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+    "vocab.json": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
+    "merges.txt": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d",
+    "chat_template.jinja": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+  },
+  "vocabulary_size": 248320,
+  "model_config_sha256": "74227dd615bf1ea975aa676bdf355a0379858c12f394b5365cd9dfa5fc2c70bc",
+  "scored_token_counts": [
+    76,
+    122,
+    50,
+    46,
+    42,
+    49
+  ],
+  "passage_nll": [
+    12.29747405217384,
+    11.297481893103761,
+    10.297503206650067,
+    9.2975611405812,
+    8.297718604373467,
+    7.298146510074204
+  ],
+  "mean_nll": 9.79764756782609,
+  "scoring_engine": "torch-2.12.0:cpu",
+  "baseline_sha256": null,
+  "declared_changes": {}
+}

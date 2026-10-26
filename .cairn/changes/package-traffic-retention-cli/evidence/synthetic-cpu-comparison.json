@@ -1,0 +1,19 @@
+{
+  "baseline_sha256": "a11d59e4cb4a242c25d7d024479e5f19aa708467031b57747a4f9fe33f620344",
+  "treatment_sha256": "1826dd5b2e666f0b6b5d3cc54ef30c460bceea37f6704487d42680faa6c8f5e8",
+  "mean_nll_delta": -0.00016666624360972548,
+  "passage_nll_delta": [
+    -0.0009999974616619056,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "scope": "six historical passages only; not global quality admission",
+  "original_diagnostic": {
+    "ceiling_delta_nats": 0.01,
+    "passes": true,
+    "scope": "original six-passage diagnostic only; no global floor"
+  }
+}

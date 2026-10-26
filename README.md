@@ -255,6 +255,63 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and evidence policy.
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
 See [`docs/ttsim-runtime.md`](docs/ttsim-runtime.md) for wrappers, the bounded smoke, and simulator non-claims.
 
+### Isolated developer evaluation tools
+
+`tt-lang-sim` **1.1.6** is the upstream pure-Python TT-Lang simulator, not
+`ttsim`, a TT-Metal device runtime, or production `ttnn`. Its explicit Python
+closure clears ambient `PYTHONPATH`/`PYTHONHOME` and user-site imports. Only the
+simulator and statistics commands are exposed; runtime SFPI/toolchain setup or
+downloads are not part of this package.
+
+```sh
+nix build .#tt-lang-sim .#tenstorrent-official-skills .#tenstorrent-eval-tools
+nix run .#tt-lang-sim -- /absolute/path/kernel.py --grid 1,1 --num-devices 1 --trace /tmp/kernel.jsonl
+nix run .#tt-lang-sim-stats -- /tmp/kernel.jsonl
+nix run .#tenstorrent-eval -- --help
+```
+
+The separate `tenstorrent-eval-tools` package/app is exposed on
+`x86_64-linux`; its explicit Python closure includes offline scoring
+dependencies. The simulator and official reference package do not depend on
+the production model package.
+It provides `traffic` and `retention freeze/score/compare/collect`; see
+[the evaluation tool guide](docs/tenstorrent-eval-tools.md) for modeled
+tile/exponent/L1 accounting, frozen tokenizer identities, full-vocabulary
+teacher-forced scoring and provenance-matched comparisons. Offline scoring is
+not full-model evidence. The separate collector requires the hardware owner's
+package-matched runtime, checkpoint, mesh and device isolation; the ordinary
+installed offline wrapper does not load production TT-NN.
+
+The installed simulator passed an actual one-tile add and matmul with exact
+float32 outputs, and the upstream statistics command reported four DRAM tile
+reads and two writes. These are **modeled** tensor transfers, not measured
+hardware traffic, timing, placement, or device numerical fidelity. Default
+reduced-precision simulation promotes arithmetic to float32; use upstream
+`--no-float32-promotion` when investigating native dtype behavior, and still
+require silicon qualification. The bounded receipt is in
+[the integration Cairn change](.cairn/changes/isolated-tt-lang-sim-official-skills/).
+
+`tenstorrent-official-skills` pins the official
+[`tenstorrent/skills`](https://github.com/tenstorrent/skills/tree/b6752095f329a04bf6573fb4022b13bc45799167)
+revision **b6752095f329a04bf6573fb4022b13bc45799167**. It supplies read-only
+review-core, precision, trace, L1 and TTNN kernel domains, complete local
+reference directories, and upstream license/NOTICE files. The CLI automatically
+loads **review-core first**, then **at most two distinct domain skills** per
+invocation (repeated domain names are deduplicated):
+
+```sh
+nix run .#tenstorrent-official-skills -- list
+nix run .#tenstorrent-official-skills -- resolve review-core precision
+nix run .#tenstorrent-official-skills -- read review-core kernel
+nix run .#tenstorrent-official-skills -- read l1 --file references/data-movement-tiers.md
+```
+
+This reference reader does not install a marketplace/plugin, execute bundled
+scripts or hooks, enable telemetry, mutate the home directory, or refresh the
+older `.pi/skills` pins. Reading a reference is not authorization to execute
+its suggested commands. These references are not package-matched TT-Metal API
+authority.
+
 New kernel candidates remain opt-in and default-off:
 `TT_DECODE_MATVEC=1` selects the native decode strip matvec, and
 `TT_WKV7_STATE_VIEW=1` selects direct eligible recurrent-state views through
@@ -311,6 +368,22 @@ continuation, with explicit local model path and decode profile; see
 [the Qwen candidate guide](docs/research/qwen38-rounded-register-swiglu.md)
 for exact geometry, arithmetic and command prerequisites. These candidate checks
 do not confer serving admission.
+
+Fresh content-bound B=1 collection on physical devices 0 and 1 scored the
+original six passages over all **248320 vocabulary columns**. Baseline and
+decode-only treatment both had mean NLL **0.7451044766709086**, with all six
+passage deltas exactly zero; the original **+0.010-nat diagnostic** passed.
+The collector bound the actual weight index and all 66 referenced shard
+contents, rather than treating a mutable model path or declared checkpoint
+label as proof of weight identity. See [the retention receipt](pkgs/qwen36/evidence/2026-10-23/rounded-register-retention.json).
+Separately, eight real prefills plus two recurrent continuation steps ran on
+both cards; that is a B=8 route smoke, **not B=8 retention or throughput
+acceptance**. No global quality floor, performance promotion, or serving
+admission follows. Qualification left the Qwen service stopped.
+
+Simulator arithmetic, CPU semantics and modeled byte
+counts alone do not establish hardware speedups, full-model retention, or
+production acceptance.
 
 The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
 
