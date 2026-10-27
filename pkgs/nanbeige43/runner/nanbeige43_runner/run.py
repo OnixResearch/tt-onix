@@ -46,9 +46,11 @@ MLP_PAD_CORES = 16
 # Qwen3-32B on bh_p150/bh_p300 (models/model_trace_region_sizes.yaml); 128 MiB covers 52 layers.
 TRACE_REGION_BYTES = 128 * 1024 * 1024
 # Batch sizes admitted by predeclared gates (tasks.md): 2 and 4 bit-equal to batch 1 (P12, O3),
-# 16 and 32 under the teacher-forced fallback (O3, P2). Batch 8 corrupts rows 5-7 at every
-# page-pool size tried and is refused; its cause is narrowed to the per-row page-block path
-# (P14-P16). Batch > 32 needs a tile-row dataflow change (P10/P11).
+# 16 and 32 under the teacher-forced fallback (O3, P2). Batch 8 is refused; the defect and its
+# cause are recorded once, in docs/nanbeige-batch8.md - stale K for rows 5-7 from the qk-fused
+# decode placement, with the non-fused path correct at 101.77 aggregate against 113.8 for two
+# batch-4 streams, so the fix has no case. Do not re-derive it here. Batch > 32 needs a
+# tile-row dataflow change (P10/P11).
 ACCEPTED_BATCHES = (1, 2, 4, 16, 32)
 
 
