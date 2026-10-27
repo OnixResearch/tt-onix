@@ -6,7 +6,12 @@
 continuation teacher-forced, and compares every logits row with the reference.
 With a full checkpoint it also runs the teacher-forced corpus gate.
 `generate` runs a free greedy chat completion.
-Both modes write a receipt and exit non-zero when a gate fails.
+`bench` measures first-token latency, decode tokens/s and prefill tokens/s on a
+fixed chat prompt under the O0 protocol.
+Every mode writes a receipt and exits non-zero when a gate fails.
+
+Greedy decoding argmaxes the device logits and reads back one index per row
+(`--no-device-argmax` keeps the host path); `compare` keeps the full-logit path.
 """
 
 from __future__ import annotations

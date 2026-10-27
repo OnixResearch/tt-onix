@@ -1868,6 +1868,12 @@
       "blake3": "c564a587041af6650401252cbe675e1749fed2757b38902fb2c8a9e4f1cbb79f"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P29-device-free-check.json",
+      "class": "portable_evidence",
+      "byte_count": 6128,
+      "blake3": "c564a587041af6650401252cbe675e1749fed2757b38902fb2c8a9e4f1cbb79f"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P3-bench-b1-shipped.json",
       "class": "portable_evidence",
       "byte_count": 23462,

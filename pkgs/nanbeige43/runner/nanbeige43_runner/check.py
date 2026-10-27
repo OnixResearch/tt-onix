@@ -6,9 +6,15 @@
 The check runs the packaged tt_transformers helpers (no device is opened)
 against the pinned metadata. It verifies that the TP2 shapes, vocabulary
 padding, MLP grid, RoPE parameters, host-sampling decision, per-device DRAM
-budget, and tokenizer/chat template behave as the design records. It also
-exercises the checkpoint admission code on synthetic checkpoints. With
-`--checkpoint` it additionally verifies a real checkpoint directory.
+budget, and tokenizer/chat template behave as the design records.
+
+The budget assertions bind both the `accuracy` preset and whatever preset the
+runner ships as `DEFAULT_PRESET`, and the per-preset tensor precisions are read
+back from the runner's own `decoder_precision` so the budget table cannot drift
+from the mix the package builds. The batched-prefill opt-in is checked against
+the packaged limits rather than local copies. The check also exercises the
+checkpoint admission code on synthetic checkpoints. With `--checkpoint` it
+additionally verifies a real checkpoint directory.
 """
 
 from __future__ import annotations
