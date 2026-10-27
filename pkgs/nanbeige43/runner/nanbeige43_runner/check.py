@@ -442,6 +442,9 @@ def self_test_batch_surface(results: list) -> None:
     (P42-P45), so both modes refuse it. The check drives the real parser, so a
     widening of `ACCEPTED_BATCHES` fails here instead of on a device run.
     """
+    import contextlib
+    import io
+
     from .run import main as run_main
 
     for mode in ("bench", "generate"):
@@ -459,7 +462,10 @@ def self_test_batch_surface(results: list) -> None:
             "/nonexistent.json",
         ]
         try:
-            run_main(argv)
+            # argparse writes the usage and error to stderr before raising; a
+            # passing check must not emit "error:" lines into its own output.
+            with contextlib.redirect_stderr(io.StringIO()):
+                run_main(argv)
         except SystemExit as exit_error:
             refused = "invalid choice" in str(exit_error.code) or exit_error.code == 2
         else:
