@@ -1,0 +1,357 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/fnrzabviml8pcvhlmar604w12ib4n151-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 1024
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 4,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T09:03:51-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 62.480629444122314,
+  "host_rss_after_load": {
+    "rss": 2769567744,
+    "peak": 67211415552
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 2,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 17.336369697994087,
+      "p90": 17.336369697994087,
+      "min": 17.336369697994087,
+      "max": 17.336369697994087,
+      "samples": [
+        17.336369697994087
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 0.06856434175937215,
+      "p90": 0.06856434175937215,
+      "min": 0.06856434175937215,
+      "max": 0.06856434175937215,
+      "samples": [
+        0.06856434175937215
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 0.2742573670374886,
+      "p90": 0.2742573670374886,
+      "min": 0.2742573670374886,
+      "max": 0.2742573670374886,
+      "samples": [
+        0.2742573670374886
+      ]
+    },
+    "batch": 4,
+    "outputs_identical_across_runs": true,
+    "rows_identical_in_every_run": true,
+    "output_ids": [
+      17782,
+      152518
+    ],
+    "runs": [
+      {
+        "warmup": false,
+        "first_token_seconds": 17.336369697994087,
+        "decode_seconds": 14.584840667026583,
+        "decode_tokens_per_second": 0.06856434175937215,
+        "aggregate_decode_tokens_per_second": 0.2742573670374886,
+        "output_ids": [
+          17782,
+          152518
+        ],
+        "rows_identical": true,
+        "row_output_ids": [
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ]
+        ]
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 885.4689219436899,
+          "p90": 919.9554439717368,
+          "min": 872.3278773597623,
+          "max": 919.9554439717368,
+          "samples": [
+            872.3278773597623,
+            919.9554439717368,
+            885.4689219436899
+          ]
+        },
+        "rows": 4
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello!"
+  },
+  "cache_probe": {
+    "shape": [
+      1024,
+      4,
+      32,
+      128
+    ],
+    "phase": "decode",
+    "rows": [
+      {
+        "row": 0,
+        "position": 42,
+        "physical_block": 1016,
+        "site": 10,
+        "k_heads": [
+          [
+            2.625,
+            1.9375
+          ],
+          [
+            -0.5312,
+            3.2188
+          ],
+          [
+            -1.5,
+            -2.375
+          ],
+          [
+            3.5,
+            0.5625
+          ]
+        ],
+        "v_heads": [
+          [
+            -0.2422,
+            0.6328
+          ],
+          [
+            0.2031,
+            0.3203
+          ],
+          [
+            -0.1875,
+            0.5469
+          ],
+          [
+            -0.2266,
+            0.6953
+          ]
+        ]
+      },
+      {
+        "row": 1,
+        "position": 42,
+        "physical_block": 131,
+        "site": 10,
+        "k_heads": [
+          [
+            2.625,
+            1.9375
+          ],
+          [
+            -0.5312,
+            3.2188
+          ],
+          [
+            -1.5,
+            -2.375
+          ],
+          [
+            3.5,
+            0.5625
+          ]
+        ],
+        "v_heads": [
+          [
+            -0.2422,
+            0.6328
+          ],
+          [
+            0.2031,
+            0.3203
+          ],
+          [
+            -0.1875,
+            0.5469
+          ],
+          [
+            -0.2266,
+            0.6953
+          ]
+        ]
+      },
+      {
+        "row": 2,
+        "position": 42,
+        "physical_block": 676,
+        "site": 10,
+        "k_heads": [
+          [
+            2.625,
+            1.9375
+          ],
+          [
+            -0.5312,
+            3.2188
+          ],
+          [
+            -1.5,
+            -2.375
+          ],
+          [
+            3.5,
+            0.5625
+          ]
+        ],
+        "v_heads": [
+          [
+            -0.2422,
+            0.6328
+          ],
+          [
+            0.2031,
+            0.3203
+          ],
+          [
+            -0.1875,
+            0.5469
+          ],
+          [
+            -0.2266,
+            0.6953
+          ]
+        ]
+      },
+      {
+        "row": 3,
+        "position": 42,
+        "physical_block": 132,
+        "site": 10,
+        "k_heads": [
+          [
+            2.625,
+            1.9375
+          ],
+          [
+            -0.5312,
+            3.2188
+          ],
+          [
+            -1.5,
+            -2.375
+          ],
+          [
+            3.5,
+            0.5625
+          ]
+        ],
+        "v_heads": [
+          [
+            -0.2422,
+            0.6328
+          ],
+          [
+            0.2031,
+            0.3203
+          ],
+          [
+            -0.1875,
+            0.5469
+          ],
+          [
+            -0.2266,
+            0.6953
+          ]
+        ]
+      }
+    ]
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": true,
+      "observed": true
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2827329536,
+    "peak": 67211415552
+  },
+  "finished": "2026-10-27T09:05:37-0400",
+  "passed": true
+}

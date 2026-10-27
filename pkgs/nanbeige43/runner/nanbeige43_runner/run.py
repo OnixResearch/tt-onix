@@ -597,6 +597,50 @@ def summary(values: list[float]) -> dict:
     }
 
 
+def cache_probe(session: Session, ids: list[int], block_size: int, phase: str) -> dict:
+    """Read each row's paged K and V back at a decode position.
+
+    Diagnostic for the batch-8 defect: it reports, per row, the physical block the
+    page table selects, the slot within that block, and the first two values at that
+    slot for every kv head of layer 0's K and V caches. It reads state back and
+    writes nothing, so it cannot change a measured path.
+    """
+    batch = session.batch
+    session.reset()
+    tokens = session.prefill_rows([ids] * batch).argmax(-1).tolist()
+    if phase == "decode":
+        session.decode_greedy(tokens, [len(ids)] * batch)
+    pair = session.model.layers[0].attention.layer_past
+
+    def read(tensor):
+        host = session.ttnn.to_torch(session.ttnn.get_device_tensors(tensor)[0])
+        if host.dim() == 5:
+            host = host[0]
+        return host.float()
+
+    k, v = read(pair[0]), read(pair[1])
+    rows = []
+    for row in range(batch):
+        position = len(ids)
+        physical = int(session.page_table[row][position // block_size])
+        site = position % block_size
+        rows.append({
+            "row": row,
+            "position": position,
+            "physical_block": physical,
+            "site": site,
+            "k_heads": [
+                [round(x, 4) for x in k[physical, head, site, :2].tolist()]
+                for head in range(k.shape[1])
+            ],
+            "v_heads": [
+                [round(x, 4) for x in v[physical, head, site, :2].tolist()]
+                for head in range(v.shape[1])
+            ],
+        })
+    return {"shape": list(k.shape), "phase": phase, "rows": rows}
+
+
 def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
     """Synchronized host-wall timing; each decode returns host greedy tokens."""
     runs = []
@@ -765,6 +809,10 @@ def run_session(
         result["enable_thinking"] = args.enable_thinking
         result["text"] = tokenizer.decode(result["output_ids"])
         receipt["bench"] = result
+        if args.cache_probe:
+            receipt["cache_probe"] = cache_probe(
+                session, ids, args.page_block, args.cache_probe
+            )
         # Predeclared bench gates: deterministic across runs and rows, and (when given)
         # identical to the token ids of an earlier accepted bench receipt.
         receipt["gates"] = [
@@ -894,6 +942,11 @@ def main(argv=None) -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="bench/generate: argmax the device logits and read back one index per row instead of the gathered vocabulary (P8; default). --no-device-argmax keeps the host argmax",
+    )
+    parser.add_argument(
+        "--cache-probe",
+        choices=("prefill", "decode"),
+        help="bench: read layer 0's K and V back after prefill only, or after one decode step, and record per-row per-head values (diagnostic for the batch-8 defect; reads only)",
     )
     parser.add_argument(
         "--expect-output-from",

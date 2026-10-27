@@ -2102,6 +2102,18 @@
       "blake3": "414c35dc074eae932273065f6384cc51c1fa7afdc558831635602f020d9fd40e"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P52-b4-decode.json",
+      "class": "portable_evidence",
+      "byte_count": 7109,
+      "blake3": "6e023d2bb1af29d71e962caf29a2a9771b1d7e61aef755cf8035979470d638a1"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P52-b4-plain.json",
+      "class": "portable_evidence",
+      "byte_count": 4237,
+      "blake3": "7f33e98eb1503edef23552e28ecf675eea43f7a91cff762277c1b9c16dfcee89"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P6-split-b32.json",
       "class": "portable_evidence",
       "byte_count": 38297,

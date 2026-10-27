@@ -134,7 +134,13 @@ user (57.89 aggregate) against 12.67 at batch 1. The full curve is batch 1
 14.29/457.13 (P39), with ids byte-identical to batch 1 at every size.
 `generate --expect-output-from <receipt>` (P40) makes that id equality a gate
 inside the command instead of an ad-hoc comparison: it fails closed with an exit
-code when the ids diverge. On 2026-10-25 the full model passed the
+code when the ids diverge.
+`bench --cache-probe {prefill,decode}` reads layer 0's paged K and V back after
+prefill, or after one decode step, and records per row the page-table block, the
+slot and the first two values at that slot for every kv head of both tensors. It is
+the instrument the batch-8 investigation used (P42-P52): V is correct on every row
+while K is stale for rows 5-7. It reads state back, writes nothing, runs after the
+measured runs and their gates are recorded, and is absent unless requested. On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
 over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
 default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device
