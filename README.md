@@ -130,13 +130,15 @@ blocks at batch 32), which is the pool every admitted receipt used; ids are pool
 (verified bit-for-bit across 1024, 4096 and 8192 blocks), so the pool is a capacity and
 latency knob only. Batched prefill still needs `--page-blocks` at or below 4096.
 
-Context beyond 4096 is measured, and it is not free. `--max-seq-len` divides by batch to give
-blocks per row, and decode pays for the whole per-row table: at batch 1 a 32768 config is 1024
-blocks in one row, where a 128-token prompt measures 396.5 tok/s prefill and **5.27 tok/s**
-decode against 795 and 13.98 at the 8192 default, and a 16k prompt measures 2107.3 tok/s
-prefill with decode down to **1.03 tok/s**. At batch 32 the same 8192-block pool is 256 blocks
-per row, which is why decode was flat across pools 1024-8192 there (P82). Set `--max-seq-len`
-to the context you need and prefer the largest batch that divides the pool (P105).
+Context beyond 4096 is measured, and it is not free. At batch 1 a 32768 `--max-seq-len` measures
+396.5 tok/s prefill and **5.27 tok/s** decode on a 128-token prompt, against 795 and 13.98 at the
+8192 default, and a 16k prompt decodes at **1.03 tok/s**; so the config alone costs 2.65x decode
+at this batch size (P105). Set `--max-seq-len` to the context you actually need.
+
+`--page-block` must stay at its 32 default. Raising it to 128 to shrink the table is far worse in
+every configuration measured - 13.98 to **1.90** tok/s at `max_seq_len` 8192 and 5.27 to **1.50**
+at 32768, with prefill down from 795 to 449 and from 396.5 to 319 (P106). Block size dominates the
+KV cost; the page-table width does not drive it.
 
 On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
