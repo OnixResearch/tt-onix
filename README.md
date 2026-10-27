@@ -210,7 +210,7 @@ precision costs speed: `accuracy` already runs a BFP8 MLP, so the mix changes
 only WQKV/WO and KV and cuts streamed bytes by 14.2 %; it also drops attention
 from HIFI4 to HIFI2, and the same run's decode samples spanned
 8.456/5.715/4.985/4.279/7.682 tokens/s while its prefill was above accuracy at
-1024/4096 and below at 128. `accuracy` remains default.
+1024/4096 and below at 128. `accuracy` remained the default until P9 below.
 
 The all-BFP8 mix is now the default (P9, 2026-10-27). O5 had declared it
 promotable once its speed gates passed and its accuracy held; P8's device argmax
