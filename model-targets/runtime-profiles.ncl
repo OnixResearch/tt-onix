@@ -240,8 +240,9 @@ let contracts = import "runtime-contract.ncl" in
         key = "mlp-pad-16",
       },
       precision = {
-        # run.py:720: `--preset` defaults to `accuracy`.
-        preset = "accuracy",
+        # run.py DEFAULT_PRESET: the all-BFP8 mix is the default since P9
+        # (2026-10-27); `--preset accuracy` keeps BF16 attention and KV.
+        preset = "bfp8",
         flags = [],
       },
       admission = {

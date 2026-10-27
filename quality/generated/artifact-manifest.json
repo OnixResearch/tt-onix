@@ -3850,8 +3850,8 @@
     {
       "path": "model-targets/generated/runtime-profiles.json",
       "class": "generated_source",
-      "byte_count": 9806,
-      "blake3": "a0a78ef4f54dccf9e07a5f31d2516f015f2d0f27ce00d76c3af43f94f03982f2"
+      "byte_count": 9802,
+      "blake3": "97706c44eec06a14a1b7f4160500adb0ff5d8968c300f5235b8498e941724ed8"
     },
     {
       "path": "pkgs/nix-patched-build-remote/evidence/2026-10-23/remote-proof.json",

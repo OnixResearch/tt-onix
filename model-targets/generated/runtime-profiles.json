@@ -185,7 +185,7 @@
       },
       "precision": {
         "flags": [],
-        "preset": "accuracy"
+        "preset": "bfp8"
       },
       "readiness": {
         "kind": "exit-code"
