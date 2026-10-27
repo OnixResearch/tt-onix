@@ -1808,6 +1808,12 @@
       "blake3": "2c17ff3971c772fc8f7cd5d84f390bf9bd67538f983a6fe663e809acc6d5750d"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P20-default-preset-budget-check.json",
+      "class": "portable_evidence",
+      "byte_count": 5190,
+      "blake3": "5ed6d2243f5523396d82619a9399babd8483d183a1c5925e552cef91a14c0141"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P3-bench-b1-shipped.json",
       "class": "portable_evidence",
       "byte_count": 23462,

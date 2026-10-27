@@ -37,6 +37,9 @@ PRESETS = {
     # (WQKV/WO, FF1/FF3, FF2, KV) from ModelOptimizations for an unknown model name.
     "accuracy": ("bf16", "bfp8", "bfp8", "bf16"),
     "performance": ("bfp8", "bfp4", "bfp8", "bfp8"),
+    # The all-BFP8 mix is the runner default (DEFAULT_PRESET); it is listed here so
+    # the shipped configuration's device budget is checked, not just accuracy's.
+    "bfp8": ("bfp8", "bfp8", "bfp8", "bfp8"),
 }
 
 
@@ -217,6 +220,13 @@ def check_metadata(metadata: Path, authority: dict, results: list) -> dict:
     expect(
         budgets["accuracy"]["total"] <= DEVICE_BUDGET_BYTES,
         f"accuracy preset {budgets['accuracy']['total'] / 1e9:.2f} GB fits the device budget",
+        results,
+    )
+    from .run import DEFAULT_PRESET
+
+    expect(
+        budgets[DEFAULT_PRESET]["total"] <= DEVICE_BUDGET_BYTES,
+        f"default preset {DEFAULT_PRESET} {budgets[DEFAULT_PRESET]['total'] / 1e9:.2f} GB fits the device budget",
         results,
     )
     return {
