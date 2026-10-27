@@ -218,7 +218,11 @@ made the speed measurable. On the promoted package
 same code path), with a 0.153-0.361 s first token and 537-890 / 2545-2824
 tok/s prefill at 128/4096, and 430.5-443.9 tokens/s aggregate at batch 32
 (13.45-13.87 per user), against 12.39 and 386.18 for the previous default on
-the same protocol. The recorded cost is accuracy:
+the same protocol. The full admitted sweep on the promoted package is batch 1
+13.14-14.28, batch 4 56.91 aggregate at 14.23 per user, batch 16 225.93 at
+14.12, and batch 32 443.90 at 13.87 tokens/s, every size with rows identical
+across runs and its receipt gates passed; the pre-P8 figures were 9.97,
+37.23/10.16, 160.81/10.05 and 313.55/9.80. The recorded cost is accuracy:
 teacher-forced top-1 0.921875 -> 0.908203 (-1.37 points) and top-5 0.990234 ->
 0.994141, corpus prefill PCC 0.996854, fixed prompts >= 0.9974, all inside the
 retained gates. Multi-row first-token latency under the mix was bimodal
