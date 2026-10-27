@@ -229,7 +229,10 @@ the currently shipped package with ids exactly equal to that receipt, and the
 pre-P8 figures were 9.97, 37.23/10.16, 160.81/10.05 and 313.55/9.80. The recorded cost is accuracy:
 teacher-forced top-1 0.921875 -> 0.908203 (-1.37 points) and top-5 0.990234 ->
 0.994141, corpus prefill PCC 0.996854, fixed prompts >= 0.9974, all inside the
-retained gates. Multi-row first-token latency under the mix was bimodal
+retained gates. The default's accuracy is also bound at batch 32 (P26): top-1
+0.916016, top-5 0.992188, corpus PCC 0.996854, fixed prompts
+0.998948/0.998381/0.997452, all 32 rows identical, so the mix carries a measured
+batch claim rather than an accuracy-only one. Multi-row first-token latency under the mix was bimodal
 (5.406-20.675 s), so no TTFT claim is made for it either way. `--preset
 accuracy` keeps the previous quality for anyone who needs it. These remain
 host-wall smoke measurements, not serving benchmarks.
