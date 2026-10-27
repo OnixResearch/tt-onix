@@ -134,7 +134,10 @@ user (57.89 aggregate) against 12.67 at batch 1. The full curve is batch 1
 14.29/457.13 (P39), with ids byte-identical to batch 1 at every size.
 `generate --expect-output-from <receipt>` (P40) makes that id equality a gate
 inside the command instead of an ad-hoc comparison: it fails closed with an exit
-code when the ids diverge.
+code when the ids diverge. `generate --generate-runs N` (P77) measures the completion
+more than once and records per-run rates plus their median, because a single generate
+run is not reproducible: two consecutive identical batch-32 runs differed by 18.5 %
+(P76), while three batch-1 runs differed by 0.8 %.
 `bench --cache-probe {prefill,decode}` reads layer 0's paged K and V back after
 prefill, or after one decode step, and records per row the page-table block, the
 slot and the first two values at that slot for every kv head of both tensors. It is

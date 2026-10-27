@@ -884,7 +884,30 @@ def run_session(
         tokenizer = session.args.tokenizer
         messages = [{"role": "user", "content": args.message}]
         ids = chat_ids(tokenizer, messages, args.enable_thinking)
-        result = generate(session, ids, args.max_tokens, set(tokenizer.stop_tokens))
+        stop_tokens = set(tokenizer.stop_tokens)
+        runs = [
+            generate(session, ids, args.max_tokens, stop_tokens)
+            for _ in range(args.generate_runs)
+        ]
+        result = runs[0]
+        # Per-run rates, not the run dicts: `result` is `runs[0]`, so nesting the
+        # list would make the receipt reference itself and fail to serialise.
+        result["run_count"] = len(runs)
+        result["run_decode_tokens_per_second"] = [
+            run["decode_tokens_per_second"] for run in runs
+        ]
+        result["runs_identical"] = all(
+            run["output_ids"] == result["output_ids"] for run in runs
+        )
+        rates = [
+            run["decode_tokens_per_second"]
+            for run in runs
+            if run["decode_tokens_per_second"] is not None
+        ]
+        if rates:
+            # P76 measured an 18.5 % swing between consecutive identical generate
+            # runs, so the median of `--generate-runs` is the reproducible figure.
+            result["decode_tokens_per_second_median"] = statistics.median(rates)
         result["messages"] = messages
         result["enable_thinking"] = args.enable_thinking
         result["text"] = tokenizer.decode([
@@ -902,6 +925,11 @@ def run_session(
                 "gate": "every batch row identical",
                 "passed": result["rows_identical"],
                 "observed": result["rows_identical"],
+            },
+            {
+                "gate": "every run produced identical ids",
+                "passed": result["runs_identical"],
+                "observed": result["runs_identical"],
             },
         ]
         if args.expect_output_from:
@@ -953,6 +981,12 @@ def main(argv=None) -> None:
     )
     parser.add_argument(
         "--max-tokens", type=int, default=128, help="generate mode token limit"
+    )
+    parser.add_argument(
+        "--generate-runs",
+        type=int,
+        default=1,
+        help="generate mode: measured runs; the receipt gains a per-run list and a median rate, because P76 measured an 18.5 % swing between consecutive identical runs",
     )
     parser.add_argument(
         "--trace",
