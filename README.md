@@ -217,14 +217,16 @@ Batched prefill for `batch > 1` is available as an explicit opt-in
 the admitted batch-32 receipt, it prefills all 32 rows in one pass at 1427
 tok/s and cuts first-token latency from 5.141 s to 2.745 s (1.87x against the
 admitted figure, 2.13x against a same-session sequential control at 5.839 s).
-It was not admitted because it changes greedy ids: the bench ids diverge from
-the admitted batch-32 ids at token 2, while the sequential control on the same
-package and cache reproduces them exactly. That is the batch-variant prefill
-reduction order upstream cites for tt-metal#47238, not a runner row-handling
-bug, and every run and every row stays self-consistent. No decode cost is
-attributed to the lever: same-session it measured 290.60 tok/s aggregate
-against the control's 287.71, both below the admitted 313.55 because that
-session's device state was slower. The `accuracy` preset, the `batch > 1`
+It is admitted as a second configuration with its own receipts (P79), not as the
+default, because its greedy ids differ from the sequential path's at token 2 - the
+batch-variant prefill reduction order upstream cites for tt-metal#47238, not a runner
+row-handling bug. On the shipped package at batch 32 with `--page-blocks 1024` it
+measures TTFT median **3.098 s** against the sequential 5.00 s (1.61x faster), decode
+439.34 against 440.99 aggregate (unchanged within noise), all runs and rows identical,
+and accuracy within 1e-4 on prefill PCC with teacher-forced top-1 0.904297 against
+0.916016 (-1.17 points) and top-5 0.994141 against 0.992188. Larger pools do not fit:
+at `--page-blocks 8192` the mode dies with a 469 MB DRAM allocation failure, so it
+requires the smaller pool at this batch size. The `accuracy` preset, the `batch > 1`
 default prefill path, and every admitted number are unchanged.
 
 A replacement profiler run named all 5,100 traced decode rows: matmul
