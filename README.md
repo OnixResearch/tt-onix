@@ -229,9 +229,11 @@ at `--page-blocks 8192` the mode dies with a 469 MB DRAM allocation failure, so 
 requires the smaller pool at this batch size. The mode is now compared **paired**: `--prefill-modes both`
 alternates the two paths run by run inside one session (P83), which removes the
 session-to-session variation that made earlier ratios unreliable. At batch 32 with
-`--page-blocks 1024` and ten alternating runs, batched prefill measures **4.35 s** median
-against **15.27 s** sequential - **3.51x** - with ids identical within each mode. Earlier
-unpaired figures (1.61x, 4.25x) are superseded. Sequential TTFT at this batch size also
+`--page-blocks 1024` and ten alternating runs, batched prefill measures **4.35 s** against
+**15.27 s** sequential in one session and **2.90 s** against **8.13 s** in a repeat - a
+paired ratio of **2.81-3.51x**, i.e. about 3x - with ids identical within each mode. Earlier
+unpaired figures (1.61x, 4.25x) are superseded, and the absolute medians are
+session-dependent, so the ratio is quoted as a range. Sequential TTFT at this batch size also
 carries a heavy tail that has reached 52 s (P82), and pool size is a weak lever (1.17x at
 1024 against 8192) rather than the 2.6x once reported. The `accuracy` preset, the `batch > 1`
 default prefill path, and every admitted number are unchanged.
