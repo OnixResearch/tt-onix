@@ -1,0 +1,148 @@
+--- a7/models/tt_transformers/tt/model_config.py	2026-10-27 05:43:38.742672206 -0400
++++ b7/models/tt_transformers/tt/model_config.py	2026-10-27 05:45:27.120308156 -0400
+@@ -440,6 +440,22 @@
+     HuggingFace = auto()
+ 
+ 
++def _multi_tile_grid(num_devices: int, rows: int):
++    """Grid for a width-sharded tensor that spans several 32-row tiles (P35)."""
++    tiles = max(1, rows // ttnn.TILE_SIZE)
++    if tiles == 1:
++        return num_to_core_range_set(num_devices)
++    return ttnn.CoreRangeSet(
++        {
++            ttnn.CoreRange(
++                ttnn.CoreCoord(0, 0),
++                ttnn.CoreCoord(num_devices - 1, tiles - 1),
++            )
++        }
++    )
++
++
++
+ class ModelArgs:
+     OP_KEYS = (
+         # Embedding
+@@ -1248,10 +1264,7 @@
+             else:
+                 residual_grid = self.dram_shard_core_grid_for_k(self.dim // self.num_devices)
+                 return ttnn.create_sharded_memory_config(
+-                    (
+-                        self.tile_padded_batch_rows,
+-                        self.dim // residual_grid.num_cores // self.num_devices,
+-                    ),
++                    self._width_sharded_decode_shape(self.dim // residual_grid.num_cores // self.num_devices),
+                     residual_grid,
+                     ttnn.ShardStrategy.WIDTH,
+                     ttnn.ShardOrientation.ROW_MAJOR,
+@@ -1283,7 +1296,7 @@
+                 )
+             else:
+                 return ttnn.create_sharded_memory_config(
+-                    (self.tile_padded_batch_rows, self.dim // self.mlp_core_grid.num_cores),
++                    self._width_sharded_decode_shape(self.dim // self.mlp_core_grid.num_cores),
+                     self.mlp_core_grid,
+                     ttnn.ShardStrategy.WIDTH,
+                     ttnn.ShardOrientation.ROW_MAJOR,
+@@ -1479,9 +1492,10 @@
+         """Get the memory config for MLP binary mult (w2 input) - replaces SHARDED_MLP2_INPUT_MEMCFG."""
+         if mode == Mode.DECODE:
+             return ttnn.create_sharded_memory_config(
+-                (
+-                    32 if self.is_galaxy else self.tile_padded_batch_rows,
+-                    self.hidden_dim // self.cluster_shape[1] // self.mlp2_core_grid.num_cores,
++                (32, self.hidden_dim // self.cluster_shape[1] // self.mlp2_core_grid.num_cores)
++                if self.is_galaxy
++                else self._width_sharded_decode_shape(
++                    self.hidden_dim // self.cluster_shape[1] // self.mlp2_core_grid.num_cores
+                 ),
+                 self.mlp2_core_grid,
+                 ttnn.ShardStrategy.WIDTH,
+@@ -1651,10 +1665,7 @@
+                 )
+             else:
+                 return ttnn.create_sharded_memory_config(
+-                    (
+-                        self.tile_padded_batch_rows,
+-                        self.dim // self.attn_input_grid.num_cores,
+-                    ),  # Shard shape: [32, 128] -> 1 shard per core
++                    self._width_sharded_decode_shape(self.dim // self.attn_input_grid.num_cores),  # Shard shape: [32, 128] -> 1 shard per core
+                     self.attn_input_grid,
+                     ttnn.ShardStrategy.WIDTH,
+                     ttnn.ShardOrientation.ROW_MAJOR,
+@@ -1880,9 +1891,9 @@
+                     ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+                     ttnn.BufferType.L1,
+                     ttnn.ShardSpec(
+-                        num_to_core_range_set(self.num_devices),
++                        _multi_tile_grid(self.num_devices, self.tile_padded_batch_rows),
+                         [
+-                            self.tile_padded_batch_rows,
++                            ttnn.TILE_SIZE,
+                             self.dim // self.num_devices,
+                         ],
+                         ttnn.ShardOrientation.ROW_MAJOR,
+@@ -1914,9 +1925,9 @@
+                     ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+                     ttnn.BufferType.L1,
+                     ttnn.ShardSpec(
+-                        num_to_core_range_set(self.num_devices),
++                        _multi_tile_grid(self.num_devices, self.tile_padded_batch_rows),
+                         [
+-                            self.tile_padded_batch_rows,
++                            ttnn.TILE_SIZE,
+                             self.dim // self.num_devices,
+                         ],
+                         ttnn.ShardOrientation.ROW_MAJOR,
+@@ -2220,7 +2231,7 @@
+                     return {
+                         "sharded_program_config": self.create_sharded_norm_config(self.mlp_core_grid),
+                         "sharded_output_config": ttnn.create_sharded_memory_config(
+-                            (self.tile_padded_batch_rows, self.dim // self.mlp_core_grid.num_cores),
++                            self._width_sharded_decode_shape(self.dim // self.mlp_core_grid.num_cores),
+                             self.mlp_core_grid,
+                             ttnn.ShardStrategy.WIDTH,
+                             ttnn.ShardOrientation.ROW_MAJOR,
+@@ -2293,10 +2304,7 @@
+                 )
+             else:
+                 return ttnn.create_sharded_memory_config(
+-                    (
+-                        self.tile_padded_batch_rows,
+-                        nearest_32((self.dim // (4 if self.is_galaxy else 1)) // self.lm_head_core_grid.num_cores),
+-                    ),  # Shard shape: [32, 128] -> 1 shard per core
++                    self._width_sharded_decode_shape(nearest_32((self.dim // (4 if self.is_galaxy else 1)) // self.lm_head_core_grid.num_cores)),  # Shard shape: [32, 128] -> 1 shard per core
+                     self.lm_head_core_grid,
+                     ttnn.ShardStrategy.WIDTH,
+                     ttnn.ShardOrientation.ROW_MAJOR,
+@@ -2304,10 +2312,7 @@
+                 )
+         elif mode == Mode.PREFILL:
+             return ttnn.create_sharded_memory_config(
+-                (
+-                    self.tile_padded_batch_rows,
+-                    nearest_32((self.dim // (4 if self.is_galaxy else 1)) // self.lm_head_core_grid.num_cores),
+-                ),  # Shard shape: [32, 128] -> 1 shard per core
++                self._width_sharded_decode_shape(nearest_32((self.dim // (4 if self.is_galaxy else 1)) // self.lm_head_core_grid.num_cores)),  # Shard shape: [32, 128] -> 1 shard per core
+                 self.lm_head_core_grid,
+                 ttnn.ShardStrategy.WIDTH,
+                 ttnn.ShardOrientation.ROW_MAJOR,
+@@ -3247,6 +3252,18 @@
+     # =========================================================================
+     # MATMUL / CONFIG HELPERS
+     # =========================================================================
++    def _width_sharded_decode_shape(self, width):
++        """nanbeige43 P35: shard shape for a width-sharded decode tensor.
++
++        A width-sharded shard is one 32-row tile; above one tile the shard must be
++        (32, 2 * width) so the tensor still fits one shard per core. P34 derives
++        the arithmetic; identical to the packaged shape at 32 rows.
++        """
++        rows = self.tile_padded_batch_rows
++        if rows > ttnn.TILE_SIZE:
++            return (ttnn.TILE_SIZE, width * (rows // ttnn.TILE_SIZE))
++        return (rows, width)
++
+     def create_dram_sharded_mem_config(self, k, n, dram_grid=None):
+         """Create DRAM-sharded memory config for width-sharded tensors"""
+         dram_cores = self.dram_grid_size.x  # WH has 12 dram cores, P150 has 8, P100 has 7
