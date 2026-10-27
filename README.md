@@ -124,7 +124,12 @@ generic path with TP2, the all-BFP8 mix by default (BFP8 attention, KV and MLP;
 checks and admits a checkpoint by SHA-256. `nanbeige43-reference` writes the
 CPU reference. `nanbeige43-reduce-checkpoint` derives reduced-layer checkpoints.
 `nanbeige43-p150x2 compare|generate|bench` is the production command,
-fail-closed on PCIe devices 0 and 1. On 2026-10-25 the full model passed the
+fail-closed on PCIe devices 0 and 1. `generate` accepts the same `--batch` sizes
+as `bench` (P38): every row decodes together through the admitted path, all rows
+produce identical ids for identical prompts, and generation stops when every row
+reaches a stop token. Its decode rate is timed from the second step, so the
+one-time decode-trace capture is excluded; batch 4 measured 14.47 tokens/s per
+user (57.89 aggregate) against 12.67 at batch 1. On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
 over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
 default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device

@@ -533,17 +533,35 @@ def evaluate_gates(
 def generate(
     session: Session, ids: list[int], max_tokens: int, stop_tokens: set[int]
 ) -> dict:
+    """Greedy completion for every batch row (identical prompts per row).
+
+    Rows decode together through the admitted batched path. Generation stops when
+    every row has emitted a stop token or `max_tokens` is reached, so with
+    identical prompts the rows stop together and their ids must match.
+    """
     session.reset()
+    batch = session.batch
     started = time.time()
-    token = int(session.prefill(ids).argmax())
+    tokens = [int(token) for token in session.prefill_rows([ids] * batch).argmax(-1)]
     first_token_seconds = time.time() - started
-    output = [token]
-    started = time.time()
-    while token not in stop_tokens and len(output) < max_tokens:
-        token = session.decode_greedy([token], [len(ids) + len(output) - 1])[0]
-        output.append(token)
-    decode_seconds = time.time() - started
-    return {
+    outputs = [[token] for token in tokens]
+    # The first decode step captures the decode trace, so time from the second
+    # step: otherwise the one-time capture dominates a short generation (P38).
+    started = None
+    while len(outputs[0]) < max_tokens and any(
+        output[-1] not in stop_tokens for output in outputs
+    ):
+        position = len(ids) + len(outputs[0]) - 1
+        tokens = session.decode_greedy(
+            [output[-1] for output in outputs], [position] * batch
+        )
+        for row, token in enumerate(tokens):
+            outputs[row].append(token)
+        if started is None:
+            started = time.time()
+    decode_seconds = time.time() - (started if started is not None else time.time())
+    output = outputs[0]
+    result = {
         "prompt_tokens": len(ids),
         "output_ids": output,
         "stopped_at_eos": output[-1] in stop_tokens,
@@ -552,7 +570,15 @@ def generate(
         "decode_tokens_per_second": (len(output) - 1) / decode_seconds
         if len(output) > 1
         else None,
+        "batch": batch,
+        "rows_identical": all(row == output for row in outputs),
     }
+    if batch > 1:
+        result["row_output_ids"] = outputs
+        result["decode_tokens_per_second_aggregate"] = (
+            ((len(output) - 1) * batch) / decode_seconds if len(output) > 1 else None
+        )
+    return result
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -878,8 +904,6 @@ def main(argv=None) -> None:
     )
     args = parser.parse_args(argv)
 
-    if args.batch != 1 and args.mode == "generate":
-        raise SystemExit("--batch applies to bench and compare modes only")
     spec = MESHES[args.mesh]
     authority = load_authority()
     # Checkpoint admission precedes every device touch.

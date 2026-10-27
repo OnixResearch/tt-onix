@@ -1934,6 +1934,30 @@
       "blake3": "b03b4ee6bcd028bad6b61d984d1f7dd494e7d3d9151d21c083ce09e0ba834e8f"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P38-generate-b1-run2.json",
+      "class": "portable_evidence",
+      "byte_count": 3421,
+      "blake3": "49fcc3272c091d3a3331ece3843ac70a3877d7e792c6e91a3138860f8c6217bb"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P38-generate-b1.json",
+      "class": "portable_evidence",
+      "byte_count": 3422,
+      "blake3": "df827e9887b51beebe106291b7e87db678b882cda72314a25158e66e07360e70"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P38-generate-b4-run2.json",
+      "class": "portable_evidence",
+      "byte_count": 6990,
+      "blake3": "5e0243f97ffe8e54646d4bdab8d57dff849c81402e5ceaf85ec835dc6010df8a"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P38-generate-b4.json",
+      "class": "portable_evidence",
+      "byte_count": 6991,
+      "blake3": "bf7db09657cb47750018e561e803cc4ca0aee21c7c2b7a61c48acb14a9a2a9a9"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P4-bench-trace.json",
       "class": "portable_evidence",
       "byte_count": 24190,
