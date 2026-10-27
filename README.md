@@ -140,7 +140,11 @@ prefill, or after one decode step, and records per row the page-table block, the
 slot and the first two values at that slot for every kv head of both tensors. It is
 the instrument the batch-8 investigation used (P42-P52): V is correct on every row
 while K is stale for rows 5-7. It reads state back, writes nothing, runs after the
-measured runs and their gates are recorded, and is absent unless requested. On 2026-10-25 the full model passed the
+measured runs and their gates are recorded, and is absent unless requested.
+The batch-8 defect, its elimination record and the priced fix path are documented in
+`docs/nanbeige-batch8.md`; batch 8 is refused, and a device-free check enforces that.
+
+On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
 over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
 default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device
@@ -194,8 +198,16 @@ package is not a shipped claim.
 
 Batch 8 is admitted by upstream `supported_batches` but corrupts rows 5-7
 deterministically on this path; it is a supported-size correctness defect, not
-an unsupported-size refusal, and stays refused pending a dedicated
-investigation. No batch-8 claim is made.
+an unsupported-size refusal, and stays refused.
+
+That investigation is complete and recorded in
+[the batch-8 record](docs/nanbeige-batch8.md). The cause is localised to the
+qk-fused decode path, which places K alone on core row 1 at batch 8 while Q and V
+share row 0, and that placement is load-bearing for the bounding-box
+runtime-argument scheme. Forcing the non-fused path makes batch 8 correct (rows
+identical, ids equal to the admitted stream) at 101.77 tokens/s aggregate, against
+113.8 for two batch-4 streams, so the fix has no throughput case and is recorded
+rather than applied. No batch-8 throughput or serving claim is made.
 
 Batched prefill for `batch > 1` is available as an explicit opt-in
 (`--batched-prefill`) and is not the default. Measured on 2026-10-26 against
