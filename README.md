@@ -118,8 +118,9 @@ separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
 Use `nix build .#nanbeige43` for Nanbeige4.3-33B (revision
 `c1093c501cc6460427c0ac634db7223d0450c0ee`, a plain `LlamaForCausalLM`) on the
 P150x2 `1x2` mesh. It runs the runtime-matched TT-Metal 0.77 `tt_transformers`
-generic path with TP2, the upstream `accuracy` preset (BF16 attention and KV,
-BFP8 MLP), and `PAD_MLP_CORES=16`. `nanbeige43-check` runs the device-free
+generic path with TP2, the all-BFP8 mix by default (BFP8 attention, KV and MLP;
+`--preset accuracy` selects BF16 attention and KV with a BFP8 MLP), and
+`PAD_MLP_CORES=16`. `nanbeige43-check` runs the device-free
 checks and admits a checkpoint by SHA-256. `nanbeige43-reference` writes the
 CPU reference. `nanbeige43-reduce-checkpoint` derives reduced-layer checkpoints.
 `nanbeige43-p150x2 compare|generate|bench` is the production command,
@@ -208,6 +209,22 @@ only WQKV/WO and KV and cuts streamed bytes by 14.2 %; it also drops attention
 from HIFI4 to HIFI2, and the same run's decode samples spanned
 8.456/5.715/4.985/4.279/7.682 tokens/s while its prefill was above accuracy at
 1024/4096 and below at 128. `accuracy` remains default.
+
+The all-BFP8 mix is now the default (P9, 2026-10-27). O5 had declared it
+promotable once its speed gates passed and its accuracy held; P8's device argmax
+made the speed measurable. On the promoted package
+`/nix/store/15msnna7291jxyay9iznl94wfajdqb9j-nanbeige43-0.1.0` it measures
+13.1-14.3 tokens/s per user at batch 1 (13.14-14.32 across two sessions of the
+same code path), with a 0.153-0.361 s first token and 537-890 / 2545-2824
+tok/s prefill at 128/4096, and 430.5-443.9 tokens/s aggregate at batch 32
+(13.45-13.87 per user), against 12.39 and 386.18 for the previous default on
+the same protocol. The recorded cost is accuracy:
+teacher-forced top-1 0.921875 -> 0.908203 (-1.37 points) and top-5 0.990234 ->
+0.994141, corpus prefill PCC 0.996854, fixed prompts >= 0.9974, all inside the
+retained gates. Multi-row first-token latency under the mix was bimodal
+(5.406-20.675 s), so no TTFT claim is made for it either way. `--preset
+accuracy` keeps the previous quality for anyone who needs it. These remain
+host-wall smoke measurements, not serving benchmarks.
 
 The upstream `performance` preset and the tested single-card BFP4 mixes failed
 accuracy retention. No tested mix both passed accuracy and fit on one card; no

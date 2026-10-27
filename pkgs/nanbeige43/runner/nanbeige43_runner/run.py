@@ -99,6 +99,11 @@ MIXES = {
     "bfp4-ff2": ("bfp8", "bfp8", "bfp8", "bfp4", None),
 }
 PRESETS = ("accuracy", "performance", *MIXES)
+# O5's predeclared rule promotes the all-BFP8 mix once its speed gates pass;
+# P9 re-earned them on the device-argmax path (batch 1 +14.8 %, batch 32
+# +11.5 %). Accuracy stays selectable for maximum fidelity: the mix costs 1.37
+# points of teacher-forced top-1 (0.921875 -> 0.908203).
+DEFAULT_PRESET = "bfp8"
 
 
 def decoder_precision(preset: str):
@@ -760,7 +765,7 @@ def main(argv=None) -> None:
     parser.add_argument(
         "--reference", type=Path, help="reference artifact (compare mode)"
     )
-    parser.add_argument("--preset", choices=PRESETS, default="accuracy")
+    parser.add_argument("--preset", choices=PRESETS, default=DEFAULT_PRESET)
     parser.add_argument("--max-seq-len", type=int, default=8192)
     parser.add_argument("--page-block", type=int, default=32)
     parser.add_argument("--page-blocks", type=int, default=256)
