@@ -224,14 +224,16 @@ row-handling bug. On the shipped package at batch 32 with `--page-blocks 1024` i
 measures TTFT median **3.098 s**, decode 439.34 against 440.99 aggregate (unchanged
 within noise), all runs and rows identical,
 and accuracy within 1e-4 on prefill PCC with teacher-forced top-1 0.904297 against
-0.916016 (-1.17 points) and top-5 0.994141 against 0.992188. Larger pools do not fit:
-at `--page-blocks 8192` the mode dies with a 469 MB DRAM allocation failure, so it
-requires the smaller pool at this batch size. The mode is now compared **paired**: `--prefill-modes both`
+0.916016 (-1.17 points) and top-5 0.994141 against 0.992188. The pool requirement is
+`--page-blocks` at or below **4096**, which is the same per-row context the sequential
+default has at this batch size: 2048 measures 2.99 s and 4096 measures **2.66 s** (P85),
+while 8192 dies with a 469 MB DRAM allocation failure. The mode is now compared **paired**: `--prefill-modes both`
 alternates the two paths run by run inside one session (P83), which removes the
 session-to-session variation that made earlier ratios unreliable. At batch 32 with
 `--page-blocks 1024` and ten alternating runs, batched prefill measures **4.35 s** against
 **15.27 s** sequential in one session and **2.90 s** against **8.13 s** in a repeat - a
-paired ratio of **2.81-3.51x**, i.e. about 3x - with ids identical within each mode. Earlier
+paired ratio of **2.81-3.51x**, i.e. about 3x - with ids identical within each mode and, at
+`--page-blocks 4096`, no context cost. Earlier
 unpaired figures (1.61x, 4.25x) are superseded, and the absolute medians are
 session-dependent, so the ratio is quoted as a range. Sequential TTFT at this batch size also
 carries a heavy tail that has reached 52 s (P82), and pool size is a weak lever (1.17x at
