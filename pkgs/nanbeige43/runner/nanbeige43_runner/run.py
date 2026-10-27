@@ -29,6 +29,7 @@ from pathlib import Path
 import torch
 
 from .authority import load_authority, sha256_file, verify_checkpoint
+from .contention import admitted, flag_runs
 from .mesh import MESHES, open_mesh
 from .prompts import chat_ids, corpus_tokens
 
@@ -685,6 +686,18 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
             flush=True,
         )
     measured = [run for run in runs if not run["warmup"]]
+    # P100/P101: screen measured runs for host contention before summarizing. The
+    # rule lives in contention.py so the device-free suite can test it against real
+    # recorded numbers; a contended run is excluded from the summary, not silently
+    # averaged into it.
+    flags = flag_runs(measured)
+    if flags["decode_contended"]:
+        print(
+            f"[bench] excluded {flags['decode_contended']} decode-contended run(s); "
+            f"admitted {len(admitted(measured))} of {len(measured)}",
+            flush=True,
+        )
+    measured = admitted(measured)
     by_mode = {}
     if paired:
         for mode in ("batched", "sequential"):
@@ -757,6 +770,8 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
         "first_token_seconds_by_mode": by_mode or None,
         "prefill_modes": args.prefill_modes,
         "rows_identical_in_every_run": all(run["rows_identical"] for run in runs),
+        "contention_flags": flags,
+        "admitted_runs": len(measured),
         "output_ids": runs[0]["output_ids"],
         "runs": runs,
         "prefill": prefill,

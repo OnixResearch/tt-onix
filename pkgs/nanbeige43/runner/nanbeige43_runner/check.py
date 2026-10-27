@@ -31,6 +31,7 @@ from .authority import (
     sha256_file,
     verify_checkpoint,
 )
+from .contention import admitted, flag_runs
 
 TP = 2
 # Blackhole P150: 8 DRAM banks of dram_bank_size 4278190080 B
@@ -532,6 +533,65 @@ def self_test_precision_table(results: list) -> None:
         )
 
 
+def self_test_contention(results: list) -> None:
+    """The contention screen must catch a collapsed run and leave clean ones alone.
+
+    The numbers are recorded measurements, not invented ones. P99 produced a
+    batch-16 session where one run's decode collapsed to 51.87 aggregate beside a
+    29.204 s first token while the others ran at 210.07 and 183.72; the middle run
+    was clean at 2.058 s. P101's clean session ran 216.10/207.44/220.16/208.46 with a
+    4.916 s first token against a 1.940 s shortest - which must not be called an
+    outlier at a threefold factor.
+    """
+    # ``contended`` is the historical receipt name; "admitted" reads as "admit
+    # this run to the summary".
+    p99 = [
+        {"first_token_seconds": 29.204, "decode_tokens_per_second": 51.87},
+        {"first_token_seconds": 2.058, "decode_tokens_per_second": 210.07},
+        {"first_token_seconds": 11.328, "decode_tokens_per_second": 183.72},
+    ]
+    flags = flag_runs(p99)
+    expect(
+        flags["decode_contended"] == 1,
+        "contention screen flags exactly the collapsed P99 run",
+        results,
+    )
+    expect(
+        flags["first_token_outlier"] == 2,
+        "contention screen flags both P99 first-token stalls against the 2.058 s best",
+        results,
+    )
+    expect(
+        len(admitted(p99)) == 2,
+        "contention screen admits the two P99 runs whose decode held",
+        results,
+    )
+    p101 = [
+        {"first_token_seconds": 1.985, "decode_tokens_per_second": 216.10},
+        {"first_token_seconds": 1.940, "decode_tokens_per_second": 207.44},
+        {"first_token_seconds": 4.916, "decode_tokens_per_second": 220.16},
+        {"first_token_seconds": 2.007, "decode_tokens_per_second": 208.46},
+    ]
+    clean_flags = flag_runs(p101)
+    expect(
+        clean_flags["decode_contended"] == 0
+        and clean_flags["first_token_outlier"] == 0,
+        "contention screen leaves a clean session untouched",
+        results,
+    )
+    expect(
+        len(admitted(p101)) == 4,
+        "contention screen admits every clean run",
+        results,
+    )
+    single = [{"first_token_seconds": 1.9, "decode_tokens_per_second": 210.0}]
+    expect(
+        flag_runs(single) == {"decode_contended": 0, "first_token_outlier": 0},
+        "contention screen does not flag a single run against itself",
+        results,
+    )
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -564,6 +624,7 @@ def main(argv=None) -> None:
         self_test_batched_prefill(results)
         self_test_precision_table(results)
         self_test_batch_surface(results)
+        self_test_contention(results)
         if args.checkpoint:
             report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
             results.append({
