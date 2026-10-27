@@ -233,7 +233,10 @@ matmul reads at 271 GB/s with a 42 MB weight and 264 GB/s with 84 MB, rising to
 have except for the once-per-step LM head (P63). Larger-N probes (P62) reported
 357-392 GB/s, but those ops were 6-24 times larger than any in this model, so that
 headroom reading was a scale artifact and is withdrawn. No material streaming
-headroom exists at these op sizes. The matmul bucket still mixes attention, MLP,
+headroom exists at these op sizes, and the model's own DRAM-sharded configuration is
+measurably better than a naive interleaved one there (290 against 271 and 264 GB/s),
+so the remaining gap to the 512 GB/s pin rate is not reachable by a supported
+configuration change. The matmul bucket still mixes attention, MLP,
 and LM-head work, so no full four-way device attribution is claimed. The
 supported prefetcher is closed by L1 arithmetic (minimum ring 115 unpadded or
 118 padded, against reachable rings up to 80), so no supported
