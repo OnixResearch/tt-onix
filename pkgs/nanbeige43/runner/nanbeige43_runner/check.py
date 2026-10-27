@@ -435,6 +435,38 @@ def self_test_batched_prefill(results: list) -> None:
     )
 
 
+def self_test_batch_surface(results: list) -> None:
+    """The shipped command must refuse the batch sizes it cannot serve correctly.
+
+    Batch 8 is upstream-supported but writes stale rows 5-7 on this path
+    (P42-P45), so both modes refuse it. The check drives the real parser, so a
+    widening of `ACCEPTED_BATCHES` fails here instead of on a device run.
+    """
+    from .run import main as run_main
+
+    for mode in ("bench", "generate"):
+        argv = [
+            mode,
+            "--mesh",
+            "p150x2",
+            "--batch",
+            "8",
+            "--checkpoint",
+            "/nonexistent",
+            "--cache-root",
+            "/nonexistent",
+            "--receipt",
+            "/nonexistent.json",
+        ]
+        try:
+            run_main(argv)
+        except SystemExit as exit_error:
+            refused = "invalid choice" in str(exit_error.code) or exit_error.code == 2
+        else:
+            refused = False
+        expect(refused, f"{mode} refuses --batch 8 at the parser", results)
+
+
 def self_test_precision_table(results: list) -> None:
     """The budget table must describe the precision the runner actually builds.
 
@@ -499,6 +531,7 @@ def main(argv=None) -> None:
     self_test_comparison(results)
     self_test_batched_prefill(results)
     self_test_precision_table(results)
+    self_test_batch_surface(results)
     if args.checkpoint:
         report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
         results.append({
