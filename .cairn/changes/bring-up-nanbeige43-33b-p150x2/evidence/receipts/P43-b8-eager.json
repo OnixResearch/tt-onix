@@ -1,0 +1,82 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 2048
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": false,
+  "batch": 8,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T07:46:48-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 0,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 65.5969021320343,
+  "host_rss_after_load": {
+    "rss": 2729484288,
+    "peak": 66768310272
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "error": {
+    "type": "RuntimeError",
+    "message": "TT_THROW @ /build/source/tt_metal/impl/program/program.cpp:332: tt::exception\ninfo:\nFailed to generate binaries for reader_paged_fused_update_cache_interleaved_start_id TT_THROW @ /build/source/tt_metal/jit_build/build.cpp:70: tt::exception\ninfo:\nncrisc build failed. Log: In file included from ../kernel_includes.hpp:1,\n                 from /var/tmp/tt-metal-probe/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:23:\n/var/tmp/tt-metal-probe/ttnn/cpp/ttnn/operations/experimental/paged_cache/device/kernels/dataflow/reader_paged_fused_update_cache_interleaved_start_id.cpp:5:10: fatal error: debug/dprint.h: No such file or directory\n    5 | #include \"debug/dprint.h\"\n      |          ^~~~~~~~~~~~~~~~\ncompilation terminated.\n\nbacktrace:\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa5bc98) [0x7b89e0b8fc98]\n --- tt::tt_metal::JitBuildState::compile_one(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, tt::tt_metal::JitBuildSettings const*, unsigned long) const\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6b0f5) [0x7b89e0b9f0f5]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x55665e) [0x7b89e068a65e]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0xa346c) [0x7b8c0836a46c]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(pthread_once+0x21) [0x7b8c0836a4f1]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6ba90) [0x7b89e0b9fa90]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d80ac) [0x7b89e080c0ac]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d8a2b) [0x7b89e080ca2b]\n --- /nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib/libstdc++.so.6(+0xf2fa4) [0x7b8bf5a00fa4]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x9dd53) [0x7b8c08364d53]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x12563c) [0x7b8c083ec63c]\n\nbacktrace:\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x30a8ac) [0x7b89e043e8ac]\n --- tt::tt_metal::JitBuildCache::build_once(unsigned long, std::function<void ()> const&)\n --- tt::tt_metal::jit_build_once(unsigned long, std::function<void ()> const&)\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x77b157) [0x7b89e08af157]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6b0f5) [0x7b89e0b9f0f5]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x55665e) [0x7b89e068a65e]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0xa346c) [0x7b8c0836a46c]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(pthread_once+0x21) [0x7b8c0836a4f1]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6ba90) [0x7b89e0b9fa90]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d80ac) [0x7b89e080c0ac]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d8a2b) [0x7b89e080ca2b]\n --- /nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib/libstdc++.so.6(+0xf2fa4) [0x7b8bf5a00fa4]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x9dd53) [0x7b8c08364d53]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x12563c) [0x7b8c083ec63c]\n",
+    "traceback": "Traceback (most recent call last):\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 1045, in main\n    run_device(args, spec, identity, reference, receipt)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 762, in run_device\n    run_session(args, session, identity, reference, receipt)\n    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 804, in run_session\n    result = bench(\n        session, ids, corpus_tokens(tokenizer, max(args.prefill_lengths)), args\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 655, in bench\n    tokens = session.decode_greedy(tokens, [len(ids) + step] * batch)\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 358, in decode_greedy\n    device_output = self.generator.decode_forward(\n        torch.tensor(tokens, dtype=torch.long).reshape(self.batch, 1),\n    ...<6 lines>...\n        read_from_device=False,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/generator.py\", line 1455, in decode_forward\n    tt_decode_output = self._decode_forward_no_trace_text(\n        **decode_kwargs,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/generator.py\", line 1519, in _decode_forward_no_trace_text\n    decode_out = self.model[i].ttnn_decode_forward(\n        tt_tokens[i],\n    ...<4 lines>...\n        on_device_logits=on_device_sampling,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/model.py\", line 814, in ttnn_decode_forward\n    tt_logits = self.forward(\n        x_embed,\n    ...<6 lines>...\n        page_tables_per_layer=page_tables_per_layer,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/model.py\", line 924, in forward\n    x = layer(\n        x,\n    ...<9 lines>...\n        batch_size=batch_size,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/common/lightweightmodule.py\", line 12, in __call__\n    return self.forward(*args, **kwargs)\n           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/decoder.py\", line 256, in forward\n    attn_out = self.attention.forward(\n        attn_in,\n    ...<7 lines>...\n        kv_cache=kv_cache,\n    )\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/attention.py\", line 1213, in forward\n    return self.forward_decode(x, current_pos, rot_mats, page_table=page_table, kv_cache=kv_cache)\n           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/qyflfxl3r4rssmqmgpla8vzrwxs62j19-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/attention.py\", line 694, in forward_decode\n    ttnn.experimental.paged_fused_update_cache(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        keys, k_heads_1BKD, values, v_heads_1BKD, update_idxs_tensor=current_pos, page_table=page_table\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/decorators.py\", line 650, in __call__\n    result = self.function(*function_args, **function_kwargs)\nRuntimeError: TT_THROW @ /build/source/tt_metal/impl/program/program.cpp:332: tt::exception\ninfo:\nFailed to generate binaries for reader_paged_fused_update_cache_interleaved_start_id TT_THROW @ /build/source/tt_metal/jit_build/build.cpp:70: tt::exception\ninfo:\nncrisc build failed. Log: In file included from ../kernel_includes.hpp:1,\n                 from /var/tmp/tt-metal-probe/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:23:\n/var/tmp/tt-metal-probe/ttnn/cpp/ttnn/operations/experimental/paged_cache/device/kernels/dataflow/reader_paged_fused_update_cache_interleaved_start_id.cpp:5:10: fatal error: debug/dprint.h: No such file or directory\n    5 | #include \"debug/dprint.h\"\n      |          ^~~~~~~~~~~~~~~~\ncompilation terminated.\n\nbacktrace:\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa5bc98) [0x7b89e0b8fc98]\n --- tt::tt_metal::JitBuildState::compile_one(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, tt::tt_metal::JitBuildSettings const*, unsigned long) const\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6b0f5) [0x7b89e0b9f0f5]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x55665e) [0x7b89e068a65e]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0xa346c) [0x7b8c0836a46c]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(pthread_once+0x21) [0x7b8c0836a4f1]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6ba90) [0x7b89e0b9fa90]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d80ac) [0x7b89e080c0ac]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d8a2b) [0x7b89e080ca2b]\n --- /nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib/libstdc++.so.6(+0xf2fa4) [0x7b8bf5a00fa4]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x9dd53) [0x7b8c08364d53]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x12563c) [0x7b8c083ec63c]\n\nbacktrace:\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x30a8ac) [0x7b89e043e8ac]\n --- tt::tt_metal::JitBuildCache::build_once(unsigned long, std::function<void ()> const&)\n --- tt::tt_metal::jit_build_once(unsigned long, std::function<void ()> const&)\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x77b157) [0x7b89e08af157]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6b0f5) [0x7b89e0b9f0f5]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x55665e) [0x7b89e068a65e]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0xa346c) [0x7b8c0836a46c]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(pthread_once+0x21) [0x7b8c0836a4f1]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0xa6ba90) [0x7b89e0b9fa90]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d80ac) [0x7b89e080c0ac]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/libtt_metal.so(+0x6d8a2b) [0x7b89e080ca2b]\n --- /nix/store/chqq8mpmpyfi9kgsngya71akv5xicn03-gcc-15.2.0-lib/lib/libstdc++.so.6(+0xf2fa4) [0x7b8bf5a00fa4]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x9dd53) [0x7b8c08364d53]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x12563c) [0x7b8c083ec63c]\n\n"
+  },
+  "gates": [
+    {
+      "gate": "device run completed",
+      "passed": false,
+      "observed": "RuntimeError"
+    }
+  ],
+  "finished": "2026-10-27T07:48:01-0400",
+  "passed": false
+}

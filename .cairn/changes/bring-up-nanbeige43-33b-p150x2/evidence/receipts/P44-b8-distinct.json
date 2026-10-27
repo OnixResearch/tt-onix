@@ -1,0 +1,342 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/kph1fg0zyxfdk7zhqbq1xkqyrih9l00n-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 2048
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 8,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T07:49:49-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 63.728376150131226,
+  "host_rss_after_load": {
+    "rss": 2773843968,
+    "peak": 66712887296
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 2,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 17.868053630983923,
+      "p90": 17.868053630983923,
+      "min": 17.868053630983923,
+      "max": 17.868053630983923,
+      "samples": [
+        17.868053630983923
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 0.0670451450429093,
+      "p90": 0.0670451450429093,
+      "min": 0.0670451450429093,
+      "max": 0.0670451450429093,
+      "samples": [
+        0.0670451450429093
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 0.5363611603432744,
+      "p90": 0.5363611603432744,
+      "min": 0.5363611603432744,
+      "max": 0.5363611603432744,
+      "samples": [
+        0.5363611603432744
+      ]
+    },
+    "batch": 8,
+    "outputs_identical_across_runs": true,
+    "rows_identical_in_every_run": false,
+    "output_ids": [
+      17782,
+      152518
+    ],
+    "runs": [
+      {
+        "warmup": false,
+        "first_token_seconds": 17.868053630983923,
+        "decode_seconds": 14.915323091030587,
+        "decode_tokens_per_second": 0.0670451450429093,
+        "aggregate_decode_tokens_per_second": 0.5363611603432744,
+        "output_ids": [
+          17782,
+          152518
+        ],
+        "rows_identical": false,
+        "row_output_ids": [
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            13
+          ],
+          [
+            17782,
+            3
+          ],
+          [
+            17782,
+            13
+          ]
+        ]
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 870.6584763797127,
+          "p90": 885.1430358230722,
+          "min": 809.6078561715913,
+          "max": 885.1430358230722,
+          "samples": [
+            809.6078561715913,
+            870.6584763797127,
+            885.1430358230722
+          ]
+        },
+        "rows": 8
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello!"
+  },
+  "cache_probe": {
+    "cache_shape": [
+      2048,
+      4,
+      32,
+      128
+    ],
+    "block_size": 32,
+    "distinct_positions": true,
+    "rows": [
+      {
+        "row": 0,
+        "position": 42,
+        "physical_block": 1957,
+        "site": 10,
+        "nonzero": true,
+        "head0_first8": [
+          -2.875,
+          -1.5625,
+          -2.125,
+          3.0,
+          1.5,
+          0.0625,
+          4.4375,
+          1.1875
+        ]
+      },
+      {
+        "row": 1,
+        "position": 43,
+        "physical_block": 514,
+        "site": 11,
+        "nonzero": true,
+        "head0_first8": [
+          -0.2812,
+          -3.25,
+          -3.5625,
+          0.7188,
+          1.2188,
+          0.8438,
+          3.5312,
+          2.9062
+        ]
+      },
+      {
+        "row": 2,
+        "position": 44,
+        "physical_block": 1987,
+        "site": 12,
+        "nonzero": true,
+        "head0_first8": [
+          2.625,
+          -2.0,
+          -3.125,
+          -1.9375,
+          0.625,
+          1.375,
+          2.0625,
+          4.0625
+        ]
+      },
+      {
+        "row": 3,
+        "position": 45,
+        "physical_block": 1787,
+        "site": 13,
+        "nonzero": true,
+        "head0_first8": [
+          3.0625,
+          1.125,
+          -1.0,
+          -3.5,
+          -0.25,
+          1.5,
+          0.25,
+          4.5625
+        ]
+      },
+      {
+        "row": 4,
+        "position": 46,
+        "physical_block": 1336,
+        "site": 14,
+        "nonzero": true,
+        "head0_first8": [
+          0.6875,
+          3.1875,
+          1.6875,
+          -3.25,
+          -1.0,
+          1.125,
+          -1.625,
+          4.25
+        ]
+      },
+      {
+        "row": 5,
+        "position": 47,
+        "physical_block": 946,
+        "site": 15,
+        "nonzero": true,
+        "head0_first8": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "row": 6,
+        "position": 48,
+        "physical_block": 813,
+        "site": 16,
+        "nonzero": true,
+        "head0_first8": [
+          -6.375,
+          0.125,
+          1.25,
+          0.0,
+          -0.625,
+          0.0,
+          -0.875,
+          0.875
+        ]
+      },
+      {
+        "row": 7,
+        "position": 49,
+        "physical_block": 1694,
+        "site": 17,
+        "nonzero": true,
+        "head0_first8": [
+          0.0,
+          6.136154492292301e+16,
+          0.0,
+          2251799813685248.0,
+          0.0,
+          0.0,
+          0.0,
+          1.1821949021847552e+16
+        ]
+      }
+    ]
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": false,
+      "observed": false
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2943365120,
+    "peak": 66712887296
+  },
+  "finished": "2026-10-27T07:51:40-0400",
+  "passed": false
+}
