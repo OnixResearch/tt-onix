@@ -1,0 +1,1126 @@
+{
+  "schema": "nanbeige43-p6-split/v1",
+  "declared": "tasks.md Phase 7 P6 (2026-10-27)",
+  "simulated": false,
+  "package_identity": "/nix/store/i2qcpbjka9hk7i6hrxrk7ymfiaxjgjn7-nanbeige43-0.1.0",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "batch": 32,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 512
+  },
+  "decode_trace": true,
+  "steps_measured": 128,
+  "warmup_steps": 8,
+  "admitted_receipt": "/home/brittonr/git/tenstorrent.nix/.cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P2-bench-b32.json",
+  "started": "2026-10-27T00:32:24-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "load_seconds": 105.98337197303772,
+  "host_rss_after_load": {
+    "rss": 2543484928,
+    "peak": 50836828160
+  },
+  "first_token_seconds": 39.06703949801158,
+  "result": {
+    "ids_identical_to_admitted": true,
+    "ids_prefix_len": 128,
+    "first_divergence": null,
+    "median_step_seconds": 0.10590839499491267,
+    "median_aggregate_decode_tokens_per_second": 302.14790811943783,
+    "phases": {
+      "enqueue_seconds": {
+        "median": 0.005766551999840885,
+        "mean": 0.0061246488430697354,
+        "max": 0.012763833976350725
+      },
+      "readback_seconds": {
+        "median": 0.08196540203061886,
+        "mean": 0.08257898625697635,
+        "max": 0.09158058400498703
+      },
+      "to_torch_seconds": {
+        "median": 0.0012109079980291426,
+        "mean": 0.001434565023828327,
+        "max": 0.007017344993073493
+      },
+      "argmax_seconds": {
+        "median": 0.016362831491278484,
+        "mean": 0.018283601968505536,
+        "max": 0.0862907319678925
+      }
+    },
+    "share_of_median_step": {
+      "enqueue_seconds": 0.05444848824418388,
+      "readback_seconds": 0.7739273363037565,
+      "to_torch_seconds": 0.011433541204050055,
+      "argmax_seconds": 0.15449985331252047
+    },
+    "steps": [
+      {
+        "step": 9,
+        "step_seconds": 0.10101849399507046,
+        "enqueue_seconds": 0.004198623006232083,
+        "readback_seconds": 0.08091480896109715,
+        "to_torch_seconds": 0.0012947010109201074,
+        "argmax_seconds": 0.014610361016821116
+      },
+      {
+        "step": 10,
+        "step_seconds": 0.11181639798451215,
+        "enqueue_seconds": 0.004299411957617849,
+        "readback_seconds": 0.08130527299363166,
+        "to_torch_seconds": 0.001192749012261629,
+        "argmax_seconds": 0.02501896402100101
+      },
+      {
+        "step": 11,
+        "step_seconds": 0.10332736902637407,
+        "enqueue_seconds": 0.0036616349825635552,
+        "readback_seconds": 0.08133963600266725,
+        "to_torch_seconds": 0.0016532239969819784,
+        "argmax_seconds": 0.01667287404416129
+      },
+      {
+        "step": 12,
+        "step_seconds": 0.10985815100139007,
+        "enqueue_seconds": 0.004473549022804946,
+        "readback_seconds": 0.08111580699915066,
+        "to_torch_seconds": 0.0011996219982393086,
+        "argmax_seconds": 0.023069172981195152
+      },
+      {
+        "step": 13,
+        "step_seconds": 0.10251459298888221,
+        "enqueue_seconds": 0.0019798569846898317,
+        "readback_seconds": 0.08147173502948135,
+        "to_torch_seconds": 0.001483515021391213,
+        "argmax_seconds": 0.017579485953319818
+      },
+      {
+        "step": 14,
+        "step_seconds": 0.09596798202255741,
+        "enqueue_seconds": 0.004273093014489859,
+        "readback_seconds": 0.08080336998682469,
+        "to_torch_seconds": 0.0013727070181630552,
+        "argmax_seconds": 0.009518812003079802
+      },
+      {
+        "step": 15,
+        "step_seconds": 0.10787979699671268,
+        "enqueue_seconds": 0.008346350979991257,
+        "readback_seconds": 0.08076212200103328,
+        "to_torch_seconds": 0.0013799910084344447,
+        "argmax_seconds": 0.017391333007253706
+      },
+      {
+        "step": 16,
+        "step_seconds": 0.09613951301435009,
+        "enqueue_seconds": 0.001845034013967961,
+        "readback_seconds": 0.08070575597230345,
+        "to_torch_seconds": 0.001210292975883931,
+        "argmax_seconds": 0.012378430052194744
+      },
+      {
+        "step": 17,
+        "step_seconds": 0.13291588198626414,
+        "enqueue_seconds": 0.005733053956646472,
+        "readback_seconds": 0.08335723500931635,
+        "to_torch_seconds": 0.0035243770107626915,
+        "argmax_seconds": 0.04030121600953862
+      },
+      {
+        "step": 18,
+        "step_seconds": 0.11796859797323123,
+        "enqueue_seconds": 0.009666237980127335,
+        "readback_seconds": 0.08130358898779377,
+        "to_torch_seconds": 0.0016360920271836221,
+        "argmax_seconds": 0.025362678978126496
+      },
+      {
+        "step": 19,
+        "step_seconds": 0.0975400130264461,
+        "enqueue_seconds": 0.005034683039411902,
+        "readback_seconds": 0.08132197300437838,
+        "to_torch_seconds": 0.0014159189886413515,
+        "argmax_seconds": 0.009767437994014472
+      },
+      {
+        "step": 20,
+        "step_seconds": 0.10455508495215327,
+        "enqueue_seconds": 0.00472299795364961,
+        "readback_seconds": 0.08126477600308135,
+        "to_torch_seconds": 0.0017509470344521105,
+        "argmax_seconds": 0.016816363960970193
+      },
+      {
+        "step": 21,
+        "step_seconds": 0.10057387902634218,
+        "enqueue_seconds": 0.005115895008202642,
+        "readback_seconds": 0.08060503797605634,
+        "to_torch_seconds": 0.0014459849917329848,
+        "argmax_seconds": 0.013406961050350219
+      },
+      {
+        "step": 22,
+        "step_seconds": 0.10227937204763293,
+        "enqueue_seconds": 0.0038706070045009255,
+        "readback_seconds": 0.08074946899432689,
+        "to_torch_seconds": 0.0010171500034630299,
+        "argmax_seconds": 0.016642146045342088
+      },
+      {
+        "step": 23,
+        "step_seconds": 0.1052603290299885,
+        "enqueue_seconds": 0.0021603660425171256,
+        "readback_seconds": 0.08177392196375877,
+        "to_torch_seconds": 0.001427910989150405,
+        "argmax_seconds": 0.0198981300345622
+      },
+      {
+        "step": 24,
+        "step_seconds": 0.11150130600435659,
+        "enqueue_seconds": 0.008070993004366755,
+        "readback_seconds": 0.08203026402043179,
+        "to_torch_seconds": 0.0011553989606909454,
+        "argmax_seconds": 0.020244650018867105
+      },
+      {
+        "step": 25,
+        "step_seconds": 0.11157177796121687,
+        "enqueue_seconds": 0.007022253994364291,
+        "readback_seconds": 0.08182964695151895,
+        "to_torch_seconds": 0.0009393940563313663,
+        "argmax_seconds": 0.021780482959002256
+      },
+      {
+        "step": 26,
+        "step_seconds": 0.10619702696567401,
+        "enqueue_seconds": 0.005214700999204069,
+        "readback_seconds": 0.08133236301364377,
+        "to_torch_seconds": 0.0014616839471273124,
+        "argmax_seconds": 0.01818827900569886
+      },
+      {
+        "step": 27,
+        "step_seconds": 0.1097397489938885,
+        "enqueue_seconds": 0.0061791419866494834,
+        "readback_seconds": 0.08180680399527773,
+        "to_torch_seconds": 0.001054109015967697,
+        "argmax_seconds": 0.020699693995993584
+      },
+      {
+        "step": 28,
+        "step_seconds": 0.10306870297063142,
+        "enqueue_seconds": 0.0033374259946867824,
+        "readback_seconds": 0.08232496696291491,
+        "to_torch_seconds": 0.0016703660367056727,
+        "argmax_seconds": 0.01573594397632405
+      },
+      {
+        "step": 29,
+        "step_seconds": 0.10521739796968177,
+        "enqueue_seconds": 0.004828805977012962,
+        "readback_seconds": 0.08207152097020298,
+        "to_torch_seconds": 0.001224649022333324,
+        "argmax_seconds": 0.0170924220001325
+      },
+      {
+        "step": 30,
+        "step_seconds": 0.11238844197941944,
+        "enqueue_seconds": 0.008165009960066527,
+        "readback_seconds": 0.0836317710345611,
+        "to_torch_seconds": 0.0013210299657657743,
+        "argmax_seconds": 0.01927063101902604
+      },
+      {
+        "step": 31,
+        "step_seconds": 0.10412744199857116,
+        "enqueue_seconds": 0.0046061379835009575,
+        "readback_seconds": 0.08172828698297963,
+        "to_torch_seconds": 0.001275925023946911,
+        "argmax_seconds": 0.016517092008143663
+      },
+      {
+        "step": 32,
+        "step_seconds": 0.10540931799914688,
+        "enqueue_seconds": 0.007827185036148876,
+        "readback_seconds": 0.08192567795049399,
+        "to_torch_seconds": 0.0010749180219136178,
+        "argmax_seconds": 0.014581536990590394
+      },
+      {
+        "step": 33,
+        "step_seconds": 0.10945011500734836,
+        "enqueue_seconds": 0.007323209021706134,
+        "readback_seconds": 0.08167414501076564,
+        "to_torch_seconds": 0.001622475974727422,
+        "argmax_seconds": 0.01883028500014916
+      },
+      {
+        "step": 34,
+        "step_seconds": 0.10076083097374067,
+        "enqueue_seconds": 0.0048700139741413295,
+        "readback_seconds": 0.08179554302478209,
+        "to_torch_seconds": 0.00114236498484388,
+        "argmax_seconds": 0.012952908989973366
+      },
+      {
+        "step": 35,
+        "step_seconds": 0.10993443400366232,
+        "enqueue_seconds": 0.0059948660200461745,
+        "readback_seconds": 0.08133377600461245,
+        "to_torch_seconds": 0.0008626289782114327,
+        "argmax_seconds": 0.021743163000792265
+      },
+      {
+        "step": 36,
+        "step_seconds": 0.11591790895909071,
+        "enqueue_seconds": 0.005334084969945252,
+        "readback_seconds": 0.08198881603311747,
+        "to_torch_seconds": 0.0009468479547649622,
+        "argmax_seconds": 0.027648160001263022
+      },
+      {
+        "step": 37,
+        "step_seconds": 0.10318269801791757,
+        "enqueue_seconds": 0.00501302198972553,
+        "readback_seconds": 0.08177967299707234,
+        "to_torch_seconds": 0.0014504329883493483,
+        "argmax_seconds": 0.014939570042770356
+      },
+      {
+        "step": 38,
+        "step_seconds": 0.10833775700302795,
+        "enqueue_seconds": 0.007015561976004392,
+        "readback_seconds": 0.0820443099946715,
+        "to_torch_seconds": 0.0019988230196759105,
+        "argmax_seconds": 0.01727906201267615
+      },
+      {
+        "step": 39,
+        "step_seconds": 0.10890883899992332,
+        "enqueue_seconds": 0.008744928985834122,
+        "readback_seconds": 0.08180373802315444,
+        "to_torch_seconds": 0.0012494460097514093,
+        "argmax_seconds": 0.01711072598118335
+      },
+      {
+        "step": 40,
+        "step_seconds": 0.15738494298420846,
+        "enqueue_seconds": 0.005788517999462783,
+        "readback_seconds": 0.0900166779756546,
+        "to_torch_seconds": 0.004524685034994036,
+        "argmax_seconds": 0.05705506197409704
+      },
+      {
+        "step": 41,
+        "step_seconds": 0.10984026797814295,
+        "enqueue_seconds": 0.010290209960658103,
+        "readback_seconds": 0.08154267800273374,
+        "to_torch_seconds": 0.0013865440269000828,
+        "argmax_seconds": 0.016620835987851024
+      },
+      {
+        "step": 42,
+        "step_seconds": 0.1028922819532454,
+        "enqueue_seconds": 0.00729893398238346,
+        "readback_seconds": 0.081420567992609,
+        "to_torch_seconds": 0.0010047070099972188,
+        "argmax_seconds": 0.013168072968255728
+      },
+      {
+        "step": 43,
+        "step_seconds": 0.10148161399411038,
+        "enqueue_seconds": 0.00459976599086076,
+        "readback_seconds": 0.08140396798262373,
+        "to_torch_seconds": 0.0012110130046494305,
+        "argmax_seconds": 0.014266867015976459
+      },
+      {
+        "step": 44,
+        "step_seconds": 0.10042774502653629,
+        "enqueue_seconds": 0.005476332036778331,
+        "readback_seconds": 0.08118175098206848,
+        "to_torch_seconds": 0.0013081060023978353,
+        "argmax_seconds": 0.01246155600529164
+      },
+      {
+        "step": 45,
+        "step_seconds": 0.10193170898128301,
+        "enqueue_seconds": 0.005327542021404952,
+        "readback_seconds": 0.08140789496246725,
+        "to_torch_seconds": 0.0016094620223157108,
+        "argmax_seconds": 0.013586809975095093
+      },
+      {
+        "step": 46,
+        "step_seconds": 0.10593147797044367,
+        "enqueue_seconds": 0.006153153022751212,
+        "readback_seconds": 0.08150854398263618,
+        "to_torch_seconds": 0.0013300369610078633,
+        "argmax_seconds": 0.016939744004048407
+      },
+      {
+        "step": 47,
+        "step_seconds": 0.10447533399565145,
+        "enqueue_seconds": 0.00596981804119423,
+        "readback_seconds": 0.0815135229495354,
+        "to_torch_seconds": 0.0010511440341360867,
+        "argmax_seconds": 0.015940848970785737
+      },
+      {
+        "step": 48,
+        "step_seconds": 0.10663388698594645,
+        "enqueue_seconds": 0.008932641008868814,
+        "readback_seconds": 0.08180470002116635,
+        "to_torch_seconds": 0.0010501209762878716,
+        "argmax_seconds": 0.014846424979623407
+      },
+      {
+        "step": 49,
+        "step_seconds": 0.10410088201751933,
+        "enqueue_seconds": 0.005100656999275088,
+        "readback_seconds": 0.08162936102598906,
+        "to_torch_seconds": 0.0011736230226233602,
+        "argmax_seconds": 0.01619724096963182
+      },
+      {
+        "step": 50,
+        "step_seconds": 0.10537919099442661,
+        "enqueue_seconds": 0.004219060996547341,
+        "readback_seconds": 0.08151083800476044,
+        "to_torch_seconds": 0.0011305530206300318,
+        "argmax_seconds": 0.01851873897248879
+      },
+      {
+        "step": 51,
+        "step_seconds": 0.09993501001736149,
+        "enqueue_seconds": 0.002944398031104356,
+        "readback_seconds": 0.08155138499569148,
+        "to_torch_seconds": 0.0013336639967747033,
+        "argmax_seconds": 0.014105562993790954
+      },
+      {
+        "step": 52,
+        "step_seconds": 0.10002577002160251,
+        "enqueue_seconds": 0.006665885041002184,
+        "readback_seconds": 0.0814899789984338,
+        "to_torch_seconds": 0.0013179350062273443,
+        "argmax_seconds": 0.010551970975939184
+      },
+      {
+        "step": 53,
+        "step_seconds": 0.10644665599102154,
+        "enqueue_seconds": 0.006321178982034326,
+        "readback_seconds": 0.08145008404972032,
+        "to_torch_seconds": 0.0012108029914088547,
+        "argmax_seconds": 0.017464589967858046
+      },
+      {
+        "step": 54,
+        "step_seconds": 0.10041306697530672,
+        "enqueue_seconds": 0.004706486011855304,
+        "readback_seconds": 0.08119447395438328,
+        "to_torch_seconds": 0.0009324310231022537,
+        "argmax_seconds": 0.013579675985965878
+      },
+      {
+        "step": 55,
+        "step_seconds": 0.10299065703293309,
+        "enqueue_seconds": 0.005695514031685889,
+        "readback_seconds": 0.08120447298279032,
+        "to_torch_seconds": 0.00104694499168545,
+        "argmax_seconds": 0.015043725026771426
+      },
+      {
+        "step": 56,
+        "step_seconds": 0.10378665203461424,
+        "enqueue_seconds": 0.00428148900391534,
+        "readback_seconds": 0.08184076799079776,
+        "to_torch_seconds": 0.0010208760504610837,
+        "argmax_seconds": 0.016643518989440054
+      },
+      {
+        "step": 57,
+        "step_seconds": 0.10208400496048853,
+        "enqueue_seconds": 0.004185398982372135,
+        "readback_seconds": 0.08145424199756235,
+        "to_torch_seconds": 0.0009602520149201155,
+        "argmax_seconds": 0.015484111965633929
+      },
+      {
+        "step": 58,
+        "step_seconds": 0.10695434897206724,
+        "enqueue_seconds": 0.0065690839546732605,
+        "readback_seconds": 0.08178714703535661,
+        "to_torch_seconds": 0.000923443993087858,
+        "argmax_seconds": 0.017674673988949507
+      },
+      {
+        "step": 59,
+        "step_seconds": 0.10475548001704738,
+        "enqueue_seconds": 0.004538090026471764,
+        "readback_seconds": 0.0814698719768785,
+        "to_torch_seconds": 0.0011410420411266387,
+        "argmax_seconds": 0.01760647597257048
+      },
+      {
+        "step": 60,
+        "step_seconds": 0.10603261803044006,
+        "enqueue_seconds": 0.008809099032077938,
+        "readback_seconds": 0.08134739199886099,
+        "to_torch_seconds": 0.0009585089865140617,
+        "argmax_seconds": 0.014917618012987077
+      },
+      {
+        "step": 61,
+        "step_seconds": 0.10586041497299448,
+        "enqueue_seconds": 0.007025170023553073,
+        "readback_seconds": 0.08184343198081478,
+        "to_torch_seconds": 0.001000799995381385,
+        "argmax_seconds": 0.015991012973245233
+      },
+      {
+        "step": 62,
+        "step_seconds": 0.15100063697900623,
+        "enqueue_seconds": 0.007016202958766371,
+        "readback_seconds": 0.0870613400475122,
+        "to_torch_seconds": 0.0046845649485476315,
+        "argmax_seconds": 0.052238529024180025
+      },
+      {
+        "step": 63,
+        "step_seconds": 0.10753399698296562,
+        "enqueue_seconds": 0.0046430169604718685,
+        "readback_seconds": 0.0823219710146077,
+        "to_torch_seconds": 0.0018874339875765145,
+        "argmax_seconds": 0.018681575020309538
+      },
+      {
+        "step": 64,
+        "step_seconds": 0.10752588097238913,
+        "enqueue_seconds": 0.008538259950000793,
+        "readback_seconds": 0.08144793001702055,
+        "to_torch_seconds": 0.0010119699873030186,
+        "argmax_seconds": 0.016527721018064767
+      },
+      {
+        "step": 65,
+        "step_seconds": 0.10477365495171398,
+        "enqueue_seconds": 0.00762884400319308,
+        "readback_seconds": 0.08140968799125403,
+        "to_torch_seconds": 0.0011411429732106626,
+        "argmax_seconds": 0.014593979984056205
+      },
+      {
+        "step": 66,
+        "step_seconds": 0.10415660601574928,
+        "enqueue_seconds": 0.004993315029423684,
+        "readback_seconds": 0.08172870700946078,
+        "to_torch_seconds": 0.0011609999928623438,
+        "argmax_seconds": 0.01627358398400247
+      },
+      {
+        "step": 67,
+        "step_seconds": 0.10485884500667453,
+        "enqueue_seconds": 0.004375624994281679,
+        "readback_seconds": 0.08188979001715779,
+        "to_torch_seconds": 0.001071341976057738,
+        "argmax_seconds": 0.017522088019177318
+      },
+      {
+        "step": 68,
+        "step_seconds": 0.10362139099743217,
+        "enqueue_seconds": 0.0044098999933339655,
+        "readback_seconds": 0.08173635101411492,
+        "to_torch_seconds": 0.0016702860011719167,
+        "argmax_seconds": 0.015804853988811374
+      },
+      {
+        "step": 69,
+        "step_seconds": 0.104090170993004,
+        "enqueue_seconds": 0.006366142013575882,
+        "readback_seconds": 0.08148989896290004,
+        "to_torch_seconds": 0.0009421190479770303,
+        "argmax_seconds": 0.01529201096855104
+      },
+      {
+        "step": 70,
+        "step_seconds": 0.1010161490412429,
+        "enqueue_seconds": 0.005397003027610481,
+        "readback_seconds": 0.08144412300316617,
+        "to_torch_seconds": 0.0016028789686970413,
+        "argmax_seconds": 0.012572144041769207
+      },
+      {
+        "step": 71,
+        "step_seconds": 0.10486381402006373,
+        "enqueue_seconds": 0.004886114038527012,
+        "readback_seconds": 0.08175363397458568,
+        "to_torch_seconds": 0.0014491910114884377,
+        "argmax_seconds": 0.016774874995462596
+      },
+      {
+        "step": 72,
+        "step_seconds": 0.1100515439757146,
+        "enqueue_seconds": 0.00834106100955978,
+        "readback_seconds": 0.08241755998460576,
+        "to_torch_seconds": 0.004222557996399701,
+        "argmax_seconds": 0.015070364985149354
+      },
+      {
+        "step": 73,
+        "step_seconds": 0.10376291599823162,
+        "enqueue_seconds": 0.004884661000687629,
+        "readback_seconds": 0.08535687898984179,
+        "to_torch_seconds": 0.0009220410138368607,
+        "argmax_seconds": 0.012599334993865341
+      },
+      {
+        "step": 74,
+        "step_seconds": 0.10318385000573471,
+        "enqueue_seconds": 0.00481089303502813,
+        "readback_seconds": 0.0815644990070723,
+        "to_torch_seconds": 0.0008928259485401213,
+        "argmax_seconds": 0.01591563201509416
+      },
+      {
+        "step": 75,
+        "step_seconds": 0.10585236002225429,
+        "enqueue_seconds": 0.006206864025443792,
+        "readback_seconds": 0.08298331301193684,
+        "to_torch_seconds": 0.000909426948055625,
+        "argmax_seconds": 0.015752756036818027
+      },
+      {
+        "step": 76,
+        "step_seconds": 0.10523248597746715,
+        "enqueue_seconds": 0.006891948985867202,
+        "readback_seconds": 0.08178720803698525,
+        "to_torch_seconds": 0.0014955569640733302,
+        "argmax_seconds": 0.015057771990541369
+      },
+      {
+        "step": 77,
+        "step_seconds": 0.10659586603287607,
+        "enqueue_seconds": 0.007420170994009823,
+        "readback_seconds": 0.08171465102350339,
+        "to_torch_seconds": 0.0009093169937841594,
+        "argmax_seconds": 0.0165517270215787
+      },
+      {
+        "step": 78,
+        "step_seconds": 0.10601980396313593,
+        "enqueue_seconds": 0.00876789097674191,
+        "readback_seconds": 0.08155747601995245,
+        "to_torch_seconds": 0.0008723479695618153,
+        "argmax_seconds": 0.014822088996879756
+      },
+      {
+        "step": 79,
+        "step_seconds": 0.10884028003783897,
+        "enqueue_seconds": 0.009403895994182676,
+        "readback_seconds": 0.0815670540323481,
+        "to_torch_seconds": 0.0009430599748156965,
+        "argmax_seconds": 0.016926270036492497
+      },
+      {
+        "step": 80,
+        "step_seconds": 0.11007008899468929,
+        "enqueue_seconds": 0.008835949993226677,
+        "readback_seconds": 0.08152793999761343,
+        "to_torch_seconds": 0.0009121830225922167,
+        "argmax_seconds": 0.018794015981256962
+      },
+      {
+        "step": 81,
+        "step_seconds": 0.10580899904016405,
+        "enqueue_seconds": 0.004396734992042184,
+        "readback_seconds": 0.08194198802812025,
+        "to_torch_seconds": 0.0013094790047034621,
+        "argmax_seconds": 0.018160797015298158
+      },
+      {
+        "step": 82,
+        "step_seconds": 0.1447966989944689,
+        "enqueue_seconds": 0.007805455010384321,
+        "readback_seconds": 0.08519102795980871,
+        "to_torch_seconds": 0.004732845991384238,
+        "argmax_seconds": 0.04706737003289163
+      },
+      {
+        "step": 83,
+        "step_seconds": 0.11162685201270506,
+        "enqueue_seconds": 0.01188226998783648,
+        "readback_seconds": 0.0815811000065878,
+        "to_torch_seconds": 0.001230781024787575,
+        "argmax_seconds": 0.0169327009934932
+      },
+      {
+        "step": 84,
+        "step_seconds": 0.10454756097169593,
+        "enqueue_seconds": 0.0057470210012979805,
+        "readback_seconds": 0.08179022197145969,
+        "to_torch_seconds": 0.001154107041656971,
+        "argmax_seconds": 0.01585621095728129
+      },
+      {
+        "step": 85,
+        "step_seconds": 0.10058829601621255,
+        "enqueue_seconds": 0.005516777979210019,
+        "readback_seconds": 0.0815408140188083,
+        "to_torch_seconds": 0.0014645900228060782,
+        "argmax_seconds": 0.01206611399538815
+      },
+      {
+        "step": 86,
+        "step_seconds": 0.1027980160433799,
+        "enqueue_seconds": 0.005864801001735032,
+        "readback_seconds": 0.0817769180284813,
+        "to_torch_seconds": 0.000979859963990748,
+        "argmax_seconds": 0.014176437049172819
+      },
+      {
+        "step": 87,
+        "step_seconds": 0.10588531201938167,
+        "enqueue_seconds": 0.005248895031400025,
+        "readback_seconds": 0.0835942099802196,
+        "to_torch_seconds": 0.0011861370294354856,
+        "argmax_seconds": 0.01585606997832656
+      },
+      {
+        "step": 88,
+        "step_seconds": 0.11296674801269546,
+        "enqueue_seconds": 0.007088099024258554,
+        "readback_seconds": 0.08309447101783007,
+        "to_torch_seconds": 0.0009398749680258334,
+        "argmax_seconds": 0.021844303002581
+      },
+      {
+        "step": 89,
+        "step_seconds": 0.10808895900845528,
+        "enqueue_seconds": 0.0064250429859384894,
+        "readback_seconds": 0.08367811801144853,
+        "to_torch_seconds": 0.0015337190125137568,
+        "argmax_seconds": 0.016452078998554498
+      },
+      {
+        "step": 90,
+        "step_seconds": 0.10767180600669235,
+        "enqueue_seconds": 0.006606874987483025,
+        "readback_seconds": 0.08362069900613278,
+        "to_torch_seconds": 0.001293699024245143,
+        "argmax_seconds": 0.0161505329888314
+      },
+      {
+        "step": 91,
+        "step_seconds": 0.1110855860169977,
+        "enqueue_seconds": 0.008050736039876938,
+        "readback_seconds": 0.08361375599633902,
+        "to_torch_seconds": 0.001316762005444616,
+        "argmax_seconds": 0.018104331975337118
+      },
+      {
+        "step": 92,
+        "step_seconds": 0.10741668700939044,
+        "enqueue_seconds": 0.0069782420177944005,
+        "readback_seconds": 0.08359091298189014,
+        "to_torch_seconds": 0.001012330991216004,
+        "argmax_seconds": 0.015835201018489897
+      },
+      {
+        "step": 93,
+        "step_seconds": 0.10143327299738303,
+        "enqueue_seconds": 0.004313969984650612,
+        "readback_seconds": 0.08312078099697828,
+        "to_torch_seconds": 0.0009489310323260725,
+        "argmax_seconds": 0.013049590983428061
+      },
+      {
+        "step": 94,
+        "step_seconds": 0.10343158501200378,
+        "enqueue_seconds": 0.004871596000157297,
+        "readback_seconds": 0.0833601210033521,
+        "to_torch_seconds": 0.0014494010247290134,
+        "argmax_seconds": 0.013750466983765364
+      },
+      {
+        "step": 95,
+        "step_seconds": 0.10730039904592559,
+        "enqueue_seconds": 0.008205927035305649,
+        "readback_seconds": 0.08330757200019434,
+        "to_torch_seconds": 0.0011652570101432502,
+        "argmax_seconds": 0.014621643000282347
+      },
+      {
+        "step": 96,
+        "step_seconds": 0.11292038997635245,
+        "enqueue_seconds": 0.00854236795566976,
+        "readback_seconds": 0.08350518305087462,
+        "to_torch_seconds": 0.0014187939814291894,
+        "argmax_seconds": 0.019454044988378882
+      },
+      {
+        "step": 97,
+        "step_seconds": 0.10711058200104162,
+        "enqueue_seconds": 0.005541705002542585,
+        "readback_seconds": 0.08359872800065205,
+        "to_torch_seconds": 0.0014729250106029212,
+        "argmax_seconds": 0.01649722398724407
+      },
+      {
+        "step": 98,
+        "step_seconds": 0.1030395989655517,
+        "enqueue_seconds": 0.004944012966006994,
+        "readback_seconds": 0.08365811000112444,
+        "to_torch_seconds": 0.0009996769949793816,
+        "argmax_seconds": 0.013437799003440887
+      },
+      {
+        "step": 99,
+        "step_seconds": 0.11710452602710575,
+        "enqueue_seconds": 0.009841277031227946,
+        "readback_seconds": 0.08391294797183946,
+        "to_torch_seconds": 0.0013851210242137313,
+        "argmax_seconds": 0.021965179999824613
+      },
+      {
+        "step": 100,
+        "step_seconds": 0.11196993495104834,
+        "enqueue_seconds": 0.008151263988111168,
+        "readback_seconds": 0.08337923599174246,
+        "to_torch_seconds": 0.0012256809859536588,
+        "argmax_seconds": 0.019213753985241055
+      },
+      {
+        "step": 101,
+        "step_seconds": 0.10837738000554964,
+        "enqueue_seconds": 0.008750578970648348,
+        "readback_seconds": 0.08311650302493945,
+        "to_torch_seconds": 0.0009211790165863931,
+        "argmax_seconds": 0.01558911899337545
+      },
+      {
+        "step": 102,
+        "step_seconds": 0.11121122201438993,
+        "enqueue_seconds": 0.007421754999086261,
+        "readback_seconds": 0.0833342419937253,
+        "to_torch_seconds": 0.001575287024024874,
+        "argmax_seconds": 0.018879937997553498
+      },
+      {
+        "step": 103,
+        "step_seconds": 0.18884154397528619,
+        "enqueue_seconds": 0.004969511006493121,
+        "readback_seconds": 0.0907614859752357,
+        "to_torch_seconds": 0.006819815025664866,
+        "argmax_seconds": 0.0862907319678925
+      },
+      {
+        "step": 104,
+        "step_seconds": 0.12151497695595026,
+        "enqueue_seconds": 0.012763833976350725,
+        "readback_seconds": 0.08362382499035448,
+        "to_torch_seconds": 0.0015360849793069065,
+        "argmax_seconds": 0.02359123300993815
+      },
+      {
+        "step": 105,
+        "step_seconds": 0.11012481199577451,
+        "enqueue_seconds": 0.00841425801627338,
+        "readback_seconds": 0.08320545998867601,
+        "to_torch_seconds": 0.00106385798426345,
+        "argmax_seconds": 0.017441236006561667
+      },
+      {
+        "step": 106,
+        "step_seconds": 0.10413085698382929,
+        "enqueue_seconds": 0.004775836016051471,
+        "readback_seconds": 0.08319983998080716,
+        "to_torch_seconds": 0.0013395450077950954,
+        "argmax_seconds": 0.014815635979175568
+      },
+      {
+        "step": 107,
+        "step_seconds": 0.10965065099298954,
+        "enqueue_seconds": 0.006676003977190703,
+        "readback_seconds": 0.08331711002392694,
+        "to_torch_seconds": 0.001377425971440971,
+        "argmax_seconds": 0.018280111020430923
+      },
+      {
+        "step": 108,
+        "step_seconds": 0.10401850700145587,
+        "enqueue_seconds": 0.0049404859892092645,
+        "readback_seconds": 0.08280802401714027,
+        "to_torch_seconds": 0.0011537059908732772,
+        "argmax_seconds": 0.015116291004233062
+      },
+      {
+        "step": 109,
+        "step_seconds": 0.10083218500949442,
+        "enqueue_seconds": 0.0029011369915679097,
+        "readback_seconds": 0.08301133604254574,
+        "to_torch_seconds": 0.001978012965992093,
+        "argmax_seconds": 0.012941699009388685
+      },
+      {
+        "step": 110,
+        "step_seconds": 0.09992432995932177,
+        "enqueue_seconds": 0.0044770449749194086,
+        "readback_seconds": 0.08280858502257615,
+        "to_torch_seconds": 0.0007293089875020087,
+        "argmax_seconds": 0.011909390974324197
+      },
+      {
+        "step": 111,
+        "step_seconds": 0.10733469296246767,
+        "enqueue_seconds": 0.008676539990119636,
+        "readback_seconds": 0.08309756801463664,
+        "to_torch_seconds": 0.0008392759482376277,
+        "argmax_seconds": 0.01472130900947377
+      },
+      {
+        "step": 112,
+        "step_seconds": 0.10047478304477409,
+        "enqueue_seconds": 0.005111577047500759,
+        "readback_seconds": 0.08305480697890744,
+        "to_torch_seconds": 0.0011815690086223185,
+        "argmax_seconds": 0.011126830009743571
+      },
+      {
+        "step": 113,
+        "step_seconds": 0.10587119497358799,
+        "enqueue_seconds": 0.006478292983956635,
+        "readback_seconds": 0.0833750480087474,
+        "to_torch_seconds": 0.0011722210329025984,
+        "argmax_seconds": 0.014845632947981358
+      },
+      {
+        "step": 114,
+        "step_seconds": 0.10551187995588407,
+        "enqueue_seconds": 0.00578608299838379,
+        "readback_seconds": 0.08320251398254186,
+        "to_torch_seconds": 0.0010305150062777102,
+        "argmax_seconds": 0.01549276796868071
+      },
+      {
+        "step": 115,
+        "step_seconds": 0.1163543370203115,
+        "enqueue_seconds": 0.005391642975155264,
+        "readback_seconds": 0.08315229002619162,
+        "to_torch_seconds": 0.000964811013545841,
+        "argmax_seconds": 0.026845593005418777
+      },
+      {
+        "step": 116,
+        "step_seconds": 0.10692545399069786,
+        "enqueue_seconds": 0.004853733000345528,
+        "readback_seconds": 0.0831027069943957,
+        "to_torch_seconds": 0.0007952830055728555,
+        "argmax_seconds": 0.018173730990383774
+      },
+      {
+        "step": 117,
+        "step_seconds": 0.10604545200476423,
+        "enqueue_seconds": 0.006272015976719558,
+        "readback_seconds": 0.0828793270047754,
+        "to_torch_seconds": 0.0012643840163946152,
+        "argmax_seconds": 0.01562972500687465
+      },
+      {
+        "step": 118,
+        "step_seconds": 0.10390352102695033,
+        "enqueue_seconds": 0.004915418976452202,
+        "readback_seconds": 0.08323895302601159,
+        "to_torch_seconds": 0.001381213020067662,
+        "argmax_seconds": 0.01436793600441888
+      },
+      {
+        "step": 119,
+        "step_seconds": 0.10764100798405707,
+        "enqueue_seconds": 0.007592634996399283,
+        "readback_seconds": 0.08307020599022508,
+        "to_torch_seconds": 0.0011188610224053264,
+        "argmax_seconds": 0.015859305975027382
+      },
+      {
+        "step": 120,
+        "step_seconds": 0.10710954002570361,
+        "enqueue_seconds": 0.006337999016977847,
+        "readback_seconds": 0.0833408139878884,
+        "to_torch_seconds": 0.0013861230108886957,
+        "argmax_seconds": 0.01604460400994867
+      },
+      {
+        "step": 121,
+        "step_seconds": 0.1079909959807992,
+        "enqueue_seconds": 0.007922174991108477,
+        "readback_seconds": 0.08308477298123762,
+        "to_torch_seconds": 0.001169494993519038,
+        "argmax_seconds": 0.015814553014934063
+      },
+      {
+        "step": 122,
+        "step_seconds": 0.1050667249946855,
+        "enqueue_seconds": 0.007392900995910168,
+        "readback_seconds": 0.08317519299453124,
+        "to_torch_seconds": 0.0014726950321346521,
+        "argmax_seconds": 0.013025935972109437
+      },
+      {
+        "step": 123,
+        "step_seconds": 0.10981606098357588,
+        "enqueue_seconds": 0.007802198000717908,
+        "readback_seconds": 0.08387902495451272,
+        "to_torch_seconds": 0.0013485320378094912,
+        "argmax_seconds": 0.016786305990535766
+      },
+      {
+        "step": 124,
+        "step_seconds": 0.145699474029243,
+        "enqueue_seconds": 0.004585839982610196,
+        "readback_seconds": 0.09158058400498703,
+        "to_torch_seconds": 0.007017344993073493,
+        "argmax_seconds": 0.04251570504857227
+      },
+      {
+        "step": 125,
+        "step_seconds": 0.10927083797287196,
+        "enqueue_seconds": 0.003271321998909116,
+        "readback_seconds": 0.08396992599591613,
+        "to_torch_seconds": 0.0012970349634997547,
+        "argmax_seconds": 0.02073255501454696
+      },
+      {
+        "step": 126,
+        "step_seconds": 0.11067197902593762,
+        "enqueue_seconds": 0.004714942013379186,
+        "readback_seconds": 0.08340702898567542,
+        "to_torch_seconds": 0.0012043410097248852,
+        "argmax_seconds": 0.02134566701715812
+      },
+      {
+        "step": 127,
+        "step_seconds": 0.1057344590080902,
+        "enqueue_seconds": 0.009528129012323916,
+        "readback_seconds": 0.08304232399677858,
+        "to_torch_seconds": 0.0011559099657461047,
+        "argmax_seconds": 0.0120080960332416
+      },
+      {
+        "step": 128,
+        "step_seconds": 0.10547906899591908,
+        "enqueue_seconds": 0.006197806971613318,
+        "readback_seconds": 0.08349569502752274,
+        "to_torch_seconds": 0.001265966973733157,
+        "argmax_seconds": 0.014519600023049861
+      },
+      {
+        "step": 129,
+        "step_seconds": 0.1100946850492619,
+        "enqueue_seconds": 0.005566902051214129,
+        "readback_seconds": 0.08314380398951471,
+        "to_torch_seconds": 0.0009202479850500822,
+        "argmax_seconds": 0.02046373102348298
+      },
+      {
+        "step": 130,
+        "step_seconds": 0.10113682696828619,
+        "enqueue_seconds": 0.00537619402166456,
+        "readback_seconds": 0.08304640196729451,
+        "to_torch_seconds": 0.0008388650021515787,
+        "argmax_seconds": 0.011875365977175534
+      },
+      {
+        "step": 131,
+        "step_seconds": 0.10372524696867913,
+        "enqueue_seconds": 0.004390112997498363,
+        "readback_seconds": 0.0829291109694168,
+        "to_torch_seconds": 0.00128050398780033,
+        "argmax_seconds": 0.01512551901396364
+      },
+      {
+        "step": 132,
+        "step_seconds": 0.11060557403834537,
+        "enqueue_seconds": 0.006657719030044973,
+        "readback_seconds": 0.08372266200603917,
+        "to_torch_seconds": 0.0016529629938304424,
+        "argmax_seconds": 0.01857223000843078
+      },
+      {
+        "step": 133,
+        "step_seconds": 0.1041092780069448,
+        "enqueue_seconds": 0.004496812995057553,
+        "readback_seconds": 0.08351740601938218,
+        "to_torch_seconds": 0.0012320129899308085,
+        "argmax_seconds": 0.014863046002574265
+      },
+      {
+        "step": 134,
+        "step_seconds": 0.11077178700361401,
+        "enqueue_seconds": 0.006994341965764761,
+        "readback_seconds": 0.08387841400690377,
+        "to_torch_seconds": 0.001172190997749567,
+        "argmax_seconds": 0.018726840033195913
+      },
+      {
+        "step": 135,
+        "step_seconds": 0.10737393703311682,
+        "enqueue_seconds": 0.005288610002025962,
+        "readback_seconds": 0.08334477100288495,
+        "to_torch_seconds": 0.0010698990081436932,
+        "argmax_seconds": 0.017670657020062208
+      },
+      {
+        "step": 136,
+        "step_seconds": 0.10891003999859095,
+        "enqueue_seconds": 0.006594670994672924,
+        "readback_seconds": 0.08310598303796723,
+        "to_torch_seconds": 0.0008942489512264729,
+        "argmax_seconds": 0.018315137014724314
+      }
+    ]
+  },
+  "host_rss_end": {
+    "rss": 2630529024,
+    "peak": 50836828160
+  },
+  "finished": "2026-10-27T00:35:33-0400",
+  "gates": [
+    {
+      "gate": "instrumented ids equal the admitted batch-32 ids",
+      "passed": true,
+      "observed": null
+    },
+    {
+      "gate": "instrumented median step within 10 % of the 102 ms uninstrumented step",
+      "passed": true,
+      "observed": 0.10590839499491267
+    }
+  ],
+  "passed": true
+}

@@ -1408,8 +1408,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/bring-up-2026-10-25.md",
       "class": "portable_evidence",
-      "byte_count": 67081,
-      "blake3": "dc412623208f82d4cba0f2d4827139388d5aa4274d2d9ecb7683628d9957cf73"
+      "byte_count": 70397,
+      "blake3": "be66bd280277474e8651df94b0fe6988c58578f4a9073cb65dd916fa9f4f5b9e"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/D1-admission.json",
@@ -1758,6 +1758,18 @@
       "class": "portable_evidence",
       "byte_count": 4950,
       "blake3": "414c35dc074eae932273065f6384cc51c1fa7afdc558831635602f020d9fd40e"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P6-split-b32.json",
+      "class": "portable_evidence",
+      "byte_count": 38297,
+      "blake3": "14156e70feb3d7c0b7bf5be9810811b5b254541f728458b617d6cd4e421f9ac6"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P7-split-b32.json",
+      "class": "portable_evidence",
+      "byte_count": 38311,
+      "blake3": "9aafb1cf7e9bc947e3baf284f7d01def43fbdc0c5db045bf6927a82a60cab1d7"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/delivery-bench-trace.json",
