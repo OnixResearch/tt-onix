@@ -553,25 +553,40 @@ def main(argv=None) -> None:
         "schema": "nanbeige43-device-free-check/v1",
         "revision": authority["revision"],
     }
-    report["memory_per_device_gb"] = check_metadata(args.metadata, authority, results)
-    report["tokenizer"] = check_tokenizer(args.metadata, results)
-    self_test_admission(results)
-    self_test_comparison(results)
-    self_test_batched_prefill(results)
-    self_test_precision_table(results)
-    self_test_batch_surface(results)
-    if args.checkpoint:
-        report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
-        results.append({
-            "check": f"checkpoint {args.checkpoint} admitted",
-            "passed": True,
-        })
+    failure: BaseException | None = None
+    try:
+        report["memory_per_device_gb"] = check_metadata(
+            args.metadata, authority, results
+        )
+        report["tokenizer"] = check_tokenizer(args.metadata, results)
+        self_test_admission(results)
+        self_test_comparison(results)
+        self_test_batched_prefill(results)
+        self_test_precision_table(results)
+        self_test_batch_surface(results)
+        if args.checkpoint:
+            report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
+            results.append({
+                "check": f"checkpoint {args.checkpoint} admitted",
+                "passed": True,
+            })
+    except (SystemExit, Exception) as error:  # noqa: BLE001 - report, then re-raise
+        # A failing check must still leave a report: `expect` raises as soon as a
+        # check fails, so without this the run left no artifact at all. Catching
+        # broadly is the point here; the error is re-raised below.
+        failure = error
+        report["aborted"] = {
+            "type": type(error).__name__,
+            "message": str(error)[:4000],
+        }
     report["results"] = results
-    report["passed"] = all(r["passed"] for r in results)
+    report["passed"] = failure is None and all(r["passed"] for r in results)
     text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.report:
         args.report.write_text(text + "\n")
     print(text)
+    if failure is not None:
+        raise SystemExit(str(failure) or type(failure).__name__)
 
 
 if __name__ == "__main__":
