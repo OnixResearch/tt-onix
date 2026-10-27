@@ -1,0 +1,178 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/sm866jvxnzm23k9fcd5gsq8lrh4yfq34-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 32768,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 1024
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 1,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T18:57:26-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 179.1549756526947,
+  "host_rss_after_load": {
+    "rss": 575959040,
+    "peak": 23860064256
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": false
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 8,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 1.370149064983707,
+      "p90": 1.370149064983707,
+      "min": 1.370149064983707,
+      "max": 1.370149064983707,
+      "samples": [
+        1.370149064983707
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 5.271010535226579,
+      "p90": 5.271010535226579,
+      "min": 5.271010535226579,
+      "max": 5.271010535226579,
+      "samples": [
+        5.271010535226579
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 5.271010535226579,
+      "p90": 5.271010535226579,
+      "min": 5.271010535226579,
+      "max": 5.271010535226579,
+      "samples": [
+        5.271010535226579
+      ]
+    },
+    "batch": 1,
+    "outputs_identical_across_runs": true,
+    "first_token_seconds_by_mode": null,
+    "prefill_modes": "as-requested",
+    "rows_identical_in_every_run": true,
+    "contention_flags": {
+      "decode_contended": 0,
+      "first_token_outlier": 0
+    },
+    "admitted_runs": 1,
+    "output_ids": [
+      17782,
+      152518,
+      324,
+      735,
+      13841,
+      1429,
+      9531,
+      152363
+    ],
+    "runs": [
+      {
+        "prefill_mode": null,
+        "warmup": false,
+        "first_token_seconds": 1.370149064983707,
+        "decode_seconds": 1.328018594009336,
+        "decode_tokens_per_second": 5.271010535226579,
+        "aggregate_decode_tokens_per_second": 5.271010535226579,
+        "output_ids": [
+          17782,
+          152518,
+          324,
+          735,
+          13841,
+          1429,
+          9531,
+          152363
+        ],
+        "rows_identical": true,
+        "row_output_ids": null
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 396.49600499213733,
+          "p90": 396.49600499213733,
+          "min": 396.49600499213733,
+          "max": 396.49600499213733,
+          "samples": [
+            396.49600499213733
+          ]
+        }
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello! I am Nanbeige,"
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": true,
+      "observed": true
+    }
+  ],
+  "host_rss_end": {
+    "rss": 752881664,
+    "peak": 23860064256
+  },
+  "finished": "2026-10-27T19:00:35-0400",
+  "passed": true
+}

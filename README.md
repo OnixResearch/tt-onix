@@ -128,28 +128,15 @@ fail-closed on PCIe devices 0 and 1. The paged KV default covers the whole
 `--max-seq-len` per row (`--page-blocks` = batch x ceil(max_seq_len / page_block), 8192
 blocks at batch 32), which is the pool every admitted receipt used; ids are pool-invariant
 (verified bit-for-bit across 1024, 4096 and 8192 blocks), so the pool is a capacity and
-latency knob only. Batched prefill still needs `--page-blocks` at or below 4096. `generate` accepts the same `--batch` sizes
-as `bench` (P38): every row decodes together through the admitted path, all rows
-produce identical ids for identical prompts, and generation stops when every row
-reaches a stop token. Its decode rate is timed from the second step, so the
-one-time decode-trace capture is excluded; batch 4 measured 14.47 tokens/s per
-user (57.89 aggregate) against 12.67 at batch 1. The full curve is batch 1
-12.67 per user, batch 4 14.47/57.89 aggregate, batch 16 14.48/231.66, batch 32
-14.29/457.13 (P39), with ids byte-identical to batch 1 at every size.
-`generate --expect-output-from <receipt>` (P40) makes that id equality a gate
-inside the command instead of an ad-hoc comparison: it fails closed with an exit
-code when the ids diverge. `generate --generate-runs N` (P77) measures the completion
-more than once and records per-run rates plus their median, because a single generate
-run is not reproducible: two consecutive identical batch-32 runs differed by 18.5 %
-(P76), while three batch-1 runs differed by 0.8 %.
-`bench --cache-probe {prefill,decode}` reads layer 0's paged K and V back after
-prefill, or after one decode step, and records per row the page-table block, the
-slot and the first two values at that slot for every kv head of both tensors. It is
-the instrument the batch-8 investigation used (P42-P52): V is correct on every row
-while K is stale for rows 5-7. It reads state back, writes nothing, runs after the
-measured runs and their gates are recorded, and is absent unless requested.
-The batch-8 defect, its elimination record and the priced fix path are documented in
-`docs/nanbeige-batch8.md`; batch 8 is refused, and a device-free check enforces that.
+latency knob only. Batched prefill still needs `--page-blocks` at or below 4096.
+
+Context beyond 4096 is measured, and it is not free. `--max-seq-len` divides by batch to give
+blocks per row, and decode pays for the whole per-row table: at batch 1 a 32768 config is 1024
+blocks in one row, where a 128-token prompt measures 396.5 tok/s prefill and **5.27 tok/s**
+decode against 795 and 13.98 at the 8192 default, and a 16k prompt measures 2107.3 tok/s
+prefill with decode down to **1.03 tok/s**. At batch 32 the same 8192-block pool is 256 blocks
+per row, which is why decode was flat across pools 1024-8192 there (P82). Set `--max-seq-len`
+to the context you need and prefer the largest batch that divides the pool (P105).
 
 On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
