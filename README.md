@@ -124,7 +124,11 @@ generic path with TP2, the all-BFP8 mix by default (BFP8 attention, KV and MLP;
 checks and admits a checkpoint by SHA-256. `nanbeige43-reference` writes the
 CPU reference. `nanbeige43-reduce-checkpoint` derives reduced-layer checkpoints.
 `nanbeige43-p150x2 compare|generate|bench` is the production command,
-fail-closed on PCIe devices 0 and 1. `generate` accepts the same `--batch` sizes
+fail-closed on PCIe devices 0 and 1. The paged KV default covers the whole
+`--max-seq-len` per row (`--page-blocks` = batch x ceil(max_seq_len / page_block), 8192
+blocks at batch 32), which is the pool every admitted receipt used; ids are pool-invariant
+(verified bit-for-bit across 1024, 4096 and 8192 blocks), so the pool is a capacity and
+latency knob only. Batched prefill still needs `--page-blocks` at or below 4096. `generate` accepts the same `--batch` sizes
 as `bench` (P38): every row decodes together through the admitted path, all rows
 produce identical ids for identical prompts, and generation stops when every row
 reaches a stop token. Its decode rate is timed from the second step, so the

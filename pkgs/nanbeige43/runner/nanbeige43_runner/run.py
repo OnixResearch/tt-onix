@@ -1020,7 +1020,14 @@ def main(argv=None) -> None:
     parser.add_argument("--preset", choices=PRESETS, default=DEFAULT_PRESET)
     parser.add_argument("--max-seq-len", type=int, default=8192)
     parser.add_argument("--page-block", type=int, default=32)
-    parser.add_argument("--page-blocks", type=int, default=256)
+    parser.add_argument(
+        "--page-blocks",
+        type=int,
+        help="paged KV pool size in blocks; default gives every row --max-seq-len positions, "
+        "i.e. batch * ceil(max_seq_len / page_block), which is the admitted configuration "
+        "(P87). Ids are pool-invariant (32/32 and 8/8 prefixes matched across 1024, 4096 and "
+        "8192 blocks), so this affects capacity and latency only",
+    )
     parser.add_argument(
         "--message",
         default="Introduce yourself in two sentences.",
@@ -1110,6 +1117,11 @@ def main(argv=None) -> None:
         "full-width (7168) prefill RMSNorm (multichip prefill uses the distributed norm), so the 1x1 smoke uses this.",
     )
     args = parser.parse_args(argv)
+    if args.page_blocks is None:
+        # P87: the old default of 256 blocks gave 8 blocks per row at batch 32 - 256
+        # positions against a 8192 max_seq_len - and made `compare` fail its own
+        # preflight. Derive full context instead; the pool is a capacity/latency knob.
+        args.page_blocks = args.batch * math.ceil(args.max_seq_len / args.page_block)
 
     spec = MESHES[args.mesh]
     authority = load_authority()
