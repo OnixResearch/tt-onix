@@ -131,7 +131,10 @@ reaches a stop token. Its decode rate is timed from the second step, so the
 one-time decode-trace capture is excluded; batch 4 measured 14.47 tokens/s per
 user (57.89 aggregate) against 12.67 at batch 1. The full curve is batch 1
 12.67 per user, batch 4 14.47/57.89 aggregate, batch 16 14.48/231.66, batch 32
-14.29/457.13 (P39), with ids byte-identical to batch 1 at every size. On 2026-10-25 the full model passed the
+14.29/457.13 (P39), with ids byte-identical to batch 1 at every size.
+`generate --expect-output-from <receipt>` (P40) makes that id equality a gate
+inside the command instead of an ad-hoc comparison: it fails closed with an exit
+code when the ids diverge. On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
 over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
 default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device

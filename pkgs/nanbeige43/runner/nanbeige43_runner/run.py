@@ -813,8 +813,34 @@ def run_session(
                 "gate": "generation produced tokens",
                 "passed": len(result["output_ids"]) > 1,
                 "observed": len(result["output_ids"]),
-            }
+            },
+            {
+                "gate": "every batch row identical",
+                "passed": result["rows_identical"],
+                "observed": result["rows_identical"],
+            },
         ]
+        if args.expect_output_from:
+            expected = json.loads(args.expect_output_from.read_text())["generation"][
+                "output_ids"
+            ]
+            first = next(
+                (
+                    i
+                    for i, (a, b) in enumerate(zip(expected, result["output_ids"]))
+                    if a != b
+                ),
+                None,
+            )
+            receipt["gates"].append({
+                "gate": f"output ids equal {args.expect_output_from.name}",
+                "passed": expected == result["output_ids"],
+                "observed": {
+                    "expected_tokens": len(expected),
+                    "observed_tokens": len(result["output_ids"]),
+                    "first_divergence": first,
+                },
+            })
 
 
 def main(argv=None) -> None:
@@ -872,7 +898,7 @@ def main(argv=None) -> None:
     parser.add_argument(
         "--expect-output-from",
         type=Path,
-        help="bench mode: receipt whose bench output ids must be reproduced exactly",
+        help="bench/generate: receipt whose output ids must be reproduced exactly",
     )
     parser.add_argument(
         "--decode-tokens",

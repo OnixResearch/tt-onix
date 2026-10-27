@@ -1988,6 +1988,18 @@
       "blake3": "4fd8321fa94b75213ba8db1baafc027d5041a7fe0c9652384e51d562d90ce22d"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P40-generate-fail.json",
+      "class": "portable_evidence",
+      "byte_count": 3289,
+      "blake3": "1365bdfee15205423260cf888466a7b08244bb8b961084f73d40630b00fbcb19"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P40-generate-pass.json",
+      "class": "portable_evidence",
+      "byte_count": 7305,
+      "blake3": "473fe6ed5981e5908fa8bb4e1034de24022d286215a3c8b081555fcf36a8c374"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P5-bench-b32-batched.json",
       "class": "portable_evidence",
       "byte_count": 543968,
