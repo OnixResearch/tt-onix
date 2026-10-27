@@ -1,0 +1,286 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/q6l4dn3ihskl9sdryz0hr6h7zr866j7v-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 2048
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 8,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T08:31:09-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 60.567421197891235,
+  "host_rss_after_load": {
+    "rss": 2789912576,
+    "peak": 66766725120
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 2,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 1.3901885219966061,
+      "p90": 1.3901885219966061,
+      "min": 1.3901885219966061,
+      "max": 1.3901885219966061,
+      "samples": [
+        1.3901885219966061
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 1.9685798824289003,
+      "p90": 1.9685798824289003,
+      "min": 1.9685798824289003,
+      "max": 1.9685798824289003,
+      "samples": [
+        1.9685798824289003
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 15.748639059431202,
+      "p90": 15.748639059431202,
+      "min": 15.748639059431202,
+      "max": 15.748639059431202,
+      "samples": [
+        15.748639059431202
+      ]
+    },
+    "batch": 8,
+    "outputs_identical_across_runs": true,
+    "rows_identical_in_every_run": false,
+    "output_ids": [
+      17782,
+      152518
+    ],
+    "runs": [
+      {
+        "warmup": false,
+        "first_token_seconds": 1.3901885219966061,
+        "decode_seconds": 0.5079804019769654,
+        "decode_tokens_per_second": 1.9685798824289003,
+        "aggregate_decode_tokens_per_second": 15.748639059431202,
+        "output_ids": [
+          17782,
+          152518
+        ],
+        "rows_identical": false,
+        "row_output_ids": [
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152361
+          ],
+          [
+            17782,
+            152361
+          ],
+          [
+            17782,
+            152363
+          ]
+        ]
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 818.1842229723571,
+          "p90": 939.6547369209958,
+          "min": 809.5560694015196,
+          "max": 939.6547369209958,
+          "samples": [
+            818.1842229723571,
+            809.5560694015196,
+            939.6547369209958
+          ]
+        },
+        "rows": 8
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello!"
+  },
+  "cache_probe": {
+    "cache_shape": [
+      2048,
+      4,
+      32,
+      128
+    ],
+    "block_size": 32,
+    "phase": "decode",
+    "rows": [
+      {
+        "row": 0,
+        "physical_block": 1957,
+        "site": 10,
+        "first2": [
+          2.625,
+          1.9375
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 1,
+        "physical_block": 514,
+        "site": 10,
+        "first2": [
+          2.625,
+          1.9375
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 2,
+        "physical_block": 1987,
+        "site": 10,
+        "first2": [
+          2.625,
+          1.9375
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 3,
+        "physical_block": 1787,
+        "site": 10,
+        "first2": [
+          2.625,
+          1.9375
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 4,
+        "physical_block": 1336,
+        "site": 10,
+        "first2": [
+          2.625,
+          1.9375
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 5,
+        "physical_block": 946,
+        "site": 10,
+        "first2": [
+          0.0,
+          0.0
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 6,
+        "physical_block": 813,
+        "site": 10,
+        "first2": [
+          -6.375,
+          0.125
+        ],
+        "nonzero": true
+      },
+      {
+        "row": 7,
+        "physical_block": 1694,
+        "site": 10,
+        "first2": [
+          0.0,
+          6.136154492292301e+16
+        ],
+        "nonzero": true
+      }
+    ]
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": false,
+      "observed": false
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2960715776,
+    "peak": 66766725120
+  },
+  "finished": "2026-10-27T08:32:22-0400",
+  "passed": false
+}
