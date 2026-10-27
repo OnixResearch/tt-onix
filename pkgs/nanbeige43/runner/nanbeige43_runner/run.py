@@ -713,6 +713,10 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
             length for length in args.prefill_lengths[:1] if length < session.row_tokens
         ]
     for length in lengths:
+        if args.prefill_runs <= 0:
+            # P99: an explicit --prefill-runs 0 means "skip the sweep". It used to
+            # crash in statistics.median on an empty sample list.
+            break
         samples = []
         for run in range(1 + args.prefill_runs):
             session.reset()

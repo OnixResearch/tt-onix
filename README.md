@@ -254,7 +254,11 @@ pool**: **1.35x** at batch 4 (0.758 s to 0.562 s, pool 1024), **2.57x** at batch
 13.181 s at pool 1024 to 3.098 s). At the shipped default pool batch 16 measures 2.698 s
 sequential against **1.169-1.642 s** batched, a paired **1.64-2.31x** (P94), and batch 16 needs no
 pool flag at all because its derived default is already 4096; batch 32 must name
-`--page-blocks 4096`. Pool size is a separate lever: at batch 16 the default pool alone takes
+`--page-blocks 4096`. These are steady-state figures from a warmed process: the same batch-16
+configuration measures 11.3 s and 29.2 s for its first runs without a warmup (P99), and a
+`generate` first request reaches 41.6 s from a cold cache (P98). So the honest statement is
+**1.6-2.9 s steady state, 11-42 s for the first request after process start** - and a small pool
+looks slow regardless, since sequential at pool 1024 measured 3.6-10.1 s (P80). Pool size is a separate lever: at batch 16 the default pool alone takes
 the sequential first token from 7.224 s to 2.698 s (P82, P94), so a small pool looks like a slow
 prefill mode. Batch 4 has little to win because its first token is already 0.76 s.
 
