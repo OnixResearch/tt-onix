@@ -955,6 +955,15 @@ def run_session(
         # Per-run rates, not the run dicts: `result` is `runs[0]`, so nesting the
         # list would make the receipt reference itself and fail to serialise.
         result["run_count"] = len(runs)
+        # P98: run 1 can carry first-use JIT compilation for a kernel set the cache
+        # has not seen, which inflated a batch-16 generate receipt to 13.371 s against
+        # a 1.2-1.6 s bench median in the same session. Record every run's first
+        # token and admit the median, so a cold run is visible instead of silent.
+        result["run_first_token_seconds"] = [run["first_token_seconds"] for run in runs]
+        first_tokens = [run["first_token_seconds"] for run in runs]
+        if first_tokens:
+            result["first_token_seconds"] = summary(first_tokens)["median"]
+            result["first_token_samples"] = first_tokens
         result["run_decode_tokens_per_second"] = [
             run["decode_tokens_per_second"] for run in runs
         ]
