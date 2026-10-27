@@ -1,6 +1,14 @@
+nanbeige43 P35: shard shapes for a multi-tile decode batch.
+
+Width-sharded decode tensors become (32, 2*width) above one row tile, the
+concatenated-heads/WO intermediate uses block sharding, and the LM-head output
+falls back to interleaved L1 because the packaged constant fixes a 32-row shard.
+Batch <= 32 is byte-identical (helpers return the packaged values).
+Revert if the experiment fails; P32-P35 hold the evidence.
+
 --- a7/models/tt_transformers/tt/model_config.py	2026-10-27 05:43:38.742672206 -0400
-+++ b7/models/tt_transformers/tt/model_config.py	2026-10-27 05:45:27.120308156 -0400
-@@ -440,6 +440,22 @@
++++ b7/models/tt_transformers/tt/model_config.py	2026-10-27 06:08:30.838369405 -0400
+@@ -440,6 +440,36 @@
      HuggingFace = auto()
  
  
@@ -20,10 +28,24 @@
 +
 +
 +
++def _multi_tile_lm_head_output(rows: int):
++    """LM-head output config that works above one 32-row tile (P35).
++
++    The packaged constant uses a fixed 32-row width shard, which the device
++    rejects for a 64-row tensor. Interleaved L1 has no height constraint and the
++    LM head only streams 0.6 GB per step, so the layout cost is negligible; at
++    32 rows the packaged constant is returned unchanged.
++    """
++    if rows > ttnn.TILE_SIZE:
++        return ttnn.L1_MEMORY_CONFIG
++    return ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
++
++
++
  class ModelArgs:
      OP_KEYS = (
          # Embedding
-@@ -1248,10 +1264,7 @@
+@@ -1248,10 +1278,7 @@
              else:
                  residual_grid = self.dram_shard_core_grid_for_k(self.dim // self.num_devices)
                  return ttnn.create_sharded_memory_config(
@@ -35,7 +57,7 @@
                      residual_grid,
                      ttnn.ShardStrategy.WIDTH,
                      ttnn.ShardOrientation.ROW_MAJOR,
-@@ -1283,7 +1296,7 @@
+@@ -1283,7 +1310,7 @@
                  )
              else:
                  return ttnn.create_sharded_memory_config(
@@ -44,7 +66,7 @@
                      self.mlp_core_grid,
                      ttnn.ShardStrategy.WIDTH,
                      ttnn.ShardOrientation.ROW_MAJOR,
-@@ -1479,9 +1492,10 @@
+@@ -1479,9 +1506,10 @@
          """Get the memory config for MLP binary mult (w2 input) - replaces SHARDED_MLP2_INPUT_MEMCFG."""
          if mode == Mode.DECODE:
              return ttnn.create_sharded_memory_config(
@@ -58,7 +80,7 @@
                  ),
                  self.mlp2_core_grid,
                  ttnn.ShardStrategy.WIDTH,
-@@ -1651,10 +1665,7 @@
+@@ -1651,10 +1679,7 @@
                  )
              else:
                  return ttnn.create_sharded_memory_config(
@@ -70,7 +92,7 @@
                      self.attn_input_grid,
                      ttnn.ShardStrategy.WIDTH,
                      ttnn.ShardOrientation.ROW_MAJOR,
-@@ -1880,9 +1891,9 @@
+@@ -1880,9 +1905,9 @@
                      ttnn.TensorMemoryLayout.WIDTH_SHARDED,
                      ttnn.BufferType.L1,
                      ttnn.ShardSpec(
@@ -82,7 +104,7 @@
                              self.dim // self.num_devices,
                          ],
                          ttnn.ShardOrientation.ROW_MAJOR,
-@@ -1914,9 +1925,9 @@
+@@ -1914,9 +1939,9 @@
                      ttnn.TensorMemoryLayout.WIDTH_SHARDED,
                      ttnn.BufferType.L1,
                      ttnn.ShardSpec(
@@ -94,7 +116,7 @@
                              self.dim // self.num_devices,
                          ],
                          ttnn.ShardOrientation.ROW_MAJOR,
-@@ -2220,7 +2231,7 @@
+@@ -2220,7 +2245,7 @@
                      return {
                          "sharded_program_config": self.create_sharded_norm_config(self.mlp_core_grid),
                          "sharded_output_config": ttnn.create_sharded_memory_config(
@@ -103,7 +125,7 @@
                              self.mlp_core_grid,
                              ttnn.ShardStrategy.WIDTH,
                              ttnn.ShardOrientation.ROW_MAJOR,
-@@ -2293,10 +2304,7 @@
+@@ -2293,10 +2318,7 @@
                  )
              else:
                  return ttnn.create_sharded_memory_config(
@@ -115,7 +137,7 @@
                      self.lm_head_core_grid,
                      ttnn.ShardStrategy.WIDTH,
                      ttnn.ShardOrientation.ROW_MAJOR,
-@@ -2304,10 +2312,7 @@
+@@ -2304,10 +2326,7 @@
                  )
          elif mode == Mode.PREFILL:
              return ttnn.create_sharded_memory_config(
@@ -127,7 +149,19 @@
                  self.lm_head_core_grid,
                  ttnn.ShardStrategy.WIDTH,
                  ttnn.ShardOrientation.ROW_MAJOR,
-@@ -3247,6 +3252,18 @@
+@@ -2353,9 +2372,9 @@
+                     use_height_and_width_as_shard_shape=True,
+                 )
+             else:
+-                return ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
++                return _multi_tile_lm_head_output(self.tile_padded_batch_rows)
+         elif mode == Mode.PREFILL:
+-            return ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
++            return _multi_tile_lm_head_output(self.tile_padded_batch_rows)
+         else:
+             raise ValueError(f"Invalid mode: {mode}")
+ 
+@@ -3247,6 +3266,18 @@
      # =========================================================================
      # MATMUL / CONFIG HELPERS
      # =========================================================================
