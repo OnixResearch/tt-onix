@@ -221,12 +221,16 @@ It is admitted as a second configuration with its own receipts (P79), not as the
 default, because its greedy ids differ from the sequential path's at token 2 - the
 batch-variant prefill reduction order upstream cites for tt-metal#47238, not a runner
 row-handling bug. On the shipped package at batch 32 with `--page-blocks 1024` it
-measures TTFT median **3.098 s** against the sequential 5.00 s (1.61x faster), decode
-439.34 against 440.99 aggregate (unchanged within noise), all runs and rows identical,
+measures TTFT median **3.098 s**, decode 439.34 against 440.99 aggregate (unchanged
+within noise), all runs and rows identical,
 and accuracy within 1e-4 on prefill PCC with teacher-forced top-1 0.904297 against
 0.916016 (-1.17 points) and top-5 0.994141 against 0.992188. Larger pools do not fit:
 at `--page-blocks 8192` the mode dies with a 469 MB DRAM allocation failure, so it
-requires the smaller pool at this batch size. The `accuracy` preset, the `batch > 1`
+requires the smaller pool at this batch size. The pool size is itself a TTFT lever at
+batch 32 and the two must be compared together (P81): sequential prefill measures
+**13.18 s** at `--page-blocks 1024` against 5.00 s pooled at 8192, so the like-for-like
+batched gain is 4.25x while the large-pool sequential path is still the second-best
+option, and sequential with a small pool - 13.18 s - is the worst of the three. The `accuracy` preset, the `batch > 1`
 default prefill path, and every admitted number are unchanged.
 
 A replacement profiler run named all 5,100 traced decode rows: matmul
