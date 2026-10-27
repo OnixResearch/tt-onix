@@ -921,18 +921,26 @@ def run_session(
             expected = json.loads(args.expect_output_from.read_text())["bench"][
                 "output_ids"
             ]
+            actual = result["output_ids"]
             first = next(
-                (
-                    i
-                    for i, (a, b) in enumerate(zip(expected, result["output_ids"]))
-                    if a != b
-                ),
-                None,
+                (i for i, (a, b) in enumerate(zip(expected, actual)) if a != b), None
             )
+            observed = {
+                "expected_tokens": len(expected),
+                "observed_tokens": len(actual),
+                "first_divergence": first,
+                "prefix_equal": expected[: len(actual)] == actual[: len(expected)],
+            }
+            if first is None and len(expected) != len(actual):
+                # P90: a 32-token reference against a 128-token run reported
+                # first_divergence None while failing, which reads as a contradiction.
+                observed["note"] = (
+                    "length mismatch; no token diverges over the shorter sequence"
+                )
             receipt["gates"].append({
                 "gate": f"output ids equal {args.expect_output_from.name}",
-                "passed": expected == result["output_ids"],
-                "observed": {"first_divergence": first},
+                "passed": expected == actual,
+                "observed": observed,
             })
     else:
         tokenizer = session.args.tokenizer
@@ -1005,6 +1013,8 @@ def run_session(
                     "expected_tokens": len(expected),
                     "observed_tokens": len(result["output_ids"]),
                     "first_divergence": first,
+                    "prefix_equal": expected[: len(result["output_ids"])]
+                    == result["output_ids"][: len(expected)],
                 },
             })
 

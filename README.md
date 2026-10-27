@@ -248,6 +248,14 @@ carries a heavy tail that has reached 52 s (P82), and pool size is a weak lever 
 1024 against 8192) rather than the 2.6x once reported. The `accuracy` preset, the `batch > 1`
 default prefill path, and every admitted number are unchanged.
 
+The gain scales with batch, measured paired against sequential at the same pool: **1.35x** at
+batch 4 (0.758 s to 0.562 s), **2.57x** at batch 16 (7.224 s to 2.807 s) and **2.64-4.25x** at
+batch 32 (7.001 s at pool 8192 to 2.657 s at 4096; 13.181 s at pool 1024 to 3.098 s). Batch 16
+needs no pool flag at all - the sequential default there is already 4096 - and reaches first
+token in **1.169-1.642 s** at full context, 4.4-6.2x the measured 1024-pool sequential baseline
+(P90); batch 32 must name `--page-blocks 4096`. Batch 4 has little to win because its first
+token is already 0.76 s.
+
 A replacement profiler run named all 5,100 traced decode rows: matmul
 operations held 90.6 % of the 76.65 ms per-replay-device kernel sum, with
 collectives 4.3 % and SDPA 0.7 %. The matmul bucket's 290 GB/s is close to what the
