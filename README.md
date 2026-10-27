@@ -160,6 +160,21 @@ deterministically on this path; it is a supported-size correctness defect, not
 an unsupported-size refusal, and stays refused pending a dedicated
 investigation. No batch-8 claim is made.
 
+Batched prefill for `batch > 1` is available as an explicit opt-in
+(`--batched-prefill`) and is not the default. Measured on 2026-10-26 against
+the admitted batch-32 receipt, it prefills all 32 rows in one pass at 1427
+tok/s and cuts first-token latency from 5.141 s to 2.745 s (1.87x against the
+admitted figure, 2.13x against a same-session sequential control at 5.839 s).
+It was not admitted because it changes greedy ids: the bench ids diverge from
+the admitted batch-32 ids at token 2, while the sequential control on the same
+package and cache reproduces them exactly. That is the batch-variant prefill
+reduction order upstream cites for tt-metal#47238, not a runner row-handling
+bug, and every run and every row stays self-consistent. No decode cost is
+attributed to the lever: same-session it measured 290.60 tok/s aggregate
+against the control's 287.71, both below the admitted 313.55 because that
+session's device state was slower. The `accuracy` preset, the `batch > 1`
+default prefill path, and every admitted number are unchanged.
+
 A replacement profiler run named all 5,100 traced decode rows: matmul
 operations held 90.6 % of the 76.65 ms per-replay-device kernel sum, with
 collectives 4.3 % and SDPA 0.7 %. The matmul bucket still mixes attention, MLP,

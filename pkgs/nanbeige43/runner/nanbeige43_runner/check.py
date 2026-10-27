@@ -389,6 +389,36 @@ def self_test_comparison(results: list) -> None:
         )
 
 
+def self_test_batched_prefill(results: list) -> None:
+    """P5's opt-in must be gated by the packaged upstream limits, not local copies."""
+    from models.tt_transformers.tt.common import get_padded_prefill_len
+    from models.tt_transformers.tt.generator import (
+        MAX_BATCHED_PREFILL_SEQ_LEN,
+        SUPPORTED_PREFILL_BATCH_SIZES,
+        batched_prefill_padded_batch,
+    )
+
+    batch = 32
+    slots = list(range(batch))
+    padded = batched_prefill_padded_batch(batch, slots, batch)
+    expect(
+        padded == batch,
+        f"batched prefill keeps {batch} rows on one pass (padded batch {padded})",
+        results,
+    )
+    prefill_len = get_padded_prefill_len(128)
+    expect(
+        padded * prefill_len < MAX_BATCHED_PREFILL_SEQ_LEN,
+        f"a {padded} x {prefill_len} batched prefill stays under the packaged {MAX_BATCHED_PREFILL_SEQ_LEN}-token limit",
+        results,
+    )
+    expect(
+        batch in SUPPORTED_PREFILL_BATCH_SIZES,
+        f"batch {batch} is a packaged supported prefill batch {SUPPORTED_PREFILL_BATCH_SIZES}",
+        results,
+    )
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -414,6 +444,7 @@ def main(argv=None) -> None:
     report["tokenizer"] = check_tokenizer(args.metadata, results)
     self_test_admission(results)
     self_test_comparison(results)
+    self_test_batched_prefill(results)
     if args.checkpoint:
         report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
         results.append({

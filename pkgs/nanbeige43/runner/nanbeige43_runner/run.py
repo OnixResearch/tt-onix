@@ -164,6 +164,7 @@ class Session:
         prompt_mode: str = "prefill",
         enable_trace: bool = False,
         batch: int = 1,
+        batched_prefill: bool = False,
     ):
         import ttnn
         from models.tt_transformers.tt.common import (
@@ -177,6 +178,11 @@ class Session:
         # Decode-only trace capture/replay (Generator._decode_forward_trace_text); prefill stays eager.
         self.enable_trace = enable_trace
         self.batch = batch
+        # Upstream's batched prefill runs padded_batch equal-length prompts in one
+        # forward pass. The runner keeps the sequential per-row path unless asked
+        # because upstream disables batched prefill selectively (tt-metal#47238:
+        # prefill logits are batch-variant under seeded sampling). P5 measures it.
+        self.batched_prefill = batched_prefill and batch > 1
         if page_blocks % batch:
             raise SystemExit("--page-blocks must divide evenly across the batch rows")
         if page_block * page_blocks < max_seq_len:
@@ -194,8 +200,9 @@ class Session:
             dtype=ttnn.bfloat8_b,
         )
         if batch > 1:
-            # Rows are prefilled separately: upstream issue #47238.
-            self.args.disable_batched_prefill = True
+            # Sequential per-row prefill is the default; --batched-prefill opts into
+            # upstream's single-pass path (see self.batched_prefill).
+            self.args.disable_batched_prefill = not self.batched_prefill
         self.kv_cache = [kv_cache]
         del state_dict
         self.load_seconds = time.time() - started
@@ -546,18 +553,33 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
         )
     measured = [run for run in runs if not run["warmup"]]
     prefill = []
-    for length in args.prefill_lengths if session.batch == 1 else []:
+    # Batch 1 measures each prefill length. Batch > 1 measures only the first length
+    # that fits the per-row KV budget, because each pass is batch * length tokens;
+    # the throughput is reported over all rows of that pass.
+    if session.batch == 1:
+        lengths = list(args.prefill_lengths)
+    else:
+        lengths = [
+            length for length in args.prefill_lengths[:1] if length < session.row_tokens
+        ]
+    for length in lengths:
         samples = []
         for run in range(1 + args.prefill_runs):
             session.reset()
             started = time.perf_counter()
-            session.prefill(corpus[:length])
+            if session.batch == 1:
+                session.prefill(corpus[:length])
+            else:
+                session.prefill_rows([corpus[:length]] * session.batch)
             elapsed = time.perf_counter() - started
             if run:
-                samples.append(length / elapsed)
-        prefill.append({"input_tokens": length, "tokens_per_second": summary(samples)})
+                samples.append(length * session.batch / elapsed)
+        entry = {"input_tokens": length, "tokens_per_second": summary(samples)}
+        if session.batch > 1:
+            entry["rows"] = session.batch
+        prefill.append(entry)
         print(
-            f"[bench] prefill {length}: median {statistics.median(samples):.1f} tok/s",
+            f"[bench] prefill {length} x {session.batch} row(s): median {statistics.median(samples):.1f} tok/s",
             flush=True,
         )
     return {
@@ -610,6 +632,7 @@ def run_device(
             args.prompt_mode,
             enable_trace=args.trace,
             batch=args.batch,
+            batched_prefill=args.batched_prefill,
         )
         receipt["l1"] = (
             session.l1_log
@@ -632,6 +655,15 @@ def run_session(
     receipt["on_device_sampling"] = bool(
         getattr(session.model, "_supports_on_device_sampling", False)
     )
+    # Requested and effective prefill path: upstream falls back to sequential rows
+    # when the prompts differ in length, a prefix is cached, or the trace is on.
+    receipt["batched_prefill"] = {
+        "requested": bool(getattr(args, "batched_prefill", False)),
+        "effective": session.batched_prefill,
+        "upstream_disable_batched_prefill": bool(
+            getattr(session.args, "disable_batched_prefill", False)
+        ),
+    }
     print(
         f"[load] {session.args.model_name} on {session.args.device_name}: {session.load_seconds:.1f}s",
         flush=True,
@@ -748,6 +780,12 @@ def main(argv=None) -> None:
         help="user rows with identical inputs (bench, and compare: teacher-forced gates on the worst row); generate uses batch 1",
     )
     parser.add_argument(
+        "--batched-prefill",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="batch > 1: prefill every row in one pass through upstream's batched path instead of one row at a time (P5; off until admitted)",
+    )
+    parser.add_argument(
         "--expect-output-from",
         type=Path,
         help="bench mode: receipt whose bench output ids must be reproduced exactly",
@@ -838,6 +876,7 @@ def main(argv=None) -> None:
         "prompt_mode": args.prompt_mode,
         "decode_trace": args.trace,
         "batch": args.batch,
+        "batched_prefill_requested": args.batched_prefill,
         "tt_cache_path": os.environ["TT_CACHE_PATH"],
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
