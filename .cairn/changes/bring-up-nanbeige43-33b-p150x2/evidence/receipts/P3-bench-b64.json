@@ -1,0 +1,58 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "accuracy",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 512
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 64,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-26T19:53:28-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "error": {
+    "type": "ValueError",
+    "message": "Batch size 64 not supported",
+    "traceback": "Traceback (most recent call last):\n  File \"/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 845, in main\n    run_device(args, spec, identity, reference, receipt)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 604, in run_device\n    session = Session(\n        mesh_device,\n    ...<6 lines>...\n        batch=args.batch,\n    )\n  File \"/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 187, in __init__\n    self.args, self.model, kv_cache, state_dict = create_tt_model(\n                                                  ~~~~~~~~~~~~~~~^\n        mesh_device,\n        ^^^^^^^^^^^^\n    ...<5 lines>...\n        dtype=ttnn.bfloat8_b,\n        ^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/common.py\", line 912, in create_tt_model\n    tt_model_args = ModelArgs(\n        mesh_device,\n    ...<5 lines>...\n        use_hf_rope=use_hf_rope,\n    )\n  File \"/nix/store/98iflgl5w1qv2k8bbzvs6kl7m78fhjpy-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/model_config.py\", line 627, in __init__\n    raise ValueError(f\"Batch size {self.max_batch_size} not supported\")\nValueError: Batch size 64 not supported\n"
+  },
+  "gates": [
+    {
+      "gate": "device run completed",
+      "passed": false,
+      "observed": "ValueError"
+    }
+  ],
+  "finished": "2026-10-26T19:53:36-0400",
+  "passed": false
+}
