@@ -1,0 +1,82 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 512
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 32,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T03:09:02-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 77.0293653011322,
+  "host_rss_after_load": {
+    "rss": 2583875584,
+    "peak": 66569158656
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "error": {
+    "type": "RuntimeError",
+    "message": "MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x1dd) [0x7d51977741ad]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/_ttnn.so(+0x45854a) [0x7d5199f5854a]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/_ttnn.so(+0x55f765) [0x7d519a05f765]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(PyObject_Call+0x6a) [0x7d53bd8e30ea]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyObject_MakeTpCall+0x1a2) [0x7d53bd80fac2]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x36be) [0x7d53bda64d0e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x2734cb) [0x7d53bd8fb4cb]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d758) [0x7d53bd815758]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyObject_MakeTpCall+0x1a2) [0x7d53bd80fac2]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x36be) [0x7d53bda64d0e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x2734cb) [0x7d53bd8fb4cb]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d758) [0x7d53bd815758]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(PyEval_EvalCode+0x153) [0x7d53bda73f73]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x401789) [0x7d53bda89789]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18206c) [0x7d53bd80a06c]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0xfb9) [0x7d53bda62609]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x3d5011) [0x7d53bda5d011]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(Py_RunMain+0xc92) [0x7d53bda7f552]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x2b285) [0x7d53bd37e285]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(__libc_start_main+0x88) [0x7d53bd37e338]\n --- /nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python(_start+0x25) [0x5a8bb6513085]\n",
+    "traceback": "nn_decode_forward\n    tt_logits = self.forward(\n        x_embed,\n    ...<6 lines>...\n        page_tables_per_layer=page_tables_per_layer,\n    )\n  File \"/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/model.py\", line 924, in forward\n    x = layer(\n        x,\n    ...<9 lines>...\n        batch_size=batch_size,\n    )\n  File \"/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0/lib/python3.13/site-packages/models/common/lightweightmodule.py\", line 12, in __call__\n    return self.forward(*args, **kwargs)\n           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/decoder.py\", line 256, in forward\n    attn_out = self.attention.forward(\n        attn_in,\n    ...<7 lines>...\n        kv_cache=kv_cache,\n    )\n  File \"/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/attention.py\", line 1213, in forward\n    return self.forward_decode(x, current_pos, rot_mats, page_table=page_table, kv_cache=kv_cache)\n           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/n7ryqc47h6d5b362d58l9wbn79gqj74r-nanbeige43-0.1.0/lib/python3.13/site-packages/models/tt_transformers/tt/attention.py\", line 838, in forward_decode\n    dense_out_sharded = ttnn.linear(\n        attn_output,\n    ...<7 lines>...\n        sub_device_id=self.prefetcher.worker_sub_device_id if self.prefetcher is not None else None,\n    )\n  File \"/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/decorators.py\", line 650, in __call__\n    result = self.function(*function_args, **function_kwargs)\nRuntimeError: TT_FATAL @ /build/source/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp:1294: K % program_config.in0_block_w == 0\ninfo:\nMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: K (112) must be divisible by in0_block_w (3)\nbacktrace:\n --- ttnn::prim::MatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::MatmulParams const&, ttnn::prim::MatmulInputs const&)\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadINS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x87) [0x7d51977be4c7]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterINS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0xb5) [0x7d51977be675]\n --- ttnn::prim::MatmulDeviceOperation::tensor_return_value_t ttnn::device_operation::detail::launch<ttnn::prim::MatmulDeviceOperation>(ttnn::prim::MatmulDeviceOperation::operation_attributes_t const&, ttnn::prim::MatmulDeviceOperation::tensor_args_t const&)\n --- ttnn::prim::matmul(ttnn::Tensor const&, ttnn::Tensor const&, std::optional<ttnn::Tensor> const&, std::optional<ttnn::Tensor> const&, ttnn::prim::MatmulParams const&)\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/_ttnncpp.so(+0xf8d15b) [0x7d519777215b]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x1dd) [0x7d51977741ad]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/_ttnn.so(+0x45854a) [0x7d5199f5854a]\n --- /nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0/lib/python3.13/site-packages/ttnn/_ttnn.so(+0x55f765) [0x7d519a05f765]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(PyObject_Call+0x6a) [0x7d53bd8e30ea]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyObject_MakeTpCall+0x1a2) [0x7d53bd80fac2]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x36be) [0x7d53bda64d0e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x2734cb) [0x7d53bd8fb4cb]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d758) [0x7d53bd815758]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d5be) [0x7d53bd8155be]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18da14) [0x7d53bd815a14]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyObject_MakeTpCall+0x1a2) [0x7d53bd80fac2]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x36be) [0x7d53bda64d0e]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x2734cb) [0x7d53bd8fb4cb]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18d758) [0x7d53bd815758]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0x8e4) [0x7d53bda61f34]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(PyEval_EvalCode+0x153) [0x7d53bda73f73]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x401789) [0x7d53bda89789]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x18206c) [0x7d53bd80a06c]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(_PyEval_EvalFrameDefault+0xfb9) [0x7d53bda62609]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(+0x3d5011) [0x7d53bda5d011]\n --- /nix/store/60m4rxhg2fldqaak400c0lry96ijrzqn-python3-3.13.13/lib/libpython3.13.so.1.0(Py_RunMain+0xc92) [0x7d53bda7f552]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(+0x2b285) [0x7d53bd37e285]\n --- /nix/store/57iz36553175g3178pvxjij8z5rcsd4n-glibc-2.42-61/lib/libc.so.6(__libc_start_main+0x88) [0x7d53bd37e338]\n --- /nix/store/qwm7vyvj1jbr0q65jdmshfqk6k9l4isc-python3-3.13.13-env/bin/python(_start+0x25) [0x5a8bb6513085]\n\n"
+  },
+  "gates": [
+    {
+      "gate": "device run completed",
+      "passed": false,
+      "observed": "RuntimeError"
+    }
+  ],
+  "finished": "2026-10-27T03:11:02-0400",
+  "passed": false
+}
