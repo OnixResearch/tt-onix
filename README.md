@@ -226,11 +226,14 @@ within noise), all runs and rows identical,
 and accuracy within 1e-4 on prefill PCC with teacher-forced top-1 0.904297 against
 0.916016 (-1.17 points) and top-5 0.994141 against 0.992188. Larger pools do not fit:
 at `--page-blocks 8192` the mode dies with a 469 MB DRAM allocation failure, so it
-requires the smaller pool at this batch size. Sequential prefill at batch 32 measures **7.0-8.2 s** median
-at 8192 and 1024 blocks over 15 runs each (P82), with a tail that includes a 52 s sample,
-and the two pools differ by only 1.17x - an earlier 2.6x reading came from three-sample
-medians and is withdrawn. Session-to-session medians are not comparable, and no prefill
-comparison in this record is paired, so the batched 3.10 s figure carries that caveat. The `accuracy` preset, the `batch > 1`
+requires the smaller pool at this batch size. The mode is now compared **paired**: `--prefill-modes both`
+alternates the two paths run by run inside one session (P83), which removes the
+session-to-session variation that made earlier ratios unreliable. At batch 32 with
+`--page-blocks 1024` and ten alternating runs, batched prefill measures **4.35 s** median
+against **15.27 s** sequential - **3.51x** - with ids identical within each mode. Earlier
+unpaired figures (1.61x, 4.25x) are superseded. Sequential TTFT at this batch size also
+carries a heavy tail that has reached 52 s (P82), and pool size is a weak lever (1.17x at
+1024 against 8192) rather than the 2.6x once reported. The `accuracy` preset, the `batch > 1`
 default prefill path, and every admitted number are unchanged.
 
 A replacement profiler run named all 5,100 traced decode rows: matmul

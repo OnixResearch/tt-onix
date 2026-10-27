@@ -644,7 +644,16 @@ def cache_probe(session: Session, ids: list[int], block_size: int, phase: str) -
 def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
     """Synchronized host-wall timing; each decode returns host greedy tokens."""
     runs = []
+    paired = args.prefill_modes == "both"
     for run in range(args.warmup + args.runs):
+        prefill_mode = None
+        if paired:
+            # P83: alternate the two prefill paths inside one session, so the
+            # comparison is paired instead of spanning sessions whose medians
+            # differ by more than the effect.
+            prefill_mode = "batched" if run % 2 == 0 else "sequential"
+            session.batched_prefill = prefill_mode == "batched"
+            session.args.disable_batched_prefill = prefill_mode == "sequential"
         session.reset()
         batch = session.batch
         started = time.perf_counter()
@@ -659,6 +668,7 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
         decode_seconds = time.perf_counter() - started
         per_user = (args.decode_tokens - 1) / decode_seconds
         runs.append({
+            "prefill_mode": prefill_mode,
             "warmup": run < args.warmup,
             "first_token_seconds": first_token,
             "decode_seconds": decode_seconds,
@@ -673,6 +683,23 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
             flush=True,
         )
     measured = [run for run in runs if not run["warmup"]]
+    by_mode = {}
+    if paired:
+        for mode in ("batched", "sequential"):
+            group = [run for run in measured if run["prefill_mode"] == mode]
+            if group:
+                by_mode[mode] = {
+                    "runs": len(group),
+                    "first_token_seconds": summary([
+                        run["first_token_seconds"] for run in group
+                    ]),
+                    "decode_tokens_per_second": summary([
+                        run["decode_tokens_per_second"] for run in group
+                    ]),
+                    "outputs_identical_within_mode": all(
+                        run["output_ids"] == group[0]["output_ids"] for run in group
+                    ),
+                }
     prefill = []
     # Batch 1 measures each prefill length. Batch > 1 measures only the first length
     # that fits the per-row KV budget, because each pass is batch * length tokens;
@@ -721,6 +748,8 @@ def bench(session: Session, ids: list[int], corpus: list[int], args) -> dict:
         "outputs_identical_across_runs": all(
             run["output_ids"] == runs[0]["output_ids"] for run in runs
         ),
+        "first_token_seconds_by_mode": by_mode or None,
+        "prefill_modes": args.prefill_modes,
         "rows_identical_in_every_run": all(run["rows_identical"] for run in runs),
         "output_ids": runs[0]["output_ids"],
         "runs": runs,
@@ -851,11 +880,34 @@ def run_session(
             )
         # Predeclared bench gates: deterministic across runs and rows, and (when given)
         # identical to the token ids of an earlier accepted bench receipt.
+        paired = result["prefill_modes"] == "both"
         receipt["gates"] = [
             {
-                "gate": "bench outputs identical across all runs",
-                "passed": result["outputs_identical_across_runs"],
-                "observed": result["outputs_identical_across_runs"],
+                "gate": "bench outputs identical across all runs"
+                if not paired
+                else "bench outputs identical within each prefill mode",
+                "passed": result["rows_identical_in_every_run"]
+                and (
+                    all(
+                        group["outputs_identical_within_mode"]
+                        for group in (
+                            result["first_token_seconds_by_mode"] or {}
+                        ).values()
+                    )
+                    if paired
+                    else result["outputs_identical_across_runs"]
+                ),
+                "observed": {
+                    "across_runs": result["outputs_identical_across_runs"],
+                    "by_mode": {
+                        mode: group["outputs_identical_within_mode"]
+                        for mode, group in (
+                            result["first_token_seconds_by_mode"] or {}
+                        ).items()
+                    },
+                }
+                if paired
+                else result["outputs_identical_across_runs"],
             },
             {
                 "gate": "every batch row identical in every run",
@@ -981,6 +1033,12 @@ def main(argv=None) -> None:
     )
     parser.add_argument(
         "--max-tokens", type=int, default=128, help="generate mode token limit"
+    )
+    parser.add_argument(
+        "--prefill-modes",
+        choices=("as-requested", "both"),
+        default="as-requested",
+        help="bench, batch > 1: 'both' alternates the batched and sequential prefill paths run by run inside one session, so the comparison is paired (P83); ids are then compared within each mode",
     )
     parser.add_argument(
         "--generate-runs",
