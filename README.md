@@ -226,13 +226,14 @@ default prefill path, and every admitted number are unchanged.
 
 A replacement profiler run named all 5,100 traced decode rows: matmul
 operations held 90.6 % of the 76.65 ms per-replay-device kernel sum, with
-collectives 4.3 % and SDPA 0.7 %. The matmul bucket's 290 GB/s is a property of
-the model's DRAM-sharded configuration, not of the hardware: a decode-shaped
-matmul with interleaved DRAM weights sustains 357-392 GB/s at this model's own
-dtype and batch shape on the same device (P62), so 23-35 % of streaming headroom
-remains and the program-config experiment P19's rule funds is the next lever.
-Earlier statements here that 241 GB/s is this machine's sustained read rate are
-withdrawn as hardware claims. The matmul bucket still mixes attention, MLP,
+collectives 4.3 % and SDPA 0.7 %. The matmul bucket's 290 GB/s is close to what the
+machine sustains at this model's own per-matmul weight sizes: a decode-shaped
+matmul reads at 271 GB/s with a 42 MB weight and 264 GB/s with 84 MB, rising to
+348-367 GB/s only for per-op weights of 250 MB to 1 GB, which this model does not
+have except for the once-per-step LM head (P63). Larger-N probes (P62) reported
+357-392 GB/s, but those ops were 6-24 times larger than any in this model, so that
+headroom reading was a scale artifact and is withdrawn. No material streaming
+headroom exists at these op sizes. The matmul bucket still mixes attention, MLP,
 and LM-head work, so no full four-way device attribution is claimed. The
 supported prefetcher is closed by L1 arithmetic (minimum ring 115 unpadded or
 118 padded, against reachable rings up to 80), so no supported
