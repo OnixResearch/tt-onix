@@ -284,8 +284,13 @@ batch claim rather than an accuracy-only one. Both accuracy screens were re-run 
 the currently shipped package (P60) and reproduce bit-identically - batch 1 top-1
 0.908203/top-5 0.994141, batch 32 0.916016/0.992188, and the same four prefill
 PCCs - so the shipped identity is numerically identical to the recorded one for
-its decode tokens and its accuracy alike. Multi-row first-token latency under the mix was bimodal
-(5.406-20.675 s), so no TTFT claim is made for it either way. `--preset
+its decode tokens and its accuracy alike. Multi-row first-token latency under the mix is prefill-bound and scales with rows,
+pooled over all admitted bench receipts: batch 1 median 0.169 s (n=46), batch 2 0.346
+(n=6), batch 4 0.650 (n=21), batch 16 2.515 (n=16) and batch 32 **5.00 s** (n=46, p90
+7.81, range 4.43-16.10). At batch 32 that is 269 tokens/s of sequential per-row prefill,
+matching the P5 control. The earlier "bimodal" description was a tail rather than a second
+mode: 5 of 46 batch-32 samples (10.9 %) exceed 1.5x the median at 7.8-8.4 s, plus one
+16.1 s sample from a short-warmup protocol whose cause is not established (P78). `--preset
 accuracy` keeps the previous quality for anyone who needs it. These remain
 host-wall smoke measurements, not serving benchmarks.
 

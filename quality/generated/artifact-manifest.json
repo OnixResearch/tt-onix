@@ -1420,8 +1420,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/bring-up-2026-10-25.md",
       "class": "portable_evidence",
-      "byte_count": 185722,
-      "blake3": "5acebd3fddf99fd8c18c65370728b10219bbb71440585355157f6e1e11dae272"
+      "byte_count": 187368,
+      "blake3": "0e3d0366ab63a5bfb14a4a2099bef05cfb9128661142197395790106f62396a9"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/D1-admission.json",
