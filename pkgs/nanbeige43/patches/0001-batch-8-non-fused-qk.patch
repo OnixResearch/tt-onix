@@ -1,0 +1,15 @@
+--- a/models/tt_transformers/tt/model_config.py
++++ b/models/tt_transformers/tt/model_config.py
+@@ -695,6 +695,12 @@
+         self.use_qk_fused = not self.is_multimodal and not self.use_hf_rope
+         if self.prefetcher is not None:
+             self.use_qk_fused = False
++        # nanbeige43: at batch 8 the fused QK path places K alone on a second core
++        # row while Q and V share the first, and rows 5-7 keep stale K for every
++        # head (docs/nanbeige-batch8.md). The non-fused path is correct and, for
++        # eight rows, faster than serving them as two serialized batch-4 streams.
++        if self.max_batch_size == 8:
++            self.use_qk_fused = False
+ 
+         if self.mesh_device is not None:  # Avoid issue with test_torch.py not having a device
+             # ============================================================================

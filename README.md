@@ -203,18 +203,20 @@ input-copy overhead. The 4096 path remains eager and unchanged at 2520 tok/s
 (baseline 2517); the 0.1669 s batch-1 first token measured under the rejected
 package is not a shipped claim.
 
-Batch 8 is admitted by upstream `supported_batches` but corrupts rows 5-7
-deterministically on this path; it is a supported-size correctness defect, not
-an unsupported-size refusal, and stays refused.
+Batch 8 is supported. Its fused QK path leaves rows 5-7 with stale K for every head
+at that size, so the package patches `use_qk_fused` off for `max_batch_size == 8`
+only; the non-fused path is correct and, on the default pool, measures **109.28**
+tokens/s aggregate at 13.66 per user (samples 13.66/13.74/13.56) with every row and
+every id identical across runs (P103). The defect and its localisation are in
+[the batch-8 record](docs/nanbeige-batch8.md).
 
-That investigation is complete and recorded in
-[the batch-8 record](docs/nanbeige-batch8.md). The cause is localised to the
-qk-fused decode path, which places K alone on core row 1 at batch 8 while Q and V
-share row 0, and that placement is load-bearing for the bounding-box
-runtime-argument scheme. Forcing the non-fused path makes batch 8 correct (rows
-identical, ids equal to the admitted stream) at 101.77 tokens/s aggregate, against
-113.8 for two batch-4 streams, so the fix has no throughput case and is recorded
-rather than applied. No batch-8 throughput or serving claim is made.
+The reason the fix looked worthless is a correction worth keeping: the record had
+compared it against "113.8 for two batch-4 streams", which was the **sum of two
+independent batch-4 runs**. One device serialises them, so serving eight rows as two
+batch-4 streams yields 56.91 aggregate, and the non-fused path is **1.91x** better, not
+0.89x worse. Batch 8 now sits on the same per-user line as every other size - 13.66
+against 13.8 at batch 32 - with 109.28 aggregate between batch 4's 57.25 and batch 16's
+225.93.
 
 Batched prefill for `batch > 1` is available as an explicit opt-in
 (`--batched-prefill`) and is not the default. Measured on 2026-10-26 against

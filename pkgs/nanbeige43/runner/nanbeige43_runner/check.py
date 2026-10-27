@@ -459,14 +459,17 @@ def self_test_batched_prefill(results: list) -> None:
 
 
 def self_test_batch_surface(results: list) -> None:
-    """The shipped command must refuse the batch sizes it cannot serve correctly.
+    """Batch 8 is admitted only because the package disables fused QK for it.
 
-    Batch 8 is upstream-supported but writes stale rows 5-7 on this path
-    (P42-P45), so both modes refuse it. The check drives the real parser, so a
-    widening of `ACCEPTED_BATCHES` fails here instead of on a device run.
+    The packaged fused QK path leaves rows 5-7 with stale K at batch 8
+    (docs/nanbeige-batch8.md), so the package patches `use_qk_fused` off for
+    `max_batch_size == 8`. The parser must accept the size and the patch must be
+    present in the installed tree; either one missing means batch 8 is corrupt or
+    unreachable, and both are visible here rather than on a device run.
     """
     import contextlib
     import io
+    from pathlib import Path
 
     from .run import main as run_main
 
@@ -485,15 +488,29 @@ def self_test_batch_surface(results: list) -> None:
             "/nonexistent.json",
         ]
         try:
-            # argparse writes the usage and error to stderr before raising; a
-            # passing check must not emit "error:" lines into its own output.
+            # Reaching the checkpoint check proves the parser admitted the size.
             with contextlib.redirect_stderr(io.StringIO()):
                 run_main(argv)
         except SystemExit as exit_error:
-            refused = "invalid choice" in str(exit_error.code) or exit_error.code == 2
+            admitted_size = "invalid choice" not in str(exit_error.code)
         else:
-            refused = False
-        expect(refused, f"{mode} refuses --batch 8 at the parser", results)
+            admitted_size = True
+        expect(admitted_size, f"{mode} admits --batch 8 at the parser", results)
+
+    model_config = (
+        Path(__file__).resolve().parents[1]
+        / "models"
+        / "tt_transformers"
+        / "tt"
+        / "model_config.py"
+    )
+    source = model_config.read_text() if model_config.is_file() else ""
+    expect(
+        "if self.max_batch_size == 8:" in source
+        and source.count("self.use_qk_fused = False") >= 2,
+        "installed model_config disables fused QK for batch 8",
+        results,
+    )
 
 
 def self_test_precision_table(results: list) -> None:

@@ -47,12 +47,13 @@ MLP_PAD_CORES = 16
 # Qwen3-32B on bh_p150/bh_p300 (models/model_trace_region_sizes.yaml); 128 MiB covers 52 layers.
 TRACE_REGION_BYTES = 128 * 1024 * 1024
 # Batch sizes admitted by predeclared gates (tasks.md): 2 and 4 bit-equal to batch 1 (P12, O3),
-# 16 and 32 under the teacher-forced fallback (O3, P2). Batch 8 is refused; the defect and its
-# cause are recorded once, in docs/nanbeige-batch8.md - stale K for rows 5-7 from the qk-fused
-# decode placement, with the non-fused path correct at 101.77 aggregate against 113.8 for two
-# batch-4 streams, so the fix has no case. Do not re-derive it here. Batch > 32 needs a
-# tile-row dataflow change (P10/P11).
-ACCEPTED_BATCHES = (1, 2, 4, 16, 32)
+# 16 and 32 under the teacher-forced fallback (O3, P2). Batch 8 is admitted since P103: the
+# packaged model is patched to use the non-fused QK path there, because the fused path leaves
+# rows 5-7 with stale K for every head (docs/nanbeige-batch8.md). The correction that made it
+# worth doing is in P103 - the "113.8 for two batch-4 streams" figure was a SUM of two runs, not
+# two concurrent streams, so the real alternative for eight rows is 56.91 aggregate and the
+# non-fused path at 101.77 is 1.79x better. Batch > 32 needs a tile-row dataflow change (P10/P11).
+ACCEPTED_BATCHES = (1, 2, 4, 8, 16, 32)
 
 
 def pcc(a: torch.Tensor, b: torch.Tensor) -> float:

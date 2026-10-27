@@ -1,11 +1,13 @@
 # Nanbeige4.3-33B on P150x2: the batch-8 defect
 
 Batch 8 is a size the packaged `tt_transformers` accepts (`supported_batches` is
-`{1, 2, 4, 8, 16, 32}`) but that produces wrong tokens on this runner path after row
-4. The runner refuses it. This page is the single record of what is measured, what is
-excluded, what the cause is, and what applying a fix would cost. The primary evidence
-is in `.cairn/changes/bring-up-nanbeige43-33b-p150x2/`; task ids below refer to its
-`tasks.md`, and its `evidence/bring-up-2026-10-25.md` carries the narratives.
+`{1, 2, 4, 8, 16, 32}`) but that produced wrong tokens on this runner path after row 4.
+The package now patches the fused QK path off for `max_batch_size == 8`, which makes
+the size correct, and the runner admits it (P103). This page is the single record of
+what is measured, what is excluded, what the cause is, and why the fix is applied. The
+primary evidence is in `.cairn/changes/bring-up-nanbeige43-33b-p150x2/`; task ids below
+refer to its `tasks.md`, and its `evidence/bring-up-2026-10-25.md` carries the
+narratives.
 
 ## Symptom
 
@@ -95,11 +97,28 @@ if batch_size == 8:
     self.use_qk_fused = False
 ```
 
-It is not applied. It would add a batch-conditional code path to a packaged upstream
-model for no measured gain, and it would change the identity of the shipped package. If
-single-stream eight-user serving is ever required, this is the change to apply, followed
-by the usual gates: rows identical, ids equal to the admitted batch-1 stream, and the
-accuracy and throughput receipts re-earned at the new identity.
+It is now applied, as `pkgs/nanbeige43/patches/0001-batch-8-non-fused-qk.patch`, and the
+device-free suite guards it: batch 8 must be admitted by the parser and the installed
+`model_config.py` must carry the conditional, or the check fails before a device run.
+
+The earlier conclusion that it bought no throughput was wrong, and the error is worth
+naming: the comparison was "101.77 against 113.8 for two batch-4 streams", where 113.8
+was the **sum of two independent batch-4 runs** (2 x 56.91). One device serialises those
+runs, so eight rows served as two batch-4 streams yield 56.91 aggregate, and the
+non-fused path is 1.91x better rather than 0.89x worse.
+
+Measured after applying the patch, `bench --batch 8 --decode-tokens 128 --warmup 1
+--runs 3` on the default pool (2048 blocks):
+
+| run | first token | decode/user | aggregate |
+|---|---|---|---|
+| 1 | 2.622 s | 13.66 | 109.28 |
+| 2 | 2.011 s | 13.74 | 109.96 |
+| 3 | 2.350 s | 13.56 | 108.51 |
+
+Every row identical, ids identical across runs, `contention_flags {0, 0}`. Per user the
+size sits on the same line as the rest - 13.66 against 13.8 at batch 32 - with 109.28
+aggregate between batch 4's 57.25 and batch 16's 225.93.
 
 ## What is not established
 

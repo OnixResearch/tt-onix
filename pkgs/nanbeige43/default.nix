@@ -102,6 +102,9 @@ stdenvNoCC.mkDerivation {
 
   # The runtime-matched source: the exact tree tt-metal was built from.
   src = tt-metal.src;
+  # The batch-8 defect is in the packaged fused QK path; the fix is the non-fused
+  # path for that batch size only. See docs/nanbeige-batch8.md.
+  patches = [ ./patches/0001-batch-8-non-fused-qk.patch ];
   dontConfigure = true;
   dontBuild = true;
   nativeBuildInputs = [ makeWrapper ];
