@@ -1408,8 +1408,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/bring-up-2026-10-25.md",
       "class": "portable_evidence",
-      "byte_count": 103604,
-      "blake3": "320c6b19aaf7fac32d843ae43297fcc9ab62b640c96e6bc7c805737dbd9f10c7"
+      "byte_count": 105262,
+      "blake3": "a7f8181d66c5d4fec1b98a69627861e0c9c82fa74bcf55a497ecb5bff5b869bd"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/D1-admission.json",
@@ -1809,6 +1809,18 @@
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P20-default-preset-budget-check.json",
+      "class": "portable_evidence",
+      "byte_count": 5190,
+      "blake3": "5ed6d2243f5523396d82619a9399babd8483d183a1c5925e552cef91a14c0141"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P21-bench-b32-rebind.json",
+      "class": "portable_evidence",
+      "byte_count": 564865,
+      "blake3": "d9752725e0c322462ca80b792b373b0a81a906b6a28ffdff1da634bf1d56b073"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P21-device-free-check.json",
       "class": "portable_evidence",
       "byte_count": 5190,
       "blake3": "5ed6d2243f5523396d82619a9399babd8483d183a1c5925e552cef91a14c0141"

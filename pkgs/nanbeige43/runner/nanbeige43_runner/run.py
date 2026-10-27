@@ -39,9 +39,10 @@ MLP_PAD_CORES = 16
 # Fixed decode trace region when --trace is set: upstream reserves 90 MB for the 64-layer
 # Qwen3-32B on bh_p150/bh_p300 (models/model_trace_region_sizes.yaml); 128 MiB covers 52 layers.
 TRACE_REGION_BYTES = 128 * 1024 * 1024
-# Batch sizes admitted by the O3/P2 gates (tasks.md): 4 bit-equal to batch 1, 16 under the
-# teacher-forced fallback, and 32 under the same fallback. Batch 8 corrupts rows 5-7 at every
-# page-pool size tried, so it is refused.
+# Batch sizes admitted by predeclared gates (tasks.md): 2 and 4 bit-equal to batch 1 (P12, O3),
+# 16 and 32 under the teacher-forced fallback (O3, P2). Batch 8 corrupts rows 5-7 at every
+# page-pool size tried and is refused; its cause is narrowed to the per-row page-block path
+# (P14-P16). Batch > 32 needs a tile-row dataflow change (P10/P11).
 ACCEPTED_BATCHES = (1, 2, 4, 16, 32)
 
 
@@ -89,7 +90,9 @@ def batch_row_report(device: torch.Tensor, reference: torch.Tensor) -> dict:
     return report
 
 
-# Upstream presets, plus the Phase 6 (data-parallel) screening mixes. Each mix is
+# Upstream presets, plus the Phase 6 (data-parallel) screening mixes. `bfp8` (all-BFP8) is the
+# runner default since P9 and `accuracy` stays selectable; the rest are screening selections.
+# Each mix is
 # (WQKV/WO, KV cache, FF1/FF3, FF2, BFP4 FF1/FF3 layer range or None for every layer);
 # fidelities stay at the upstream defaults (MLP HiFi2-FP16) except where the preset sets them.
 MIXES = {
@@ -157,7 +160,11 @@ def host_rss() -> dict:
 
 
 class Session:
-    """One model on the admitted mesh, with paged KV and host greedy sampling."""
+    """One model on the admitted mesh, with paged KV and greedy sampling.
+
+    `bench`/`generate` argmax on the device and read back one index per row
+    (P8 default); `compare` keeps the full-logit path.
+    """
 
     def __init__(
         self,
