@@ -310,3 +310,33 @@ production shapes for every tensor.
 - Tokenizer parity with the model card's transformers-4.51 slow tokenizer is
   not proven. The reference and device runs share one tokenizer, so numerical
   gates do not depend on it.
+
+### Superseded by Phases 7-9 (2026-10-27)
+
+The decisions above record the state at bring-up and at O5. Four of them have
+since been superseded; the earlier text is kept as history and this block is the
+current authority. Gates and receipts are in `tasks.md` and
+`evidence/bring-up-2026-10-25.md`.
+
+- **Preset default.** The all-BFP8 mix is now the default (`DEFAULT_PRESET` in
+  the runner); `--preset accuracy` keeps BF16 attention and KV. P9 re-earned the
+  speed gates on the device-argmax path (batch 1 14.28 tok/s per user, batch 32
+  430.50 aggregate) and bound the accuracy on the promoted package (top-1
+  0.908203, top-5 0.994141, corpus prefill PCC 0.996854). O5's rejection stands
+  as the record of the run that was measured; it was superseded by an explicit
+  re-declaration, not reinterpreted.
+- **Admitted batches.** `bench` and `compare` take `--batch` 1, 2, 4, 16 or 32.
+  Batch 2 was admitted in P12 (28.47 tok/s aggregate at 14.24 per user, both
+  rows identical, all six numerics gates passed); batch 32 is the largest
+  admitted size and the highest aggregate. Batch 8 is still refused.
+- **Highest aggregate.** Batch 32, not batch 16: 443.90 tok/s aggregate at 13.87
+  per user on the promoted package.
+- **Greedy sampling.** The argmax runs on device and reads back one index per
+  row (`--no-device-argmax` keeps the host path). P8 measured 81.8 ms per step
+  against 112.6-131.4 ms for the host argmax with identical ids on both paths.
+
+Current shipped figures are in `README.md`: batch 1 13.1-14.3, batch 2 28.47,
+batch 4 56.91, batch 16 225.93, batch 32 443.90 tokens/s aggregate, all with
+ids and rows exact. The per-step cost is DRAM-bank bound (P17: reader count
+within 1 %; P19: no valid bandwidth probe), and the batch axis is capped by the
+32-row tile dataflow (P10/P11, inventory in the evidence file).
