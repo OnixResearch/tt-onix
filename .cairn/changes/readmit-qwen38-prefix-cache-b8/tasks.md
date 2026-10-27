@@ -22,3 +22,7 @@
 
 - [x] [serial] D1 Record both receipts, the evidence, and every non-claim. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]  (evidence/prefix-cache-abba.md)
 - [x] [serial] D2 Move the served instance to the package that carries both receipts. The root-owned drop-in now names a path the operator owns, and the operator's symlink points at the package, so the move needed no root and no password. The served instance reports the admitted identity, the eight-slot profile, and the prefix-cache profile. r[tenstorrent.qwen38_p150x2.served_feature_receipts]  (evidence/prefix-cache-abba.md)
+
+## Phase 5: Re-admission on the promoted package
+
+- [x] [serial] V4 Re-earn the prefix-cache admission on the promoted package `gzwghi7…` and identity `qwnxwc…` with the schema-5 policy, four ABBA roots, and both workloads; receipt `pkgs/qwen36/evidence/2026-10-26/qwen38-prefix-cache-abba-admission-receipt.json`, BLAKE3 `11288cec…`; all eight gates pass. The 2026-10-21 receipt is superseded as current and retained as history. r[tenstorrent.qwen38_p150x2.hybrid_prefix_admission]  (evidence/re-admission-promoted-2026-10-26.md)

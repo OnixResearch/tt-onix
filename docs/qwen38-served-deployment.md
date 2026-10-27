@@ -19,24 +19,36 @@ continuous-slot policy and the hybrid prefix cache:
   --prefix-cache-policy /nix/var/nix/profiles/qwen38-p150x2/share/qwen36/prefix-cache-policy.json
 ```
 
-Two admission receipts name the package that is served, and a package change
+The promoted package
+`/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0` (execution identity
+`/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0`)
+carries the two receipts the deploy guard requires, and a package change
 invalidates both:
 
 - the eight-slot scheduler admission,
-  `pkgs/qwen36/evidence/2026-10-21/qwen38-continuous-slot-admission-b8-receipt.json`;
+  `pkgs/qwen36/evidence/2026-10-26/qwen38-continuous-slot-admission-b8-receipt.json`,
+  BLAKE3 `e5487ac541cc753ef4d3030f3e3d56bac04a499adb6a4a1051a50c94984d6b01`;
 - the prefix-cache admission,
-  `pkgs/qwen36/evidence/2026-10-21/qwen38-prefix-cache-abba-admission-receipt.json`.
+  `pkgs/qwen36/evidence/2026-10-26/qwen38-prefix-cache-abba-admission-receipt.json`,
+  BLAKE3 `11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109`.
 
-Both bind a package path and an execution identity. A rebuild of the same tree is a
-different package, so a new build needs its own receipts before it is served.
+Both bind that package path and execution identity. A rebuild of the same tree is
+a different package, so a new build needs its own receipts before it is served.
+The 2026-10-21 receipts named the earlier `wlsl6pnx…`/`l4arf461…` package and
+identity and are superseded as the current admission; they remain historical
+evidence.
 
-The B=8 v3 interleaved-protocol receipt is **not** one of them and is not carried
-by any servable package. It names execution identity `l4arf461…`, which no build
-in this tree reproduces, and the served package exports the generic B=8 profile
-as `…-b8-v2`. The v3 admission must be re-earned on a buildable identity before a
-package may carry it; see
-`.cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md`.
-Do not read the v3 receipt as a receipt for the package this note serves.
+The B=8 v3 interleaved-protocol receipt is **not** one of the two deploy-required
+kinds, but it has also been re-earned on the promoted package:
+`pkgs/qwen36/evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json`,
+BLAKE3 `cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55`.
+The promoted v3 profile is `physically_admitted: true` and names that digest; the
+older `l4arf461…` v3 identity is superseded.
+
+`scripts/qwen38-deploy --package /nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0` now passes its receipt
+guard and containment check without `--force`. That state was verified through the
+guard functions read-only; the deploy move itself was not executed by this record,
+and the served symlink changes only when the deploy command is run.
 
 The repository's rule is in
 `.cairn/changes/readmit-qwen38-prefix-cache-b8/specs/qwen38-p150x2-runtime/spec.md`:

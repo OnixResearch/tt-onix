@@ -49,6 +49,17 @@ campaign, then move the served profile to it.
 package must be one that both receipts name, or the deployment rests on a receipt for
 a package that is no longer served.
 
+## Re-admission on the promoted package (2026-10-26)
+
+The prefix-cache admission was re-earned on the promoted package
+`/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0` and identity
+`/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0` with the
+schema-5 policy, four ABBA roots, and both declared workloads. Receipt:
+`pkgs/qwen36/evidence/2026-10-26/qwen38-prefix-cache-abba-admission-receipt.json`,
+BLAKE3 `11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109`; all eight
+gates pass. The 2026-10-21 receipt and the `wlsl6pnx…`/`l4arf461…` package and identity
+are superseded as the current admission and retained as history.
+
 ## Risks / Trade-offs
 
 - The campaign takes about forty-five minutes of device time: four fresh processes

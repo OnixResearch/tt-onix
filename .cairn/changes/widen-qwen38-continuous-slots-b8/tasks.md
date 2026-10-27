@@ -25,3 +25,7 @@
 
 - [x] [serial] D1 Record the capacity inventory, the smoke result, the admission receipt, and every non-claim; move no served default. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md, evidence/b8-admission-verdict.md)
 - [x] [serial] D2 Run the repository Cairn, artifact, and Qwen package gates. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/capacity-and-smoke.md)
+
+## Phase 5: Re-admission on the promoted package
+
+- [x] [serial] V7 Re-earn the B=8 scheduler admission on the promoted package `gzwghi7…` and identity `qwnxwc…` with the same predeclared policy and gates; receipt `pkgs/qwen36/evidence/2026-10-26/qwen38-continuous-slot-admission-b8-receipt.json`, BLAKE3 `e5487ac5…`; all eleven gates pass. The 2026-10-21 receipt is superseded as current and retained as history. r[tenstorrent.qwen38_p150x2.continuous_slot_capacity]  (evidence/re-admission-promoted-2026-10-26.md)

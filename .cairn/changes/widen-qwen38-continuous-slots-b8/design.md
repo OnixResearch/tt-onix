@@ -36,6 +36,17 @@ workload shape, scaled to eight slots, with a new predeclared profile.
 throughput, exact candidate parity) do not change with capacity. A new gate set would
 make the two profiles incomparable.
 
+## Re-admission on the promoted package (2026-10-26)
+
+The B=8 scheduler admission was re-earned on the promoted package
+`/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0` and identity
+`/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0` with the same
+predeclared B=8 policy and gates. Receipt:
+`pkgs/qwen36/evidence/2026-10-26/qwen38-continuous-slot-admission-b8-receipt.json`,
+BLAKE3 `e5487ac541cc753ef4d3030f3e3d56bac04a499adb6a4a1051a50c94984d6b01`; all eleven
+gates pass. The 2026-10-21 receipt and the `wlsl6pnx…`/`l4arf461…` package and identity
+are superseded as the current admission and retained as history.
+
 ## Risks / Trade-offs
 
 - The resident width-8 trace needs more L1/DRAM than width 4; the smoke and the

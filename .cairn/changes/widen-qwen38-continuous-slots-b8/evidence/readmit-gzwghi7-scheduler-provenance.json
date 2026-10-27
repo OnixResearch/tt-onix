@@ -1,0 +1,41 @@
+{
+  "checkpoint_blake3": "7756d32a711ca259fd36638adc12f9c25bd7a7faa47ead0c25c79e290db0f241",
+  "checkpoint_path": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "command_line": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/bin/qwen38-p150x2-serve --host 127.0.0.1 --port 8011 --model-path /home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 --model-alias Qwen3.8-27B --max-sequence-length 131072 --max-generation-tokens 8192 --continuous-slot-policy /nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/share/qwen36/continuous-slot-policy-b8.json ; baseline: /nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/bin/qwen38-p150x2-serve --host 127.0.0.1 --port 8011 --model-path /home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 --model-alias Qwen3.8-27B --max-sequence-length 131072 --max-generation-tokens 8192",
+  "containment": {
+    "after": {
+      "can_serve": false,
+      "mode": "non-v3",
+      "package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
+      "package_store_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0",
+      "passed": true,
+      "profile_id": "qwen38-p150x2-continuous-slot-admission-b8-v1",
+      "profile_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/share/qwen36/continuous-slot-admission-policy-b8.json",
+      "schema": "onix.qwen38.admission-containment.v1",
+      "wrapper": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/bin/qwen38-p150x2-b8-admission"
+    },
+    "before": {
+      "can_serve": false,
+      "mode": "non-v3",
+      "package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
+      "package_store_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0",
+      "passed": true,
+      "profile_id": "qwen38-p150x2-continuous-slot-admission-b8-v1",
+      "profile_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/share/qwen36/continuous-slot-admission-policy-b8.json",
+      "schema": "onix.qwen38.admission-containment.v1",
+      "wrapper": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/bin/qwen38-p150x2-b8-admission"
+    }
+  },
+  "environment": {
+    "QWEN35_GDN_DECODE_FUSION": "step",
+    "TT_METAL_DISABLE_SFPLOADMACRO": "unset"
+  },
+  "model_identity": "/home/brittonr/models/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
+  "package_store_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0",
+  "profile_id": "qwen38-p150x2-continuous-slot-admission-b8-v1",
+  "profile_path": "/nix/store/gzwghi7spl93iv4y6qb680cg8wyfbq6r-qwen38-0.1.0/share/qwen36/continuous-slot-admission-policy-b8.json",
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "schema": "onix.qwen38.campaign-provenance.v1",
+  "source_revision": "69f4f4e15a2239e71e6844fc29ef764f74485d21"
+}

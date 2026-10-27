@@ -137,5 +137,10 @@ remain under `/home/brittonr/models/qwen38-b8-reearn-2026-10-26/`.
   package path and already named other, older outputs before this promotion, so
   this receipt-only promotion does not change whether deploy accepts the tree's
   own build; it remains a `--force` case until those admissions are re-earned.
+
+  **Superseded 2026-10-26:** those two admissions were then re-earned on this
+  promoted package. All three receipts now name `gzwghi7…`/`qwnxwc…`, and the
+  deploy guard accepts the package without `--force`; see
+  `all-admissions-promoted-2026-10-26.md`.
 - No bound, corpus, prompt, run count, execution order or structural gate was
   edited to reach a verdict; the bounds are the ones the v3 policy carries.

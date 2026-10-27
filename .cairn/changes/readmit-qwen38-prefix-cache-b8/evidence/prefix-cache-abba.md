@@ -1,5 +1,14 @@
 # The hybrid prefix cache, re-admitted in the served eight-slot configuration
 
+> **Superseded 2026-10-26.** The current admission is
+> `pkgs/qwen36/evidence/2026-10-26/qwen38-prefix-cache-abba-admission-receipt.json`,
+> BLAKE3 `11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109`, binding
+> package `gzwghi7spl93iv4y6qb680cg8wyfbq6r` and identity `qwnxwcppn16za67i710qm5drnzs57vg9`.
+> It was re-earned with the same policy and gates; see
+> `re-admission-promoted-2026-10-26.md`. The 2026-10-21 receipt and package/identity below
+> remain historical evidence.
+
+
 Recorded 2026-10-21 on physical PCIe devices 0 and 1 (two P150a, firmware 19.11.0.0,
 driver 2.10.0). The hybrid prefix cache passes every predeclared gate in the served
 continuous-slot configuration, and the eight-slot scheduler admission was measured

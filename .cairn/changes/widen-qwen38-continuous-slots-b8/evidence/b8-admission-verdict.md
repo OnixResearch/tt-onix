@@ -1,5 +1,14 @@
 # B=8 continuous-slot admission: the profile is admitted for its package and identity
 
+> **Superseded 2026-10-26.** The current admission is
+> `pkgs/qwen36/evidence/2026-10-26/qwen38-continuous-slot-admission-b8-receipt.json`,
+> BLAKE3 `e5487ac541cc753ef4d3030f3e3d56bac04a499adb6a4a1051a50c94984d6b01`, binding
+> package `gzwghi7spl93iv4y6qb680cg8wyfbq6r` and identity `qwnxwcppn16za67i710qm5drnzs57vg9`.
+> It was re-earned with the same policy and gates; see
+> `re-admission-promoted-2026-10-26.md`. The 2026-10-21 receipt and package/identity below
+> remain historical evidence.
+
+
 Recorded 2026-10-21 on physical PCIe devices 0 and 1 (two P150a, firmware 19.11.0.0,
 driver 2.10.0). The B=8 continuous-slot scheduler profile passes every predeclared
 gate against the group coordinator.

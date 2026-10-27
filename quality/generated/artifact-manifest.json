@@ -1838,6 +1838,12 @@
       "blake3": "3ea207f126f67187963a30734eb011b8d616496de4c597f64bc0e9ef3fec0339"
     },
     {
+      "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/all-admissions-promoted-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 2000,
+      "blake3": "62cccb522ee99cd51a41d7e4a0b2a15812a631eaa05b05cc2bfab2eae2f8b1aa"
+    },
+    {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/bootstrap-gate-2026-10-22.md",
       "class": "portable_evidence",
       "byte_count": 9044,
@@ -1894,8 +1900,8 @@
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-result-2026-10-26.md",
       "class": "portable_evidence",
-      "byte_count": 7931,
-      "blake3": "70dbdf926f33cbf794cf059fe09bcaf7ae1fd1242474fec97bb491dafc268455"
+      "byte_count": 8193,
+      "blake3": "4733684b1e05aa00f41be9dab7910c12bd37e3665f6b42341f611ff4ef6eeac4"
     },
     {
       "path": ".cairn/changes/isolated-tt-lang-sim-official-skills/evidence/final-aggregate-2026-10-23.json",
@@ -2212,8 +2218,26 @@
     {
       "path": ".cairn/changes/readmit-qwen38-prefix-cache-b8/evidence/prefix-cache-abba.md",
       "class": "portable_evidence",
-      "byte_count": 6551,
-      "blake3": "adb3a59cdc19513c8a0c2a391c5e8c0fa752231a825a80cfe61d65e16c6d299a"
+      "byte_count": 7047,
+      "blake3": "1d0be1d6a43cd77a209bd93419dccc92582fcdbe2bb80ceaddbca920352ba506"
+    },
+    {
+      "path": ".cairn/changes/readmit-qwen38-prefix-cache-b8/evidence/re-admission-promoted-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 2327,
+      "blake3": "9e334d54d9a88d3d1d8ffae58d54191560a2a610cfce06b7a685fa50f9bce38c"
+    },
+    {
+      "path": ".cairn/changes/readmit-qwen38-prefix-cache-b8/evidence/readmit-gzwghi7-prefix-cache-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 4150,
+      "blake3": "11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109"
+    },
+    {
+      "path": ".cairn/changes/readmit-qwen38-prefix-cache-b8/evidence/readmit-gzwghi7-prefix-provenance.json",
+      "class": "portable_evidence",
+      "byte_count": 3211,
+      "blake3": "50c73a3b8a0eacd0a51dae95f2f7f1ac266d0a511d6cb7ed38c3010e4f4c3fdd"
     },
     {
       "path": ".cairn/changes/select-qwen38-continuous-slot-b8/evidence/b8-admission-receipt-inkfvsjq.json",
@@ -2302,14 +2326,32 @@
     {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/b8-admission-verdict.md",
       "class": "portable_evidence",
-      "byte_count": 5411,
-      "blake3": "9ef9b6b0fe7a9a74e5b4c2946eec1fbfee54cd7bdbdd842bcaa76b709df1a1e6"
+      "byte_count": 5908,
+      "blake3": "9b13a1e17fa67fb5b63ddb4a006f809b036470f6605e2d7d26f48b9013e676b3"
     },
     {
       "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/capacity-and-smoke.md",
       "class": "portable_evidence",
       "byte_count": 3653,
       "blake3": "0493ac2ab1cc9c0c5a818985d57fcfa0566f1c0664152071424fd84f860aea61"
+    },
+    {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/re-admission-promoted-2026-10-26.md",
+      "class": "portable_evidence",
+      "byte_count": 2510,
+      "blake3": "0149844090f41c7162af656cd6778e215e2391413c23e5f52b2d0fdc09db83bf"
+    },
+    {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/readmit-gzwghi7-continuous-slot-admission-b8.json",
+      "class": "portable_evidence",
+      "byte_count": 5239,
+      "blake3": "e5487ac541cc753ef4d3030f3e3d56bac04a499adb6a4a1051a50c94984d6b01"
+    },
+    {
+      "path": ".cairn/changes/widen-qwen38-continuous-slots-b8/evidence/readmit-gzwghi7-scheduler-provenance.json",
+      "class": "portable_evidence",
+      "byte_count": 2991,
+      "blake3": "b227e51545d234de33b8e633cb3a78d89bb3c42998405e96e36e88aad1fd4cad"
     },
     {
       "path": "cairn/changes/adopt-metalium-rs-native-stack/evidence/adoption.md",
@@ -5646,6 +5688,18 @@
       "class": "portable_evidence",
       "byte_count": 144045,
       "blake3": "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-26/qwen38-continuous-slot-admission-b8-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5239,
+      "blake3": "e5487ac541cc753ef4d3030f3e3d56bac04a499adb6a4a1051a50c94984d6b01"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-26/qwen38-prefix-cache-abba-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4150,
+      "blake3": "11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109"
     },
     {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
