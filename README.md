@@ -130,7 +130,9 @@ over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
 default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device
 logits and reads back one index per row (`--no-device-argmax` keeps the host
 path, which reads the gathered vocabulary replica); `compare` keeps the
-full-logit path.
+full-logit path, and its accuracy metrics run on a single torch thread (P25),
+which cut the batch-32 gate from 1363 s to 310 s with identical top-1/top-5 and
+all 512 predicted tokens, at PCC deltas of at most 1.6e-14.
 
 Pre-P8 shipped host-wall smoke numbers, superseded by the device-argmax block
 below: batch-1 median 9.97 tokens/s (min 9.36; O1

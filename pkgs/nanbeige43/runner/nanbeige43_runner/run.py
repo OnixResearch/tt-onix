@@ -12,6 +12,7 @@ Both modes write a receipt and exit non-zero when a gate fails.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -54,7 +55,29 @@ def pcc(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a @ b) / (a.norm() * b.norm()))
 
 
+@contextlib.contextmanager
+def single_threaded_host_math():
+    """Set torch to one thread for the accuracy metrics.
+
+    These tensors hold vocabulary rows, so the work is a few hundred thousand
+    element operations per row; torch's default pool costs far more than the
+    arithmetic at batch 1 (587.96 ms against 7.22 ms per step) and dominates the
+    teacher-forced phase at batch 32 (P23/P24).
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        yield
+    finally:
+        torch.set_num_threads(previous)
+
+
 def row_report(device: torch.Tensor, reference: torch.Tensor) -> dict:
+    with single_threaded_host_math():
+        return _row_report(device, reference)
+
+
+def _row_report(device: torch.Tensor, reference: torch.Tensor) -> dict:
     ref_top5 = torch.topk(reference, 5).indices.tolist()
     dev_top5 = torch.topk(device, 5).indices.tolist()
     ref_sorted = torch.sort(reference, descending=True).values
@@ -418,9 +441,10 @@ def teacher_forced(session: Session, corpus: dict) -> dict:
     for step in range(1, TEACHER_FORCED_POSITIONS):
         position = split + step - 1
         logits = session.decode_rows([tokens[position]] * batch, [position] * batch)
-        for row, row_logits in enumerate(logits):
-            predicted[row].append(int(row_logits.argmax()))
-            decode_pcc.append(pcc(row_logits, window[step].float()))
+        with single_threaded_host_math():
+            for row, row_logits in enumerate(logits):
+                predicted[row].append(int(row_logits.argmax()))
+                decode_pcc.append(pcc(row_logits, window[step].float()))
     decode_seconds = time.time() - started
     positions = range(TEACHER_FORCED_POSITIONS)
     row_top1 = [
