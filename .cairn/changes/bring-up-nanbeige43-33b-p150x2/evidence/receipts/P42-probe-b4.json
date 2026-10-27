@@ -1,0 +1,373 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/53ac7cmx4lgsizr3jwvwis9qf7clc30a-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 1024
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 4,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T07:28:03-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 143.15193796157837,
+  "host_rss_after_load": {
+    "rss": 2458456064,
+    "peak": 66688290816
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 2,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 15.810719369968865,
+      "p90": 15.810719369968865,
+      "min": 15.810719369968865,
+      "max": 15.810719369968865,
+      "samples": [
+        15.810719369968865
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 0.06646485224429473,
+      "p90": 0.06646485224429473,
+      "min": 0.06646485224429473,
+      "max": 0.06646485224429473,
+      "samples": [
+        0.06646485224429473
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 0.2658594089771789,
+      "p90": 0.2658594089771789,
+      "min": 0.2658594089771789,
+      "max": 0.2658594089771789,
+      "samples": [
+        0.2658594089771789
+      ]
+    },
+    "batch": 4,
+    "outputs_identical_across_runs": true,
+    "rows_identical_in_every_run": true,
+    "output_ids": [
+      17782,
+      152518
+    ],
+    "runs": [
+      {
+        "warmup": false,
+        "first_token_seconds": 15.810719369968865,
+        "decode_seconds": 15.045546123001259,
+        "decode_tokens_per_second": 0.06646485224429473,
+        "aggregate_decode_tokens_per_second": 0.2658594089771789,
+        "output_ids": [
+          17782,
+          152518
+        ],
+        "rows_identical": true,
+        "row_output_ids": [
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ],
+          [
+            17782,
+            152518
+          ]
+        ]
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 853.6095756354424,
+          "p90": 878.6161289579304,
+          "min": 830.1190862211722,
+          "max": 878.6161289579304,
+          "samples": [
+            830.1190862211722,
+            878.6161289579304,
+            853.6095756354424
+          ]
+        },
+        "rows": 4
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello!"
+  },
+  "cache_probe": {
+    "cache_shape": [
+      1024,
+      4,
+      32,
+      128
+    ],
+    "block_size": 32,
+    "positions": {
+      "prefill": 41,
+      "decode": 42
+    },
+    "samples": {
+      "prefill": {
+        "rows": [
+          {
+            "row": 0,
+            "physical_block": 1016,
+            "site": 9,
+            "nonzero": true,
+            "head0_first8": [
+              4.3125,
+              2.6875,
+              -3.8125,
+              -0.125,
+              0.8125,
+              -3.0,
+              2.4375,
+              -2.25
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 1,
+            "physical_block": 131,
+            "site": 9,
+            "nonzero": true,
+            "head0_first8": [
+              4.3125,
+              2.6875,
+              -3.8125,
+              -0.125,
+              0.8125,
+              -3.0,
+              2.4375,
+              -2.25
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 2,
+            "physical_block": 676,
+            "site": 9,
+            "nonzero": true,
+            "head0_first8": [
+              4.3125,
+              2.6875,
+              -3.8125,
+              -0.125,
+              0.8125,
+              -3.0,
+              2.4375,
+              -2.25
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 3,
+            "physical_block": 132,
+            "site": 9,
+            "nonzero": true,
+            "head0_first8": [
+              4.3125,
+              2.6875,
+              -3.8125,
+              -0.125,
+              0.8125,
+              -3.0,
+              2.4375,
+              -2.25
+            ],
+            "matches_row0": true
+          }
+        ],
+        "sites_holding_row0_vector": [
+          [
+            131,
+            9
+          ],
+          [
+            132,
+            9
+          ],
+          [
+            676,
+            9
+          ],
+          [
+            1016,
+            9
+          ]
+        ]
+      },
+      "decode": {
+        "rows": [
+          {
+            "row": 0,
+            "physical_block": 1016,
+            "site": 10,
+            "nonzero": true,
+            "head0_first8": [
+              2.625,
+              1.9375,
+              3.625,
+              -0.1875,
+              -0.0938,
+              -1.5,
+              2.5,
+              -3.8125
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 1,
+            "physical_block": 131,
+            "site": 10,
+            "nonzero": true,
+            "head0_first8": [
+              2.625,
+              1.9375,
+              3.625,
+              -0.1875,
+              -0.0938,
+              -1.5,
+              2.5,
+              -3.8125
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 2,
+            "physical_block": 676,
+            "site": 10,
+            "nonzero": true,
+            "head0_first8": [
+              2.625,
+              1.9375,
+              3.625,
+              -0.1875,
+              -0.0938,
+              -1.5,
+              2.5,
+              -3.8125
+            ],
+            "matches_row0": true
+          },
+          {
+            "row": 3,
+            "physical_block": 132,
+            "site": 10,
+            "nonzero": true,
+            "head0_first8": [
+              2.625,
+              1.9375,
+              3.625,
+              -0.1875,
+              -0.0938,
+              -1.5,
+              2.5,
+              -3.8125
+            ],
+            "matches_row0": true
+          }
+        ],
+        "sites_holding_row0_vector": [
+          [
+            131,
+            10
+          ],
+          [
+            132,
+            10
+          ],
+          [
+            676,
+            10
+          ],
+          [
+            1016,
+            10
+          ]
+        ]
+      }
+    }
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": true,
+      "observed": true
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2553585664,
+    "peak": 66688290816
+  },
+  "finished": "2026-10-27T07:31:11-0400",
+  "passed": true
+}
