@@ -42,7 +42,7 @@ TRACE_REGION_BYTES = 128 * 1024 * 1024
 # Batch sizes admitted by the O3/P2 gates (tasks.md): 4 bit-equal to batch 1, 16 under the
 # teacher-forced fallback, and 32 under the same fallback. Batch 8 corrupts rows 5-7 at every
 # page-pool size tried, so it is refused.
-ACCEPTED_BATCHES = (1, 4, 16, 32)
+ACCEPTED_BATCHES = (1, 2, 4, 16, 32)
 
 
 def pcc(a: torch.Tensor, b: torch.Tensor) -> float:
