@@ -429,6 +429,43 @@ def self_test_batched_prefill(results: list) -> None:
     )
 
 
+def self_test_precision_table(results: list) -> None:
+    """The budget table must describe the precision the runner actually builds.
+
+    `per_device_bytes` turns PRESETS into a device tally, so a change to the
+    runner's MIXES that is not mirrored here would make the budget check validate
+    a mix the package does not run.
+    """
+    from types import SimpleNamespace
+
+    from models.tt_transformers.tt.model_config import TensorGroup
+
+    from .run import decoder_precision
+
+    names = {"bf16": "BFLOAT16", "bfp8": "BFLOAT8_B", "bfp4": "BFLOAT4_B"}
+    stub = SimpleNamespace(n_layers=2, model_name="nanbeige4.3-33b")
+    for preset, (attention, ff13, ff2, kv) in PRESETS.items():
+        precision = decoder_precision(preset)(stub)
+        observed = {
+            group: getattr(precision.get_tensor_dtype(0, group), "name", None)
+            for group in (
+                TensorGroup.WQKV,
+                TensorGroup.WO,
+                TensorGroup.FF1_FF3,
+                TensorGroup.FF2,
+                TensorGroup.KV_CACHE,
+            )
+        }
+        expect(
+            observed[TensorGroup.WQKV] == observed[TensorGroup.WO] == names[attention]
+            and observed[TensorGroup.FF1_FF3] == names[ff13]
+            and observed[TensorGroup.FF2] == names[ff2]
+            and observed[TensorGroup.KV_CACHE] == names[kv],
+            f"{preset} tensor precisions match the budget table {observed}",
+            results,
+        )
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -455,6 +492,7 @@ def main(argv=None) -> None:
     self_test_admission(results)
     self_test_comparison(results)
     self_test_batched_prefill(results)
+    self_test_precision_table(results)
     if args.checkpoint:
         report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
         results.append({
