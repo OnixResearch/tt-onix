@@ -1,0 +1,214 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "bench",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/kavpncpxs2rmjk2gzk7px8q4r78f0grq-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": null,
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 2048
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 8,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T07:16:05-0400",
+  "mesh": {
+    "name": "p150x2",
+    "shape": [
+      1,
+      2
+    ],
+    "fabric": "FABRIC_1D",
+    "trace_region_size": 134217728,
+    "pcie_device_ids": [
+      0,
+      1
+    ],
+    "device_ids": [
+      1,
+      0
+    ]
+  },
+  "l1": [
+    {
+      "label": "loaded",
+      "bytes_per_bank": 1461376,
+      "allocated_per_bank": 4352,
+      "largest_contiguous_free_per_bank": 1454976
+    }
+  ],
+  "load_seconds": 58.23888826370239,
+  "host_rss_after_load": {
+    "rss": 2801582080,
+    "peak": 67447214080
+  },
+  "device_name": "P300",
+  "model_name": "nanbeige4.3-33b-c1093c501cc6",
+  "n_layers": 52,
+  "on_device_sampling": false,
+  "batched_prefill": {
+    "requested": false,
+    "effective": false,
+    "upstream_disable_batched_prefill": true
+  },
+  "bench": {
+    "prompt_tokens": 42,
+    "decode_tokens": 4,
+    "warmup_runs": 0,
+    "measured_runs": 1,
+    "first_token_seconds": {
+      "median": 2.039592601999175,
+      "p90": 2.039592601999175,
+      "min": 2.039592601999175,
+      "max": 2.039592601999175,
+      "samples": [
+        2.039592601999175
+      ]
+    },
+    "decode_tokens_per_second": {
+      "median": 0.9979443875761949,
+      "p90": 0.9979443875761949,
+      "min": 0.9979443875761949,
+      "max": 0.9979443875761949,
+      "samples": [
+        0.9979443875761949
+      ]
+    },
+    "aggregate_decode_tokens_per_second": {
+      "median": 7.983555100609559,
+      "p90": 7.983555100609559,
+      "min": 7.983555100609559,
+      "max": 7.983555100609559,
+      "samples": [
+        7.983555100609559
+      ]
+    },
+    "batch": 8,
+    "outputs_identical_across_runs": true,
+    "rows_identical_in_every_run": false,
+    "output_ids": [
+      17782,
+      152518,
+      324,
+      735
+    ],
+    "runs": [
+      {
+        "warmup": false,
+        "first_token_seconds": 2.039592601999175,
+        "decode_seconds": 3.006179540010635,
+        "decode_tokens_per_second": 0.9979443875761949,
+        "aggregate_decode_tokens_per_second": 7.983555100609559,
+        "output_ids": [
+          17782,
+          152518,
+          324,
+          735
+        ],
+        "rows_identical": false,
+        "row_output_ids": [
+          [
+            17782,
+            152518,
+            324,
+            735
+          ],
+          [
+            17782,
+            152518,
+            324,
+            735
+          ],
+          [
+            17782,
+            152518,
+            324,
+            735
+          ],
+          [
+            17782,
+            152518,
+            324,
+            735
+          ],
+          [
+            17782,
+            152518,
+            324,
+            735
+          ],
+          [
+            17782,
+            152361,
+            152361,
+            152361
+          ],
+          [
+            17782,
+            152361,
+            152363,
+            152363
+          ],
+          [
+            17782,
+            152363,
+            152367,
+            152363
+          ]
+        ]
+      }
+    ],
+    "prefill": [
+      {
+        "input_tokens": 128,
+        "tokens_per_second": {
+          "median": 866.0484121995862,
+          "p90": 880.6509450972682,
+          "min": 860.0257874165087,
+          "max": 880.6509450972682,
+          "samples": [
+            866.0484121995862,
+            880.6509450972682,
+            860.0257874165087
+          ]
+        },
+        "rows": 8
+      }
+    ],
+    "message": "Introduce yourself in two sentences.",
+    "enable_thinking": false,
+    "text": "Hello! I am"
+  },
+  "gates": [
+    {
+      "gate": "bench outputs identical across all runs",
+      "passed": true,
+      "observed": true
+    },
+    {
+      "gate": "every batch row identical in every run",
+      "passed": false,
+      "observed": false
+    }
+  ],
+  "host_rss_end": {
+    "rss": 2942812160,
+    "peak": 67447214080
+  },
+  "finished": "2026-10-27T07:17:18-0400",
+  "passed": false
+}
