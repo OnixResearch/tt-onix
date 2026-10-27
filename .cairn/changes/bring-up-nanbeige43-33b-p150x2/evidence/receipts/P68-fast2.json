@@ -1,0 +1,46 @@
+{
+  "schema": "nanbeige43-device-receipt/v1",
+  "mode": "compare",
+  "simulated": false,
+  "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
+  "package_identity": "/nix/store/hvcdk6bgffxjysljjlab9m5g6mf01ahg-nanbeige43-0.1.0",
+  "checkpoint": {
+    "kind": "full",
+    "path": "/home/brittonr/models/nanbeige4.3-33b-c1093c501cc6",
+    "revision": "c1093c501cc6460427c0ac634db7223d0450c0ee",
+    "layers": 52,
+    "files_sha256_digest": "26445d86da81ac6422c3df099c00f153b73748b1331b04452f1a4b5f76dd13f1"
+  },
+  "reference": {
+    "path": "/home/brittonr/models/nanbeige43-evidence/reference/full-bf16.pt",
+    "sha256": "583b0fd24aabba7da31a75ae8835e7c5ab943657587358a0a9a364e40e060670"
+  },
+  "preset": "bfp8",
+  "pad_mlp_cores": 16,
+  "max_seq_len": 8192,
+  "paged_kv": {
+    "block_size": 32,
+    "max_num_blocks": 256
+  },
+  "prompt_mode": "prefill",
+  "decode_trace": true,
+  "batch": 32,
+  "batched_prefill_requested": false,
+  "device_argmax": true,
+  "tt_cache_path": "/home/brittonr/models/nanbeige43-cache/nanbeige4.3-33b-c1093c501cc6/mlp-pad-16",
+  "started": "2026-10-27T11:16:18-0400",
+  "error": {
+    "type": "SystemExit",
+    "message": "reference needs 1023 positions per row (teacher-forced split 512 plus 511 steps) but the per-row KV budget is 256; raise --page-blocks to at least 1024",
+    "traceback": "Traceback (most recent call last):\n  File \"/nix/store/hvcdk6bgffxjysljjlab9m5g6mf01ahg-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 1082, in main\n    run_device(args, spec, identity, reference, receipt)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/hvcdk6bgffxjysljjlab9m5g6mf01ahg-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 777, in run_device\n    preflight_compare(args, args.reference)\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\n  File \"/nix/store/hvcdk6bgffxjysljjlab9m5g6mf01ahg-nanbeige43-0.1.0/lib/python3.13/site-packages/nanbeige43_runner/run.py\", line 764, in preflight_compare\n    raise SystemExit(\n    ...<3 lines>...\n    )\nSystemExit: reference needs 1023 positions per row (teacher-forced split 512 plus 511 steps) but the per-row KV budget is 256; raise --page-blocks to at least 1024\n"
+  },
+  "gates": [
+    {
+      "gate": "device run completed",
+      "passed": false,
+      "observed": "SystemExit"
+    }
+  ],
+  "finished": "2026-10-27T11:16:18-0400",
+  "passed": false
+}

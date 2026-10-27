@@ -736,9 +736,45 @@ def write_receipt(path: Path, receipt: dict) -> None:
     print(f"[receipt] {path}", flush=True)
 
 
+def per_row_tokens(args) -> int:
+    """Positions available per batch row in the paged KV pool."""
+    return min(args.max_seq_len, args.page_block * (args.page_blocks // args.batch))
+
+
+def preflight_compare(args, reference_path: Path) -> None:
+    """Fail before opening the mesh when the reference cannot fit the pool.
+
+    The requirement is arithmetic over the reference's own lengths, so an
+    impossible request does not need an 80 s weight load to be rejected.
+    """
+    capacity = per_row_tokens(args)
+    reference = torch.load(reference_path, map_location="cpu", weights_only=False)
+    corpus = reference.get("teacher_forced") or {}
+    # teacher_forced() prefills `split` tokens and decodes TEACHER_FORCED_POSITIONS
+    # - 1 further positions, so the corpus needs split + TEACHER_FORCED_POSITIONS - 1
+    # positions per row.
+    required = (
+        int(corpus["split"]) + TEACHER_FORCED_POSITIONS - 1 if "split" in corpus else 0
+    )
+    steps = int(reference.get("continuation_steps") or 0)
+    for prompt in reference.get("prompts") or []:
+        required = max(required, len(prompt.get("prompt_ids") or []) + steps)
+    if required > capacity:
+        blocks = args.batch * -(-required // args.page_block)
+        raise SystemExit(
+            f"reference needs {required} positions per row (teacher-forced split"
+            f" {corpus.get('split')} plus {TEACHER_FORCED_POSITIONS - 1} steps) but the"
+            f" per-row KV budget is {capacity}; raise --page-blocks to at least {blocks}"
+        )
+
+
 def run_device(
     args, spec, identity: dict, reference: dict | None, receipt: dict
 ) -> None:
+    if args.mode == "compare" and args.reference is not None:
+        # Cheap and device-free: an impossible pool size is rejected before an
+        # 80 s weight load and a partially executed run.
+        preflight_compare(args, args.reference)
     with open_mesh(spec, TRACE_REGION_BYTES if args.trace else 0) as (
         mesh_device,
         mesh_record,
@@ -1044,7 +1080,9 @@ def main(argv=None) -> None:
     }
     try:
         run_device(args, spec, identity, reference, receipt)
-    except Exception as error:
+    except (Exception, SystemExit) as error:
+        # SystemExit is a BaseException: the runner's own budget and mode guards
+        # raise it, and without catching it a failed run left no receipt at all.
         # r[impl tenstorrent.nanbeige43_p150x2.reference_agreement.blocked]
         receipt["error"] = {
             "type": type(error).__name__,
