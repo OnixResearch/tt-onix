@@ -1958,6 +1958,18 @@
       "blake3": "bf7db09657cb47750018e561e803cc4ca0aee21c7c2b7a61c48acb14a9a2a9a9"
     },
     {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P39-generate-b16.json",
+      "class": "portable_evidence",
+      "byte_count": 17419,
+      "blake3": "6de723c90ab9a4e27ccf3402c6d58ba30fb7ca4b6a60c2955e9ad701fd1f233f"
+    },
+    {
+      "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P39-generate-b32.json",
+      "class": "portable_evidence",
+      "byte_count": 31323,
+      "blake3": "251196f2a73b53c578798acda34020626851f42b78a703a645f92ad6bae135cd"
+    },
+    {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P4-bench-trace.json",
       "class": "portable_evidence",
       "byte_count": 24190,
