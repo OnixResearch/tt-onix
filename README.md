@@ -126,11 +126,13 @@ CPU reference. `nanbeige43-reduce-checkpoint` derives reduced-layer checkpoints.
 fail-closed on PCIe devices 0 and 1. On 2026-10-25 the full model passed the
 teacher-forced gate on physical devices 0 and 1: top-1 92.2 %, top-5 99.0 %
 over 512 positions, prefill PCC >= 0.9969. Decode capture and replay is the
-default; `--no-trace` selects eager decode. The host greedy path reads one
-gathered replica and slices active rows and vocabulary before conversion;
-`compare` keeps the full-logit path.
+default; `--no-trace` selects eager decode. Greedy sampling argmaxes the device
+logits and reads back one index per row (`--no-device-argmax` keeps the host
+path, which reads the gathered vocabulary replica); `compare` keeps the
+full-logit path.
 
-Shipped host-wall smoke numbers: batch-1 median 9.97 tokens/s (min 9.36; O1
+Pre-P8 shipped host-wall smoke numbers, superseded by the device-argmax block
+below: batch-1 median 9.97 tokens/s (min 9.36; O1
 9.69) with 128/128 ids equal to O1 and a median first token of 0.21 s; batch 4
 10.16 tokens/s per user with O1-identical rows; batch 16 160.81 tokens/s
 aggregate at 10.05 per user; batch 32 313.55 tokens/s aggregate at 9.80 per
@@ -143,6 +145,22 @@ measurement on the now-GC'd package. It is retained because it does strictly
 less host work per step (one gathered replica, active-row/vocabulary slicing
 before FP32 conversion, no dummy log-probs or cat) with byte-identical tokens,
 not because it made decode measurably faster.
+
+Device argmax is the shipped decode default (P8, 2026-10-27). An in-session
+A/B at batch 32 measured 81.8 ms per step against 112.6-131.4 ms for the host
+argmax over the gathered vocabulary, with both paths reproducing the admitted
+batch-32 ids exactly and every row identical. The promoted package
+`/nix/store/5j7n7bd9k870x3npwdjpdbhwdsr9dcf5-nanbeige43-0.1.0` then measured
+386.18 tokens/s aggregate at batch 32 (samples 388.31/384.45/388.17/386.18/
+384.40, per user 12.07) with ids exactly equal to the admitted batch-32
+receipt, against 313.55 aggregate and 9.80 per user before the change on the
+same protocol; batch 1 moved from 9.97 to 12.39 tokens/s per user with 128/128
+ids equal to O1. The P6 split that motivated it: of a 108.51 ms step, 82.47 ms
+was the traced device execution, 17.32 ms was the host argmax, and 6.5 ms plus
+1.3 ms were enqueue and `to_torch`; the host-side FP32 copy inside the argmax
+turned out to be worth only 1 ms (P7, reverted). The teacher-forced and prefill
+gates are inherited from the untouched `compare` path. These remain host-wall
+smoke measurements, not serving benchmarks.
 
 Prefill is eager. Traced prefill was implemented and tested at the P300 [128,
 1024] buckets: it reproduced the accepted numerical gate exactly (top-1

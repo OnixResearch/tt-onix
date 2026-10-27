@@ -165,6 +165,7 @@ class Session:
         enable_trace: bool = False,
         batch: int = 1,
         batched_prefill: bool = False,
+        device_argmax: bool = False,
     ):
         import ttnn
         from models.tt_transformers.tt.common import (
@@ -183,6 +184,8 @@ class Session:
         # because upstream disables batched prefill selectively (tt-metal#47238:
         # prefill logits are batch-variant under seeded sampling). P5 measures it.
         self.batched_prefill = batched_prefill and batch > 1
+        # Device argmax instead of the gathered full-vocab readback (P8).
+        self.device_argmax = device_argmax and prompt_mode != "decode"
         if page_blocks % batch:
             raise SystemExit("--page-blocks must divide evenly across the batch rows")
         if page_block * page_blocks < max_seq_len:
@@ -323,6 +326,13 @@ class Session:
             read_from_device=False,
         )
         self.first_decode = False
+        if self.device_argmax:
+            # P8: argmax the device logits the trace already produced and read back
+            # one index per row instead of the gathered [batch, vocab] tensor.
+            logits = device_output[0][0]
+            indices = self.ttnn.argmax(logits, dim=-1)
+            host = self.ttnn.to_torch(self.ttnn.get_device_tensors(indices)[0])
+            return [int(index) for index in host.reshape(-1)[: self.batch]]
         # Blocking read owns the host tensor through argmax. Candidate 0.77
         # model.py:833-860 all-gathers the full vocabulary onto each device.
         host_output = self.generator.read_decode_output(device_output)
@@ -633,6 +643,7 @@ def run_device(
             enable_trace=args.trace,
             batch=args.batch,
             batched_prefill=args.batched_prefill,
+            device_argmax=args.device_argmax,
         )
         receipt["l1"] = (
             session.l1_log
@@ -786,6 +797,12 @@ def main(argv=None) -> None:
         help="batch > 1: prefill every row in one pass through upstream's batched path instead of one row at a time (P5; off until admitted)",
     )
     parser.add_argument(
+        "--device-argmax",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="bench/generate: argmax the device logits and read back one index per row instead of the gathered vocabulary (P8; default). --no-device-argmax keeps the host argmax",
+    )
+    parser.add_argument(
         "--expect-output-from",
         type=Path,
         help="bench mode: receipt whose bench output ids must be reproduced exactly",
@@ -877,6 +894,7 @@ def main(argv=None) -> None:
         "decode_trace": args.trace,
         "batch": args.batch,
         "batched_prefill_requested": args.batched_prefill,
+        "device_argmax": args.device_argmax,
         "tt_cache_path": os.environ["TT_CACHE_PATH"],
         "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
