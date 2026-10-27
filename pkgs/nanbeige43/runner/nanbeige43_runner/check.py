@@ -46,7 +46,15 @@ PRESETS = {
     # The all-BFP8 mix is the runner default (DEFAULT_PRESET); it is listed here so
     # the shipped configuration's device budget is checked, not just accuracy's.
     "bfp8": ("bfp8", "bfp8", "bfp8", "bfp8"),
+    # The remaining pure-dtype mixes the CLI accepts. A mix whose budget depends on
+    # which layers are quantized (bfp4-ff13-l13-39) cannot be expressed as one row.
+    # Order is (WQKV/WO, FF1/FF3, FF2, KV); the runner's MIXES use
+    # (attention, KV, FF1/FF3, FF2), so entries are not copied across verbatim.
+    "bfp4-ff13": ("bfp8", "bfp4", "bfp8", "bfp8"),
+    "bfp4-ff2": ("bfp8", "bfp8", "bfp4", "bfp8"),
 }
+# Mixes the runner offers that a single dtype row cannot describe.
+LAYER_RANGE_MIXES = ("bfp4-ff13-l13-39",)
 
 
 def expect(condition: bool, message: str, results: list) -> None:
@@ -223,16 +231,30 @@ def check_metadata(metadata: Path, authority: dict, results: list) -> dict:
         f"BF16 everywhere ({bf16_total / 1e9:.2f} GB) leaves under 1 GB of the {DEVICE_DRAM_BYTES / 1e9:.2f} GB per device",
         results,
     )
+    from .run import MIXES
+    from .run import PRESETS as RUNNER_PRESETS
+
+    # Every preset the CLI accepts must fit the device budget, not just accuracy and
+    # the default: a selectable preset that cannot load is a broken surface.
+    for preset in sorted(PRESETS):
+        expect(
+            budgets[preset]["total"] <= DEVICE_BUDGET_BYTES,
+            f"preset {preset} {budgets[preset]['total'] / 1e9:.2f} GB fits the device budget",
+            results,
+        )
+    # Coverage: a new mix must come with a budget row, or its budget is unchecked.
+    unmodelled = [
+        mix for mix in MIXES if mix not in PRESETS and mix not in LAYER_RANGE_MIXES
+    ]
     expect(
-        budgets["accuracy"]["total"] <= DEVICE_BUDGET_BYTES,
-        f"accuracy preset {budgets['accuracy']['total'] / 1e9:.2f} GB fits the device budget",
+        not unmodelled,
+        f"every runner mix has a budget row; unmodelled {unmodelled}",
         results,
     )
-    from .run import DEFAULT_PRESET
-
     expect(
-        budgets[DEFAULT_PRESET]["total"] <= DEVICE_BUDGET_BYTES,
-        f"default preset {DEFAULT_PRESET} {budgets[DEFAULT_PRESET]['total'] / 1e9:.2f} GB fits the device budget",
+        set(RUNNER_PRESETS)
+        == set(PRESETS) | {"accuracy", "performance"} | set(LAYER_RANGE_MIXES),
+        f"checker presets cover the runner's presets {sorted(RUNNER_PRESETS)}",
         results,
     )
     return {
