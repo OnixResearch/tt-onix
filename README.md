@@ -276,8 +276,14 @@ bucket-level figure is the reliable one. The matmul bucket still mixes attention
 and LM-head work, so no full four-way device attribution is claimed. The
 supported prefetcher is closed by L1 arithmetic (minimum ring 115 unpadded or
 118 padded, against reachable rings up to 80), so no supported
-precision-preserving decode knob remains; a prefetcher entry or hand-built
-DRAM-sharded program config would need its own declared experiment. All-BFP8
+precision-preserving decode knob remains. The sender side is closed by source as
+well: the packaged `tt_transformers` shards streamed weights across
+`dram_grid_size.x` cores - 8 on P150, 7 on P100, 12 on Wormhole - and asserts
+`dram_grid_size.y == 1` ("Current dram sharding assumes y dim is 1"), with
+`per_core_N` required to match that width or matmuls silently lose PCC (P96). More
+streaming cores therefore need multi-row DRAM sharding inside tt-metal, not a model
+knob; a prefetcher entry or hand-built DRAM-sharded program config would need its own
+declared experiment. All-BFP8
 passed the TP2 accuracy screen, but its O5 bench median was 5.71 tokens/s
 (required > 9.69), so it was not promoted. That run is not evidence that lower
 precision costs speed: `accuracy` already runs a BFP8 MLP, so the mix changes
