@@ -1,10 +1,10 @@
 # AGENTS.md
 
-## TT-Metal 0.77 candidate
+## TT-Metal 0.78 candidate
 
-The current upgrade branch pins TT-Metal 0.77.0. Its host build and device-free Qwen checks pass, but the GDN numerical simulator gate remains blocked. Read `docs/tt-metal-0.77-port.md` before further runtime work.
+The current package pins TT-Metal 0.78.0 with SFPI 7.71.0. Its host build and device-free Qwen/Nanbeige checks pass, but the GDN numerical simulator gate remains blocked. Read `docs/tt-sw-manifest-drift.md` for the golden stack and `docs/tt-metal-0.77-port.md` for the historical 0.77 port record.
 
-Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.77 authority.
+Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.78 authority.
 
 Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. The later HiFi4 candidate passes a bounded hardware recurrence test. Read `docs/gdn-precision-candidate.md` for its scope.
 
@@ -345,7 +345,7 @@ Use the brought-up tree and the Adartras bundle as independent implementation re
 
 ## Adartras-bundle caveats (machine facts, not local evidence)
 
-- The bundle is built against `ttnn 0.77.1.dev0+g9f9cd4fd590.d20260819` (2026-08-19 dev build); the local tt-metal pin is `0.74.0`.
+- The bundle is built against `ttnn 0.77.1.dev0+g9f9cd4fd590.d20260819` (2026-08-19 dev build); the local tt-metal pin is `0.78.0`.
 - The bundle targets a single p150 (`1x1` mesh); the local serialized qwen36 service requires `P150x2`.
 - Its routed-expert default is BFP4 because only that fits one 32 GB p150 (~17.5 GB vs ~35 GB BFP8).
 

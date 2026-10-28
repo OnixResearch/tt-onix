@@ -74,9 +74,11 @@ stdenvNoCC.mkDerivation {
       echo "golden-drift: a drifted fixture passed strict mode" >&2
       exit 1
     fi
+    # The real report is allowed to have no drift; the synthetic fixtures above
+    # prove the strict gate. Only require a well-formed report here.
     ${python3}/bin/python3 golden_drift.py \
       --golden ${golden} --actual ${builtins.toFile "actual.json" actual} --json \
-      | jq -e '.drift | index("metal") != null' >/dev/null
+      | jq -e '.schema == "onix.golden-drift.v1" and (.components | length) == 6' >/dev/null
     runHook postCheck
   '';
 

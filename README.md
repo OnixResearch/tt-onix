@@ -134,7 +134,7 @@ separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
 
 Use `nix build .#nanbeige43` for Nanbeige4.3-33B (revision
 `c1093c501cc6460427c0ac634db7223d0450c0ee`, a plain `LlamaForCausalLM`) on the
-P150x2 `1x2` mesh. It runs the runtime-matched TT-Metal 0.77 `tt_transformers`
+P150x2 `1x2` mesh. It runs the runtime-matched TT-Metal 0.78 `tt_transformers`
 generic path with TP2, the all-BFP8 mix by default (BFP8 attention, KV and MLP;
 `--preset accuracy` selects BF16 attention and KV with a BFP8 MLP), and
 `PAD_MLP_CORES=16`. `nanbeige43-check` runs the device-free
@@ -442,7 +442,7 @@ nix run .#golden-drift -- --strict
 ```
 
 See [the golden drift record](docs/tt-sw-manifest-drift.md) for the current
-table, firmware 19.15.0, and the coordinated bump blockers.
+all-match table and the documented firmware 19.15.0.
 See [the NVMe DMA-BUF feasibility report](docs/nvme-dmabuf-feasibility.md) for
 the blocked kernel-UAPI result and the ownership boundary.
 
@@ -615,7 +615,7 @@ Simulator arithmetic, CPU semantics and modeled byte
 counts alone do not establish hardware speedups, full-model retention, or
 production acceptance.
 
-The [TT-Metal 0.77 candidate](docs/tt-metal-0.77-port.md) builds, but its GDN numerical gate remains blocked. Do not use this candidate as production acceptance evidence.
+The TT-Metal 0.78 package builds and matches the golden stack, but its GDN numerical simulator gate remains blocked. Do not use the package as production acceptance evidence. See [the golden drift record](docs/tt-sw-manifest-drift.md).
 
 On `x86_64-linux`, the flake also publishes:
 
@@ -696,7 +696,7 @@ boundary and non-claims.
 ### Qwen3.8 optimization research references
 
 - [Adartras Qwen3.6-A3B bundle](https://huggingface.co/Adartras/qwen3.6-a3b-blackhole/tree/42a71032659a9d0e3b860b6104c59cfa6ca82149) — independent MoE reference for speculative sampling, recurrent-state commit, and paged-cache constraints. Its measurements are not local dense-model evidence.
-- [TT-Metal 0.77 candidate](https://github.com/tenstorrent/tt-metal/tree/9f9cd4fd590f4b606bd0981a4fe0b6403eb38ec9) — immutable runtime candidate for fused GDN prefill. The local package pin remains unchanged.
+- [TT-Metal 0.77 historical candidate](https://github.com/tenstorrent/tt-metal/tree/9f9cd4fd590f4b606bd0981a4fe0b6403eb38ec9) — prior fused-GDN prefill candidate; the local pin is now 0.78.0.
 - [Accelerating Large Language Model Decoding with Speculative Sampling](https://arxiv.org/abs/2302.01318) — algorithm reference for target-distribution preservation, not a local performance claim.
 
 ### OrcaRouter checkpoint references

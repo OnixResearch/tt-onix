@@ -1,4 +1,8 @@
-# TT-Metal 0.77 port candidate
+# TT-Metal 0.77 port record (historical)
+
+> The packaged runtime moved to TT-Metal 0.78.0 + SFPI 7.71.0 after this
+> record. See [the golden drift record](tt-sw-manifest-drift.md) for the current
+> all-match stack. The 0.77 evidence below remains historical.
 
 ## Status
 

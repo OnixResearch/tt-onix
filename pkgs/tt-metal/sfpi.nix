@@ -13,15 +13,15 @@
   expat,
 }:
 let
-  version = "7.70.0";
-  releaseBuild = "847";
+  version = "7.71.0";
+  releaseBuild = "862";
   releaseHashes = {
-    aarch64DebianTxz = "9081fe36a768abe47cbd3306b8d747f9f01ba1d524b1e4201989609dbcac9258";
-    aarch64DebianDeb = "b63f3c7607dad59e406a4960877cf103d9bec9f1c8b1438e4889036b9f6ff902";
-    x86_64DebianTxz = "06d1c43831c2ea42a062ad46d274cf7221a3c013c638d52da2de4660586e4b30";
-    x86_64DebianDeb = "ce1fcbfde600ceaf133e575113ffe1904ad2f0e015ab680ba1d0d3bf727aa2ca";
-    x86_64FedoraTxz = "c6903fc47f1d854954237c38a314d773731a240447f437034a8341cb38ab2812";
-    x86_64FedoraRpm = "cccb4791e555aca12233466bf5e249bbf56c452d97d6afa495c8c6e589d60bc5";
+    aarch64DebianTxz = "52ec6b98542bd5edf0848f9dc4d8346ef445839632bb5f951566f7ef9e081d12";
+    aarch64DebianDeb = "42c11ad358b1773b3755d197a8c87ff7444de5cba9f3a73b166397ba5d5342e7";
+    x86_64DebianTxz = "550304c067b198abe20020810f0f39d330f74ab28c92a21441cc1aa71eef4b0b";
+    x86_64DebianDeb = "4a654505bd7bfe63e50391591f978425d537e97e8f2468272a43d5f9bf9a5b48";
+    x86_64FedoraTxz = "dc2820d438af1117e2c3cab033b13487b8147d06f65e542ecf69fe72e1c127a7";
+    x86_64FedoraRpm = "734e0e48da513ab5b5adba5c06084594a6d76ff9155234f858a4c1557e9d99d3";
   };
 in
 runCommand "sfpi-${version}"
@@ -49,11 +49,11 @@ runCommand "sfpi-${version}"
       {
         aarch64-linux = fetchurl {
           url = "https://github.com/tenstorrent/sfpi/releases/download/${version}/sfpi_${version}_aarch64_debian.txz";
-          hash = "sha256-kIH+Nqdoq+R8vTMGuNdH+fAbodUkseQgGYlgnbysklg=";
+          hash = "sha256-UuxrmFQr1e3whI+dxNg0bvRFg5Yyu1+VFWb3754IHRI=";
         };
         x86_64-linux = fetchurl {
           url = "https://github.com/tenstorrent/sfpi/releases/download/${version}/sfpi_${version}_x86_64_debian.txz";
-          hash = "sha256-BtHEODHC6kKgYq1G0nTPciGjwBPGONUtot5GYFhuSzA=";
+          hash = "sha256-VQMEwGexmKviACCBDw850zD3SrKMkqIUQcwapx7vSws=";
         };
       }
       ."${stdenv.hostPlatform.system}" or (throw "SFPI does not support ${stdenv.hostPlatform.system}");

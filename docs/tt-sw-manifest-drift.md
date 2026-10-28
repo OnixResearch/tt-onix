@@ -13,8 +13,8 @@ flake check; it never fails the quality gate.
 | kmd | 2.11.0 | 2.11.0 | match |
 | smi | 6.7.0 | 6.7.0 | match |
 | flash | 4.1.0 | 4.1.0 | match |
-| sfpi | 7.71.0 | 7.70.0 | drift |
-| tt-metal | v0.78.0 | 0.77.0 | drift |
+| sfpi | 7.71.0 | 7.71.0 | match |
+| tt-metal | v0.78.0 | 0.78.0 | match |
 | firmware | 19.15.0 | not pinned | documented-only |
 
 ## Diagnostics and driver stack
@@ -38,14 +38,14 @@ The NixOS training profile was updated with the bump:
 assertion in `flake-modules/onix-packages.nix` now name 2.11.0. `tt-burnin`
 keeps its own `pyluwen` relaxation because 0.4.4 still declares `~=0.9.0`.
 
-## Remaining drift: SFPI and TT-Metal
+## Runtime migration
 
-SFPI 7.71.0 follows tt-metal 0.78.0. Moving tt-metal from 0.77.0 requires
-re-running the `gdn-*` patch stack and Qwen/Nanbeige checks; the 0.77 GDN
-simulator gate is still blocked. Keep the tt-metal 0.78.0 + SFPI 7.71.0 bump
-coupled and take it with the full patch-stack and model gates. Until then the
-drift report is intentionally red in strict mode for those two components and
-does not block normal builds.
+TT-Metal 0.78.0 and SFPI 7.71.0 are now packaged. The production `gdn-*` patch
+set applies clean at fuzz 0; `tt-metal`, `qwen38`, and `nanbeige43` build and
+their install checks pass. The diagnostic-only `fetch-queue-diagnostics.patch`
+was regenerated against 0.78 for the required call-site and sources.cmake
+context.
 
+All five compared components now match golden v4.0.0. Strict mode exits 0.
 Firmware 19.15.0 is the expected bundle for `tt-flash` users; it is not pinned
 by this repository.

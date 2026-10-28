@@ -47,14 +47,14 @@ stdenv.mkDerivation (
   in
   {
     pname = "tt-metal";
-    version = "0.77.0";
+    version = "0.78.0";
 
     src = fetchFromGitHub {
       owner = "tenstorrent";
       repo = "tt-metal";
       tag = "v${finalAttrs.version}";
       fetchSubmodules = true;
-      hash = "sha256-5NY5orbs7w9BTOUsylg8eAXIxJK+smthhkjd6HFePGA=";
+      hash = "sha256-Gd8ZdAxS54JBNasPI8KfXCrXXw8CwweYaW/Y0ivBn/E=";
     };
 
     cpm = fetchurl {
