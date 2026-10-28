@@ -147,6 +147,8 @@ fail-closed on PCIe devices 0 and 1. The paged KV default covers the whole
 blocks at batch 32), which is the pool every admitted receipt used; ids are pool-invariant
 (verified bit-for-bit across 1024, 4096 and 8192 blocks), so the pool is a capacity and
 latency knob only. Batched prefill still needs `--page-blocks` at or below 4096.
+See [the Nanbeige prefix-cache design](docs/research/nanbeige43-prefix-cache.md)
+for the exact-token/block/eviction boundary; no cache code or measurement is claimed.
 
 Context beyond 4096 is measured, and it is not free. At batch 1 a 32768 `--max-seq-len` measures
 396.5 tok/s prefill and **5.27 tok/s** decode on a 128-token prompt, against 795 and 13.98 at the
