@@ -1,0 +1,22 @@
+--- a/models/tt_transformers/tt/generator.py
++++ b/models/tt_transformers/tt/generator.py
+@@ -1190,6 +1190,19 @@
+                     use_batched_prefill=use_batched_prefill,
+                     user_id=batch_user_ids if use_batched_prefill else user_id,
+                     padded_batch_size=padded_batch if use_batched_prefill else None,
++                    # nanbeige43: a resumed (cached-prefix) prefill writes its new
++                    # chunk through this table. Truncating it to
++                    # num_blocks_in_seq(prefill_seq_len) drops the new chunk's
++                    # pages, and prefill_forward_single_user_text then pads them
++                    # with zeros: the new K/V overwrites block 0 and the cached
++                    # prefix is never attended. The full prompt length gives the
++                    # cached and new pages the layout the comment above already
++                    # promises ("Cached and new pages").
++                    use_full_prompt_len=(
++                        not use_batched_prefill
++                        and start_pos is not None
++                        and int(start_pos[idx]) > 0
++                    ),
+                 )
+                 full_page_table_user = None
+                 if enable_trace_current_prompt and not use_batched_prefill:

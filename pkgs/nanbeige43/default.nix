@@ -104,7 +104,14 @@ stdenvNoCC.mkDerivation {
   src = tt-metal.src;
   # The batch-8 defect is in the packaged fused QK path; the fix is the non-fused
   # path for that batch size only. See docs/nanbeige-batch8.md.
-  patches = [ ./patches/0001-batch-8-non-fused-qk.patch ];
+  # A resumed (cached-prefix) prefill must hand `paged_fill_cache` the cached and
+  # new pages; the packaged non-traced path truncated the page table to the new
+  # chunk's length and zero-padded the new pages (device receipt prefix-cache-b1),
+  # so the new K/V overwrote block 0. See docs/research/nanbeige43-prefix-cache.md.
+  patches = [
+    ./patches/0001-batch-8-non-fused-qk.patch
+    ./patches/0002-prefix-cache-full-page-table.patch
+  ];
   dontConfigure = true;
   dontBuild = true;
   nativeBuildInputs = [ makeWrapper ];

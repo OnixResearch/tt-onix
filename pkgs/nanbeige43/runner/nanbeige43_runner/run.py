@@ -8,6 +8,11 @@ With a full checkpoint it also runs the teacher-forced corpus gate.
 `generate` runs a free greedy chat completion.
 `bench` measures first-token latency, decode tokens/s and prefill tokens/s on a
 fixed chat prompt under the O0 protocol.
+`prefix-cache` runs one bounded cold/warm pair in a single session: the cold pass
+resets, prefills and decodes; the warm pass keeps that KV and page table and
+prefills the same prompt from a cached 32-token-aligned prefix through upstream's
+sequential prefix-cached path, then decodes. Greedy ids must match and the
+receipt records cached/new/output tokens with both passes' timings.
 Every mode writes a receipt and exits non-zero when a gate fails.
 
 Greedy decoding argmaxes the device logits and reads back one index per row
@@ -28,6 +33,7 @@ from pathlib import Path
 
 import torch
 
+from . import prefix_cache_core as prefix_cache
 from .authority import load_authority, sha256_file, verify_checkpoint
 from .contention import admitted, flag_runs
 from .mesh import MESHES, open_mesh
@@ -54,6 +60,11 @@ TRACE_REGION_BYTES = 128 * 1024 * 1024
 # two concurrent streams, so the real alternative for eight rows is 56.91 aggregate and the
 # non-fused path at 101.77 is 1.79x better. Batch > 32 needs a tile-row dataflow change (P10/P11).
 ACCEPTED_BATCHES = (1, 2, 4, 8, 16, 32)
+# Prefix-cache mode runs every row through upstream's sequential per-row prefill
+# (`disable_batched_prefill`), which accepts a per-user `start_pos`; the batched
+# prefill path zeroes the cached offset. Only the row counts issue #11 names are
+# admitted here, so a batch whose prefix path was never exercised fails closed.
+PREFIX_CACHE_BATCHES = (1, 8, 32)
 
 
 def pcc(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -305,18 +316,38 @@ class Session:
     def decode(self, token: int, position: int) -> torch.Tensor:
         return self.decode_rows([token] * self.batch, [position] * self.batch)[0]
 
-    def prefill_rows(self, rows: list[list[int]]) -> torch.Tensor:
-        """Prefill one prompt per batch row; returns last-position logits [batch, vocab]."""
+    def prefill_rows(
+        self, rows: list[list[int]], start_pos: list[int] | None = None
+    ) -> torch.Tensor:
+        """Prefill one prompt per batch row; returns last-position logits [batch, vocab].
+
+        `start_pos` is the per-row count of already-cached tokens. The row's tokens
+        are still the full prompt; upstream slices off `start_pos[row]` before the
+        prefill and writes K/V from that absolute position (its sequential
+        prefix-cached path). `None` is the ordinary prefill from token 0.
+        """
         if len(rows) != self.batch:
             raise ValueError(f"expected {self.batch} rows, got {len(rows)}")
+        if start_pos is not None and len(start_pos) != self.batch:
+            raise ValueError(
+                f"expected {self.batch} start positions, got {len(start_pos)}"
+            )
         lengths = [len(ids) for ids in rows]
         if max(lengths) >= self.row_tokens:
             raise SystemExit(
                 f"prompt of {max(lengths)} tokens does not fit the per-row KV budget of {self.row_tokens}"
             )
+        if start_pos is not None and max(start_pos) >= min(lengths):
+            raise SystemExit(
+                f"cached prefix {max(start_pos)} must be shorter than the {min(lengths)}-token prompt"
+            )
         if self.prompt_mode == "decode":
             if self.batch != 1:
                 raise SystemExit("--prompt-mode decode supports batch 1 only")
+            if start_pos is not None and any(start_pos):
+                raise SystemExit(
+                    "--prompt-mode decode has no cached-prefix ingestion path"
+                )
             # Token-at-a-time ingestion through the decode path (see --prompt-mode).
             for position, token in enumerate(rows[0]):
                 logits = self.decode_rows([token], [position])
@@ -332,6 +363,7 @@ class Session:
             enable_trace=False,
             warmup_prefill=False,
             sampling_params=None,
+            start_pos=start_pos,
         )
         return logits.reshape(self.batch, -1)[:, : self.vocab].float()
 
@@ -792,6 +824,452 @@ def per_row_tokens(args) -> int:
     return min(args.max_seq_len, args.page_block * (args.page_blocks // args.batch))
 
 
+def prefix_identity(identity: dict, args) -> dict:
+    """Exact identity keys for this process's prefix entries.
+
+    The packaged wrappers export the package/runtime identities; a developer
+    invocation without them cannot claim a stable identity, so it fails instead
+    of merging two different trees under a placeholder.
+    """
+    package = os.environ.get("NANBEIGE43_PACKAGE_IDENTITY")
+    runtime = os.environ.get("NANBEIGE43_RUNTIME_IDENTITY")
+    if not package or not runtime:
+        raise SystemExit(
+            "prefix-cache mode needs NANBEIGE43_PACKAGE_IDENTITY and "
+            "NANBEIGE43_RUNTIME_IDENTITY (run the packaged nanbeige43 binary)"
+        )
+    return {
+        "checkpoint_digest": identity["files_sha256_digest"],
+        "checkpoint_revision": identity["revision"],
+        "package_identity": package,
+        "runtime_identity": runtime,
+        "preset": args.preset,
+        "mesh": args.mesh,
+        # Everything that changes what a cached block means, short of the tokens.
+        "execution": (
+            f"prompt_mode={args.prompt_mode};page_block={args.page_block};"
+            f"page_blocks={args.page_blocks};trace={args.trace}"
+        ),
+    }
+
+
+def resume_alignment(padded_suffix: int) -> int:
+    """Upstream's resume-offset alignment for one padded suffix length.
+
+    `get_attn_sdpa_prefill_program_config` pins q_chunk 64 below 2048 tokens and
+    256 from 2048 (models/tt_transformers/tt/model_config.py:1563-1603, reached
+    with `chunk_start_idx=0` for the traced config), and
+    `Generator._resume_offset_alignment` takes its lcm with the paged block size
+    (models/tt_transformers/tt/generator.py:1491-1513).
+    """
+    q_chunk = 64 if padded_suffix < 2048 else 256
+    return math.lcm(prefix_cache.BLOCK_TOKENS, q_chunk)
+
+
+def effective_resume_tokens(prompt_tokens: int, prefix_tokens: int) -> dict:
+    """Mirror `Generator._align_resume_offsets` for one user, on the host.
+
+    Upstream floors a cached offset to `lcm(page block, traced q_chunk)`; doing
+    that arithmetic here lets the runner reject a prefix that would silently be
+    recomputed instead of discovering it after a device run.
+    """
+    from models.tt_transformers.tt.common import (
+        get_all_padded_prefill_lengths,
+        get_padded_prefill_len,
+    )
+
+    floored = prefix_cache.aligned_tokens(prefix_tokens)
+    alignment = None
+    padded_suffix = None
+    for _ in range(len(get_all_padded_prefill_lengths(prompt_tokens)) + 1):
+        padded_suffix = get_padded_prefill_len(prompt_tokens - floored)
+        alignment = resume_alignment(padded_suffix)
+        settled = (prefix_tokens // alignment) * alignment
+        if settled == floored:
+            return {
+                "prefix_tokens": floored,
+                "requested_tokens": prefix_tokens,
+                "alignment": alignment,
+                "padded_suffix": padded_suffix,
+                "floored": floored != prefix_tokens,
+            }
+        floored = settled
+    raise SystemExit(
+        f"resume offset alignment did not settle for start_pos={prefix_tokens}, "
+        f"prompt={prompt_tokens}; last alignment {alignment}"
+    )
+
+
+def prefix_preflight(args) -> dict:
+    """Reject an impossible prefix-cache request before the mesh is opened."""
+    if args.batch not in PREFIX_CACHE_BATCHES:
+        raise SystemExit(
+            f"prefix-cache mode admits batch {list(PREFIX_CACHE_BATCHES)} only "
+            f"(upstream's sequential prefix path); got {args.batch}"
+        )
+    if args.batched_prefill:
+        raise SystemExit(
+            "prefix-cache mode requires the sequential per-row prefill path; "
+            "--batched-prefill zeroes the cached offset"
+        )
+    if args.prompt_mode != "prefill":
+        raise SystemExit(
+            "prefix-cache mode needs the prefill path; --prompt-mode decode has no "
+            "cached-prefix ingestion"
+        )
+    if args.page_block != prefix_cache.BLOCK_TOKENS:
+        raise SystemExit(
+            f"prefix-cache mode uses {prefix_cache.BLOCK_TOKENS}-token blocks; "
+            f"--page-block {args.page_block} would misalign every entry"
+        )
+    if args.prefix_tokens % prefix_cache.BLOCK_TOKENS:
+        raise SystemExit(
+            f"--prefix-tokens {args.prefix_tokens} must be a multiple of "
+            f"{prefix_cache.BLOCK_TOKENS}"
+        )
+    if args.prefix_tokens <= 0:
+        raise SystemExit("--prefix-tokens must be positive")
+    if args.prefix_decode_tokens < 1:
+        raise SystemExit("--prefix-decode-tokens must be at least 1")
+    if args.prefix_tokens >= args.prefix_prompt_length:
+        raise SystemExit(
+            f"--prefix-tokens {args.prefix_tokens} must be shorter than the "
+            f"--prefix-prompt-length {args.prefix_prompt_length}-token prompt"
+        )
+    effective = effective_resume_tokens(args.prefix_prompt_length, args.prefix_tokens)
+    if effective["prefix_tokens"] != args.prefix_tokens:
+        raise SystemExit(
+            f"--prefix-tokens {args.prefix_tokens} would be floored to "
+            f"{effective['prefix_tokens']} by upstream resume alignment "
+            f"{effective['alignment']} at padded suffix {effective['padded_suffix']}; "
+            f"choose a prefix that is a multiple of the alignment"
+        )
+    blocks = args.prefix_tokens // prefix_cache.BLOCK_TOKENS
+    if args.prefix_cache_blocks is None:
+        args.prefix_cache_blocks = blocks
+    if args.prefix_cache_blocks < blocks:
+        raise SystemExit(
+            f"--prefix-cache-blocks {args.prefix_cache_blocks} cannot hold the "
+            f"{blocks}-block prefix"
+        )
+    capacity = per_row_tokens(args)
+    required = args.prefix_prompt_length + args.prefix_decode_tokens - 1
+    if required >= capacity:
+        raise SystemExit(
+            f"prefix-cache run needs {required} positions per row (prompt "
+            f"{args.prefix_prompt_length} plus {args.prefix_decode_tokens - 1} decode "
+            f"steps) but the per-row KV budget is {capacity}"
+        )
+    return {
+        "batch": args.batch,
+        "block_tokens": prefix_cache.BLOCK_TOKENS,
+        "prefix_tokens": args.prefix_tokens,
+        "prefix_blocks": blocks,
+        "prefix_cache_blocks": args.prefix_cache_blocks,
+        "prompt_tokens": args.prefix_prompt_length,
+        "decode_tokens": args.prefix_decode_tokens,
+        "row_tokens": capacity,
+        "resume_alignment": effective,
+        "prefill_path": "sequential-per-row start_pos",
+        "kv_check": bool(getattr(args, "prefix_kv_check", False)),
+    }
+
+
+def prefix_phase(
+    session: Session, ids: list[int], decode_tokens: int, start_pos: list[int] | None
+) -> tuple[dict, torch.Tensor]:
+    """One prefill + greedy decode pass; timings are synchronized host wall clock.
+
+    Returns the receipt record plus the host prefill logits [batch, vocab], which
+    the caller keeps for cold/warm numerical comparison and then drops.
+    """
+    batch = session.batch
+    timings = {}
+    started = time.perf_counter()
+    logits = session.prefill_rows([ids] * batch, start_pos=start_pos)
+    timings["prefill_seconds"] = time.perf_counter() - started
+    started = time.perf_counter()
+    tokens = [int(token) for token in logits.argmax(-1)]
+    timings["first_token_seconds"] = timings["prefill_seconds"] + (
+        time.perf_counter() - started
+    )
+    outputs = [[token] for token in tokens]
+    started = time.perf_counter()
+    for step in range(decode_tokens - 1):
+        position = len(ids) + step
+        tokens = session.decode_greedy(
+            [output[-1] for output in outputs], [position] * batch
+        )
+        for row, token in enumerate(tokens):
+            outputs[row].append(int(token))
+    timings["decode_seconds"] = time.perf_counter() - started
+    timings["decode_tokens_per_second"] = (
+        (decode_tokens - 1) / timings["decode_seconds"]
+        if decode_tokens > 1 and timings["decode_seconds"] > 0
+        else None
+    )
+    rows_identical = all(row == outputs[0] for row in outputs)
+    return (
+        {
+            **timings,
+            "start_pos": start_pos,
+            "output_ids": outputs[0],
+            "output_tokens": len(outputs[0]),
+            "rows_identical": rows_identical,
+            "row_output_ids": outputs if batch > 1 else None,
+        },
+        logits,
+    )
+
+
+def logits_parity(cold: torch.Tensor, warm: torch.Tensor) -> dict:
+    """Compare two [batch, vocab] host logit tensors row by row."""
+    with single_threaded_host_math():
+        rows = []
+        for row in range(cold.shape[0]):
+            diff = (cold[row] - warm[row]).abs()
+            rows.append({
+                "row": row,
+                "pcc": pcc(cold[row], warm[row]),
+                "max_abs_diff": float(diff.max()),
+                "top1_equal": int(cold[row].argmax()) == int(warm[row].argmax()),
+            })
+        summary = dict(min(rows, key=lambda entry: entry["pcc"]))
+        summary["top1_equal"] = all(entry["top1_equal"] for entry in rows)
+        summary["bit_identical"] = bool(torch.equal(cold, warm))
+        summary["rows"] = rows if len(rows) > 1 else None
+        return summary
+
+
+def kv_page_digests(
+    session: Session, prefix_blocks: int, prompt_blocks: int
+) -> list[dict]:
+    """SHA-256 digests of every layer's K/V pages, split cached prefix vs suffix.
+
+    The physical pages come from the session's own page table, so a cached block
+    and its cold copy are the same addresses. Digests are exact equality evidence
+    with a constant-size receipt; `--prefix-kv-check` is opt-in because the whole
+    per-layer cache is copied to the host.
+    """
+    import hashlib
+
+    digests = []
+    for index, layer in enumerate(session.model.layers):
+        hosts = {}
+        for name, tensor in zip(("k", "v"), layer.attention.layer_past):
+            host = session.ttnn.to_torch(session.ttnn.get_device_tensors(tensor)[0])
+            if host.dim() == 5:
+                host = host[0]
+            hosts[name] = host.float()
+        rows = []
+        for row in range(session.batch):
+            pages = [int(page) for page in session.page_table[row][:prompt_blocks]]
+            entry = {}
+            for name, host in hosts.items():
+                for region, selection in (
+                    ("prefix", pages[:prefix_blocks]),
+                    ("suffix", pages[prefix_blocks:]),
+                ):
+                    payload = host[selection].contiguous().numpy().tobytes()
+                    entry[f"{name}_{region}"] = hashlib.sha256(payload).hexdigest()
+            rows.append(entry)
+        digests.append({"layer": index, "rows": rows})
+    return digests
+
+
+def kv_digest_parity(cold: list[dict], warm: list[dict]) -> dict:
+    """Compare per-layer page digests; the cached prefix must never change."""
+    mismatches = []
+    for cold_layer, warm_layer in zip(cold, warm):
+        for row, (cold_row, warm_row) in enumerate(
+            zip(cold_layer["rows"], warm_layer["rows"])
+        ):
+            for region, digest in cold_row.items():
+                if digest != warm_row[region]:
+                    mismatches.append({
+                        "layer": cold_layer["layer"],
+                        "row": row,
+                        "region": region,
+                    })
+    prefix_mismatches = [
+        item for item in mismatches if item["region"].endswith("prefix")
+    ]
+    suffix_layers = sorted({
+        item["layer"] for item in mismatches if item["region"].endswith("suffix")
+    })
+    return {
+        "layers": len(cold),
+        "cached_prefix_pages_identical": not prefix_mismatches,
+        "prefix_mismatches": prefix_mismatches,
+        "suffix_pages_identical": not suffix_layers,
+        "suffix_mismatch_layers": suffix_layers,
+        "first_suffix_mismatch_layer": suffix_layers[0] if suffix_layers else None,
+        "mismatch_count": len(mismatches),
+    }
+
+
+def prefix_cache_pair(
+    session: Session, ids: list[int], args, identity: dict
+) -> tuple[dict, list[dict]]:
+    """Cold/warm pair on one prompt in one session, with block accounting.
+
+    Cold: reset, full prefill, greedy decode N, then record the prefix entry.
+    Warm: keep that KV and page table, prefill the full prompt with the cached
+    prefix offset, greedy decode N, and compare ids. No reset happens between the
+    passes, so the warm pass reuses the cold K/V for the cached prefix.
+    """
+    batch = session.batch
+    prompt_tokens = len(ids)
+    prefix_tokens = args.prefix_tokens
+    decode_tokens = args.prefix_decode_tokens
+    identity_keys = prefix_identity(identity, args)
+    digest = prefix_cache.cache_identity(identity_keys)
+    cache = prefix_cache.PrefixCache(args.prefix_cache_blocks)
+
+    session.reset()
+    cold, cold_logits = prefix_phase(session, ids, decode_tokens, None)
+    cold_accounting = prefix_cache.request_accounting(
+        prompt_tokens, 0, cold["output_tokens"]
+    )
+    session_blocks = prompt_tokens // prefix_cache.BLOCK_TOKENS
+    kv_check = bool(getattr(args, "prefix_kv_check", False))
+    prefix_blocks = prefix_tokens // prefix_cache.BLOCK_TOKENS
+    cold_kv = (
+        kv_page_digests(session, prefix_blocks, session_blocks) if kv_check else None
+    )
+    entry = cache.insert(digest, ids, prefix_tokens)
+
+    lease = cache.retain(digest, ids)
+    if not lease.hit:
+        raise SystemExit(
+            f"cold pass recorded prefix {prefix_tokens} but the warm lookup missed"
+        )
+    if lease.cached_tokens != prefix_tokens:
+        raise SystemExit(
+            f"warm lookup resolved {lease.cached_tokens} cached tokens, not the "
+            f"recorded {prefix_tokens}"
+        )
+    for row in range(batch):
+        cache.assert_writable(lease, prompt_tokens)
+    warm, warm_logits = prefix_phase(
+        session, ids, decode_tokens, [lease.cached_tokens] * batch
+    )
+    warm_kv = (
+        kv_page_digests(session, prefix_blocks, session_blocks) if kv_check else None
+    )
+    cache.release(lease)
+    warm_accounting = prefix_cache.request_accounting(
+        prompt_tokens, lease.cached_tokens, warm["output_tokens"]
+    )
+
+    prefill_logits = logits_parity(cold_logits, warm_logits)
+    del cold_logits, warm_logits
+    kv = kv_digest_parity(cold_kv, warm_kv) if cold_kv is not None else None
+    del cold_kv, warm_kv
+    cold_ids, warm_ids = cold["output_ids"], warm["output_ids"]
+    first_divergence = next(
+        (index for index, (a, b) in enumerate(zip(cold_ids, warm_ids)) if a != b),
+        None,
+    )
+    token_parity = cold_ids == warm_ids
+    print(
+        f"[prefix-cache] prefix {prefix_tokens} tokens (hit {lease.hit}, "
+        f"generation {entry.generation}): cold prefill {cold['prefill_seconds']:.3f}s "
+        f"warm prefill {warm['prefill_seconds']:.3f}s, cold first token "
+        f"{cold['first_token_seconds']:.3f}s warm {warm['first_token_seconds']:.3f}s, "
+        f"ids {'equal' if token_parity else f'diverge at {first_divergence}'}",
+        flush=True,
+    )
+    result = {
+        "identity": identity_keys,
+        "identity_digest": digest,
+        "block_tokens": prefix_cache.BLOCK_TOKENS,
+        "budget_blocks": args.prefix_cache_blocks,
+        "resident_blocks": cache.resident_blocks,
+        "requested_prefix_tokens": prefix_tokens,
+        "effective_prefix_tokens": lease.cached_tokens,
+        "prefix_blocks": prefix_tokens // prefix_cache.BLOCK_TOKENS,
+        "prompt_tokens": prompt_tokens,
+        "batch": batch,
+        "entry": entry.as_dict(),
+        "hit": lease.hit,
+        "entry_generation": entry.generation,
+        "evicted_blocks": cache.evicted_blocks,
+        "copy_tail_block": lease.copy_tail_block,
+        "write_start_block": lease.write_start_block,
+        "accounting": {
+            "per_request": {
+                "cold": cold_accounting.as_dict(),
+                "warm": warm_accounting.as_dict(),
+            },
+            "batch_rows": batch,
+            "warm_cached_input_tokens_total": warm_accounting.cached_input_tokens
+            * batch,
+            "warm_new_input_tokens_total": warm_accounting.new_input_tokens * batch,
+            "warm_output_tokens_total": warm_accounting.output_tokens * batch,
+        },
+        "cold": cold,
+        "warm": warm,
+        "token_parity": token_parity,
+        "first_divergence": first_divergence,
+        "prefill_logits": prefill_logits,
+        "kv_parity": kv,
+        "scope": {
+            "cache": "process-local, one entry, one session",
+            "sharing": "no cross-process or cross-tenant sharing is claimed",
+            "decode_rate_note": (
+                "decode rate is reported per pass; the cold pass captures the "
+                "decode trace, so it is not a cache-speed claim"
+            ),
+            "parity": (
+                "greedy ids are recorded with their first divergence; the gate is "
+                "prefill-logit agreement at the runner's 0.99 row floor because the "
+                "warm suffix is recomputed under a different prefill shape than the "
+                "cold full prompt"
+            ),
+        },
+    }
+    gates = [
+        {
+            # The warm suffix is recomputed by a different prefill shape (padded
+            # suffix vs padded full prompt), so bfp8 logits are not bit-identical
+            # even when the cached K/V is. The id comparison is recorded, and the
+            # declared equivalence is the runner's existing row-level PCC floor
+            # plus top-1 agreement.
+            "gate": f"cold/warm prefill logits pcc>={REDUCED_ROW_PCC} and top1 equal",
+            "passed": prefill_logits["pcc"] >= REDUCED_ROW_PCC
+            and prefill_logits["top1_equal"],
+            "observed": {
+                **prefill_logits,
+                "greedy_ids_equal": token_parity,
+                "first_divergence": first_divergence,
+                "cold_tokens": len(cold_ids),
+                "warm_tokens": len(warm_ids),
+            },
+        },
+        {
+            "gate": f"prefix-cache hit for the {prefix_tokens}-token prefix",
+            "passed": lease.hit and lease.cached_tokens == prefix_tokens,
+            "observed": lease.as_dict(),
+        },
+        {
+            "gate": "every batch row identical in both passes",
+            "passed": cold["rows_identical"] and warm["rows_identical"],
+            "observed": {
+                "cold": cold["rows_identical"],
+                "warm": warm["rows_identical"],
+            },
+        },
+    ]
+    if kv is not None:
+        gates.append({
+            "gate": "cold/warm K/V identical for the cached prefix pages in every layer",
+            "passed": kv["cached_prefix_pages_identical"],
+            "observed": kv,
+        })
+    return result, gates
+
+
 def preflight_compare(args, reference_path: Path) -> None:
     """Fail before opening the mesh when the reference cannot fit the pool.
 
@@ -826,6 +1304,10 @@ def run_device(
         # Cheap and device-free: an impossible pool size is rejected before an
         # 80 s weight load and a partially executed run.
         preflight_compare(args, args.reference)
+    if args.mode == "prefix-cache":
+        # Also device-free: batch, block size, prefix alignment and pool capacity are
+        # arithmetic, so a rejected request must not cost a weight load either.
+        receipt["prefix_cache_preflight"] = prefix_preflight(args)
     with open_mesh(spec, TRACE_REGION_BYTES if args.trace else 0) as (
         mesh_device,
         mesh_record,
@@ -962,6 +1444,15 @@ def run_session(
                 "passed": expected == actual,
                 "observed": observed,
             })
+    elif args.mode == "prefix-cache":
+        tokenizer = session.args.tokenizer
+        # The corpus is a long, fixed public-domain prompt, so the requested 32-token
+        # prefix fits and the pair is reproducible; a chat message is typically under
+        # the 64-token resume alignment.
+        ids = corpus_tokens(tokenizer, args.prefix_prompt_length)
+        result, gates = prefix_cache_pair(session, ids, args, identity)
+        receipt["prefix_cache"] = result
+        receipt["gates"] = gates
     else:
         tokenizer = session.args.tokenizer
         messages = [{"role": "user", "content": args.message}]
@@ -1050,7 +1541,9 @@ def run_session(
 
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("compare", "generate", "bench"))
+    parser.add_argument(
+        "mode", choices=("compare", "generate", "bench", "prefix-cache")
+    )
     parser.add_argument("--mesh", choices=sorted(MESHES), required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--cache-root", type=Path, required=True)
@@ -1134,6 +1627,35 @@ def main(argv=None) -> None:
         type=int,
         default=128,
         help="bench mode: greedy tokens per run (EOS ignored)",
+    )
+    parser.add_argument(
+        "--prefix-tokens",
+        type=int,
+        default=128,
+        help="prefix-cache mode: cached prefix length; must be a multiple of 32 and of upstream's resume alignment (64 for a padded suffix under 2048, else 256)",
+    )
+    parser.add_argument(
+        "--prefix-prompt-length",
+        type=int,
+        default=256,
+        help="prefix-cache mode: corpus tokens in the shared prompt (must exceed --prefix-tokens)",
+    )
+    parser.add_argument(
+        "--prefix-decode-tokens",
+        type=int,
+        default=32,
+        help="prefix-cache mode: greedy tokens per cold/warm pass",
+    )
+    parser.add_argument(
+        "--prefix-cache-blocks",
+        type=int,
+        help="prefix-cache mode: block budget for the index (default: the prefix's own block count); a smaller budget than the prefix fails closed",
+    )
+    parser.add_argument(
+        "--prefix-kv-check",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="prefix-cache mode: after each pass, copy layer 0's K/V for the prompt's pages to the host and require the cached pages to be identical; the gate and per-row diffs land in the receipt",
     )
     parser.add_argument(
         "--warmup", type=int, default=2, help="bench mode: unmeasured runs"

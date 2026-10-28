@@ -609,6 +609,360 @@ def self_test_contention(results: list) -> None:
     )
 
 
+def self_test_prefix_cache(results: list) -> None:
+    """The block index, LRU, refcounts and accounting must hold without a device.
+
+    These are the facts the runner's receipt relies on: exact-token identity over
+    32-token blocks, a miss on any changed token, shared read-only blocks pinned
+    by leases, LRU eviction only of idle entries, a copy marker for partial tails,
+    and cached/new/output counts that cannot bill recomputed tokens as cached.
+    """
+    from . import prefix_cache_core as cache
+
+    identity_keys = {key: f"value-{key}" for key in cache.IDENTITY_KEYS}
+    digest = cache.cache_identity(identity_keys)
+    expect(len(digest) == 64, "prefix identity digests the exact key set", results)
+    expect(
+        cache.cache_identity({**identity_keys, "preset": "accuracy"}) != digest,
+        "prefix identity changes with the preset",
+        results,
+    )
+
+    def rejects(fn, message, results):
+        try:
+            fn()
+        except cache.PrefixCacheError:
+            expect(True, message, results)
+            return
+        expect(False, message, results)
+
+    rejects(
+        lambda: cache.cache_identity({
+            key: value for key, value in identity_keys.items() if key != "mesh"
+        }),
+        "prefix identity rejects a missing key",
+        results,
+    )
+    rejects(
+        lambda: cache.cache_identity({**identity_keys, "extra": "x"}),
+        "prefix identity rejects an unbound key",
+        results,
+    )
+
+    tokens = list(range(1, 97))  # three 32-token blocks
+    index = cache.PrefixCache(budget_blocks=8)
+    entry = index.insert(digest, tokens, 96)
+    expect(
+        entry.tokens == 96 and entry.blocks == 3 and entry.generation == 1,
+        "a 96-token prefix records three 32-token blocks",
+        results,
+    )
+    expect(
+        index.lookup(digest, tokens).cached_tokens == 96,
+        "the full 96-token prefix hits",
+        results,
+    )
+    expect(
+        index.lookup(digest, tokens[:95]).cached_tokens == 64,
+        "a 95-token prompt hits only its two whole blocks",
+        results,
+    )
+    expect(
+        index.lookup(digest, tokens[:31]).cached_tokens == 0,
+        "31 tokens is below one block and misses",
+        results,
+    )
+    altered = list(tokens)
+    altered[70] ^= 1
+    expect(
+        index.lookup(digest, altered).cached_tokens == 64,
+        "a changed token in the third block falls back to two blocks",
+        results,
+    )
+    expect(
+        not index.lookup(
+            cache.cache_identity({**identity_keys, "preset": "accuracy"}), tokens
+        ).hit,
+        "the same tokens under a different preset miss",
+        results,
+    )
+    expect(
+        not index.lookup(digest, list(range(1000, 1096))).hit,
+        "different tokens are a miss, not a prefix hit",
+        results,
+    )
+
+    lease = index.retain(digest, tokens)
+    expect(
+        lease.hit
+        and lease.copy_tail_block is False
+        and lease.write_start_block == 3
+        and lease.generation == 1,
+        "an aligned lease writes from a fresh block and needs no tail copy",
+        results,
+    )
+    expect(
+        not index.writable(lease, 95) and index.writable(lease, 96),
+        "shared prefix blocks are read-only; the next block is writable",
+        results,
+    )
+    rejects(
+        lambda: index.assert_writable(lease, 64),
+        "a write into a shared prefix block is rejected",
+        results,
+    )
+    expect(
+        index.evict(target=0) == 0 and index.resident_blocks == 3,
+        "a leased entry cannot be evicted",
+        results,
+    )
+    index.release(lease)
+    expect(
+        index.evict(target=0) == 3 and index.resident_blocks == 0,
+        "releasing the lease lets eviction free every block",
+        results,
+    )
+
+    shared = cache.PrefixCache(budget_blocks=4)
+    two_blocks = list(range(1, 65))
+    shared.insert(digest, two_blocks)
+    shared.insert(digest, two_blocks + [999] * 32)
+    expect(
+        shared.resident_blocks == 3
+        and sorted(shared.block_references().values()) == [1, 2, 2],
+        "overlapping prefixes share blocks with refcounts",
+        results,
+    )
+
+    lru = cache.PrefixCache(budget_blocks=4)
+    first = list(range(1, 65))
+    second = list(range(101, 165))
+    third = list(range(201, 265))
+    lru.insert(digest, first)
+    lru.insert(digest, second)
+    lru.lookup(digest, first)  # touch the first entry so `second` is LRU
+    expect(
+        lru.evict(target=2) == 2
+        and lru.lookup(digest, first).hit
+        and not lru.lookup(digest, second).hit,
+        "LRU evicts the untouched entry and keeps the touched one",
+        results,
+    )
+    lru.insert(digest, third)
+    expect(
+        lru.resident_blocks == 4 and lru.lookup(digest, third).hit,
+        "an insert evicts down to the block budget",
+        results,
+    )
+    expect(lru.evicted_blocks == 2, "evicted block counts accumulate", results)
+
+    tight = cache.PrefixCache(budget_blocks=2)
+    rejects(
+        lambda: tight.insert(digest, tokens, 96),
+        "an over-budget prefix is rejected",
+        results,
+    )
+    expect(
+        tight.resident_blocks == 0,
+        "a rejected insert leaves the index unchanged",
+        results,
+    )
+
+    expect(
+        cache.tail_copy_required(33) and not cache.tail_copy_required(32),
+        "a partial tail block requires a copy marker",
+        results,
+    )
+    expect(
+        cache.block_statistics(96)
+        == {"tokens": 96, "blocks": 3, "partial_tail_tokens": 0},
+        "block statistics count whole blocks",
+        results,
+    )
+    accounting = cache.request_accounting(96, 64, 32)
+    expect(
+        (
+            accounting.cached_input_tokens,
+            accounting.new_input_tokens,
+            accounting.output_tokens,
+        )
+        == (64, 32, 32),
+        "accounting splits cached and new input tokens",
+        results,
+    )
+    for bad in ((96, 65, 1), (96, 97, 1), (-1, 0, 0), (96, -32, 1)):
+        rejects(
+            lambda bad=bad: cache.request_accounting(*bad),
+            f"accounting rejects {bad}",
+            results,
+        )
+
+
+def self_test_prefix_preflight(results: list) -> None:
+    """The CLI guards must fail closed before a weight load.
+
+    The alignment mirror is checked against the packaged helpers: a 128-token
+    prefix over a 256-token prompt settles at 128 (alignment 64), while a 32-token
+    prefix floors to 0 and would reuse nothing, so the runner must reject it.
+    """
+    from types import SimpleNamespace
+
+    from .run import effective_resume_tokens, prefix_preflight
+
+    def args(**overrides):
+        base = {
+            "batch": 1,
+            "batched_prefill": False,
+            "prompt_mode": "prefill",
+            "page_block": 32,
+            "page_blocks": 8192,
+            "max_seq_len": 8192,
+            "prefix_tokens": 128,
+            "prefix_prompt_length": 256,
+            "prefix_decode_tokens": 32,
+            "prefix_cache_blocks": None,
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    preflight = prefix_preflight(args())
+    expect(
+        preflight["prefix_blocks"] == 4
+        and preflight["prefix_cache_blocks"] == 4
+        and preflight["resume_alignment"]["prefix_tokens"] == 128
+        and preflight["resume_alignment"]["alignment"] == 64,
+        "prefix preflight admits a 128-token prefix on a 256-token prompt",
+        results,
+    )
+    expect(
+        effective_resume_tokens(256, 32)["prefix_tokens"] == 0,
+        "a 32-token prefix floors to zero under the 64-token resume alignment",
+        results,
+    )
+    # The packaged non-traced resumed prefill truncated the page table to the new
+    # chunk and zero-padded the new pages, so the new K/V overwrote block 0
+    # (device receipt prefix-cache-b1 diverged at token 0). The patch hands the
+    # full prompt's cached and new pages to paged_fill_cache; the installed tree
+    # must carry it or prefix-cache mode is silently wrong on a device.
+    generator = (
+        Path(__file__).resolve().parents[1]
+        / "models"
+        / "tt_transformers"
+        / "tt"
+        / "generator.py"
+    )
+    source = generator.read_text() if generator.is_file() else ""
+    expect(
+        "use_full_prompt_len=(" in source and "int(start_pos[idx]) > 0" in source,
+        "installed generator gives a resumed prefill the cached and new pages",
+        results,
+    )
+    for overrides, message in (
+        ({"batch": 2}, "prefix preflight rejects batch 2"),
+        ({"batched_prefill": True}, "prefix preflight rejects batched prefill"),
+        ({"prompt_mode": "decode"}, "prefix preflight rejects the decode prompt path"),
+        ({"page_block": 64}, "prefix preflight rejects a 64-token page"),
+        ({"prefix_tokens": 100}, "prefix preflight rejects an unaligned prefix"),
+        (
+            {"prefix_prompt_length": 128},
+            "prefix preflight rejects a prefix as long as the prompt",
+        ),
+        (
+            {"prefix_cache_blocks": 2},
+            "prefix preflight rejects a budget below the prefix",
+        ),
+        (
+            {
+                "prefix_tokens": 256,
+                "prefix_prompt_length": 8192,
+                "prefix_decode_tokens": 1,
+            },
+            "prefix preflight rejects a pair that overflows the per-row pool",
+        ),
+        ({"prefix_decode_tokens": 0}, "prefix preflight rejects zero decode tokens"),
+    ):
+        try:
+            prefix_preflight(args(**overrides))
+        except SystemExit:
+            expect(True, message, results)
+        else:
+            expect(False, message, results)
+
+
+def self_test_prefix_diagnostics(results: list) -> None:
+    """The cold/warm numeric comparison helpers must report what they see."""
+    import torch
+
+    from .run import kv_digest_parity, logits_parity
+
+    reference = torch.tensor([[0.0, 1.0, 2.0, 3.0], [1.0, 2.0, 3.0, 4.0]])
+    identical = logits_parity(reference, reference.clone())
+    expect(
+        identical["bit_identical"]
+        and identical["pcc"] > 0.999999
+        and identical["top1_equal"],
+        "logits parity reports identical prefill logits",
+        results,
+    )
+    perturbed = reference.clone()
+    perturbed[0, 3] = 2.0
+    report = logits_parity(reference, perturbed)
+    expect(
+        not report["bit_identical"]
+        and report["max_abs_diff"] == 1.0
+        and report["pcc"] < 1.0
+        and report["top1_equal"] is False
+        and len(report["rows"]) == 2,
+        "logits parity reports a changed argmax and per-row diffs",
+        results,
+    )
+    import copy
+
+    cold = [
+        {
+            "layer": 0,
+            "rows": [
+                {"k_prefix": "a", "k_suffix": "b", "v_prefix": "c", "v_suffix": "d"}
+            ],
+        },
+        {
+            "layer": 1,
+            "rows": [
+                {"k_prefix": "e", "k_suffix": "f", "v_prefix": "g", "v_suffix": "h"}
+            ],
+        },
+    ]
+    warm = copy.deepcopy(cold)
+    parity = kv_digest_parity(cold, warm)
+    expect(
+        parity["cached_prefix_pages_identical"]
+        and parity["suffix_pages_identical"]
+        and parity["first_suffix_mismatch_layer"] is None,
+        "KV digest parity accepts identical caches",
+        results,
+    )
+    warm[1]["rows"][0]["k_suffix"] = "x"
+    suffix = kv_digest_parity(cold, warm)
+    expect(
+        suffix["cached_prefix_pages_identical"]
+        and not suffix["suffix_pages_identical"]
+        and suffix["suffix_mismatch_layers"] == [1]
+        and suffix["first_suffix_mismatch_layer"] == 1
+        and suffix["prefix_mismatches"] == [],
+        "KV digest parity isolates a changed suffix page layer",
+        results,
+    )
+    warm[0]["rows"][0]["v_prefix"] = "y"
+    prefix = kv_digest_parity(cold, warm)
+    expect(
+        not prefix["cached_prefix_pages_identical"]
+        and prefix["prefix_mismatches"]
+        == [{"layer": 0, "row": 0, "region": "v_prefix"}],
+        "KV digest parity reports a changed cached-prefix page",
+        results,
+    )
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -642,6 +996,9 @@ def main(argv=None) -> None:
         self_test_precision_table(results)
         self_test_batch_surface(results)
         self_test_contention(results)
+        self_test_prefix_cache(results)
+        self_test_prefix_preflight(results)
+        self_test_prefix_diagnostics(results)
         if args.checkpoint:
             report["checkpoint"] = verify_checkpoint(args.checkpoint, authority)
             results.append({
