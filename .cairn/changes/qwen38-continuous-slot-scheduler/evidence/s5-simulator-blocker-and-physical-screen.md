@@ -36,7 +36,7 @@ move it. No simulator receipt is claimed.
 ## Physical B4 screen
 
 - Package: qwen38 `/nix/store/jxhspibs4ml8sbspj16bynhb1yp887vb-qwen38-0.1.0`
-  (tenstorrent.nix `65b33de`). Execution identity:
+  (tt-onix `65b33de`). Execution identity:
   `/nix/store/h73yynndm34hkzr3aimlfnif6r3402iy-qwen36-execution-identity-0.1.0`.
   Runtime: `/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0`.
 - How it ran:

@@ -901,6 +901,10 @@
       nanbeige43 = pkgs.callPackage ../pkgs/nanbeige43 {
         "tt-metal-tracy-tools" = ttMetalTracyTools;
       };
+      # r[impl tenstorrent.lfm3.p150.gpu]
+      lfm3 = pkgs.callPackage ../pkgs/lfm3 {
+        "tt-metal-tracy-tools" = ttMetalTracyTools;
+      };
       # Same package on the GDN grid variant runtime. Device-free only: this is the
       # gate that proves the chunked runtime still imports and still satisfies every
       # pure contract. It carries no physical or admission claim.
@@ -1304,6 +1308,7 @@
         tt-model-owner = ttModelOwner;
         # The packaged TT-Metal runtime is x86_64-linux only.
         inherit nanbeige43;
+        inherit lfm3;
         rwkv7-p150x2-runtime = rwkv7P150x2Runtime;
         rwkv7-p150x2-fetch-queue-diagnostic-runtime = rwkv7P150x2DiagnosticRuntime;
         rwkv7-p150x2-evidence = rwkv7P150x2Evidence;

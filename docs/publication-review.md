@@ -1,11 +1,29 @@
-# Publication review (not release approval)
+# Publication review (risk disclosure)
 
-This checkout is **not cleared for public release**. Do not change the
-repository visibility, push another ref, publish a source archive, or
-distribute a build output based on this checklist alone. This review covers
-the working branch as inspected on 2026-10-12; `origin/main`, other branches
-and tags require their own release-boundary review. Nothing here changes an
-evidence receipt, Git history, or a deployed service. The repository's own
+**Status: public since 2026-10-27.** The owner changed the repository visibility
+and renamed it from `tenstorrent.nix` to `tt-onix` (remote
+`OnixResearch/tt-onix`). This document is kept as the risk disclosure written
+before that decision. It is no longer a pre-publication gate, it does not
+approve or certify the published tree, and it does not clear any item below.
+
+The review covers the working branch as inspected on 2026-10-12; `origin/main`,
+other branches and tags require their own release-boundary review. Nothing here
+changes an evidence receipt, Git history, or a deployed service.
+
+Post-publication input fix (2026-10-27): `OnixResearch/cairn`,
+`OnixResearch/octet` (the repository formerly named `slotcar`), and
+`OnixResearch/onix-artifact` were made public. The root lock now pins
+`onix-artifact` over `https://github.com/...` instead of
+`ssh://git@github.com/...`, and the four `slotcar` nodes point at `octet`.
+Every one of the 29 distinct locked inputs was then verified with an empty Git
+configuration: GitHub tarballs at the pinned revisions returned 200 and the
+HTTPS `git` input answered `ls-remote`. This establishes anonymous fetchability
+only; it is not a content or rights clearance of those repositories.
+
+Residual: the lock files *inside* `cairn` and `octet` still pin
+`onix-artifact` over SSH, so a consumer that fetches those flakes directly (not
+through this root lock) still needs credentials. Repointing their locks and
+re-pinning is a separate change. The repository's own
 code, including the in-tree `metalium-rs` native stack, is LGPL-2.1-only
 (commit `4d862d6`, owner decision 2026-10-20); upstream rights are unchanged.
 

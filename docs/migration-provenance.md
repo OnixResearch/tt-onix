@@ -6,7 +6,7 @@ The Onix package snapshot in this repository was imported from
 
 The standalone repository retained the exact package baseline commit
 `3c4dcbb9f8de30ae0d43177c8bc25f12170ddd94` that `onix-core` consumed before
-migration. `OnixResearch/tenstorrent.nix` is now the sole repository authority;
+migration. `OnixResearch/tt-onix` is now the sole repository authority;
 no external upstream remote is configured or followed.
 
 ## Included boundary
@@ -35,7 +35,7 @@ artifacts. TT-Metal/Qwen patch portions and the local ttWKV7 descriptor
 fixture marked `Apache-2.0` retain that license; the full text is under
 [`LICENSES/Apache-2.0.txt`](../LICENSES/Apache-2.0.txt). The original
 `onix-core` snapshot and preserved evidence still need owner rights and
-disclosure review before a public release.
+disclosure review (see `docs/publication-review.md`; the repository is public since 2026-10-27).
 
 ## Post-migration full-device development
 

@@ -28,7 +28,7 @@
         "messages_blake3": "85a5494f09a91c26667dd39ef014777013b6ca12776f109fd3d5d1a930e9dc96",
         "non_enqueue_span_ns": 921407624,
         "prefill_wall_ns": 1097995015,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/candidate-1",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-signposts-20260821/candidate-1",
         "synchronization_total_ns": 4697396,
         "trailing_gap_ns": 2124745,
         "zones_blake3": "628e69fe32d277ebdbed0a276e28c58e165f0831717f996b44ed4bc31bbbc07c"
@@ -43,7 +43,7 @@
         "messages_blake3": "d7824f9f074196cd7f71002d93b1046bee99912df1ffd7b45c11d6ebbaf018ec",
         "non_enqueue_span_ns": 1656285732,
         "prefill_wall_ns": 2216940492,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/candidate-2",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-signposts-20260821/candidate-2",
         "synchronization_total_ns": 7420472,
         "trailing_gap_ns": 1975207,
         "zones_blake3": "0f4c5f2d0bf75a62bd8457cb66d2fc36ea57477866e8ae9fc9e9432308b24bd3"
@@ -117,7 +117,7 @@
         "messages_blake3": "6e2f85dadaf246b51eda8d54f006a457ad46f0d330f091bf4748408464e64140",
         "non_enqueue_span_ns": 770526320,
         "prefill_wall_ns": 904317150,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/eager-1",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-signposts-20260821/eager-1",
         "synchronization_total_ns": 4093326,
         "trailing_gap_ns": 1993946,
         "zones_blake3": "2d84e5d2bd34c6b7cc42e83cfc4308ba66f69885bbedf902fd1d3027d4440e5e"
@@ -132,7 +132,7 @@
         "messages_blake3": "6856ede8ad6dd3087d70bf983ffd029b2f418b25f97a656e45e514d25460aaf6",
         "non_enqueue_span_ns": 998990042,
         "prefill_wall_ns": 1187337079,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-signposts-20260821/eager-2",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-signposts-20260821/eager-2",
         "synchronization_total_ns": 4726920,
         "trailing_gap_ns": 2070603,
         "zones_blake3": "17679d34835d2a5692bb47f9ad95a6d2e07340eef54cfb67f358b601853eb893"

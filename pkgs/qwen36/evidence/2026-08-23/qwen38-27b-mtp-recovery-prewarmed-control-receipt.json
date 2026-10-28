@@ -3838,7 +3838,7 @@
     ],
     "schema_version": 1
   },
-  "progress_output": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-mtp-recovery-control-20260823/progress.json",
+  "progress_output": "/home/brittonr/git/tt-onix/.pi/qwen36-mtp-recovery-control-20260823/progress.json",
   "recovery_execution_mode": "persistent-traced",
   "reference_revisions": {
     "sglang": "4cb5aebfe08fa0abbd5fbcf84b29ad3d541bd5d3",

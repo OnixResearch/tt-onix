@@ -27,7 +27,7 @@
         "leading_gap_ns": 192525,
         "non_enqueue_span_ns": 1032161489,
         "prefill_wall_ns": 1202743369,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-timeline-20260821/candidate-1",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-timeline-20260821/candidate-1",
         "synchronization_total_ns": 3974172,
         "trailing_gap_ns": 1897436,
         "zones_blake3": "1dc83edcb3fc1394b4e8ef80d453522c658e08552d19525b282db9005351b1bd"
@@ -41,7 +41,7 @@
         "leading_gap_ns": 852368,
         "non_enqueue_span_ns": 1012983200,
         "prefill_wall_ns": 1171509119,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-timeline-20260821/candidate-2",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-timeline-20260821/candidate-2",
         "synchronization_total_ns": 4501550,
         "trailing_gap_ns": 1965899,
         "zones_blake3": "0ff684cde734be217bc5a865a4f7c3229c01a7a4bc2829fcad1c284d37690a2b"
@@ -114,7 +114,7 @@
         "leading_gap_ns": 230903,
         "non_enqueue_span_ns": 1511877078,
         "prefill_wall_ns": 2729554111,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-timeline-20260821/eager-1",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-timeline-20260821/eager-1",
         "synchronization_total_ns": 4779904,
         "trailing_gap_ns": 2179962,
         "zones_blake3": "ef18ecabaeac1754e6e59d02311aede5aa3c82feb94157399392463626d93c2e"
@@ -128,7 +128,7 @@
         "leading_gap_ns": 181331,
         "non_enqueue_span_ns": 808831364,
         "prefill_wall_ns": 941100092,
-        "root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen36-host-timeline-20260821/eager-2",
+        "root": "/home/brittonr/git/tt-onix/.pi/qwen36-host-timeline-20260821/eager-2",
         "synchronization_total_ns": 4298657,
         "trailing_gap_ns": 1913710,
         "zones_blake3": "eaf2415cd611869def854a2815e2455420ac4f47f9217b3488292b30d79bb884"

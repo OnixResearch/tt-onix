@@ -28,7 +28,7 @@ The probe is `scripts/qwen38-refill-coexistence-probe.py`, run on britton-deskto
 
 - **Packages.** qwen38 `/nix/store/6j5h0gvpr5k97yjfb9nak7ba3vifdg6k-qwen38-0.1.0`
   and tt-metal `/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0`
-  (tenstorrent.nix `4694f26`).
+  (tt-onix `4694f26`).
 - **How it ran.** `qwen38-p150x2.service` was stopped, and the probe ran as a
   transient unit with that service's environment. Filler text:
   `.pi/references/rwkv-7/rwkv-7-goose-arxiv-2503.14456v2.txt`.

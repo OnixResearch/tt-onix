@@ -11,7 +11,7 @@
   "runtime_identity": "/nix/store/7hplkynh047dsk98cwqpfsaaq6lwyy0m-tt-metal-0.77.0",
   "old_package": "/nix/store/gfvkac4zchl11g5n3xh9zbkvc4451vbl-qwen38-0.1.0",
   "installation": {
-    "command": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes root@britton-desktop '/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install /nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0'",
+    "command": "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes root@britton-desktop '/home/brittonr/git/tt-onix/scripts/qwen38-profile-service install /nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0'",
     "prior_profile_generation": 1,
     "active_profile_generation": 3,
     "sole_profile_package": "/nix/store/han2q1h90mcp8ad1k9qq7bz7sl8r4rf9-qwen38-0.1.0",

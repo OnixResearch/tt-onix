@@ -1,6 +1,6 @@
 # B16 stall investigation — findings so far
 
-Change: `investigate-rwkv7-b16-stall` (worktree `investigate-rwkv7-b16-stall`, repo `tenstorrent.nix`).
+Change: `investigate-rwkv7-b16-stall` (worktree `investigate-rwkv7-b16-stall`, repo `tt-onix`).
 
 ## What the archived change concluded
 

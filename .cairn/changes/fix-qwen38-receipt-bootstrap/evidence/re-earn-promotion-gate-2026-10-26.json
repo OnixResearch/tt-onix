@@ -1,7 +1,7 @@
 {
   "failures": [],
   "fresh_receipt_blake3": "cf9fc9d417091a83bad96c71b58015dcab75529146247664039e6de1758f3e55",
-  "fresh_receipt_path": "/home/brittonr/git/tenstorrent.nix/pkgs/qwen36/evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json",
+  "fresh_receipt_path": "/home/brittonr/git/tt-onix/pkgs/qwen36/evidence/2026-10-26/qwen38-batch-admission-b8-v3-receipt.json",
   "identity_equal": true,
   "measured_package_identity": "/nix/store/qwnxwcppn16za67i710qm5drnzs57vg9-qwen36-execution-identity-0.1.0",
   "passed": true,

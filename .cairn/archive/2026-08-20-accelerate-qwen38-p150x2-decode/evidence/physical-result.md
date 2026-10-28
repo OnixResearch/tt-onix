@@ -60,7 +60,7 @@ The service reported `active` and returned `{"model": "Qwen3.8-27B", "status": "
 
 - Receipt: `pkgs/qwen36/evidence/2026-08-20/qwen38-27b-traced-decode-candidate-receipt.json`
 - Receipt BLAKE3: `33c3654bf417f5bf671cb127977d12465abbab2d6d524117d8d32f8b4cd11a37`
-- Persistent raw responses: `/home/brittonr/git/tenstorrent.nix/.pi/qwen36-decode-20260820/`
+- Persistent raw responses: `/home/brittonr/git/tt-onix/.pi/qwen36-decode-20260820/`
 - Receipt generator: `scripts/qwen36-decode-receipt.rs`
 
 ## Non-claims

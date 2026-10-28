@@ -634,8 +634,8 @@
     {
       "path": ".cairn/archive/2026-08-20-accelerate-qwen38-p150x2-decode/evidence/physical-result.md",
       "class": "portable_evidence",
-      "byte_count": 2801,
-      "blake3": "acdddc1c73ae55a6e08fbad36a0748aa844997f935064e4585a6f9c37e09b939"
+      "byte_count": 2793,
+      "blake3": "0fbd311abebb5ba2106f3593cec162bc5c8e40d9ef7d7cb18178189def5dd1fe"
     },
     {
       "path": ".cairn/archive/2026-08-20-add-qwen38-continuous-batching/evidence/prerequisite-disposition.md",
@@ -1012,8 +1012,8 @@
     {
       "path": ".cairn/archive/2026-08-28-qwen38-gdn-sampled-mode-admission/evidence/d1e-deploy.md",
       "class": "portable_evidence",
-      "byte_count": 2190,
-      "blake3": "0dcdf6ee27ceb5f3a73a4292ac232136ce94f74c430333ad6eed4393741c2b33"
+      "byte_count": 2182,
+      "blake3": "b359a086c4a71dc03bc27f77c9fd4f238bdc8712ceb8e313032246fea8433dca"
     },
     {
       "path": ".cairn/archive/2026-08-28-qwen38-gdn-sampled-mode-admission/evidence/d1g-d1h-sampled-serving.md",
@@ -1378,8 +1378,8 @@
     {
       "path": ".cairn/changes/add-runtime-switch-record/evidence/record-lifecycle.md",
       "class": "portable_evidence",
-      "byte_count": 5030,
-      "blake3": "1fafad6a5afabb533b0f22d09c7ac289f4dbadb6e2eb00cd9779089f03909845"
+      "byte_count": 5022,
+      "blake3": "c4b51fc04b1cd739d579dbe560520ef45d7874b1643f0e7ee2003db165eb6ad9"
     },
     {
       "path": ".cairn/changes/add-runtime-switch-run/evidence/helper-boundary.md",
@@ -1404,6 +1404,12 @@
       "class": "portable_evidence",
       "byte_count": 2297,
       "blake3": "0dc7d796a07827737b2aa071a3ee42957bf644a1b962891798d04001368d6e34"
+    },
+    {
+      "path": ".cairn/changes/bring-up-lfm3-1p7b-p150/evidence/bring-up-2026-10-27.md",
+      "class": "portable_evidence",
+      "byte_count": 4067,
+      "blake3": "effd834500e4df56f27e2deaaee7d66b55cd45c5046339e967700f64a16ca911"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/P69-fail.json",
@@ -2230,8 +2236,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P6-split-b32.json",
       "class": "portable_evidence",
-      "byte_count": 38297,
-      "blake3": "14156e70feb3d7c0b7bf5be9810811b5b254541f728458b617d6cd4e421f9ac6"
+      "byte_count": 38289,
+      "blake3": "a09fa0d807f65b7ffbd5e6b1c1c0d686e9f8559429abe441ae80b6c3ae643457"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P60-compare-b1.json",
@@ -2272,8 +2278,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P7-split-b32.json",
       "class": "portable_evidence",
-      "byte_count": 38311,
-      "blake3": "9aafb1cf7e9bc947e3baf284f7d01def43fbdc0c5db045bf6927a82a60cab1d7"
+      "byte_count": 38303,
+      "blake3": "81fe6e71e4b23056f3f8c462ad498134f404c198af137df7e60fa9a8a03f270b"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P73-b32.json",
@@ -2338,8 +2344,8 @@
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P8-ab-b32.json",
       "class": "portable_evidence",
-      "byte_count": 6852,
-      "blake3": "f8deab32550c44601493ddd170ab667e21e5534bbebb0e623ef136a1220ff61b"
+      "byte_count": 6844,
+      "blake3": "daab6617ffe2b1d762b96a562f21991923a39b62d071035f0c573cd84f6a0acd"
     },
     {
       "path": ".cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P8-bench-b1.json",
@@ -2644,14 +2650,14 @@
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/bootstrap-gate-2026-10-22.md",
       "class": "portable_evidence",
-      "byte_count": 9044,
-      "blake3": "f7f95f6912c7f604ace06409de7ab8a95ab03d15d26581744ff6fcfe83433a88"
+      "byte_count": 9036,
+      "blake3": "7d4e05baab9ec76bc54b18f3904edb097ce2559b013913038151956b28c42066"
     },
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/bootstrap-gate.json",
       "class": "portable_evidence",
-      "byte_count": 5441,
-      "blake3": "1210f6a6ebfc0be6bffcaeebc2419f94b84f6b0448b9a3e29658cf3343a896e1"
+      "byte_count": 5433,
+      "blake3": "d992844e8be8bdac1c32bc299e112acbb9c0a996f6c99c16727608641882717a"
     },
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/identity-mismatch-2026-10-22.md",
@@ -2674,8 +2680,8 @@
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-campaign-provenance-2026-10-26.json",
       "class": "portable_evidence",
-      "byte_count": 52412,
-      "blake3": "64f437627e9d82e7bb86cc7a9080748a29f9213294eb7999cd9490524a452735"
+      "byte_count": 52348,
+      "blake3": "95a0de39e6a769da93fb7128ffaf5beb9cabf38ec2135386b6ec9ef214175acf"
     },
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-procedure-2026-10-22.md",
@@ -2686,8 +2692,8 @@
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-promotion-gate-2026-10-26.json",
       "class": "portable_evidence",
-      "byte_count": 895,
-      "blake3": "11e785259e2c0e15a55de5d0e8f0bf5eb21457b9e0734e1faa72eb064a9c4c60"
+      "byte_count": 887,
+      "blake3": "9aa9987fb3d870b4b4d280032c00dceccef11dfc71ce833867e0545085fb0522"
     },
     {
       "path": ".cairn/changes/fix-qwen38-receipt-bootstrap/evidence/re-earn-receipt-validation-2026-10-26.json",
@@ -2908,20 +2914,20 @@
     {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/device-free-s1-s4.md",
       "class": "portable_evidence",
-      "byte_count": 5889,
-      "blake3": "559545d86772497e8f91c8d8f6522fbcc31e91657fc0c4409552cb1c0609576d"
+      "byte_count": 5881,
+      "blake3": "2cf23eb555dc67a1362a3ee2e590cc3739e3a46664f43a8c633375481a7a4b71"
     },
     {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/refill-coexistence.md",
       "class": "portable_evidence",
-      "byte_count": 3655,
-      "blake3": "c9e338560b2f0c0d1a1cd6faa0d6063228827cb29cf8bf8a3baecdc937fa4cd8"
+      "byte_count": 3647,
+      "blake3": "118f575dc395b4dc30fccdfc04ecf82f1a2d50d08e54f3177a0a1bc340ef5b3b"
     },
     {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/s5-simulator-blocker-and-physical-screen.md",
       "class": "portable_evidence",
-      "byte_count": 6879,
-      "blake3": "d88f66c3278151eec54a94d7fa93b1f3972a537a5564ef293fd1a5286d4d461d"
+      "byte_count": 6871,
+      "blake3": "e99af3b5ce1bcc7e4c7be55e6501f3798fd1a2cc66edfeed016cecb8324bda47"
     },
     {
       "path": ".cairn/changes/qwen38-continuous-slot-scheduler/evidence/s6-queue-inclusive-admission.md",
@@ -3262,8 +3268,8 @@
     {
       "path": "docs/evidence/tt-metal-0.77/qwen-binding-identity/empty-corpus.log",
       "class": "portable_evidence",
-      "byte_count": 1208,
-      "blake3": "50e7197685f11a8a0d169fd8a5bed358000968b6272c91d4135c696bdf302a0c"
+      "byte_count": 1184,
+      "blake3": "6688946a287a1f066bf5b341b6e0c4b490d13b9ebd8e1f8682d553a3b9abb19a"
     },
     {
       "path": "docs/evidence/tt-metal-0.77/qwen-binding-identity/model-parity.json",
@@ -4546,20 +4552,20 @@
     {
       "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-signpost-attribution-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 6126,
-      "blake3": "3ab6c5ceeab4160699bf68b55ff7407d625b9b9ffd56aa39b076be80b50a48ac"
+      "byte_count": 6094,
+      "blake3": "2702852c46165d03eed4f6254ce444868dd789754b76bbfb55be76922a16da39"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-stability-attribution-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 6246,
-      "blake3": "41fa1da2caf6aef20a0d1dfd8e9d5e65480a91d39c7b8e984c31e14199527497"
+      "byte_count": 6214,
+      "blake3": "978234b25a3821ffb7bd6f0942c5edf6360fdbc11b4ef5e63736b45d172fcbf1"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-host-timeline-attribution-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 5759,
-      "blake3": "e9fc1b4aeec6deb9caa2a9390b28c3f00f9e4e3d1fb9870ca1199001f43e734c"
+      "byte_count": 5727,
+      "blake3": "5801c78882cb631aaf2f9275e78377e3d56d10f71ada1185439a12e92adc4a4b"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-21/qwen38-27b-mtp-target-verification-receipt.json",
@@ -4636,8 +4642,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-prewarmed-control-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 301293,
-      "blake3": "9ab2ceef2cb3cbe710561ba0c56b61ad5155a3ce2159075deb3b37705ed0e24e"
+      "byte_count": 301285,
+      "blake3": "2bc72ac6c6343eb399796c3a54de11300fae01ea1c6f43fb70947a445bb59524"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-recovery-stage-reprefill-progress.json",
@@ -4660,8 +4666,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-08-23/qwen38-27b-mtp-target-validation-prewarm-receipt.json",
       "class": "portable_evidence",
-      "byte_count": 23724,
-      "blake3": "04b8087eb04a8e609c0cb3bd83f419a21f1405360659bdb6aa24cf669da8c88a"
+      "byte_count": 23716,
+      "blake3": "8b5f4230b90a9e3c94f0cb2d1f0ac2dcd81ac427987308bdad77b03f3298607f"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-08-25/qwen38-27b-batch-admission-receipt.json",
@@ -5104,8 +5110,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-09-30/qwen38-contiguous-victim-physical.json",
       "class": "portable_evidence",
-      "byte_count": 17087,
-      "blake3": "ca03d8ab0d09648d81aad914a17b81bc36ce4bd9d677188a6fab2548e8fca9d8"
+      "byte_count": 17079,
+      "blake3": "7c6d14f688c16c199c023cd9c1d611a21cc176fc149f3ecd2d4966742bbe4539"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-09-30/qwen38-dedicated-read-batch-lanes-physical.json",
@@ -5170,8 +5176,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-09-30/qwen38-two-long-prefix-candidate.json",
       "class": "portable_evidence",
-      "byte_count": 16305,
-      "blake3": "b5778455736a3f2fe36fab075aca84c671ca208e589eb1f229bd51a8f8f45fde"
+      "byte_count": 16297,
+      "blake3": "44e82ed2386817f5e1dd8c49f023771129d1ac58880e1b6e0a6df8d5074e910f"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-01/qwen38-cold-prefill-sdpa-rejection.json",
@@ -5182,8 +5188,8 @@
     {
       "path": "pkgs/qwen36/evidence/2026-10-01/qwen38-han2-profile-admission.json",
       "class": "portable_evidence",
-      "byte_count": 10143,
-      "blake3": "79c50cd1346ca773068e2dfebb7617ffab3141604bb23cb1f5628701a9035c5e"
+      "byte_count": 10135,
+      "blake3": "6c0b57a7a4a4934b74c0ced6e30fec367ca76fd91f3574c250c03e61c21bfdfd"
     },
     {
       "path": "pkgs/qwen36/evidence/2026-10-01/qwen38-sdpa-counters.json",

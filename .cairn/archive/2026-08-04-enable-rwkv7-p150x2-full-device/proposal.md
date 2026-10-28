@@ -2,7 +2,7 @@
 
 The current repository proves one physical ttWKV7 operation, but it does not package a full RWKV-7 model for both Blackhole cards. A stale `onix-core` branch contains a replicated P150x2 TT-NN runtime and evidence classifier. The third hardware attempt opened devices 0 and 1, but its wrapper set `TT_METAL_WATCHER=0` while profiling. TT-Metal treats every present `TT_METAL_WATCHER` value as enabled, so Blackhole BRISC firmware exceeded its code region before a model operation ran.
 
-`tenstorrent.nix` is now the sole authority for reusable Tenstorrent packages. The reusable runtime and evidence contract must move here before another machine-bound attempt.
+`tt-onix` is now the sole authority for reusable Tenstorrent packages. The reusable runtime and evidence contract must move here before another machine-bound attempt.
 
 ## What Changes
 

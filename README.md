@@ -1,14 +1,20 @@
-# tenstorrent.nix
+# tt-onix
 
 A standalone Nix flake for using Tenstorrent hardware with Nix/NixOS.
-The `OnixResearch/tenstorrent.nix` `main` branch is the sole repository
+The `OnixResearch/tt-onix` `main` branch is the sole repository
 authority; no external upstream remote is configured.
 
-**Publication pending:** this repository is not yet cleared for a public
-release. Tracked physical evidence and Git history include machine-specific
-metadata; copyright, third-party patches, and binary fixture redistribution
-also require owner review. See the [publication review](docs/publication-review.md)
-before making any branch, tag, source archive, or build artifact public.
+**Public since 2026-10-27.** The owner made this repository public and renamed
+it from `tenstorrent.nix` to `tt-onix`. The
+[publication review](docs/publication-review.md) is retained as the risk
+disclosure written before that decision; it is no longer a gate and does not
+certify this tree. Two consequences are worth stating plainly: tracked physical
+evidence and Git history contain machine-specific paths, host names, and commit
+identities, and the flake's pinned inputs were private at publication. The input
+repositories (`OnixResearch/cairn`, `octet` — formerly `slotcar` — and
+`onix-artifact`) are public since 2026-10-27, the SSH-only `onix-artifact` pin
+now uses HTTPS, and every one of the 29 distinct locked inputs resolves
+anonymously.
 
 ## License
 

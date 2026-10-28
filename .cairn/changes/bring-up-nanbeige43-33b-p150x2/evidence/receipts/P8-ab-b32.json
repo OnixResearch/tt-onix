@@ -20,7 +20,7 @@
   "steps_per_phase": 64,
   "steps_skipped_per_phase": 8,
   "rounds": 2,
-  "admitted_receipt": "/home/brittonr/git/tenstorrent.nix/.cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P2-bench-b32.json",
+  "admitted_receipt": "/home/brittonr/git/tt-onix/.cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P2-bench-b32.json",
   "started": "2026-10-27T00:38:24-0400",
   "mesh": {
     "name": "p150x2",

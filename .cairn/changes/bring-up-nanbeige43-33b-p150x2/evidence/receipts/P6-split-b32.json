@@ -19,7 +19,7 @@
   "decode_trace": true,
   "steps_measured": 128,
   "warmup_steps": 8,
-  "admitted_receipt": "/home/brittonr/git/tenstorrent.nix/.cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P2-bench-b32.json",
+  "admitted_receipt": "/home/brittonr/git/tt-onix/.cairn/changes/bring-up-nanbeige43-33b-p150x2/evidence/receipts/P2-bench-b32.json",
   "started": "2026-10-27T00:27:23-0400",
   "mesh": {
     "name": "p150x2",

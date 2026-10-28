@@ -28,7 +28,7 @@
 - [x] [serial] D1g Sampled trace tail with per-shard `ttnn.topk(k=20)` and per-step seeded sampling in the coordinator. FillPad layout bug found and fixed; see `evidence/d1g-d1h-sampled-serving.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 - [x] [serial] D1h Physical sampled-serving validation: greedy parity unchanged, seeded sampled requests reproduce exactly. All checks pass; see `evidence/d1g-d1h-sampled-serving.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission.valid]
 - [x] [serial] D1e Deploy the changed identity as a new service generation. System `43sm969d`, identity `llvy8p6f`, greedy smoke exact, gate off; see `evidence/d1e-deploy.md`. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
-- [x] [serial] D1i Owner act: enable sampled serving. Module option `qwen38.sampledFusion` (tenstorrent.nix `7230603`), enabled on britton-desktop (onix-core `9f2b2dc0`), system `jdni43pz`. Production smoke: sampled route full at 12.88 t/s, seed 42 reproducible, greedy route off with exact tokens at 16.83 t/s. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
+- [x] [serial] D1i Owner act: enable sampled serving. Module option `qwen38.sampledFusion` (tt-onix `7230603`), enabled on britton-desktop (onix-core `9f2b2dc0`), system `jdni43pz`. Production smoke: sampled route full at 12.88 t/s, seed 42 reproducible, greedy route off with exact tokens at 16.83 t/s. r[tenstorrent.qwen38_p150x2.sampled_mode_kernel_admission]
 
 ## Phase 5: Completion
 

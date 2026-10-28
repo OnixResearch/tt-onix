@@ -4,7 +4,7 @@
 
 Production runs the sampled-serving package with the gate off.
 
-- System: `43sm969d...` (onix-core `0f8210f9`, pinning tenstorrent.nix
+- System: `43sm969d...` (onix-core `0f8210f9`, pinning tt-onix
   `a9e5b5f` on main)
 - Package: `/nix/store/cdvkpnr3...-qwen36-0.1.0`
 - Deployed execution identity: `/nix/store/llvy8p6f...-qwen36-execution-identity-0.1.0`

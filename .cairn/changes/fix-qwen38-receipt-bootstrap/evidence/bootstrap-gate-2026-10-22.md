@@ -44,7 +44,7 @@ repository was not modified.
 
 ```text
 rsync -a --exclude=.git --exclude=.pi --exclude=result --exclude='result-*' \
-  /home/brittonr/git/tenstorrent.nix/ /tmp/qwen38-bootstrap-admitted-fixture/
+  /home/brittonr/git/tt-onix/ /tmp/qwen38-bootstrap-admitted-fixture/
 cp pkgs/qwen36/fixtures/batch-admission-b8-binding-v3-not-measured.ncl \
   /tmp/qwen38-bootstrap-admitted-fixture/pkgs/qwen36/batch-admission-b8-binding-v3.ncl
 ```

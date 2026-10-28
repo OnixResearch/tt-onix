@@ -272,7 +272,7 @@
   "matched_amber_after_third_ttft_speedup": 115.4177456304215,
   "mode": "paired before/after third-130K-prefix eviction, same model and pinned TT-Metal 0.77 on physical P150x2",
   "operation": {
-    "candidate_gc_root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen38-contiguous-victim-candidate",
+    "candidate_gc_root": "/home/brittonr/git/tt-onix/.pi/qwen38-contiguous-victim-candidate",
     "improved_candidate_stopped_after_trial": true,
     "prior_candidate_stopped_after_trial": true,
     "production_active_state": "active",

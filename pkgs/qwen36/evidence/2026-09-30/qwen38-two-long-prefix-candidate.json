@@ -425,7 +425,7 @@
   "mode": "bounded physical P150x2 AB-A baseline versus ABAB two-long-prefix candidate",
   "operation": {
     "baseline_owner_restored": true,
-    "candidate_gc_root": "/home/brittonr/git/tenstorrent.nix/.pi/qwen38-prefix-two-long-candidate",
+    "candidate_gc_root": "/home/brittonr/git/tt-onix/.pi/qwen38-prefix-two-long-candidate",
     "candidate_stopped_after_trial": true,
     "privileged_dropin_attempt": "sudo -n ln -s to /nix/var/nix/gcroots failed: a password is required; sudo -l allows only owner stop/start and lsof",
     "restored_health": {

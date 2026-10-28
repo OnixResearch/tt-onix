@@ -106,7 +106,7 @@ The one root action is installing the managed drop-in, which names the operator'
 path. It is done once, from a root shell:
 
 ```sh
-/home/brittonr/git/tenstorrent.nix/scripts/qwen38-profile-service install-dropin
+/home/brittonr/git/tt-onix/scripts/qwen38-profile-service install-dropin
 ```
 
 After that, the served version is the operator's symlink, and a package change is:

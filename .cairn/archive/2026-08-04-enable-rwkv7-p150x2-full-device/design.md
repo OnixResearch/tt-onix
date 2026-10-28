@@ -8,7 +8,7 @@ Attempt 3 established owner isolation and device discovery. Its compile command 
 
 ### Decision: Port reusable packages instead of the stale branch
 
-**Choice:** Copy the full-device runtime and evidence classifier into `tenstorrent.nix`. Adapt their package wiring to the current flake. Do not merge the stale `onix-core` branch or its machine-specific runbooks.
+**Choice:** Copy the full-device runtime and evidence classifier into `tt-onix`. Adapt their package wiring to the current flake. Do not merge the stale `onix-core` branch or its machine-specific runbooks.
 
 **Rationale:** The standalone repository owns reusable package behavior. The old branch predates that authority migration and contains unrelated machine state.
 

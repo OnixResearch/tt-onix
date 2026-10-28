@@ -59,7 +59,7 @@ runtime          = {kind: package-root, root: libexec/tt-metalium,
 checkpoint       = {path: /home/brittonr/models/1d4bf0f2…,
                     revision: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0,
                     authority_kind: generated-authority-blake3,
-                    authority_path: /home/brittonr/git/tenstorrent.nix/pkgs/qwen36/generated/authority.json,
+                    authority_path: /home/brittonr/git/tt-onix/pkgs/qwen36/generated/authority.json,
                     authority_blake3: c319f7ee…}
 receipts         = [(continuous-slot-admission, admitted, 4573cea1…),
                     (prefix-cache-admission, admitted, eb09b2cc…)]

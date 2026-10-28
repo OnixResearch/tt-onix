@@ -4,7 +4,7 @@
   "recorded_date": "2026-08-04",
   "recorded_without_mutation": true,
   "flake": {
-    "repository": "github.com/OnixResearch/tenstorrent.nix",
+    "repository": "github.com/OnixResearch/tt-onix",
     "revision": "fa5c99826774970f7d03831517e2d61d29bc4497",
     "tt_metal_package": "tt-metal-0.74.0",
     "tt_metal_upstream": "v0.74.0-rc6"

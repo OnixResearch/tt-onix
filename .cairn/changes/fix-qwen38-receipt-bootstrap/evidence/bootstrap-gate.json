@@ -35,7 +35,7 @@
   "profile_path": "share/qwen36/batch-admission-b8-profile-v3.json",
   "execution_inputs_path": "share/qwen36/execution-identity/share/qwen36/execution-inputs",
   "controlled_tree": {
-    "origin": "/home/brittonr/git/tenstorrent.nix",
+    "origin": "/home/brittonr/git/tt-onix",
     "fixture_copy": "/tmp/qwen38-bootstrap-admitted-fixture",
     "tracked_tree_lstree_diff": "exactly one entry: pkgs/qwen36/batch-admission-b8-binding-v3.ncl (blob dbb5a0e296072eafe7e909c0cb49ad666f275361 -> a33c29f1a7f2a3286fc3211467a7b159ff2586a3)",
     "fixture_blob_sha1": "a33c29f1a7f2a3286fc3211467a7b159ff2586a3",

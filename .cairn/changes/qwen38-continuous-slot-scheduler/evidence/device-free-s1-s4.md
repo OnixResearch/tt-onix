@@ -7,7 +7,7 @@ simulator, and it makes no latency, throughput, or admission claim. Tasks s5
 ## Baseline (s1, rerun in s4)
 
 Before any change, `qwen36-check` from qwen38
-`/nix/store/6j5h0gvpr5k97yjfb9nak7ba3vifdg6k-qwen38-0.1.0` (tenstorrent.nix `3696f21`)
+`/nix/store/6j5h0gvpr5k97yjfb9nak7ba3vifdg6k-qwen38-0.1.0` (tt-onix `3696f21`)
 passed with 54 probes. The same suite, rebuilt with this change, is recorded below.
 
 ## What was added

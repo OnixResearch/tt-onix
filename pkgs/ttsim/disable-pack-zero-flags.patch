@@ -1,4 +1,4 @@
-From: tenstorrent.nix maintainers
+From: tt-onix maintainers
 Subject: [PATCH] Support Blackhole packer zero-flag suppression in the dense data path
 
 Applies to TTsim v1.10.6, a5276e15a52729465c8ddd71f0965df4ca2f0cc1.
