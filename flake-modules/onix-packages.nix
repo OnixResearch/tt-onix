@@ -982,6 +982,7 @@
           metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerCheck;
           faster-fifo = pkgs.faster-fifo;
           vllm-tt-plugin = pkgs.vllm-tt-plugin;
+          ttsim-qwen-gdn-replay = pkgs.ttsim-qwen-gdn-replay;
         };
       };
       requiredPackageInventoryValid = import ../checks/required-package-checks-test.nix {

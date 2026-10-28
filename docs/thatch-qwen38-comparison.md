@@ -79,10 +79,15 @@ modeled on Thatch would need:
 3. an external wall-clock timeout and a recorded blocked result when the
    simulator cannot run the path.
 
-It is **not added** because the current Qwen GDN simulator path remains blocked
-on `ALU_ACC_CTRL_Zero_Flag_disabled_src`/`Zero_Flag` coverage. A check that
-silently skips that path would be worse than no check. The existing Nix checks
-remain the device-free gate until the simulator covers the selected path.
+A check is now added: `ttsim-qwen-gdn-replay` runs the GDN recurrence at the
+Qwen3.8-27B TP=2 shape (24 value heads per shard, head_dim 128, three steps).
+The current simulator records a **blocked** receipt for
+`ALU_ACC_CTRL_Zero_Flag_disabled_src=1 (keep SrcB denormals) not modeled`
+instead of silently skipping. A different error fails the check. It is wired
+into the required package-check catalog.
+
+This is one representative Qwen primitive, not a full-model replay. The
+existing GDN smoke remains the small-shape device-free gate.
 
 ## Actions taken
 

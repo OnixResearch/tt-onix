@@ -14,7 +14,8 @@
     "qwen36-nixos-service",
     "metalium-rs-rwkv7-tokenizer",
     "faster-fifo",
-    "vllm-tt-plugin"
+    "vllm-tt-plugin",
+    "ttsim-qwen-gdn-replay"
   ],
   "schema_version": 1
 }

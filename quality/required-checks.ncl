@@ -20,5 +20,6 @@ let NonEmpty = std.contract.from_predicate (fun value =>
     "metalium-rs-rwkv7-tokenizer",
     "faster-fifo",
     "vllm-tt-plugin",
+    "ttsim-qwen-gdn-replay",
   ],
 }

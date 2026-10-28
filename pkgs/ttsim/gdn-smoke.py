@@ -30,6 +30,22 @@ FLOAT_DTYPE = np.float32
 VECTOR_SHAPE = (HEAD_COUNT, 1, HEAD_DIM)
 STATE_SHAPE = (HEAD_COUNT, HEAD_DIM, HEAD_DIM)
 SCALAR_SHAPE = (HEAD_COUNT, 1, 1)
+WORKLOAD_NAME = "gdn-fp32-reference-state-carry"
+
+
+def configure(head_count, head_tiles, recurrent_steps):
+    """Override the default smoke shape for a model-representative replay."""
+    global HEAD_COUNT, HEAD_TILES, HEAD_DIM, RECURRENT_STEPS
+    global VECTOR_SHAPE, STATE_SHAPE, SCALAR_SHAPE
+    if head_count <= 0 or head_tiles <= 0 or recurrent_steps <= 0:
+        raise ValueError("head count, head tiles, and steps must be positive")
+    HEAD_COUNT = head_count
+    HEAD_TILES = head_tiles
+    HEAD_DIM = HEAD_TILES * TILE_EDGE
+    RECURRENT_STEPS = recurrent_steps
+    VECTOR_SHAPE = (HEAD_COUNT, 1, HEAD_DIM)
+    STATE_SHAPE = (HEAD_COUNT, HEAD_DIM, HEAD_DIM)
+    SCALAR_SHAPE = (HEAD_COUNT, 1, 1)
 
 
 def reference_step(q, k, v, beta, g, state):
@@ -250,7 +266,7 @@ def device_checks(validation_only=False):
         assert_close(to_host(output), expected_output)
         assert_close(to_host(state), expected_state)
         return {
-            "workload": "gdn-fp32-reference-state-carry",
+            "workload": WORKLOAD_NAME,
             "status": "passed",
             "head_count": HEAD_COUNT,
             "head_dim": HEAD_DIM,
@@ -270,7 +286,14 @@ def main():
     mode.add_argument("--host-only", action="store_true")
     mode.add_argument("--validation-only", action="store_true")
     parser.add_argument("--result", type=Path)
+    parser.add_argument("--head-count", type=int, default=HEAD_COUNT)
+    parser.add_argument("--head-tiles", type=int, default=HEAD_TILES)
+    parser.add_argument("--steps", type=int, default=RECURRENT_STEPS)
+    parser.add_argument("--workload-name", default="gdn-fp32-reference-state-carry")
     arguments = parser.parse_args()
+    global WORKLOAD_NAME
+    WORKLOAD_NAME = arguments.workload_name
+    configure(arguments.head_count, arguments.head_tiles, arguments.steps)
     host_checks()
     if arguments.host_only:
         print("GDN reference positive and negative checks passed")

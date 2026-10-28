@@ -61,6 +61,7 @@ final: prev: {
   ttsim-blackhole-smoke = final.callPackage ./pkgs/ttsim/smoke.nix { };
   ttsim-smoke-check = final.callPackage ./pkgs/ttsim/smoke-check.nix { };
   ttsim-gdn-smoke-check = final.callPackage ./pkgs/ttsim/gdn-smoke-check.nix { };
+  ttsim-qwen-gdn-replay = final.callPackage ./pkgs/ttsim/qwen-gdn-replay-check.nix { };
   ttsim-gdn-validation-check = final.callPackage ./pkgs/ttsim/gdn-smoke-check.nix {
     validationOnly = true;
   };

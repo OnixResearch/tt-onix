@@ -146,6 +146,7 @@
             ttsim-single-chip-smoke = pkgs.ttsim-smoke-check;
             ttsim-gdn-reference-smoke = pkgs.ttsim-gdn-smoke-check;
             ttsim-gdn-input-validation = pkgs.ttsim-gdn-validation-check;
+            ttsim-qwen-gdn-replay = pkgs.ttsim-qwen-gdn-replay;
             inherit (pkgs.python3Packages)
               pyluwen
               tt-flash
