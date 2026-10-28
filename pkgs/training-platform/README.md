@@ -87,10 +87,12 @@ Each terminal exit writes a BLAKE3-bound receipt and validates it with
 `training-platform-core validate-terminal-receipt`. Failed receipts identify
 the first failed stage. They mark all later stages as `not_observed`.
 
-The files in `evidence/2026-10-21T040555Z-dual-p150a-smoke/` are the current
+The files in `evidence/2026-10-28T181500Z-dual-p150a-smoke/` are the current
 admitted receipt: TT-KMD `2.10.0`, firmware `19.11.0.0`, two p150a cards,
 preflight, mesh open, one collective-free shard-map operation, mesh close, and
-restore. The earlier `evidence/2026-08-08-dual-p150a-smoke/` run is superseded
+restore. The `2026-10-21T040555Z` receipt is superseded because the packaged
+runtime authority and launch-plan identity changed; the hardware, driver, and
+firmware observations are unchanged. The earlier `2026-08-08` run is superseded
 because it was taken under the former `18.8.0.0` firmware authority.
 
 The files in `evidence/2026-08-04-dual-p150a-smoke/` are sanitized historical

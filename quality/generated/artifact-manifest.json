@@ -4124,6 +4124,12 @@
       "blake3": "87e7a98d011cdebd0ea7d7ed30bafbd0717b5c7ac8d9dc64a2dd18ffe8999049"
     },
     {
+      "path": "docs/research/nanbeige43-prefix-cache.md",
+      "class": "portable_evidence",
+      "byte_count": 12296,
+      "blake3": "fb8e42db5360191e01cefdb4c8d807c094524fd9fd8e8eb69dc01a4d0e8626bb"
+    },
+    {
       "path": "docs/research/qwen38-mlp-streaming-attribution.md",
       "class": "portable_evidence",
       "byte_count": 9472,
@@ -4426,8 +4432,8 @@
     {
       "path": "docs/research/training-platform-identity-review.md",
       "class": "portable_evidence",
-      "byte_count": 6835,
-      "blake3": "a5c7b54cb4730acddb9d8fc75e0cd7b609d0e3c83b849fd24111b51d054d2098"
+      "byte_count": 7710,
+      "blake3": "84751ae240a22c1ea34037161e2a14444151ad323a976693a13a31d15785e138"
     },
     {
       "path": "docs/research/verifier-boundary-follow-up.md",
@@ -6758,6 +6764,30 @@
       "blake3": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"
     },
     {
+      "path": "pkgs/training-platform/evidence/2026-10-28T181500Z-dual-p150a-smoke/preflight-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 191,
+      "blake3": "e82c576f2c70e72561d599635adbc45ac7e0f15661806e2b1f41bb08ff0e60f4"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-28T181500Z-dual-p150a-smoke/receipt-admission.json",
+      "class": "portable_evidence",
+      "byte_count": 43,
+      "blake3": "d8bf43a710ba1e3ce808453c8df90df9d9e8d54adad50cba05de7d81a0b3c7d2"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-28T181500Z-dual-p150a-smoke/receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 1201,
+      "blake3": "c7738fb03be9338ac17399e77d1e7a2fa1f5bd904e1ba828aeebc65b3cb5fd30"
+    },
+    {
+      "path": "pkgs/training-platform/evidence/2026-10-28T181500Z-dual-p150a-smoke/workload-summary.json",
+      "class": "portable_evidence",
+      "byte_count": 50,
+      "blake3": "3022a098de60aee7ddb1449d9882788f41024c54ad87c13bda5481d638b9ccc5"
+    },
+    {
       "path": "quality/generated/repository-quality.json",
       "class": "generated_source",
       "byte_count": 2869,
@@ -6766,8 +6796,8 @@
     {
       "path": "quality/generated/required-checks.json",
       "class": "generated_source",
-      "byte_count": 401,
-      "blake3": "ef494a95bf06aaf97a7d49deb8275260fe529e8781ef8eec798b3c8f18611ddb"
+      "byte_count": 509,
+      "blake3": "e83611107c6b27656d27776d8af4680b2c576fa765775f0b97bb1965e78a9d27"
     }
   ]
 }

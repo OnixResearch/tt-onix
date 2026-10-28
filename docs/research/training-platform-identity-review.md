@@ -89,3 +89,19 @@ Local evidence resides under `.pi/training-identity-review/` in the implementati
 One assistant performed three correlated analysis passes: identity drift, the package test contract, and validator behavior. The review found a valid rejection, not a route to full acceptance without new authority or evidence.
 
 Source owners are `pkgs/training-platform/core/src/lib.rs`, `pkgs/training-platform/default.nix`, and `.cairn/specs/dual-p150a-training-platform/spec.md`. The test suite uses the existing core, with no new dependency or copied cross-repository source.
+
+## Addendum (2026-10-28)
+
+The packaged runtime authority and launch-plan identity changed after the
+2026-10-21 smoke, so that receipt no longer satisfies current admission. A
+fresh bounded smoke ran on the current plan against the same two p150a cards,
+TT-KMD `2.10.0`, and firmware bundle `19.11.0.0`:
+
+- Receipt: `pkgs/training-platform/evidence/2026-10-28T181500Z-dual-p150a-smoke/receipt.json`
+- Bundle: `811f45d7f1ca54caf9cb694606c827ff901147e161a1b13949dfdecfe90df420`
+- Configuration: `53e9eaf71f511ab9c6dacc75848f2baf5fb281ff59391b9e9a685de3176ae658`
+- Launch plan: `aba87fc844fe33dab00da0c3311cdfb8c2e29f6c8afc7c6fce45433f9c14e97e`
+- Runtime authority: `67dafb7c11f9602906b9e1c70caae01be0bbc6720354ef2ad1dce7b56876d1ce`
+
+All seven stages passed. This remains a platform-readiness smoke, not a
+training-correctness, gradient, convergence, speedup, or thermal claim.

@@ -16,7 +16,9 @@ let
     url = "https://github.com/tenstorrent/tt-sw-manifest/releases/download/${goldenVersion}/golden.json";
     hash = "sha256-aqMv0Pj2YgDgcnKq9BkDOhgjz3XB4INp5IHiC/Gh5Kk=";
   };
-  goldenData = builtins.fromJSON (builtins.readFile golden);
+  # Literal fixtures for golden v4.0.0. Do not read `golden` at evaluation
+  # time: it is a fetchurl derivation, and aarch64 evaluation with --no-build
+  # cannot realize it.
   actual = builtins.toJSON {
     kmd = tt-kmd.version;
     smi = tt-smi.version;
@@ -26,28 +28,19 @@ let
     firmware = "not-pinned";
   };
   matching = builtins.toJSON {
-    inherit (goldenData)
-      kmd
-      smi
-      flash
-      sfpi
-      ;
-    metal = goldenData."metal-version";
+    kmd = "2.11.0";
+    smi = "6.7.0";
+    flash = "4.1.0";
+    sfpi = "7.71.0";
+    metal = "0.78.0";
   };
-  drifting = builtins.toJSON (
-    {
-      inherit (goldenData)
-        kmd
-        smi
-        flash
-        sfpi
-        ;
-      metal = goldenData."metal-version";
-    }
-    // {
-      kmd = "0.0.0";
-    }
-  );
+  drifting = builtins.toJSON {
+    kmd = "0.0.0";
+    smi = "6.7.0";
+    flash = "4.1.0";
+    sfpi = "7.71.0";
+    metal = "0.78.0";
+  };
 in
 stdenvNoCC.mkDerivation {
   pname = "golden-drift";

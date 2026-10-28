@@ -2,7 +2,6 @@
   lib,
   rustPlatform,
   fetchFromGitHub,
-  fetchurl,
   bash,
   coreutils,
 }:
@@ -22,12 +21,9 @@ rustPlatform.buildRustPackage rec {
     hash = "sha256-u2fv5kzVTo0GuuxVOvb8rkvYOo6gfr1ljzdXNeUFl9o=";
   };
 
-  # The tagged Cargo.lock is fetched rather than vendored in this repository so
-  # the lock file can never drift from the pinned source tree.
-  cargoLock.lockFile = fetchurl {
-    url = "https://raw.githubusercontent.com/tenstorrent/tt-toplike/v${version}/Cargo.lock";
-    hash = "sha256-VoeRRm7t+io91HR+xDjw3CCoNtTHPiBxVKPfhPKSdt8=";
-  };
+  # Vendored from the pinned v0.13.17 tag. Keeping it in the repository avoids
+  # an eval-time fetchurl dependency (aarch64 flake evaluation runs --no-build).
+  cargoLock.lockFile = ./Cargo.lock;
 
   # TUI only: the `tui` feature pulls ratatui/crossterm and nothing else. The
   # gui/egui/app frontends need a GPU-accelerated window stack, and the default

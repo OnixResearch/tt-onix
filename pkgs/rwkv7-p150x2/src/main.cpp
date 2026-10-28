@@ -1004,7 +1004,7 @@ public:
     // a (1, hidden) norm/bias vector whose height is below the tile height still
     // converts. The previous ROW_MAJOR -> to_layout(TILE) path demanded an
     // explicit 32-multiple height and aborted on every such vector.
-    const ttnn::TensorSpec spec(
+    const tt::tt_metal::TensorSpec spec(
         make_shape(shape),
         tt::tt_metal::TensorLayout(
             ttnn::DataType::BFLOAT16,
@@ -1023,7 +1023,7 @@ public:
         checked_element_count(shape, "host FLOAT32 tensor");
     require(values.size() == expected,
             "host FLOAT32 tensor size does not match its shape");
-    const ttnn::TensorSpec spec(
+    const tt::tt_metal::TensorSpec spec(
         make_shape(shape),
         tt::tt_metal::TensorLayout(
             ttnn::DataType::FLOAT32,
@@ -1041,7 +1041,7 @@ public:
         checked_element_count(shape, "host UINT32 tensor");
     require(values.size() == expected,
             "host UINT32 tensor size does not match its shape");
-    const ttnn::TensorSpec spec(
+    const tt::tt_metal::TensorSpec spec(
         make_shape(shape),
         tt::tt_metal::TensorLayout(
             ttnn::DataType::UINT32,
