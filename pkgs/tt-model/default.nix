@@ -4,6 +4,9 @@
 # r[impl tenstorrent.runtime_profile.record]
 # Read-only status, pure profile validation, and the active-record writer for the
 # runtime-profile registry. It ships the registry export beside its own script.
+# The name is intentionally `tt-model`: upstream tenstorrent/tt-model-manager is
+# a different product and will be wrapped as `tt-model-manager`; see
+# docs/tt-model-manager-name-and-bundle-mapping.md.
 #
 # The command is hardware tooling: it must never be wired into the device-free
 # quality gate, and its program text must not name a device node, tt-smi, or the

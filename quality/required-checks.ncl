@@ -18,5 +18,7 @@ let NonEmpty = std.contract.from_predicate (fun value =>
     "qwen36-authority-negative",
     "qwen36-nixos-service",
     "metalium-rs-rwkv7-tokenizer",
+    "faster-fifo",
+    "vllm-tt-plugin",
   ],
 }

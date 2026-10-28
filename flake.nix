@@ -52,11 +52,17 @@
           packages = {
             inherit (pkgs)
               enchantum
+              faster-fifo
+              golden-drift
               llama-cpp-metalium
               luwen
               nanobench
+              nvtop-tenstorrent
               qwen38-benchmark
               tt-burnin
+              tt-perf-report
+              tt-toplike
+              vllm-tt-plugin
               tt-logger
               tt-metal
               tt-smi
@@ -81,7 +87,14 @@
               qwen38-trace-reuse-host1
               qwen36-trace-reuse-host1
               tenstorrent-eval-tools
+              tt-npe
               ;
+          };
+
+          apps.golden-drift = {
+            type = "app";
+            program = "${pkgs.golden-drift}/bin/golden-drift";
+            meta.description = "Report drift against tt-sw-manifest golden.json";
           };
 
           apps.qwen38-benchmark = {
@@ -99,11 +112,17 @@
           checks = {
             inherit (pkgs)
               enchantum
+              faster-fifo
+              golden-drift
               llama-cpp-metalium
               luwen
               nanobench
+              nvtop-tenstorrent
               qwen38-benchmark
               tt-burnin
+              tt-perf-report
+              tt-toplike
+              vllm-tt-plugin
               tt-logger
               tt-metal
               tt-smi
@@ -115,6 +134,14 @@
               tenstorrent-official-skills
               ttsim-runtime-validator
               ;
+            golden-drift-report =
+              pkgs.runCommand "golden-drift-report"
+                {
+                  nativeBuildInputs = [ pkgs.golden-drift ];
+                }
+                ''
+                  golden-drift --json | tee "$out"
+                '';
             ttsim-runtime-bundle = pkgs.ttsim-check;
             ttsim-single-chip-smoke = pkgs.ttsim-smoke-check;
             ttsim-gdn-reference-smoke = pkgs.ttsim-gdn-smoke-check;
@@ -131,7 +158,9 @@
               qwen38-trace-reuse-host1
               qwen36-trace-reuse-host1
               tenstorrent-eval-tools
+              tt-npe
               ;
+            tt-npe-example-blackhole = pkgs.tt-npe.passthru.tests.example-blackhole;
           };
         };
     };

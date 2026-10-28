@@ -980,6 +980,8 @@
           qwen36-authority-negative = qwen36AuthorityNegativeCheck;
           qwen36-nixos-service = qwenServiceCheck;
           metalium-rs-rwkv7-tokenizer = metaliumRsTokenizerCheck;
+          faster-fifo = pkgs.faster-fifo;
+          vllm-tt-plugin = pkgs.vllm-tt-plugin;
         };
       };
       requiredPackageInventoryValid = import ../checks/required-package-checks-test.nix {
@@ -1105,6 +1107,11 @@
           pkgs.rustfmt
           pkgs.shellcheck
           pkgs.tt-smi
+          pkgs.tt-npe
+          pkgs.tt-perf-report
+          pkgs.tt-toplike
+          pkgs.nvtop-tenstorrent
+          pkgs.golden-drift
           trainingPlatform.core
           trainingPlatform.tools
         ];

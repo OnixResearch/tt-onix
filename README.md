@@ -82,6 +82,10 @@ host binaries, kernels, and dependencies from the store.
 
 See [Model target consumer identities](docs/model-target-consumer-identities.md)
 for the canonical profile edit, regeneration, and freshness workflow.
+See [tt-model naming and tt-model-manager bundle mapping](docs/tt-model-manager-name-and-bundle-mapping.md)
+for the decision to keep `tt-model` and the v6 manifest field gaps.
+See [tt-gozer lease and reconciliation design](docs/tt-gozer-lease-reconciliation.md)
+for the stale-owner boundary and the DMA-BUF caveat.
 
 See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
 metadata-only profile, bounded simulator verdict, and explicit non-claims.
@@ -119,6 +123,8 @@ read traces, and measured accuracy and latency.
 See [the Qwen serving benchmark](docs/qwen38-benchmark.md) for the repeatable
 frozen-corpus comparison against any OpenAI-compatible endpoint, including
 vLLM, and `nix run .#qwen38-benchmark`.
+See [the Thatch-cloud playbook comparison](docs/thatch-qwen38-comparison.md)
+for the gotchas already applied, worth trying, and the blocked ttsim replay.
 
 See [Cloudflare Clef on Tenstorrent](docs/clef-tenstorrent.md) for the
 separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
@@ -423,6 +429,19 @@ records an actual forced gRPC build, not a local fallback or connectivity probe.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution and evidence policy.
 
+`golden-drift` compares the packaged kmd, smi, flash, sfpi and tt-metal versions
+with the pinned `tt-sw-manifest` `golden.json` v4.0.0 release. It reports
+without failing by default; `--strict` exits 1 when a compared component drifts.
+Firmware is reported as expected `19.15.0`, documented-only and not pinned.
+
+```sh
+nix run .#golden-drift
+nix run .#golden-drift -- --strict
+```
+
+See [the golden drift record](docs/tt-sw-manifest-drift.md) for the current
+table, firmware 19.15.0, and the coordinated bump blockers.
+
 ## Onix packages
 
 The flake publishes host-matched `ttsim` runtime bundles on `x86_64-linux` and `aarch64-linux`.
@@ -463,6 +482,40 @@ reduced-precision simulation promotes arithmetic to float32; use upstream
 `--no-float32-promotion` when investigating native dtype behavior, and still
 require silicon qualification. The bounded receipt is in
 [the integration Cairn change](.cairn/changes/isolated-tt-lang-sim-official-skills/).
+
+### Profiler and monitoring tools
+
+`tt-perf-report` reads a tt-metal profiler CSV export:
+
+```sh
+nix run .#tt-perf-report -- --ignore-signposts --no-summary \
+  --csv report.csv ops_perf_results_*.csv
+```
+
+`tt-toplike` is the TUI-only build of Tenstorrent's live telemetry monitor;
+`nvtop-tenstorrent` tracks nvtop master with `TENSTORRENT_SUPPORT=ON` because
+the Tenstorrent backend is not in the 3.3.2 release nixpkgs carries.
+`tt-npe` estimates NoC traffic for the blackhole and wormhole_b0 models and is
+also exposed through `tenstorrent-eval-tools`.
+
+```sh
+nix run .#tt-toplike -- --help
+nix run .#nvtop-tenstorrent -- --version
+nix run .#tt-npe -- --help
+```
+
+For a GDN decode operation, use the tt-metal profiler's NoC capture and then
+the packaged analyzer. This is the upstream workflow; it was not run as part of
+the package check:
+
+```sh
+tt-metal/tools/tracy/profile_this.py --collect-noc-traces \
+  -c '<bounded qwen38 decode command>' -o /tmp/gdn-noc
+nix run .#tt-npe -- npe_analyze_noc_trace_dir /tmp/gdn-noc/.logs/ -e
+```
+
+The example above needs an actual device and the package-matched profiler; the
+device-free check only runs the bundled blackhole workload.
 
 `tenstorrent-official-skills` pins the official
 [`tenstorrent/skills`](https://github.com/tenstorrent/skills/tree/b6752095f329a04bf6573fb4022b13bc45799167)

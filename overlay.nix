@@ -1,10 +1,20 @@
 final: prev: {
   enchantum = final.callPackage ./pkgs/enchantum { };
+  golden-drift = final.callPackage ./pkgs/golden-drift {
+    tt-flash = final.python3Packages.tt-flash;
+    tt-kmd = final.linuxPackages.tt-kmd;
+  };
   llama-cpp-metalium = final.callPackage ./pkgs/llama-cpp-metalium { };
   luwen = final.callPackage ./pkgs/luwen { };
   tt-metal-tracy-tools = final.callPackage ./pkgs/tt-metal-tracy-tools { };
   nanbeige43 = final.callPackage ./pkgs/nanbeige43 { };
+  nvtop-tenstorrent = final.callPackage ./pkgs/nvtop-tenstorrent { };
   qwen38 = final.callPackage ./pkgs/qwen36 { };
+  tt-npe = final.callPackage ./pkgs/tt-npe { };
+  tt-perf-report = final.callPackage ./pkgs/tt-perf-report { };
+  tt-toplike = final.callPackage ./pkgs/tt-toplike { };
+  vllm-tt-plugin = final.callPackage ./pkgs/vllm-tt-plugin { };
+  faster-fifo = final.callPackage ./pkgs/faster-fifo { };
   qwen38-benchmark = final.callPackage ./pkgs/qwen38-benchmark { };
   qwen38-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   # Compatibility aliases. The checkpoint is Qwen3.8-27B, not Qwen3.6.

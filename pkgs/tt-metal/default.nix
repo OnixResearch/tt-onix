@@ -221,6 +221,10 @@ stdenv.mkDerivation (
       "ttnn"
     ];
 
+    passthru = {
+      sfpiVersion = finalAttrs.sfpi.version;
+    };
+
     meta = {
       description = "TT-NN operator library, and TT-Metalium low level kernel programming model";
       homepage = "https://github.com/tenstorrent/tt-metal";
