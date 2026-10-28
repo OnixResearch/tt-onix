@@ -86,6 +86,8 @@ See [tt-model naming and tt-model-manager bundle mapping](docs/tt-model-manager-
 for the decision to keep `tt-model` and the v6 manifest field gaps.
 See [tt-gozer lease and reconciliation design](docs/tt-gozer-lease-reconciliation.md)
 for the stale-owner boundary and the DMA-BUF caveat.
+See [the TTWKV7 decode composition contract](docs/ttwkv7-decode-composition.md)
+for the source-bound reader/compute/writer check and its limits.
 
 See [Qwen3.6-A3B candidate target](docs/qwen3-6-a3b-candidate.md) for the
 metadata-only profile, bounded simulator verdict, and explicit non-claims.

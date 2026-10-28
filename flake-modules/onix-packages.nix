@@ -854,6 +854,11 @@
       rwkvTtwkv7DecodeReaderCheck = ttwkv7Pkgs.callPackage ../pkgs/ttwkv7/rwkv-decode-reader-check.nix {
         inherit rwkvLayerHarness ttwkv7;
       };
+      rwkvTtwkv7DecodeCompositionCheck =
+        ttwkv7Pkgs.callPackage ../pkgs/ttwkv7/decode-composition-check.nix
+          {
+            inherit rwkvLayerHarness ttwkv7;
+          };
       rwkvTtwkv7PersistentDispatchTransportCheck =
         ttwkv7Pkgs.callPackage ../pkgs/ttwkv7/rwkv-persistent-dispatch-transport-check.nix
           {
@@ -983,6 +988,7 @@
           faster-fifo = pkgs.faster-fifo;
           vllm-tt-plugin = pkgs.vllm-tt-plugin;
           ttsim-qwen-gdn-replay = pkgs.ttsim-qwen-gdn-replay;
+          rwkv-ttwkv7-decode-composition = rwkvTtwkv7DecodeCompositionCheck;
         };
       };
       requiredPackageInventoryValid = import ../checks/required-package-checks-test.nix {
@@ -1388,6 +1394,7 @@
         ttwkv7-architectures = ttwkv7.passthru.architectureCheck;
         rwkv-ttwkv7-host-layout = rwkvTtwkv7HostLayoutCheck;
         rwkv-ttwkv7-decode-reader = rwkvTtwkv7DecodeReaderCheck;
+        rwkv-ttwkv7-decode-composition = rwkvTtwkv7DecodeCompositionCheck;
         rwkv-ttwkv7-boundary-device = rwkvTtwkv7BoundaryDeviceCheck;
         tt-vibethinker-bench-package = ttVibeThinkerBench;
         ttsim-package = ttsim;

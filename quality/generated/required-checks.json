@@ -15,7 +15,8 @@
     "metalium-rs-rwkv7-tokenizer",
     "faster-fifo",
     "vllm-tt-plugin",
-    "ttsim-qwen-gdn-replay"
+    "ttsim-qwen-gdn-replay",
+    "rwkv-ttwkv7-decode-composition"
   ],
   "schema_version": 1
 }

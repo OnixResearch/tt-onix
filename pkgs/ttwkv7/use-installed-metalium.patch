@@ -1,6 +1,6 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -5,57 +5,30 @@
+@@ -5,57 +5,35 @@
  set(CMAKE_CXX_STANDARD 20)
  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
  
@@ -77,7 +77,12 @@
 +target_compile_options(wkv7-rwkv-decode-reader-validator PRIVATE -Wall -Wextra -Wpedantic -Werror)
 +target_link_libraries(wkv7-rwkv-decode-reader-validator PRIVATE BLAKE3::blake3 TT::Metalium)
 +
++add_executable(wkv7-decode-composition-validator decode-composition-validator.cpp)
++target_compile_options(wkv7-decode-composition-validator PRIVATE -Wall -Wextra -Wpedantic -Werror)
++target_link_libraries(wkv7-decode-composition-validator PRIVATE TT::Metalium)
++
 +install(TARGETS wkv7 wkv7-constant-probe wkv7-data-movement-probe
 +        wkv7-rwkv-host-layout-validator wkv7-rwkv-decode-reader-validator
++        wkv7-decode-composition-validator
 +        RUNTIME DESTINATION libexec/ttwkv7)
 +install(DIRECTORY kernels DESTINATION share/ttwkv7)

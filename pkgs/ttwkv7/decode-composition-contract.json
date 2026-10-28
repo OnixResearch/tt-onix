@@ -1,0 +1,799 @@
+{
+  "schema_version": 1,
+  "target": "ttwkv7-decode-composition",
+  "fixture": {
+    "schema_version": 1,
+    "layer_index": 0,
+    "dimensions": {
+      "head_count": 12,
+      "head_size": 64,
+      "hidden_size": 768,
+      "intermediate_size": 3072
+    },
+    "sequence_count": 1,
+    "token_count": 1,
+    "input_order": [
+      "a",
+      "w",
+      "k",
+      "v",
+      "r",
+      "b"
+    ]
+  },
+  "tile": {
+    "width": 32,
+    "height": 32,
+    "element_bytes": 2,
+    "page_bytes": 2048,
+    "format": "Float16_b",
+    "runner_tile_constant": "constexpr uint32_t TW = 32, TH = 32;",
+    "host_page_allocation": "const uint32_t ts = sizeof(bfloat16) * TW * TH;",
+    "host_config": "CircularBufferConfig(n * ts, {{cb, tt::DataFormat::Float16_b}}).set_page_size(cb, ts);",
+    "host_create": "CreateCircularBuffer(p, cr, c);"
+  },
+  "abi": {
+    "constants": {
+      "kTileWidth": 32,
+      "kMaximumTokenCount": 32,
+      "kDecodeInstancePack": 4,
+      "kDecodeReaderChunkCount": 1,
+      "kDecodeTokensPerChunk": 1,
+      "kDecodeInstancesPerGroup": 1,
+      "kInputCount": 6,
+      "kReaderArgumentCount": 18,
+      "kComputeArgumentCount": 8,
+      "kWriterArgumentCount": 12
+    },
+    "reader_arguments": [
+      "HeadCount",
+      "TokenCount",
+      "TilesPerHeadDimension",
+      "HeadTileRows",
+      "SequenceCount",
+      "Input0",
+      "Input1",
+      "Input2",
+      "Input3",
+      "Input4",
+      "Input5",
+      "State",
+      "TokenCountCompatibility",
+      "SelectorUnused",
+      "ConstantsUnused",
+      "ChunkCount",
+      "InstanceStart",
+      "InstanceEnd"
+    ],
+    "compute_arguments": [
+      "TilesPerHeadDimension",
+      "InstanceCount",
+      "TokenCount",
+      "HeadTileRows",
+      "ChunkCount",
+      "InstanceStart",
+      "InstanceEnd",
+      "InstancePack"
+    ],
+    "writer_arguments": [
+      "Output",
+      "InstanceStart",
+      "InstanceEnd",
+      "InstanceCount",
+      "ChunkCount",
+      "HeadCount",
+      "TilesPerHeadDimension",
+      "ChannelTileCount",
+      "TokenRows",
+      "RealTokenCount",
+      "TokensPerChunk",
+      "InstancesPerGroup"
+    ],
+    "static_asserts": [
+      "static_assert(index(ReaderArgument::InstanceEnd) + 1 == kReaderArgumentCount);",
+      "static_assert(index(ComputeArgument::InstancePack) + 1 == kComputeArgumentCount);",
+      "static_assert(index(WriterArgument::InstancesPerGroup) + 1 == kWriterArgumentCount);"
+    ]
+  },
+  "runtime_arguments": {
+    "reader": {
+      "count": 18,
+      "unbound": [],
+      "bindings": [
+        {
+          "index": 0,
+          "variable": "H",
+          "meaning": "HeadCount"
+        },
+        {
+          "index": 1,
+          "variable": "L",
+          "meaning": "TokenCount"
+        },
+        {
+          "index": 2,
+          "variable": "St",
+          "meaning": "TilesPerHeadDimension"
+        },
+        {
+          "index": 3,
+          "variable": "Ht",
+          "meaning": "HeadTileRows"
+        },
+        {
+          "index": 4,
+          "variable": "G",
+          "meaning": "SequenceCount"
+        },
+        {
+          "index": 11,
+          "variable": "st_addr",
+          "meaning": "State"
+        },
+        {
+          "index": 12,
+          "variable": "selh_addr",
+          "meaning": "TokenCountCompatibility"
+        },
+        {
+          "index": 13,
+          "variable": "sels_addr",
+          "meaning": "SelectorUnused"
+        },
+        {
+          "index": 14,
+          "variable": "cst_addr",
+          "meaning": "ConstantsUnused"
+        },
+        {
+          "index": 15,
+          "variable": "nc",
+          "meaning": "ChunkCount"
+        },
+        {
+          "index": 16,
+          "variable": "inst_start",
+          "meaning": "InstanceStart"
+        },
+        {
+          "index": 17,
+          "variable": "inst_end",
+          "meaning": "InstanceEnd"
+        }
+      ],
+      "assignments": [
+        {
+          "index": 0,
+          "argument": "HeadCount",
+          "expression": "config.head_count"
+        },
+        {
+          "index": 1,
+          "argument": "TokenCount",
+          "expression": "config.token_count"
+        },
+        {
+          "index": 2,
+          "argument": "TilesPerHeadDimension",
+          "expression": "config.tiles_per_head_dimension"
+        },
+        {
+          "index": 3,
+          "argument": "HeadTileRows",
+          "expression": "config.head_tile_rows"
+        },
+        {
+          "index": 4,
+          "argument": "SequenceCount",
+          "expression": "config.sequence_count"
+        },
+        {
+          "index": 5,
+          "argument": "Input0",
+          "expression": "addresses.inputs[input]"
+        },
+        {
+          "index": 11,
+          "argument": "State",
+          "expression": "addresses.state"
+        },
+        {
+          "index": 12,
+          "argument": "TokenCountCompatibility",
+          "expression": "config.token_count"
+        },
+        {
+          "index": 13,
+          "argument": "SelectorUnused",
+          "expression": "0"
+        },
+        {
+          "index": 14,
+          "argument": "ConstantsUnused",
+          "expression": "0"
+        },
+        {
+          "index": 15,
+          "argument": "ChunkCount",
+          "expression": "kDecodeReaderChunkCount"
+        },
+        {
+          "index": 16,
+          "argument": "InstanceStart",
+          "expression": "instance_start"
+        },
+        {
+          "index": 17,
+          "argument": "InstanceEnd",
+          "expression": "instance_end"
+        }
+      ],
+      "input_loop": {
+        "first_index": 5,
+        "count": 6,
+        "variable": "in_addr",
+        "expression": "addresses.inputs[input]"
+      }
+    },
+    "compute": {
+      "count": 8,
+      "unbound": [
+        7
+      ],
+      "bindings": [
+        {
+          "index": 0,
+          "variable": "St",
+          "meaning": "TilesPerHeadDimension"
+        },
+        {
+          "index": 1,
+          "variable": "IC",
+          "meaning": "InstanceCount"
+        },
+        {
+          "index": 2,
+          "variable": "L",
+          "meaning": "TokenCount"
+        },
+        {
+          "index": 3,
+          "variable": "Ht",
+          "meaning": "HeadTileRows"
+        },
+        {
+          "index": 4,
+          "variable": "nc",
+          "meaning": "ChunkCount"
+        },
+        {
+          "index": 5,
+          "variable": "inst_lo",
+          "meaning": "InstanceStart"
+        },
+        {
+          "index": 6,
+          "variable": "inst_hi",
+          "meaning": "InstanceEnd"
+        }
+      ],
+      "assignments": [
+        {
+          "index": 0,
+          "argument": "TilesPerHeadDimension",
+          "expression": "config.tiles_per_head_dimension"
+        },
+        {
+          "index": 1,
+          "argument": "InstanceCount",
+          "expression": "*instance_count"
+        },
+        {
+          "index": 2,
+          "argument": "TokenCount",
+          "expression": "config.token_count"
+        },
+        {
+          "index": 3,
+          "argument": "HeadTileRows",
+          "expression": "config.head_tile_rows"
+        },
+        {
+          "index": 4,
+          "argument": "ChunkCount",
+          "expression": "kDecodeReaderChunkCount"
+        },
+        {
+          "index": 5,
+          "argument": "InstanceStart",
+          "expression": "instance_start"
+        },
+        {
+          "index": 6,
+          "argument": "InstanceEnd",
+          "expression": "instance_end"
+        },
+        {
+          "index": 7,
+          "argument": "InstancePack",
+          "expression": "kDecodeInstancePack"
+        }
+      ]
+    },
+    "writer": {
+      "count": 12,
+      "unbound": [],
+      "bindings": [
+        {
+          "index": 0,
+          "variable": "dst_addr",
+          "meaning": "Output"
+        },
+        {
+          "index": 1,
+          "variable": "inst_lo",
+          "meaning": "InstanceStart"
+        },
+        {
+          "index": 2,
+          "variable": "inst_hi",
+          "meaning": "InstanceEnd"
+        },
+        {
+          "index": 3,
+          "variable": "IC",
+          "meaning": "InstanceCount"
+        },
+        {
+          "index": 4,
+          "variable": "nc",
+          "meaning": "ChunkCount"
+        },
+        {
+          "index": 5,
+          "variable": "H",
+          "meaning": "HeadCount"
+        },
+        {
+          "index": 6,
+          "variable": "St",
+          "meaning": "TilesPerHeadDimension"
+        },
+        {
+          "index": 7,
+          "variable": "Ct",
+          "meaning": "ChannelTileCount"
+        },
+        {
+          "index": 8,
+          "variable": "T",
+          "meaning": "TokenRows"
+        },
+        {
+          "index": 9,
+          "variable": "Lr",
+          "meaning": "RealTokenCount"
+        },
+        {
+          "index": 10,
+          "variable": "tpc",
+          "meaning": "TokensPerChunk"
+        },
+        {
+          "index": 11,
+          "variable": "NB",
+          "meaning": "InstancesPerGroup"
+        }
+      ],
+      "assignments": [
+        {
+          "index": 0,
+          "argument": "Output",
+          "expression": "addresses.output"
+        },
+        {
+          "index": 1,
+          "argument": "InstanceStart",
+          "expression": "instance_start"
+        },
+        {
+          "index": 2,
+          "argument": "InstanceEnd",
+          "expression": "instance_end"
+        },
+        {
+          "index": 3,
+          "argument": "InstanceCount",
+          "expression": "*instance_count"
+        },
+        {
+          "index": 4,
+          "argument": "ChunkCount",
+          "expression": "config.token_count"
+        },
+        {
+          "index": 5,
+          "argument": "HeadCount",
+          "expression": "config.head_count"
+        },
+        {
+          "index": 6,
+          "argument": "TilesPerHeadDimension",
+          "expression": "config.tiles_per_head_dimension"
+        },
+        {
+          "index": 7,
+          "argument": "ChannelTileCount",
+          "expression": "config.channel_tile_count"
+        },
+        {
+          "index": 8,
+          "argument": "TokenRows",
+          "expression": "*token_rows"
+        },
+        {
+          "index": 9,
+          "argument": "RealTokenCount",
+          "expression": "config.token_count"
+        },
+        {
+          "index": 10,
+          "argument": "TokensPerChunk",
+          "expression": "kDecodeTokensPerChunk"
+        },
+        {
+          "index": 11,
+          "argument": "InstancesPerGroup",
+          "expression": "kDecodeInstancesPerGroup"
+        }
+      ]
+    },
+    "fixture_probe": {
+      "head_count": 12,
+      "head_size": 64,
+      "sequence_count": 1,
+      "token_count": 1,
+      "instance_start": 0,
+      "instance_end": 12,
+      "addresses": {
+        "inputs": [
+          4096,
+          8192,
+          12288,
+          16384,
+          20480,
+          24576
+        ],
+        "state": 28672,
+        "output": 32768
+      }
+    },
+    "distinct_probe": {
+      "head_count": 5,
+      "head_size": 64,
+      "sequence_count": 2,
+      "token_count": 3,
+      "instance_start": 2,
+      "instance_end": 8,
+      "addresses": {
+        "inputs": [
+          100,
+          200,
+          300,
+          400,
+          500,
+          600
+        ],
+        "state": 700,
+        "output": 800
+      }
+    },
+    "expected": {
+      "fixture": {
+        "reader": [
+          12,
+          1,
+          2,
+          1,
+          1,
+          4096,
+          8192,
+          12288,
+          16384,
+          20480,
+          24576,
+          28672,
+          1,
+          0,
+          0,
+          1,
+          0,
+          12
+        ],
+        "compute": [
+          2,
+          12,
+          1,
+          1,
+          1,
+          0,
+          12,
+          4
+        ],
+        "writer": [
+          32768,
+          0,
+          12,
+          12,
+          1,
+          12,
+          2,
+          24,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "distinct": {
+        "reader": [
+          5,
+          3,
+          2,
+          1,
+          2,
+          100,
+          200,
+          300,
+          400,
+          500,
+          600,
+          700,
+          3,
+          0,
+          0,
+          1,
+          2,
+          8
+        ],
+        "compute": [
+          2,
+          10,
+          3,
+          1,
+          1,
+          2,
+          8,
+          4
+        ],
+        "writer": [
+          800,
+          2,
+          8,
+          10,
+          3,
+          5,
+          2,
+          10,
+          6,
+          3,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "circular_buffers": {
+    "aliases": [
+      {
+        "index": 21,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_natstage"
+          },
+          {
+            "stage": "compute",
+            "name": "c_natstage"
+          }
+        ],
+        "direction": "reader->compute"
+      },
+      {
+        "index": 16,
+        "participants": [
+          {
+            "stage": "compute",
+            "name": "cb_out"
+          },
+          {
+            "stage": "writer",
+            "name": "cb_out"
+          }
+        ],
+        "direction": "compute->writer"
+      },
+      {
+        "index": 22,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_dram_read_scratch"
+          }
+        ],
+        "direction": "reader-local"
+      },
+      {
+        "index": 28,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_ident"
+          },
+          {
+            "stage": "compute",
+            "name": "cb_ident"
+          }
+        ],
+        "direction": "declared-reserved"
+      },
+      {
+        "index": 7,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_tri"
+          }
+        ],
+        "direction": "reader-reserved"
+      },
+      {
+        "index": 19,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_maskSL"
+          }
+        ],
+        "direction": "reader-reserved"
+      },
+      {
+        "index": 20,
+        "participants": [
+          {
+            "stage": "reader",
+            "name": "c_maskLI"
+          }
+        ],
+        "direction": "reader-reserved"
+      }
+    ],
+    "exclusive": [
+      {
+        "index": 22,
+        "stage": "reader",
+        "name": "c_dram_read_scratch"
+      }
+    ],
+    "decode_statements": [
+      "for (int i = 0; i < 6; i++) MakeCB(prog, core, (CB)(CB::c_0 + i), P * St);",
+      "MakeCB(prog, core, CB::c_6, P * NS);",
+      "MakeCB(prog, core, CB::c_7, 1);",
+      "MakeCB(prog, core, CB::c_8, P * St); MakeCB(prog, core, CB::c_9, P * NS); MakeCB(prog, core, CB::c_10, P * St);",
+      "MakeCB(prog, core, CB::c_11, St); MakeCB(prog, core, CB::c_12, 2); MakeCB(prog, core, CB::c_13, 2);",
+      "MakeCB(prog, core, CB::c_14, 2); MakeCB(prog, core, CB::c_15, 2); MakeCB(prog, core, CB::c_16, (St + NS) * 2);",
+      "MakeCB(prog, core, CB::c_17, 2); MakeCB(prog, core, CB::c_18, 2); MakeCB(prog, core, CB::c_19, 1); MakeCB(prog, core, CB::c_20, 1);",
+      "MakeCB(prog, core, CB::c_21, 32u);",
+      "MakeCB(prog, core, CB::c_22, 2u);",
+      "MakeCB(prog, core, CB::c_23, 2); MakeCB(prog, core, CB::c_24, 2); MakeCB(prog, core, CB::c_25, 2); MakeCB(prog, core, CB::c_26, 2); MakeCB(prog, core, CB::c_27, 2);",
+      "MakeCB(prog, core, CB::c_28, 4); MakeCB(prog, core, CB::c_29, NBg * NS); MakeCB(prog, core, CB::c_30, St * 2); MakeCB(prog, core, CB::c_31, St * 2);"
+    ],
+    "capacity": [
+      {
+        "index": 21,
+        "role": "staging",
+        "expected_tiles": 32,
+        "minimum_tiles": 4
+      },
+      {
+        "index": 22,
+        "role": "scratch",
+        "expected_tiles": 2,
+        "minimum_tiles": 1
+      }
+    ]
+  },
+  "tile_flow": {
+    "reader": {
+      "staging": "c_natstage",
+      "scratch": "c_dram_read_scratch"
+    },
+    "compute": {
+      "output": "cb_out"
+    },
+    "writer": {}
+  },
+  "layout": {
+    "reader": [
+      "const uint32_t soff0 = (lh / 16) * 1024 + (lh % 16) * 32;",
+      "const uint32_t ssoff0 = (srow / 16) * 1024 + (srow % 16) * 32;",
+      "const uint32_t ssoff1 = ssoff0 + 512;",
+      "uint32_t src_page = (sq / 32) * tpr + h * (NS * 32) + i * St + jt;",
+      "uint32_t base = (sq * L + t) * Ht * St + ht * St;",
+      "uint32_t src_page = base + st;",
+      "tilebase + 512",
+      "ttwkv7::read_dram_face_row("
+    ],
+    "compute": [
+      "constexpr bool TR[6] = {true, false, false, true, true, false};",
+      "constexpr bool MASK[6] = {true, false, true, true, false, true};",
+      "pack_tile(it, cb_out, it);",
+      "pack_tile(t, cb_out, St + t);"
+    ],
+    "writer": [
+      "noc_async_write_page((sq * nc + cc) * Ct + h * St + st, dst, rp + st * tb);",
+      "uint32_t page = (tg / 32) * Ct + h * St + st;",
+      "uint32_t R = T + S * sq + (h * S + glob_i) / H;",
+      "uint32_t page = (R / 32) * Ct + col_base / 32;"
+    ],
+    "host": [
+      "constexpr uint32_t TW = 32, TH = 32;",
+      "MakeCB(prog, core, CB::c_16, (St + NS) * 2);",
+      "MakeCB(prog, core, CB::c_21, 32u);",
+      "MakeCB(prog, core, CB::c_22, 2u);"
+    ]
+  },
+  "host": {
+    "required": [
+      "#include \"ttwkv7-decode-abi.h\"",
+      "constexpr uint32_t P = ttwkv7::decode_abi::kDecodeInstancePack;",
+      "ttwkv7::decode_abi::DecodeAddresses decode_addresses{};",
+      "decode_addresses.state = (uint32_t)buf_natst->address();",
+      "decode_addresses.output = (uint32_t)buf_out->address();",
+      "const ttwkv7::decode_abi::DecodeConfig decode_config{",
+      ".head_count = (uint32_t)H,",
+      ".tiles_per_head_dimension = St,",
+      ".head_tile_rows = Ht,",
+      ".sequence_count = (uint32_t)G,",
+      ".token_count = (uint32_t)L,",
+      ".channel_tile_count = Ct,",
+      "const auto arguments = ttwkv7::decode_abi::make_decode_runtime_arguments(",
+      "if (!arguments) throw std::logic_error(\"decode runtime arguments are invalid\");"
+    ],
+    "forbidden": [
+      "std::vector<uint32_t>{St, IC, (uint32_t)cl, Ht, nc, inst_start, inst_end, P}"
+    ]
+  },
+  "stages": [
+    {
+      "name": "abi_header",
+      "role": "interface",
+      "revision": 1,
+      "fingerprint": "2898af9e2c578078"
+    },
+    {
+      "name": "host",
+      "role": "producer",
+      "revision": 1,
+      "fingerprint": "9fa0e9b8368f6885"
+    },
+    {
+      "name": "decode_reader",
+      "role": "producer",
+      "revision": 1,
+      "fingerprint": "d3111d60144f2aab"
+    },
+    {
+      "name": "decode_compute",
+      "role": "consumer-producer",
+      "revision": 1,
+      "fingerprint": "4d03e6a109e5505b"
+    },
+    {
+      "name": "decode_writer",
+      "role": "consumer",
+      "revision": 1,
+      "fingerprint": "ce4c56d63ca03382"
+    }
+  ]
+}

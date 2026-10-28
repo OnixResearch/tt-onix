@@ -20,6 +20,7 @@ let
   dataMovementRuntimeExecutable = "$out/libexec/ttwkv7/wkv7-data-movement-runtime";
   rwkvHostLayoutExecutable = "$out/libexec/ttwkv7/wkv7-rwkv-host-layout-validator";
   rwkvDecodeReaderExecutable = "$out/libexec/ttwkv7/wkv7-rwkv-decode-reader-validator";
+  rwkvDecodeCompositionExecutable = "$out/libexec/ttwkv7/wkv7-decode-composition-validator";
   primaryCommand = "wkv7";
   aliasCommand = "ttwkv7";
   probeCommand = "wkv7-constant-probe";
@@ -174,6 +175,7 @@ stdenvNoCC.mkDerivation {
     ln -s ${binaries}/libexec/ttwkv7/wkv7-data-movement-probe ${dataMovementExecutable}
     ln -s ${binaries}/libexec/ttwkv7/wkv7-rwkv-host-layout-validator ${rwkvHostLayoutExecutable}
     ln -s ${binaries}/libexec/ttwkv7/wkv7-rwkv-decode-reader-validator ${rwkvDecodeReaderExecutable}
+    ln -s ${binaries}/libexec/ttwkv7/wkv7-decode-composition-validator ${rwkvDecodeCompositionExecutable}
     ln -s ${kernels}/share/ttwkv7/kernels ${packageKernelDirectory}
     ln -s ${binaries}/share/ttwkv7/source ${packageSourceDirectory}
 
