@@ -441,6 +441,8 @@ nix run .#golden-drift -- --strict
 
 See [the golden drift record](docs/tt-sw-manifest-drift.md) for the current
 table, firmware 19.15.0, and the coordinated bump blockers.
+See [the NVMe DMA-BUF feasibility report](docs/nvme-dmabuf-feasibility.md) for
+the blocked kernel-UAPI result and the ownership boundary.
 
 ## Onix packages
 
