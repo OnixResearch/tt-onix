@@ -6560,6 +6560,18 @@
       "blake3": "11288cecce8aa47a8308d605ade20de9b4e4295f65d0627b12c6a3ebdae4a109"
     },
     {
+      "path": "pkgs/qwen36/evidence/2026-10-28/qwen38-continuous-slot-admission-b8-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 5288,
+      "blake3": "1c92aec7f96c295e5128ae7322157682e7376b087f31de9b697a82324c640390"
+    },
+    {
+      "path": "pkgs/qwen36/evidence/2026-10-28/qwen38-prefix-cache-admission-receipt.json",
+      "class": "portable_evidence",
+      "byte_count": 4152,
+      "blake3": "2def4d0e128a1118305aedec139fac6469a83af50a8ea45dd18c15bd335ddb42"
+    },
+    {
       "path": "pkgs/rwkv-ttwkv7-persistent-passed-evidence/fixtures/ttwkv7-persistent-device-4/artifact/transcript.bin",
       "class": "large_fixture",
       "byte_count": 4981056,

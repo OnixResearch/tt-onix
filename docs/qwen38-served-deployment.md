@@ -1,5 +1,10 @@
 # The served Qwen deployment on britton-desktop
 
+> The TT-Metal 0.78 package re-earned both deploy-required receipts on
+> 2026-10-28. The deploy guard accepts them, but the NixOS owner is masked, so
+> the served symlink was not moved. See
+> [the 0.78 re-admission record](qwen38-0.78-readmission.md).
+
 The service on `127.0.0.1:8000` runs the Qwen3.8-27B package that the repository
 builds, through the managed drop-in and the named Nix profile. This note is the
 standing procedure for moving it, so that a package change does not need a hand-run
