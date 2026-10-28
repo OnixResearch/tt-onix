@@ -296,6 +296,13 @@ stdenvNoCC.mkDerivation {
     # dangling links so the installed tree is self-contained.
     find "$out/lib/python${python3.pythonVersion}/site-packages/models" \
       -type l ! -exec test -e {} \; -delete
+    # Upstream keeps the repository-level `infra` package beside `models/`,
+    # but the installed tt-metal Python output omits it. Install the
+    # data-collection subpackage so `qwen36` and the P150x2 server wrappers
+    # resolve it from the package environment.
+    mkdir -p "$out/lib/python${python3.pythonVersion}/site-packages/infra"
+    cp -r ${tt-metal.src}/infra/data_collection \
+      "$out/lib/python${python3.pythonVersion}/site-packages/infra/data_collection"
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"

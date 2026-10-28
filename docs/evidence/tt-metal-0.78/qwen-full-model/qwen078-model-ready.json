@@ -1,0 +1,1 @@
+{"model": "Qwen3.8-27B", "ready": true, "startup_warmup": {"elapsed_seconds": 127.49803943000734, "required": true, "widths": [1, 4]}, "status": "ok"}

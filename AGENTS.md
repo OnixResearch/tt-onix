@@ -4,6 +4,8 @@
 
 The current package pins TT-Metal 0.78.0 with SFPI 7.71.0. Its host build and device-free Qwen/Nanbeige checks pass, but the GDN numerical simulator gate remains blocked. Read `docs/tt-sw-manifest-drift.md` for the golden stack and `docs/tt-metal-0.77-port.md` for the historical 0.77 port record.
 
+The bounded [Qwen 0.78 runtime smoke](docs/qwen-0.78-runtime-smoke.md) passes on physical P150x2 hardware with matched token IDs. It does not unblock the GDN numerical gate or admit the production service.
+
 Obtain the exact source and submodules with `nix build .#tt-metal.src --no-link --print-out-paths`. The source hash lives in `pkgs/tt-metal/default.nix`. Use that source for the candidate. The 0.74 references below remain the prior runtime baseline, not 0.78 authority.
 
 Do not treat the successful basic simulator smoke as recurrent-state or hardware acceptance. The later HiFi4 candidate passes a bounded hardware recurrence test. Read `docs/gdn-precision-candidate.md` for its scope.

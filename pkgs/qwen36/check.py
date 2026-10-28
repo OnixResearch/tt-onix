@@ -76,6 +76,13 @@ def import_qwen36_vllm_adapter():
     )
 
 
+def import_qwen36_server():
+    # The server imports the demo benchmark helpers, which import the
+    # repository-level `infra` package. Keep this import in the device-free
+    # check so a missing packaging path fails before a hardware run.
+    import qwen36_service.server  # noqa: F401
+
+
 def probe_mlp_down_gate():
     import ttnn
     from models.demos.blackhole.qwen36.tt.mlp import _mlp_down_dtype_and_tag
@@ -14709,6 +14716,7 @@ def main():
     probe("import qwen36.tt.model_config", import_qwen36_model_config)
     probe("import qwen36.tt.model", import_qwen36_model)
     probe("import qwen36.tt.qwen36_vllm (vLLM absent)", import_qwen36_vllm_adapter)
+    probe("import qwen36_service.server", import_qwen36_server)
     probe("MLP down-proj BF4 gate defaults", probe_mlp_down_gate)
     probe("LM head BF4 gate + .bfp4 cache name", probe_lm_head_gate)
     probe("source env gates + Qwen3.8-27B entries", probe_source_env_gates)

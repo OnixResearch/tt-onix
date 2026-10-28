@@ -4112,6 +4112,48 @@
       "blake3": "a810b1bd17623cf1899895eb7b6fff3146b70f405675d451c5774731f2820833"
     },
     {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-invalid-request.json",
+      "class": "portable_evidence",
+      "byte_count": 107,
+      "blake3": "f6360592f9719885a640d6f32f1c2825ab65a2175d0a928832587c4ebc3c6c5f"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-invalid-response.json",
+      "class": "portable_evidence",
+      "byte_count": 94,
+      "blake3": "5cbb9629f6093f95683ffae3426a78b3629d8d95e93f06edea0e9028d0ca2f4d"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-list.json",
+      "class": "portable_evidence",
+      "byte_count": 112,
+      "blake3": "ef7130bd2afca2cd9c4be793079ab1db03744ddf833570f1c96d0d12d221f771"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-ready.json",
+      "class": "portable_evidence",
+      "byte_count": 150,
+      "blake3": "4e4df538aafd0b864fdeced49e7ea2faaa6fa5dd51caa645fd49686372b36905"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-repeat-response.json",
+      "class": "portable_evidence",
+      "byte_count": 2178,
+      "blake3": "c295abf2ce41a369b00c47801eecdeb38de7c4d8b0ee3df900039d6d63944e40"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-valid-request.json",
+      "class": "portable_evidence",
+      "byte_count": 106,
+      "blake3": "50c56c651185291ff9bf94786bfab1e4ffef033de38624ea1173b217714ebf6f"
+    },
+    {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-valid-response.json",
+      "class": "portable_evidence",
+      "byte_count": 2175,
+      "blake3": "4f46713ef0056cb89483976ecbeeef73d27282b87aa446bf0bcd74ec78890030"
+    },
+    {
       "path": "docs/research/flash-next-p150x2-memory-gate.md",
       "class": "portable_evidence",
       "byte_count": 11787,

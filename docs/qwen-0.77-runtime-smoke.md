@@ -1,5 +1,7 @@
 # Qwen runtime comparison: 0.74 and 0.77
 
+> A later bounded smoke on TT-Metal 0.78 is recorded in [the 0.78 runtime smoke](qwen-0.78-runtime-smoke.md). Production remains stopped and unadmitted.
+
 ## Result
 
 Both runtime packages passed the bounded Qwen3.8-27B smoke on physical P150x2 hardware. They returned identical token IDs for one prompt, repeated twice per runtime. This is a narrow regression check, not broad model-accuracy or performance acceptance.

@@ -4,6 +4,10 @@
 > record. See [the golden drift record](tt-sw-manifest-drift.md) for the current
 > all-match stack. The 0.77 evidence below remains historical.
 
+The later [Qwen 0.78 smoke](qwen-0.78-runtime-smoke.md) passes a bounded
+full-model request with matched token IDs on physical P150x2 hardware. It does
+not replace the blocked GDN numerical gate.
+
 ## Status
 
 The [HiFi4 precision candidate](gdn-precision-candidate.md) passes the bounded GDN hardware smoke. The later [Qwen runtime comparison](qwen-0.77-runtime-smoke.md) also passes a bounded full-model smoke with matching baseline tokens. Neither result is broad model-accuracy or production acceptance.
