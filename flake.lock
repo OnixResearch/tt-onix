@@ -9,12 +9,12 @@
         "rev": "e41340bec587b6d049b5cc518ec7db925dde84be",
         "revCount": 13,
         "type": "git",
-        "url": "ssh://git@github.com/OnixResearch/onix-artifact.git"
+        "url": "https://github.com/OnixResearch/onix-artifact"
       },
       "original": {
         "rev": "e41340bec587b6d049b5cc518ec7db925dde84be",
         "type": "git",
-        "url": "ssh://git@github.com/OnixResearch/onix-artifact.git"
+        "url": "https://github.com/OnixResearch/onix-artifact"
       }
     },
     "cairn": {
@@ -798,13 +798,13 @@
         "lastModified": 1783449144,
         "narHash": "sha256-OvqB00mDIsGDOcuK5jvPJUModVz9WbIBuM/l06TABHc=",
         "owner": "OnixResearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "rev": "2f8213a88781d9d38bb81319d06a50805d48ccd3",
         "type": "github"
       },
       "original": {
         "owner": "OnixResearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "type": "github"
       }
     },
@@ -820,13 +820,13 @@
         "lastModified": 1778903772,
         "narHash": "sha256-8F7g650MFMXm5zyOBadWg0pOHxXccDgwbOVUZYLwwkQ=",
         "owner": "onixresearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "rev": "b18a547801dfebaa5ee3e748e3ebefed1a66cb17",
         "type": "github"
       },
       "original": {
         "owner": "onixresearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "type": "github"
       }
     },
@@ -843,13 +843,13 @@
         "lastModified": 1783449144,
         "narHash": "sha256-OvqB00mDIsGDOcuK5jvPJUModVz9WbIBuM/l06TABHc=",
         "owner": "OnixResearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "rev": "2f8213a88781d9d38bb81319d06a50805d48ccd3",
         "type": "github"
       },
       "original": {
         "owner": "OnixResearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "type": "github"
       }
     },
@@ -865,13 +865,13 @@
         "lastModified": 1778903772,
         "narHash": "sha256-8F7g650MFMXm5zyOBadWg0pOHxXccDgwbOVUZYLwwkQ=",
         "owner": "onixresearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "rev": "b18a547801dfebaa5ee3e748e3ebefed1a66cb17",
         "type": "github"
       },
       "original": {
         "owner": "onixresearch",
-        "repo": "slotcar",
+        "repo": "octet",
         "type": "github"
       }
     },
