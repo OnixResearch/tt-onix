@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-p150x2-b8-v3",
+  "description": "Frozen greedy corpus from the admitted Qwen3.8-27B P150x2 B=8 batch profile. Prompt text and order must stay unchanged for results to remain comparable.",
+  "prompts": [
+    "The capital of France is",
+    "Empty prompt is a rejected request fixture.",
+    "Repeat the token boundary exactly:",
+    "Explain why deterministic cleanup matters for recurrent state.",
+    "Water boils at a temperature of",
+    "The largest planet in the solar system is",
+    "Summarize why batch isolation matters for recurrent state.",
+    "Count from one to five in words:"
+  ]
+}

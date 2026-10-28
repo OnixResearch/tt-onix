@@ -55,6 +55,7 @@
               llama-cpp-metalium
               luwen
               nanobench
+              qwen38-benchmark
               tt-burnin
               tt-logger
               tt-metal
@@ -83,6 +84,12 @@
               ;
           };
 
+          apps.qwen38-benchmark = {
+            type = "app";
+            program = "${pkgs.qwen38-benchmark}/bin/qwen38-benchmark";
+            meta.description = "Benchmark OpenAI-compatible Qwen endpoints on a frozen corpus";
+          };
+
           apps.ttsim-blackhole-smoke = {
             type = "app";
             program = "${pkgs.ttsim-blackhole-smoke}/bin/ttsim-blackhole-smoke";
@@ -95,6 +102,7 @@
               llama-cpp-metalium
               luwen
               nanobench
+              qwen38-benchmark
               tt-burnin
               tt-logger
               tt-metal

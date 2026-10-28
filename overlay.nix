@@ -5,6 +5,7 @@ final: prev: {
   tt-metal-tracy-tools = final.callPackage ./pkgs/tt-metal-tracy-tools { };
   nanbeige43 = final.callPackage ./pkgs/nanbeige43 { };
   qwen38 = final.callPackage ./pkgs/qwen36 { };
+  qwen38-benchmark = final.callPackage ./pkgs/qwen38-benchmark { };
   qwen38-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   # Compatibility aliases. The checkpoint is Qwen3.8-27B, not Qwen3.6.
   qwen36 = final.qwen38;

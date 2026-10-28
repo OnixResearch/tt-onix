@@ -116,6 +116,9 @@ default decode route, its measured 1.30x single-stream gain, and how to opt out.
 See [Qwen3.8 structured reads](docs/qwen38-structured-reads.md) for the
 `POST /v1/systemone` decision endpoint ported from vLLM PR 57250, its batched
 read traces, and measured accuracy and latency.
+See [the Qwen serving benchmark](docs/qwen38-benchmark.md) for the repeatable
+frozen-corpus comparison against any OpenAI-compatible endpoint, including
+vLLM, and `nix run .#qwen38-benchmark`.
 
 See [Cloudflare Clef on Tenstorrent](docs/clef-tenstorrent.md) for the
 separate pinned Clef (27B, P150x2) and Clef-Flash (9B, P150) joint-head
