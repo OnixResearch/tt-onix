@@ -1,5 +1,8 @@
 # vLLM TT dependency preflight
 
+> The scoped local-versus-upstream comparison is in
+> [the Qwen/vLLM comparison](qwen-vllm-comparison.md). It is not a head-to-head.
+
 ## Result
 
 The current package set is not a drop-in environment for the reviewed official TT plugin. The Qwen runtime smoke passed, but it did not test vLLM.
