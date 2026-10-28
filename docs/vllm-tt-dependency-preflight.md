@@ -52,7 +52,8 @@ No vLLM package build, plugin test suite, or vLLM serving run is claimed by this
 Two pieces are now packaged independently of the vLLM core:
 
 - `pkgs/vllm-tt-plugin` at rev `bef89e429e202caa38d3e3c8a24da4e8cc02405a`,
-  version `0.1.0`. It builds with `tblib` only; `vllm` is intentionally absent.
+  version `0.1.0`, built against Python 3.13 (the plugin requires `<3.14`).
+  It builds with `tblib` only; `vllm` is intentionally absent.
   The build relaxes upstream's setuptools `<81` build cap because nixpkgs ships
   setuptools 83. `pythonImportsCheck` imports the package root; the plugin's
   platform entry point still requires a matching empty-target vLLM.

@@ -13,8 +13,12 @@ final: prev: {
   tt-npe = final.callPackage ./pkgs/tt-npe { };
   tt-perf-report = final.callPackage ./pkgs/tt-perf-report { };
   tt-toplike = final.callPackage ./pkgs/tt-toplike { };
-  vllm-tt-plugin = final.callPackage ./pkgs/vllm-tt-plugin { };
-  faster-fifo = final.callPackage ./pkgs/faster-fifo { };
+  vllm-tt-plugin = final.callPackage ./pkgs/vllm-tt-plugin {
+    python3Packages = final.python313Packages;
+  };
+  faster-fifo = final.callPackage ./pkgs/faster-fifo {
+    python3Packages = final.python313Packages;
+  };
   qwen38-benchmark = final.callPackage ./pkgs/qwen38-benchmark { };
   qwen38-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   # Compatibility aliases. The checkpoint is Qwen3.8-27B, not Qwen3.6.
