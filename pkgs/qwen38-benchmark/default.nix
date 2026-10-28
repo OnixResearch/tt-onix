@@ -29,9 +29,11 @@ stdenvNoCC.mkDerivation {
     mkdir -p "$out/libexec/qwen38-benchmark" "$out/share/qwen38-benchmark"
     install -m755 qwen38_benchmark.py "$out/libexec/qwen38-benchmark/qwen38_benchmark.py"
     install -m644 corpus.json "$out/share/qwen38-benchmark/corpus.json"
+    install -m644 agentic_trace.json "$out/share/qwen38-benchmark/agentic_trace.json"
     makeWrapper ${python3}/bin/python3 "$out/bin/qwen38-benchmark" \
       --add-flags "$out/libexec/qwen38-benchmark/qwen38_benchmark.py" \
-      --set QWEN38_BENCH_CORPUS "$out/share/qwen38-benchmark/corpus.json"
+      --set QWEN38_BENCH_CORPUS "$out/share/qwen38-benchmark/corpus.json" \
+      --set QWEN38_BENCH_AGENTIC_TRACE "$out/share/qwen38-benchmark/agentic_trace.json"
     runHook postInstall
   '';
 

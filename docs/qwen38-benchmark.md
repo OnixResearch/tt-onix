@@ -157,6 +157,112 @@ caching disabled, while the onix service may serve with its hybrid prefix cache.
 A target with a warm cache can look faster on a repeated corpus, so record the
 cache setting for both and compare like with like.
 
+## Agentic mode
+
+`run` answers "how fast is one stream?" and `agentic` answers "how many
+concurrent agents meet a response-time target on a fixed multi-call trace?"
+It is still a client-side harness: it never reads server cache counters or
+starts a server.
+
+```sh
+nix run .#qwen38-benchmark -- agentic \
+  --label onix \
+  --base-url http://127.0.0.1:8000 \
+  --agents 1,2,4,8 \
+  --ttft-p95 0.5 \
+  --itl-p95 0.05 \
+  --task-p95 30 \
+  --cache-mode disabled \
+  --output onix-agentic.json
+```
+
+Add a power boundary only when it is measured:
+
+```sh
+nix run .#qwen38-benchmark -- agentic ... \
+  --power-boundary wall --watts 900 \
+  --power-method "wall meter, 1 s samples, five-minute mean"
+```
+
+### Frozen trace
+
+The packaged trace is `pkgs/qwen38-benchmark/agentic_trace.json`: one system
+prompt, eight coding-agent calls, a 300-token generation bound per call, and
+seven one-second tool waits. Each call's message list extends the previous
+call's list with a frozen assistant turn, a frozen tool result, and the next
+user turn. Assistant turns are frozen rather than fed back from live output so
+every target receives the same workload text; the live reply is still measured
+and hashed per call.
+
+The history grows, so call *n* reuses the entire prompt of call *n-1* as a
+client-known prefix. `--tool-wait-scale` multiplies every wait uniformly; it is
+recorded in the workload digest and must match across compared targets.
+`--trace` points at a different frozen file.
+
+### SLOs and the sweep
+
+`--ttft-p95`, `--itl-p95`, and `--task-p95` are required and are in seconds.
+They are defined before the run and recorded in the result. For each agent
+width, every agent runs the whole trace closed-loop from one barrier; a run
+repeats the sweep `--runs` times and discards `--warmup-runs` sweeps. The
+summary reports, per width, p50/p95 call TTFT, p50/p95 mean ITL, p50/p95/max
+task time, tasks/s, output tokens/s, and whether each SLO passed. It reports
+the largest width meeting all three SLOs, plus the width with the highest
+task throughput as the saturation point. The `curve` array is the knee curve.
+
+Per-call ITL is the mean inter-token interval,
+`(last_content_time - TTFT) / (completion_tokens - 1)`, which is the reciprocal
+of the per-call decode rate. Task time covers the calls plus the replayed tool
+waits for one agent. Every run's summary is retained, so a run whose ITL
+deviates from the session spread can be discarded instead of silently averaged
+into the curve.
+
+Agentic results use their own schema; `compare` accepts only `run` results.
+Two agentic results are directly comparable when `workload_sha256` and the three
+SLOs match, and their `curve` arrays can then be read side by side.
+
+### Token accounting
+
+OpenAI-compatible usage reports prompt and completion tokens; it does not
+guarantee a server-side prefix-cache report. Every call therefore records:
+
+- `prompt_tokens` and `completion_tokens`, from usage;
+- `reused_prefix_characters`, the exact client-known prefix overlap with the
+  previous call in the same trace;
+- `reused_prefix_fraction`, that overlap over the serialized prompt length;
+- `reused_prefix_tokens_estimate` and `new_input_tokens_estimate`, a
+  client-side apportionment of the reported `prompt_tokens` by that fraction;
+- `server_reported_cached_tokens` only when the endpoint returns
+  `usage.prompt_tokens_details.cached_tokens`, with its source named;
+- `cache_confirmation: "client-prefix-overlap-only"`.
+
+The estimate is an accounting label, not evidence that the server kept those
+tokens in a prefix cache. A result never claims a server cache hit unless the
+endpoint itself reported cached tokens.
+
+### Held conditions
+
+The result records the endpoint label, base URL, resolved model and probe; the
+trace content, digest, per-call message digests, generation bounds, and scaled
+tool-wait schedule; the SLOs; the agent widths, runs, warmup, settle time,
+greedy temperature, and streaming flag; the declared cache mode
+(`cold`, `warm`, `disabled`, or `unknown`); and the power boundary, watts, and
+method. `--power-boundary` and `--watts` must be supplied together; otherwise
+`agents_at_slo_per_watt` is `null`. The existing environment and source
+revision fields are recorded unchanged.
+
+Cache mode is operator-declared; the client cannot observe or reset a server's
+cache. Server-side flags such as `--page-blocks`, `--max-seq-len`, and
+`--batched-prefill` are not client-visible, so record the exact server command
+in `--note`. `--power-boundary` and `--watts` must be supplied together;
+otherwise `agents_at_slo_per_watt` is `null`.
+
+The self-test starts a loopback fake OpenAI server and runs this mode on the
+packaged trace with `--tool-wait-scale 0`, so it needs no device. It also checks
+that the SLO maximum, the per-watt derivation, reused-prefix accounting, and
+tamper rejection are consistent; a tampered call, curve point, trace, or
+missing run is rejected.
+
 ## Non-claims
 
 - Not an admission receipt and not a substitute for the B=8, prefix-cache, or
@@ -165,6 +271,14 @@ cache setting for both and compare like with like.
 - Not a sampled-generation or accuracy benchmark. Greedy text parity is a
   validity gate for throughput comparison, not a model-quality claim.
 - A `--no-stream` result has no TTFT or decode-rate claim.
+- Agentic mode is a client-side closed-loop measurement of a fixed trace. It
+  does not prove one server batch, slot occupancy, or a production arrival
+  process, and its tool waits are replayed sleeps rather than real tool calls.
+- `reused_prefix_tokens_estimate` is a client-side apportionment, not a server
+  prefix-cache hit count. Only `server_reported_cached_tokens` restates an
+  endpoint's own usage report.
+- `agents_at_slo_per_watt` is only reported inside the stated power boundary
+  using the supplied watts. It is not a facility-efficiency or cost claim.
 - The comparison is only as controlled as the two endpoint configurations. A
   different checkpoint, tokenizer, precision recipe, mesh, or serving flag is a
   different workload even when the prompt digest matches.

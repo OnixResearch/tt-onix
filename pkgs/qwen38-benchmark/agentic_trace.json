@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "qwen38-agentic-coding-v1",
+  "description": "Frozen eight-call coding-agent trace: fixed system prompt, growing history, frozen assistant turns and tool results, one 300-token generation bound per call, and seven one-second tool waits. History is frozen rather than fed back from live output so the workload text is identical on every target. Change any field and every result digest changes.",
+  "system_prompt": "You are a careful coding agent. Reply with only the next concrete artifact or reasoning the user asked for. Do not restate the task. Keep code minimal and correct.",
+  "calls": [
+    {
+      "user_message": "List the files under src/net and say which one owns connection retries.",
+      "assistant_history": "src/net has client.py, retry.py, limits.py, and __init__.py. retry.py owns retry policy; client.py only calls it.",
+      "tool_result": "tool result (find src/net -maxdepth 1 -type f): src/net/__init__.py src/net/client.py src/net/limits.py src/net/retry.py",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Open retry.py and summarize its retry policy.",
+      "assistant_history": "retry.py defines RetryPolicy(attempts=3, base_delay=0.2, jitter=True) and a decorator retry_async that retries on TimeoutError and ConnectionResetError but not on ValueError.",
+      "tool_result": "tool result (sed -n 1,80p src/net/retry.py): class RetryPolicy: attempts: int = 3; base_delay: float = 0.2; jitter: bool = True. def retry_async(policy): catches TimeoutError, ConnectionResetError; re-raises others.",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Add exponential backoff with full jitter and keep the existing public API.",
+      "assistant_history": "Add delay_for(attempt) = base_delay * 2 ** attempt, multiplied by random uniform in [0, 1) when jitter is enabled. Keep retry_async's signature and default policy unchanged.",
+      "tool_result": "tool result (pytest tests/net/test_retry.py): 11 passed in 0.42s",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Show the updated delay_for implementation and its edge cases.",
+      "assistant_history": "delay_for clamps the exponent at 10 so the delay never exceeds base_delay * 1024, returns 0.0 when attempts is zero, and rejects negative attempt values with ValueError.",
+      "tool_result": "tool result (git diff src/net/retry.py): +def delay_for(policy, attempt): +    if attempt < 0: raise ValueError +    exponent = min(attempt, 10) +    delay = policy.base_delay * (2 ** exponent) +    return delay * random.random() if policy.jitter else delay",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Callers pass attempt=1 for the first retry. Does that match the old behavior?",
+      "assistant_history": "No. The old decorator slept base_delay before the first retry, so attempt=1 must map to base_delay. Change the exponent to max(attempt - 1, 0) and add a regression test for the first retry.",
+      "tool_result": "tool result (grep -rn delay_for src tests): calls in src/net/client.py, tests/net/test_retry.py; one call passes attempt=1.",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Apply the fix and run the retry tests plus the client tests.",
+      "assistant_history": "Use exponent max(attempt - 1, 0), keep the upper clamp at 10, and assert in the test that attempt=1 yields base_delay before jitter.",
+      "tool_result": "tool result (pytest tests/net/test_retry.py tests/net/test_client.py): 27 passed in 1.03s",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Check whether the retry module logs anything on each attempt.",
+      "assistant_history": "retry.py currently has no logging. client.py logs the final failure only. Add one debug log per retry with the attempt number and computed delay, and keep it out of the hot path when debug logging is disabled.",
+      "tool_result": "tool result (grep -rn logging src/net): src/net/client.py:41 logger.warning on final failure; retry.py has no logging import.",
+      "max_tokens": 300,
+      "tool_wait_seconds": 1.0
+    },
+    {
+      "user_message": "Summarize the final diff in three bullets and state the remaining risk.",
+      "assistant_history": "- retry.py now computes capped exponential backoff with optional full jitter.\n- attempt=1 maps to base_delay, matching the previous behavior.\n- A debug log records each retry attempt and delay.\nRemaining risk: jitter makes the delay distribution untestable without seeding random.",
+      "tool_result": "tool result (git diff --stat): src/net/retry.py | 34 +++++++++++---; tests/net/test_retry.py | 41 +++++++++++++++---",
+      "max_tokens": 300,
+      "tool_wait_seconds": 0.0
+    }
+  ]
+}

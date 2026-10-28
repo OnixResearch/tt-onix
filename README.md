@@ -124,7 +124,8 @@ See [Qwen3.8 structured reads](docs/qwen38-structured-reads.md) for the
 read traces, and measured accuracy and latency.
 See [the Qwen serving benchmark](docs/qwen38-benchmark.md) for the repeatable
 frozen-corpus comparison against any OpenAI-compatible endpoint, including
-vLLM, and `nix run .#qwen38-benchmark`.
+vLLM, and `nix run .#qwen38-benchmark`. Its `agentic` mode measures concurrent
+closed-loop agents against a fixed multi-call trace and TTFT/ITL/task SLOs.
 See [the Thatch-cloud playbook comparison](docs/thatch-qwen38-comparison.md)
 for the gotchas already applied, worth trying, and the blocked ttsim replay.
 
