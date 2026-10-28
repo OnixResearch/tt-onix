@@ -4142,6 +4142,12 @@
       "blake3": "c295abf2ce41a369b00c47801eecdeb38de7c4d8b0ee3df900039d6d63944e40"
     },
     {
+      "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-shutdown-response.json",
+      "class": "portable_evidence",
+      "byte_count": 2177,
+      "blake3": "a505c383e54eeb8b29c5fd9e364f838f611a0822b488ae40c725f9b99897a85b"
+    },
+    {
       "path": "docs/evidence/tt-metal-0.78/qwen-full-model/qwen078-model-valid-request.json",
       "class": "portable_evidence",
       "byte_count": 106,

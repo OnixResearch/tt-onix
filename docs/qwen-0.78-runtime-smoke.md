@@ -16,6 +16,7 @@ The production `qwen38-p150x2` service remained stopped and unchanged.
 | --- | --- |
 | TT-Metal | `/nix/store/lz9hma19v7hfhc53fldq6qhdkyyyjmrh-tt-metal-0.78.0` |
 | Qwen package | `/nix/store/mpnqg0ans7kzpssxambmr4g7mkgx48sp-qwen38-0.1.0` |
+| Shutdown-fix package | `/nix/store/aj5wfbg0slndcp7szj9h9jggqczli77c-qwen38-0.1.0` |
 | Execution identity | `/nix/store/qwq8fic901rksw3xs9yivypni299h33k-qwen36-execution-identity-0.1.0` |
 | Checkpoint | `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0` |
 | Decode profile | `qwen38-p150x2-traced-decode-v1` |
@@ -75,13 +76,16 @@ An oversized request with `max_tokens: 17` returned HTTP 400 with
 
 Portable evidence is under
 [`docs/evidence/tt-metal-0.78/qwen-full-model/`](evidence/tt-metal-0.78/qwen-full-model/):
-readiness, model list, both requests, both responses, and the invalid request
-and response. The raw server log is not committed.
+readiness, model list, both requests, both responses, the shutdown-fix
+response, and the invalid request and response. The raw server log is not
+committed.
 
-SIGTERM closed the device drivers, but the server logged a `ServiceStop`
-traceback from `batch_service.close()` while joining the worker. The requests
-had already completed with clean resets; this shutdown exception is recorded,
-not converted into a clean-shutdown claim.
+The initial smoke logged a `ServiceStop` traceback when SIGTERM interrupted
+`batch_service.close()` during cleanup. The server now ignores further INT/TERM
+signals once the request loop exits. A repeat run on the shutdown-fix package
+returned the same token IDs and text, then closed both device drivers with no
+traceback; its response is
+[`qwen078-model-shutdown-response.json`](evidence/tt-metal-0.78/qwen-full-model/qwen078-model-shutdown-response.json).
 
 ## Non-claims
 

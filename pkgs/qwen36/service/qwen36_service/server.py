@@ -1631,6 +1631,11 @@ def main() -> None:
         except ServiceStop:
             emit("stopping")
     finally:
+        # A stop signal during cleanup can interrupt device close and surface as
+        # an unhandled ServiceStop. The request loop has already exited; ignore
+        # further INT/TERM while the model, pool, and mesh are released.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         if server is not None:
             server.server_close()
             server = None
