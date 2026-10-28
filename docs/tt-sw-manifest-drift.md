@@ -10,31 +10,42 @@ flake check; it never fails the quality gate.
 
 | Component | golden v4.0.0 | packaged | status |
 | --- | --- | --- | --- |
-| kmd | 2.11.0 | 2.10.0 | drift |
-| smi | 6.7.0 | 6.2.1 | drift |
-| flash | 4.1.0 | 3.10.0 | drift |
+| kmd | 2.11.0 | 2.11.0 | match |
+| smi | 6.7.0 | 6.7.0 | match |
+| flash | 4.1.0 | 4.1.0 | match |
 | sfpi | 7.71.0 | 7.70.0 | drift |
 | tt-metal | v0.78.0 | 0.77.0 | drift |
 | firmware | 19.15.0 | not pinned | documented-only |
 
-## Why the bumps are not in this change
+## Diagnostics and driver stack
 
-The three Python diagnostics and the runtime are coupled:
+The diagnostics and driver stack now follows golden v4.0.0 as one coordinated
+set:
 
-- `tt-smi` 6.7.0 requires `pyluwen~=0.10.0` and `tt-umd==0.9.12`; this tree
-  carries pyluwen 0.9.0 and tt-umd 0.9.9. A version-only override would change
-  the Python/TT-NN ABI closure used by the admitted Qwen receipts.
-- `tt-flash` 4.1.0 also requires `pyluwen~=0.10.0` and `tt_tools_common~=1.5`;
-  the current packages are pyluwen 0.9.0 and tt-tools-common 1.6.0.
-- SFPI 7.71.0 follows tt-metal 0.78.0. Moving tt-metal from 0.77.0 requires
-  re-running the `gdn-*` patch stack and Qwen/Nanbeige checks; the 0.77 GDN
-  simulator gate is still blocked.
+- `tt-kmd` 2.11.0.
+- `tt-smi` 6.7.0 with `pyluwen~=0.10.0` and `tt-umd==0.9.12`.
+- `tt-flash` 4.1.0 with `pyluwen~=0.10.0` and `tt_tools_common~=1.5`.
+- `pyluwen` 0.10.0, `tt-umd` 0.9.12, `tt-tools-common` 1.6.0.
 
-The safest next step is one coordinated branch: bump pyluwen, tt-umd,
-tt-tools-common, tt-smi, tt-flash and tt-kmd together; prove the Python/TT-NN
-ABI and the diagnostics; then take tt-metal 0.78.0 + SFPI 7.71.0 with the full
-patch-stack and model gates. Until then the drift report is intentionally red in
-strict mode and does not block normal builds.
+`tt-smi` no longer needs a `pythonRelaxDeps` entry: its exact `tt-umd==0.9.12`
+pin and its `pyluwen~=0.10.0` / `tt_tools_common~=1.6.0` ranges are satisfied by
+the packages above. `tt-flash` drops its `pyluwen` relaxation for the same
+reason but keeps `pyyaml` and `tabulate`: it pins `pyyaml==6.0.2` and
+`tabulate==0.9.0`, while nixpkgs carries the newer compatible 6.0.3 and 0.10.0.
+
+The NixOS training profile was updated with the bump:
+`admittedTrainingDriverVersion` in `nixos/module.nix` and the matching TT-KMD
+assertion in `flake-modules/onix-packages.nix` now name 2.11.0. `tt-burnin`
+keeps its own `pyluwen` relaxation because 0.4.4 still declares `~=0.9.0`.
+
+## Remaining drift: SFPI and TT-Metal
+
+SFPI 7.71.0 follows tt-metal 0.78.0. Moving tt-metal from 0.77.0 requires
+re-running the `gdn-*` patch stack and Qwen/Nanbeige checks; the 0.77 GDN
+simulator gate is still blocked. Keep the tt-metal 0.78.0 + SFPI 7.71.0 bump
+coupled and take it with the full patch-stack and model gates. Until then the
+drift report is intentionally red in strict mode for those two components and
+does not block normal builds.
 
 Firmware 19.15.0 is the expected bundle for `tt-flash` users; it is not pinned
 by this repository.

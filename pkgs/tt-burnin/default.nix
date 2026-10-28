@@ -27,6 +27,10 @@ python3Packages.buildPythonApplication (finalAttrs: {
     jsons
   ];
 
+  # tt-burnin 0.4.4 still pins pyluwen ~=0.9.0; the coordinated diagnostics
+  # stack now carries 0.10.0, which tt-smi 6.7 and tt-flash 4.1 require.
+  pythonRelaxDeps = [ "pyluwen" ];
+
   nativeCheckInputs = [
     versionCheckHook
   ];

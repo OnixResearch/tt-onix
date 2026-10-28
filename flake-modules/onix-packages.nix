@@ -214,8 +214,8 @@
         assert lib.assertMsg (trainingPlatformExampleEval.config.virtualisation.docker.enable
         ) "the training example must enable docker";
         assert lib.assertMsg (
-          lib.getVersion trainingPlatformExampleEval.config.hardware.tenstorrent.driverPackage == "2.10.0"
-        ) "the training example must select TT-KMD 2.10.0";
+          lib.getVersion trainingPlatformExampleEval.config.hardware.tenstorrent.driverPackage == "2.11.0"
+        ) "the training example must select TT-KMD 2.11.0";
         assert lib.assertMsg (
           trainingPlatformExampleEval.config.hardware.tenstorrent.accessPolicy == "group-restricted"
         ) "the training example must use group-restricted device access";

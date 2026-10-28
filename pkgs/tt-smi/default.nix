@@ -8,22 +8,19 @@
 }:
 python3Packages.buildPythonApplication (finalAttrs: {
   pname = "tt-smi";
-  version = "6.2.1";
+  version = "6.7.0";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "tenstorrent";
     repo = "tt-smi";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-4zEoIEv8JYp8oBxk4Jd/ZNeQBOMGV/g3ZwyHj6sj6Bg=";
+    hash = "sha256-5mdqLFARALnbTlmfFRJHwTMtteqmIDLyg2Dl3TlYqpM=";
   };
 
   build-system = with python3Packages; [
     setuptools
   ];
-
-  # tt-smi 6.2.1 pins tt-umd 0.9.8, while this package set carries the compatible 0.9.9 patch release.
-  pythonRelaxDeps = [ "tt-umd" ];
 
   dependencies = with python3Packages; [
     distro

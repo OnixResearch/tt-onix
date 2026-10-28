@@ -18,7 +18,7 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "tt-umd";
-  version = "0.9.9";
+  version = "0.9.12";
   __structuredAttrs = true;
   strictDeps = true;
 
@@ -31,7 +31,7 @@ stdenv.mkDerivation (finalAttrs: {
     owner = "tenstorrent";
     repo = "tt-umd";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-3xZxBMsADDc0pZyInxLc/YrZIxPgOO3y9eV5ZxiEyBQ=";
+    hash = "sha256-lhcNZuCV8n3ebbUU1MveZXR49qaybmOiSTLpitG96/s=";
   };
 
   cpm = fetchurl {
@@ -42,6 +42,11 @@ stdenv.mkDerivation (finalAttrs: {
   postPatch = ''
     cp $cpm cmake/CPM.cmake
   '';
+
+  # tt-umd 0.9.12's baremetal ATT-map test uses YAML directly but deliberately
+  # leaves yaml-cpp off its link line, relying on a vendored static copy. Nixpkgs
+  # yaml-cpp is shared, so the test binary must name it explicitly.
+  env.NIX_LDFLAGS = "-lyaml-cpp";
 
   nativeBuildInputs = [
     cmake

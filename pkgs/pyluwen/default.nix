@@ -9,19 +9,19 @@
 }:
 buildPythonPackage rec {
   pname = "pyluwen";
-  version = "0.9.0";
+  version = "0.10.0";
   pyproject = true;
 
   src = fetchFromGitHub {
     owner = "tenstorrent";
     repo = "luwen";
     tag = "v${version}";
-    hash = "sha256-pc/7G9YxBTg2uYn47ONxI7zsfdK3Ex4zndLASRtDQyk=";
+    hash = "sha256-J0SvCBsDi3GMvnwqgqGMUDvrSO+baznDhsfuvF44Ens=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
-    hash = "sha256-2ibAZnfv++eyCB57F0uD7XFJ3MP9SnAApOn6uelo3Po=";
+    hash = "sha256-vEuVxBGIJAyc8POy3EPTzTK5g5SE3QDZcnTnAb3b5k0=";
   };
 
   sourceRoot = "${src.name}/bind/${pname}";

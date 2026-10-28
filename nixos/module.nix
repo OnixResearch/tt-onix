@@ -18,7 +18,7 @@ let
   qwen38 = cfg.qwen38;
 
   defaultDriverPackage = config.boot.kernelPackages.callPackage ../pkgs/tt-kmd { };
-  admittedTrainingDriverVersion = "2.10.0";
+  admittedTrainingDriverVersion = "2.11.0";
   admittedTrainingMesh = "p150_x2";
   admittedTrainingHugepageMount = "/dev/hugepages-1G";
   admittedTrainingEvidenceParent = "/var/lib/tenstorrent-training";
@@ -38,6 +38,21 @@ let
   qwenStopTimeoutSeconds = 120;
   qwenStateDirectory = "qwen38-p150x2";
   qwenStateDirectoryMode = "0750";
+  # The owner helper's fixed record root. The timer reads it; it never writes.
+  ttModelStateRoot = "/var/lib/tenstorrent-models";
+  # The oneshot helper script only captures the cards view and reconciles it.
+  # Both programs are absolute store paths; no command comes from PATH.
+  leaseReconcileScript = pkgs.writeShellScript "tt-model-lease-reconcile" ''
+    set -euo pipefail
+    cards="''${RUNTIME_DIRECTORY:?systemd must provide RUNTIME_DIRECTORY}/cards.txt"
+    # A failed or partial capture is not evidence. Empty it so reconcile
+    # reports unknown instead of treating a truncated view as complete.
+    if ! ${cfg.ttModel.ownerPackage}/bin/tt-model-owner cards >"$cards"; then
+      : >"$cards"
+    fi
+    # The report goes to the journal. No state, unit, or device is touched.
+    exec ${pkgs.tt-model}/bin/tt-model reconcile --cards "$cards" --json
+  '';
 
   deviceMode =
     if cfg.accessPolicy == "group-restricted" then defaultDeviceMode else permissiveDeviceMode;
@@ -307,6 +322,23 @@ in
         defaultText = lib.literalExpression "pkgs.tt-model-owner";
         description = "The owner helper package. Exactly one sudo rule names its binary.";
       };
+
+      leaseReconcile = {
+        enable = mkEnableOption ''
+          the read-only lease reconciliation timer. It compares the active
+          record with a captured card-holder view and never stops, resets, or
+          records anything
+        '';
+
+        interval = mkOption {
+          type = types.str;
+          default = "5min";
+          description = ''
+            Fixed interval for the reconciliation timer, in systemd time-span
+            syntax. The timer is not persistent across downtime.
+          '';
+        };
+      };
     };
 
     training = {
@@ -552,6 +584,45 @@ in
         ];
       }
     ))
+
+    (mkIf cfg.ttModel.leaseReconcile.enable {
+      assertions = [
+        {
+          assertion = cfg.ttModel.enable;
+          message = "hardware.tenstorrent.ttModel.leaseReconcile.enable requires hardware.tenstorrent.ttModel.enable so the helper records which copy may read the cards";
+        }
+        {
+          assertion = cfg.ttModel.leaseReconcile.interval != "";
+          message = "hardware.tenstorrent.ttModel.leaseReconcile.interval must be a systemd time span";
+        }
+      ];
+
+      # The only action is the owner helper's read-only `cards`. The timer's
+      # report goes to the journal; it writes no active record, stops no unit,
+      # resets no card, and is not persistent across downtime.
+      systemd.services.tt-model-lease-reconcile = {
+        description = "Read-only reconciliation of the tt-model record against card holders";
+        environment.TT_MODEL_STATE_ROOT = ttModelStateRoot;
+        path = [ pkgs.coreutils ];
+        serviceConfig = {
+          Type = "oneshot";
+          RuntimeDirectory = "tt-model-lease-reconcile";
+          RuntimeDirectoryMode = "0700";
+          ExecStart = leaseReconcileScript;
+        };
+      };
+
+      systemd.timers.tt-model-lease-reconcile = {
+        description = "Periodic read-only tt-model lease reconciliation";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          Unit = "tt-model-lease-reconcile.service";
+          OnBootSec = cfg.ttModel.leaseReconcile.interval;
+          OnUnitActiveSec = cfg.ttModel.leaseReconcile.interval;
+          Persistent = false;
+        };
+      };
+    })
 
     (mkIf training.enable {
       assertions = [

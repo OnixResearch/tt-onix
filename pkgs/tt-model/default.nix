@@ -2,8 +2,9 @@
 # r[impl tenstorrent.runtime_profile.status]
 # r[impl tenstorrent.runtime_profile.check]
 # r[impl tenstorrent.runtime_profile.record]
-# Read-only status, pure profile validation, and the active-record writer for the
-# runtime-profile registry. It ships the registry export beside its own script.
+# Read-only status, pure profile validation, the active-record writer, and a
+# read-only lease reconciliation reader for the runtime-profile registry. It
+# ships the registry export beside its own script.
 # The name is intentionally `tt-model`: upstream tenstorrent/tt-model-manager is
 # a different product and will be wrapped as `tt-model-manager`; see
 # docs/tt-model-manager-name-and-bundle-mapping.md.
@@ -85,7 +86,7 @@ let
         esac
         shift
       done
-      printf 'job env=%s mesh=%s\n' "''${FAKE_JOB_ENV:-unset}" "''${MESH_DEVICE:-unset}"
+      printf 'job env=%s mesh=%s visible=%s\n' "''${FAKE_JOB_ENV:-unset}" "''${MESH_DEVICE:-unset}" "''${TT_VISIBLE_DEVICES:-unset}"
       if [ -n "$receipt" ]; then
         printf '{"schema":"fake-job-receipt/v1","ok":true}\n' >"$receipt"
       fi
@@ -691,6 +692,97 @@ stdenvNoCC.mkDerivation {
       "$tt_model" status --json
     rm "$HOME/.local/state/qwen38-p150x2/current"
 
+    # ---- reconcile: the record against a captured kernel view -------------
+    # Every fixture is a file. No case executes the owner helper, touches a
+    # device node, or permits stop/reset/record.
+    cat >"$TMPDIR/cards-stale" <<'EOF'
+    owner_name=qwen38-p150x2.service
+    owner_pid=none
+    card /dev/tenstorrent/0
+    card /dev/tenstorrent/1
+    EOF
+    cat >"$TMPDIR/cards-conflict" <<'EOF'
+    owner_name=qwen38-p150x2.service
+    owner_pid=4242
+    card /dev/tenstorrent/0
+    card /dev/tenstorrent/1
+    holder /dev/tenstorrent/1 777 other.service rogue
+    EOF
+    cat >"$TMPDIR/cards-importer" <<'EOF'
+    owner_name=qwen38-p150x2.service
+    owner_pid=none
+    card /dev/tenstorrent/0
+    card /dev/tenstorrent/1
+    holder /dev/tenstorrent/0 888 - dma-importer
+    EOF
+    cat >"$TMPDIR/cards-holder" <<'EOF'
+    owner_name=qwen38-p150x2.service
+    owner_pid=4242
+    card /dev/tenstorrent/0
+    card /dev/tenstorrent/1
+    holder /dev/tenstorrent/0 4242 qwen38-p150x2.service qwen38-p150x2-serve
+    EOF
+    python3 ${patchJson} "$TMPDIR/active-backup.json" "$TMPDIR/record-live.json" \
+      'lease={"holder_pid":null,"holder_start_ticks":null,"generation":1,"expires_at":null}'
+    python3 ${patchJson} "$TMPDIR/active-backup.json" "$TMPDIR/record-expired.json" \
+      'lease={"holder_pid":null,"holder_start_ticks":null,"generation":1,"expires_at":"1970-01-01T00:00:00+00:00"}'
+    python3 ${patchJson} "$TMPDIR/active-backup.json" "$TMPDIR/record-stale-lock.json" \
+      'lease={"holder_pid":99999999,"holder_start_ticks":null,"generation":1,"expires_at":null}'
+
+    reconcile_case() {
+      local description="$1" expected="$2" cards="$3" record="$4" reason="$5"
+      local state_root="$TMPDIR/reconcile-$description"
+      rm -rf "$state_root"
+      mkdir -p "$state_root"
+      cp "$record" "$state_root/active.json"
+      TT_MODEL_STATE_ROOT="$state_root" "$tt_model" reconcile \
+        --cards "$cards" --json >"$TMPDIR/reconcile-$description.json"
+      python3 - "$TMPDIR/reconcile-$description.json" "$expected" "$reason" <<'PY'
+    import json
+    import sys
+
+    report = json.load(open(sys.argv[1]))
+    expected, reason = sys.argv[2], sys.argv[3]
+    assert report["schema"] == "onix.tt-model.reconcile.v1", report["schema"]
+    assert report["state"] == expected, report
+    assert reason in report["reason"], report["reason"]
+    assert report["dma_buf"] == "unobserved", report["dma_buf"]
+    assert report["release_claimed"] is False, report["release_claimed"]
+    assert report["reset"] == "not-attempted", report["reset"]
+    assert report["action"] == "none", report["action"]
+    PY
+    }
+
+    reconcile_case stale-no-fd stale "$TMPDIR/cards-stale" \
+      "$TMPDIR/record-live.json" "no owner process"
+    reconcile_case outside-holder conflict "$TMPDIR/cards-conflict" \
+      "$TMPDIR/record-live.json" "outside qwen38-p150x2.service"
+    reconcile_case fully-released consistent "$TMPDIR/cards-stale" \
+      "$TMPDIR/record-expired.json" "no visible card holder"
+    reconcile_case retained-dma-buf unknown "$TMPDIR/cards-importer" \
+      "$TMPDIR/record-expired.json" "no attributable unit"
+    reconcile_case unknown-fd-view unknown "$TMPDIR/cards-missing" \
+      "$TMPDIR/record-live.json" "file is missing"
+    reconcile_case stale-lock stale "$TMPDIR/cards-holder" \
+      "$TMPDIR/record-stale-lock.json" "no longer exists"
+
+    # The positive case must be reported as observational agreement only.
+    grep -F '"release_claimed": false' "$TMPDIR/reconcile-fully-released.json"
+    grep -F '"dma_buf": "unobserved"' "$TMPDIR/reconcile-fully-released.json"
+
+    # A missing active record is `no-record`, not a release or a stale lease.
+    mkdir -p "$TMPDIR/reconcile-none"
+    TT_MODEL_STATE_ROOT="$TMPDIR/reconcile-none" "$tt_model" reconcile \
+      --cards "$TMPDIR/cards-stale" --json >reconcile-none.json
+    python3 - reconcile-none.json <<'PY'
+    import json
+    import sys
+
+    report = json.load(open(sys.argv[1]))
+    assert report["state"] == "no-record", report
+    assert report["release_claimed"] is False, report
+    PY
+
     # ---- run: job profiles only, through the owner helper -----------------
     run_state="$TMPDIR/runstate"
     mkdir -p "$run_state" "$TMPDIR/emptyhome" "$TMPDIR/emptyprofiles"
@@ -771,9 +863,10 @@ stdenvNoCC.mkDerivation {
     rm -f "$run_state/last-run.json"
     env TT_MODEL_REGISTRY=${fixtureRegistry} TT_MODEL_STATE_ROOT="$run_state" \
       TT_MODEL_OWNER="$TMPDIR/fake-owner-ok" MESH_DEVICE=leaked FAKE_JOB_ENV=caller \
+      TT_VISIBLE_DEVICES=9 \
       "$tt_model" run fake-job --package ${fixtureJob} --repo-root "$TT_MODEL_REPO_ROOT" \
       --json -- --receipt "$TMPDIR/job-receipt.json" >run.json 2>run.err
-    grep -F 'job env=1 mesh=unset' run.err
+    grep -F 'job env=1 mesh=unset visible=0' run.err
     grep -F '"leader"' run.json || true
     python3 - "$run_state" "$TMPDIR" <<'PY'
     import glob
@@ -789,6 +882,7 @@ stdenvNoCC.mkDerivation {
     assert event["exit_status"] == 0, event["exit_status"]
     assert event["owner_stopped"] is True
     assert event["reset_performed"] is True
+    assert event["tt_visible_devices"] == "0", event["tt_visible_devices"]
     assert event["argv"][0].endswith("bin/job-run"), event["argv"]
     assert event["argv_blake3"]
     assert event["receipt"]["path"].endswith("job-receipt.json"), event["receipt"]
@@ -1082,7 +1176,7 @@ stdenvNoCC.mkDerivation {
   '';
 
   meta = {
-    description = "Status, validation, and the active record for the Tenstorrent runtime-profile registry";
+    description = "Status, validation, reconciliation, and the active record for the Tenstorrent runtime-profile registry";
     license = lib.licenses.lgpl21Only;
     mainProgram = "tt-model";
     platforms = [ "x86_64-linux" ];

@@ -8,11 +8,15 @@
     tt-model status [--json]
     tt-model check <profile> [--package PATH] [--deep [--allow-large]] [--json]
     tt-model record <profile> --package PATH [--force] [--json]
+    tt-model reconcile --cards PATH [--json]
 
-`status` reads only: no device, no write, no unit mutation. `check` is pure
-validation and also writes nothing. `record` writes the active record, an
-append-only history entry, and one GC root per store path the record names, all
-inside the state root and GC-root directory below.
+`status` and `reconcile` read only: no device, no write, no unit mutation.
+`check` is pure validation and also writes nothing. `reconcile` compares the
+active record with a captured card-holder view and reports `consistent`, `stale`,
+`conflict`, `unknown`, or `no-record`; it never stops, resets, records, or
+claims that an exported buffer was released. `record` writes the active record,
+an append-only history entry, and one GC root per store path the record names,
+all inside the state root and GC-root directory below.
 
 No subcommand needs root or sudo, opens a device, stops or starts a unit, or
 resets the cards. The privileged owner helper (stop/start, `lsof`, device reset)
@@ -61,6 +65,7 @@ from typing import Any
 STATUS_SCHEMA = "onix.tt-model.status.v1"
 CHECK_SCHEMA = "onix.tt-model.check.v1"
 RECORD_SCHEMA = "onix.tt-model.record.v1"
+RECONCILE_SCHEMA = "onix.tt-model.reconcile.v1"
 RUN_SCHEMA = "onix.tt-model.run.v1"
 RUN_EVENT_DIR = "runs"
 DEFAULT_OWNER_HELPER = "/run/current-system/sw/bin/tt-model-owner"
@@ -1484,12 +1489,21 @@ def helper_command(helper: Path, mode: str) -> tuple[int, str, str]:
 
 
 def parse_cards(output: str) -> dict[str, Any]:
-    cards: dict[str, Any] = {"owner_name": None, "owner_pid": None, "holders": []}
+    cards: dict[str, Any] = {
+        "owner_name": None,
+        "owner_pid": None,
+        "cards": [],
+        "holders": [],
+    }
     for line in output.splitlines():
         if line.startswith("owner_name="):
             cards["owner_name"] = line.split("=", 1)[1]
         elif line.startswith("owner_pid="):
             cards["owner_pid"] = line.split("=", 1)[1]
+        elif line.startswith("card "):
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                cards["cards"].append(parts[1])
         elif line.startswith("holder "):
             parts = line.split(None, 4)
             if len(parts) == 5:
@@ -1621,8 +1635,16 @@ def run_profile(
             + job_arguments
         )
         # The job gets the profile environment and a PATH, nothing else: a
-        # caller's MESH_DEVICE or TT_CACHE_PATH must not reach it.
+        # caller's MESH_DEVICE, TT_CACHE_PATH, or TT_VISIBLE_DEVICES must not
+        # reach it.
         environment = dict(entry["env"])
+        # A single-card job gets a runtime visibility hint. This is not a
+        # security boundary: arbitrary code can rewrite the variable and can
+        # still open a card node directly. The owner helper's holder check and
+        # the KMD export lifetime remain the authority.
+        device_ids = entry["mesh"].get("physical_device_ids") or []
+        if len(device_ids) == 1:
+            environment["TT_VISIBLE_DEVICES"] = str(device_ids[0])
         environment.setdefault(
             "PATH", os.environ.get("PATH", "/run/current-system/sw/bin")
         )
@@ -1672,6 +1694,7 @@ def run_profile(
             "finished": finished.isoformat(),
             "owner_stopped": owner_stopped,
             "reset_performed": reset_performed,
+            "tt_visible_devices": environment.get("TT_VISIBLE_DEVICES"),
         }
         data = (json.dumps(event, indent=2, sort_keys=True) + "\n").encode()
         runs_dir = state_root / RUN_EVENT_DIR
@@ -1710,6 +1733,353 @@ def probe_last_run(state_root: Path) -> dict[str, Any] | None:
         "finished": document.get("finished"),
         "receipt": document.get("receipt"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Reconcile: compare the advisory record with the kernel's holder view.
+# ---------------------------------------------------------------------------
+
+
+def parse_moment(value: str) -> datetime.datetime | None:
+    """Parse an ISO-8601 timestamp; a naive timestamp is UTC."""
+    try:
+        moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    return moment
+
+
+def process_start_ticks(pid: int) -> dict[str, Any]:
+    """Field 22 of /proc/<pid>/stat, the pid-reuse guard the design names."""
+    path = Path("/proc") / str(pid) / "stat"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return {"state": "absent"}
+    except OSError as error:
+        return {"state": "unreadable", "reason": str(error)}
+    _, separator, rest = text.rpartition(") ")
+    if not separator:
+        return {"state": "unreadable", "reason": "the stat line has no command field"}
+    fields = rest.split()
+    if len(fields) <= 19:
+        return {"state": "unreadable", "reason": "the stat line is short"}
+    try:
+        ticks = int(fields[19])
+    except ValueError:
+        return {"state": "unreadable", "reason": "the start time is not an integer"}
+    return {"state": "present", "start_ticks": ticks}
+
+
+def lease_integer(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError("a lease integer field cannot be a boolean")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+    else:
+        raise ValueError(f"expected a positive integer, got {value!r}")
+    if parsed <= 0:
+        raise ValueError(f"expected a positive integer, got {parsed}")
+    return parsed
+
+
+def lease_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    """The advisory lease block, if the record carries one.
+
+    An older record has no lease block. That is not an error: reconcile then
+    decides from the cards view alone and reports no expiry.
+    """
+    raw = record.get("lease")
+    if raw is None:
+        return {
+            "declared": False,
+            "holder_pid": None,
+            "holder_start_ticks": None,
+            "generation": None,
+            "expires_at": None,
+            "expired": None,
+        }
+    if not isinstance(raw, dict):
+        return {"declared": True, "invalid": "lease must be a JSON object"}
+    try:
+        holder_pid = lease_integer(raw.get("holder_pid"))
+        holder_start_ticks = lease_integer(raw.get("holder_start_ticks"))
+        generation = lease_integer(raw.get("generation"))
+    except (TypeError, ValueError) as error:
+        return {"declared": True, "invalid": str(error)}
+    expires_at = raw.get("expires_at")
+    if expires_at is not None:
+        if not isinstance(expires_at, str):
+            return {"declared": True, "invalid": "lease.expires_at must be a timestamp"}
+        if parse_moment(expires_at) is None:
+            return {
+                "declared": True,
+                "invalid": f"lease.expires_at is not a timestamp: {expires_at!r}",
+            }
+    return {
+        "declared": True,
+        "holder_pid": holder_pid,
+        "holder_start_ticks": holder_start_ticks,
+        "generation": generation,
+        "expires_at": expires_at,
+        "expired": None,
+    }
+
+
+def read_cards_view(cards_path: Path) -> dict[str, Any]:
+    """A card-holder view captured from the owner helper, never a live probe."""
+    try:
+        text = cards_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {
+            "state": "unavailable",
+            "reason": f"{cards_path}: file is missing",
+            "owner_name": None,
+            "owner_pid": None,
+            "cards": [],
+            "holders": [],
+        }
+    except (OSError, UnicodeDecodeError) as error:
+        return {
+            "state": "unavailable",
+            "reason": f"{cards_path}: {error}",
+            "owner_name": None,
+            "owner_pid": None,
+            "cards": [],
+            "holders": [],
+        }
+    cards = parse_cards(text)
+    if not cards["owner_name"]:
+        return {
+            "state": "unavailable",
+            "reason": "the cards output does not name the owner unit",
+            **cards,
+        }
+    if not cards["cards"]:
+        return {
+            "state": "unavailable",
+            "reason": "the cards output does not list a card",
+            **cards,
+        }
+    return {"state": "observed", **cards}
+
+
+def card_identifiers(cards: list[str]) -> list[str]:
+    return sorted(Path(device).name for device in cards)
+
+
+def reconcile_report(
+    state_root: Path, cards_path: Path, now: datetime.datetime | None = None
+) -> dict[str, Any]:
+    """Compare the active record with one captured kernel view. Writes nothing."""
+    moment = now or utc_now()
+    kernel = read_cards_view(cards_path)
+    report: dict[str, Any] = {
+        "schema": RECONCILE_SCHEMA,
+        "state": "unknown",
+        "reason": None,
+        "record": None,
+        "lease": None,
+        "kernel": kernel,
+        "holders_outside_owner": [],
+        "holders_unattributed": [],
+        "holder_count": len(kernel["holders"]),
+        # The KMD keeps exported TLB windows alive after the originating fd
+        # closes. /proc cannot observe them, so quiescence is never inferred.
+        "dma_buf": "unobserved",
+        "release_claimed": False,
+        "reset": "not-attempted",
+        "action": "none",
+        "generated_at": moment.isoformat(),
+    }
+
+    record_path = state_root / "active.json"
+    try:
+        record_path.stat()
+    except FileNotFoundError:
+        report["state"] = "no-record"
+        report["reason"] = f"{record_path}: no active record"
+        return report
+    except OSError as error:
+        report["reason"] = (
+            f"{record_path}: the active record cannot be examined: {error}"
+        )
+        return report
+    try:
+        document = read_json(record_path)
+    except (JsonInputError, UnicodeDecodeError) as error:
+        report["reason"] = f"the active record is unreadable: {error}"
+        return report
+    if not isinstance(document, dict):
+        report["reason"] = "the active record is not a JSON object"
+        return report
+    if document.get("schema") != RECORD_SCHEMA:
+        report["reason"] = (
+            f"the active record schema is {document.get('schema')!r}, "
+            f"not {RECORD_SCHEMA}"
+        )
+        return report
+    mesh = document.get("mesh")
+    physical_ids = mesh.get("physical_device_ids") if isinstance(mesh, dict) else None
+    if physical_ids is not None and not isinstance(physical_ids, list):
+        report["reason"] = "the record's mesh.physical_device_ids is not a list"
+        return report
+    report["record"] = {
+        "path": str(record_path),
+        "profile": document.get("profile"),
+        "recorded_at": document.get("recorded_at"),
+        "physical_device_ids": physical_ids or [],
+    }
+
+    lease = lease_metadata(document)
+    report["lease"] = lease
+    if lease.get("invalid"):
+        report["reason"] = f"the lease block is invalid: {lease['invalid']}"
+        return report
+    if lease["expires_at"] is not None:
+        expiry = parse_moment(lease["expires_at"])
+        lease["expired"] = bool(expiry is not None and expiry <= moment)
+
+    if kernel["state"] != "observed":
+        report["reason"] = kernel["reason"]
+        return report
+
+    # A partial view is not evidence of anything. The record names the cards
+    # the owner should hold; the capture must cover exactly those cards.
+    record_cards = sorted(str(identifier) for identifier in (physical_ids or []))
+    observed_cards = card_identifiers(kernel["cards"])
+    if record_cards and observed_cards != record_cards:
+        report["reason"] = (
+            "the cards view does not cover the record's cards: "
+            f"record {record_cards}, observed {observed_cards}"
+        )
+        return report
+
+    owner_unit = kernel["owner_name"]
+    owner_absent = kernel["owner_pid"] in (None, "", "none")
+    holders = kernel["holders"]
+    report["holders_outside_owner"] = [
+        holder for holder in holders if holder["unit"] not in (owner_unit, "-")
+    ]
+    report["holders_unattributed"] = [
+        holder for holder in holders if holder["unit"] == "-"
+    ]
+
+    # Kernel view wins over the advisory record.
+    if report["holders_outside_owner"]:
+        holder = report["holders_outside_owner"][0]
+        report["state"] = "conflict"
+        report["reason"] = (
+            f"card is held by {holder['command']} (pid {holder['pid']}) "
+            f"outside {owner_unit}"
+        )
+        return report
+    if report["holders_unattributed"]:
+        holder = report["holders_unattributed"][0]
+        report["state"] = "unknown"
+        report["reason"] = (
+            f"holder pid {holder['pid']} ({holder['command']}) has no "
+            "attributable unit; release cannot be inferred"
+        )
+        return report
+
+    if lease["holder_pid"] is not None:
+        process = process_start_ticks(lease["holder_pid"])
+        lease["holder_process"] = process
+        if process["state"] == "absent":
+            report["state"] = "stale"
+            report["reason"] = (
+                f"the lease holder pid {lease['holder_pid']} no longer exists"
+            )
+            return report
+        if process["state"] == "unreadable":
+            report["state"] = "unknown"
+            report["reason"] = (
+                f"the lease holder pid {lease['holder_pid']} cannot be observed: "
+                f"{process.get('reason')}"
+            )
+            return report
+        expected = lease["holder_start_ticks"]
+        if expected is not None and process.get("start_ticks") != expected:
+            report["state"] = "stale"
+            report["reason"] = (
+                f"pid {lease['holder_pid']} was reused: start time "
+                f"{process.get('start_ticks')} does not match the lease's {expected}"
+            )
+            return report
+
+    if lease["expired"]:
+        if holders:
+            report["state"] = "conflict"
+            report["reason"] = (
+                "the lease has expired but a card holder is still visible"
+            )
+        elif not owner_absent:
+            report["state"] = "stale"
+            report["reason"] = "the lease has expired but the owner is still running"
+        else:
+            # Observational agreement only. The export/importer view is not
+            # observable here, so no release is claimed.
+            report["state"] = "consistent"
+            report["reason"] = "the lease has expired with no visible card holder"
+        return report
+
+    owner_pid = kernel["owner_pid"]
+    if owner_absent:
+        if holders:
+            report["state"] = "conflict"
+            report["reason"] = (
+                f"a holder in {owner_unit} remains while the owner has no MainPID"
+            )
+        else:
+            report["state"] = "stale"
+            report["reason"] = (
+                "the active record names an owner but no owner process or card "
+                "holder is visible"
+            )
+        return report
+
+    if not holders:
+        report["state"] = "unknown"
+        report["reason"] = (
+            f"owner pid {owner_pid} is running but no card holder is visible; "
+            "quiescence cannot be inferred"
+        )
+        return report
+
+    report["state"] = "consistent"
+    report["reason"] = (
+        f"owner pid {owner_pid} is running and every visible holder is in {owner_unit}"
+    )
+    return report
+
+
+def render_reconcile_human(report: dict[str, Any]) -> str:
+    kernel = report["kernel"]
+    record = report["record"]
+    lines = [
+        f"reconcile: {report['state']} ({report['reason']})",
+        (
+            f"record: {record['path']} profile={record['profile']}"
+            if record is not None
+            else "record: none"
+        ),
+        (
+            f"kernel: {kernel['owner_name']} pid={kernel['owner_pid']} "
+            f"cards={len(kernel['cards'])} holders={len(kernel['holders'])}"
+            if kernel["state"] == "observed"
+            else f"kernel: unavailable ({kernel['reason']})"
+        ),
+        f"dma_buf: {report['dma_buf']} (release not claimed)",
+        f"action: {report['action']}",
+    ]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -2309,6 +2679,17 @@ def main(argv: list[str] | None = None) -> int:
         help="run despite admission failures, recording the bypass",
     )
     run.add_argument("--json", action="store_true", help="emit the stable JSON schema")
+    reconcile = subcommands.add_parser(
+        "reconcile", help="compare the active record with a captured cards view"
+    )
+    reconcile.add_argument(
+        "--cards",
+        required=True,
+        help="file holding the owner helper's cards output; it is never executed",
+    )
+    reconcile.add_argument(
+        "--json", action="store_true", help="emit the stable JSON schema"
+    )
     # Job arguments come after a literal `--`, split before argparse sees them:
     # argparse's REMAINDER would also swallow this command's own options.
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
@@ -2318,6 +2699,18 @@ def main(argv: list[str] | None = None) -> int:
         job_arguments = raw_arguments[split + 1 :]
         raw_arguments = raw_arguments[:split]
     args = parser.parse_args(raw_arguments)
+
+    if args.command == "reconcile":
+        # Reconciliation reads the record and a captured view only. It does
+        # not need, and deliberately does not load, the profile registry.
+        state_root = env_path("TT_MODEL_STATE_ROOT", DEFAULT_STATE_ROOT)
+        report = reconcile_report(state_root, Path(args.cards))
+        print(
+            json.dumps(report, indent=2, sort_keys=True)
+            if args.json
+            else render_reconcile_human(report)
+        )
+        return OK
 
     try:
         registry = load_registry(registry_path(os.environ.get("TT_MODEL_REGISTRY")))
