@@ -803,6 +803,2038 @@ void validate_stage_assignments(const Json &runtime_arguments,
   (void)abi;
 }
 
+// ---- Ordered per-CB phase-window extraction and validation ----
+
+enum class TokenKind {
+  Identifier,
+  Number,
+  StringLiteral,
+  CharLiteral,
+  LParen,
+  RParen,
+  LBrace,
+  RBrace,
+  LBracket,
+  RBracket,
+  Semicolon,
+  Comma,
+  Plus,
+  ColonColon,
+  Less,
+  Greater,
+  Equal,
+  Other,
+};
+
+struct Token {
+  TokenKind kind = TokenKind::Other;
+  std::string text;
+  std::size_t line = 1;
+  std::size_t start_offset = 0;
+  std::size_t end_offset = 0;
+};
+
+[[nodiscard]] std::vector<std::string> split_source_lines(std::string_view text) {
+  std::vector<std::string> lines;
+  std::size_t start = 0;
+  while (start <= text.size()) {
+    const std::size_t newline = text.find('\n', start);
+    if (newline == std::string_view::npos) {
+      std::string line(text.substr(start));
+      if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+      }
+      lines.push_back(std::move(line));
+      break;
+    }
+    std::string line(text.substr(start, newline - start));
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    lines.push_back(std::move(line));
+    start = newline + 1;
+  }
+  return lines;
+}
+
+[[nodiscard]] std::string strip_whitespace(std::string_view value) {
+  std::string result;
+  result.reserve(value.size());
+  for (const char ch : value) {
+    if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
+      result.push_back(ch);
+    }
+  }
+  return result;
+}
+
+[[nodiscard]] bool is_ident_start(char ch) {
+  const unsigned char uch = static_cast<unsigned char>(ch);
+  return std::isalpha(uch) != 0 || ch == '_';
+}
+
+[[nodiscard]] bool is_ident_continue(char ch) {
+  const unsigned char uch = static_cast<unsigned char>(ch);
+  return std::isalnum(uch) != 0 || ch == '_';
+}
+
+[[nodiscard]] std::vector<Token> tokenize_kernel_source(
+    const SourceFile &source) {
+  const std::string &text = source.text;
+  std::vector<Token> tokens;
+  std::size_t pos = 0;
+  std::size_t line = 1;
+  bool at_line_start = true;
+
+  while (pos < text.size()) {
+    const char ch = text[pos];
+    if (ch == '\n') {
+      ++pos;
+      ++line;
+      at_line_start = true;
+      continue;
+    }
+    if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f' || ch == '\v') {
+      ++pos;
+      continue;
+    }
+    if (ch == '/' && pos + 1 < text.size() && text[pos + 1] == '/') {
+      pos += 2;
+      while (pos < text.size() && text[pos] != '\n') {
+        ++pos;
+      }
+      continue;
+    }
+    if (ch == '/' && pos + 1 < text.size() && text[pos + 1] == '*') {
+      pos += 2;
+      bool closed = false;
+      while (pos + 1 < text.size()) {
+        if (text[pos] == '\n') {
+          ++line;
+        }
+        if (text[pos] == '*' && text[pos + 1] == '/') {
+          pos += 2;
+          closed = true;
+          break;
+        }
+        ++pos;
+      }
+      if (!closed) {
+        throw ContractViolation(source.role +
+                                ": unterminated block comment at line " +
+                                std::to_string(line));
+      }
+      continue;
+    }
+    if (ch == '#' && at_line_start) {
+      const std::size_t directive_line = line;
+      ++pos;
+      while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t')) {
+        ++pos;
+      }
+      const std::size_t kw_start = pos;
+      while (pos < text.size() && is_ident_continue(text[pos])) {
+        ++pos;
+      }
+      const std::string directive = text.substr(kw_start, pos - kw_start);
+      if (directive == "define") {
+        while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t')) {
+          ++pos;
+        }
+        const std::size_t name_start = pos;
+        while (pos < text.size() && is_ident_continue(text[pos])) {
+          ++pos;
+        }
+        const std::string macro_name =
+            pos > name_start ? text.substr(name_start, pos - name_start)
+                             : std::string("<unnamed>");
+        throw ContractViolation(
+            source.role + ": unrecognized preprocessor macro '" + macro_name +
+            "' at line " + std::to_string(directive_line) +
+            " (macros cannot wrap or alias circular-buffer operations)");
+      }
+      // Consume the rest of this preprocessor directive, honoring backslash
+      // line continuations.
+      while (pos < text.size()) {
+        if (text[pos] == '\\' && pos + 1 < text.size() &&
+            text[pos + 1] == '\n') {
+          pos += 2;
+          ++line;
+          continue;
+        }
+        if (text[pos] == '\\' && pos + 2 < text.size() &&
+            text[pos + 1] == '\r' && text[pos + 2] == '\n') {
+          pos += 3;
+          ++line;
+          continue;
+        }
+        if (text[pos] == '\n') {
+          break;
+        }
+        ++pos;
+      }
+      continue;
+    }
+
+    at_line_start = false;
+    const std::size_t start = pos;
+    const std::size_t tok_line = line;
+
+    if (ch == '"' || ch == '\'') {
+      const char quote = ch;
+      ++pos;
+      while (pos < text.size() && text[pos] != quote) {
+        if (text[pos] == '\\' && pos + 1 < text.size()) {
+          if (text[pos + 1] == '\n') {
+            ++line;
+          }
+          pos += 2;
+          continue;
+        }
+        if (text[pos] == '\n') {
+          ++line;
+        }
+        ++pos;
+      }
+      if (pos < text.size()) {
+        ++pos;
+      }
+      tokens.push_back(
+          Token{quote == '"' ? TokenKind::StringLiteral : TokenKind::CharLiteral,
+                text.substr(start, pos - start), tok_line, start, pos});
+      continue;
+    }
+
+    if (is_ident_start(ch)) {
+      ++pos;
+      while (pos < text.size() && is_ident_continue(text[pos])) {
+        ++pos;
+      }
+      tokens.push_back(Token{TokenKind::Identifier,
+                             text.substr(start, pos - start), tok_line, start,
+                             pos});
+      continue;
+    }
+
+    if (std::isdigit(static_cast<unsigned char>(ch)) != 0) {
+      ++pos;
+      while (pos < text.size() &&
+             (is_ident_continue(text[pos]) || text[pos] == '.')) {
+        ++pos;
+      }
+      tokens.push_back(Token{TokenKind::Number,
+                             text.substr(start, pos - start), tok_line, start,
+                             pos});
+      continue;
+    }
+
+    if (ch == ':' && pos + 1 < text.size() && text[pos + 1] == ':') {
+      pos += 2;
+      tokens.push_back(
+          Token{TokenKind::ColonColon, "::", tok_line, start, pos});
+      continue;
+    }
+
+    TokenKind kind = TokenKind::Other;
+    switch (ch) {
+    case '(':
+      kind = TokenKind::LParen;
+      break;
+    case ')':
+      kind = TokenKind::RParen;
+      break;
+    case '{':
+      kind = TokenKind::LBrace;
+      break;
+    case '}':
+      kind = TokenKind::RBrace;
+      break;
+    case '[':
+      kind = TokenKind::LBracket;
+      break;
+    case ']':
+      kind = TokenKind::RBracket;
+      break;
+    case ';':
+      kind = TokenKind::Semicolon;
+      break;
+    case ',':
+      kind = TokenKind::Comma;
+      break;
+    case '+':
+      kind = TokenKind::Plus;
+      break;
+    case '<':
+      kind = TokenKind::Less;
+      break;
+    case '>':
+      kind = TokenKind::Greater;
+      break;
+    case '=':
+      kind = TokenKind::Equal;
+      break;
+    default:
+      kind = TokenKind::Other;
+      break;
+    }
+    ++pos;
+    tokens.push_back(Token{kind, std::string(1, ch), tok_line, start, pos});
+  }
+  return tokens;
+}
+
+[[nodiscard]] std::string slice_tokens_clean(const std::string &source_text,
+                                             const std::vector<Token> &tokens,
+                                             std::size_t begin,
+                                             std::size_t end) {
+  if (begin >= end || end > tokens.size()) {
+    return "";
+  }
+  const std::size_t start_off = tokens[begin].start_offset;
+  const std::size_t end_off = tokens[end - 1].end_offset;
+  std::string raw = source_text.substr(start_off, end_off - start_off);
+  // Strip any inline comments that appeared between tokens.
+  std::string cleaned;
+  cleaned.reserve(raw.size());
+  for (std::size_t i = 0; i < raw.size();) {
+    if (raw[i] == '/' && i + 1 < raw.size() && raw[i + 1] == '/') {
+      i += 2;
+      while (i < raw.size() && raw[i] != '\n') {
+        ++i;
+      }
+      continue;
+    }
+    if (raw[i] == '/' && i + 1 < raw.size() && raw[i + 1] == '*') {
+      i += 2;
+      while (i + 1 < raw.size() && !(raw[i] == '*' && raw[i + 1] == '/')) {
+        ++i;
+      }
+      if (i + 1 < raw.size()) {
+        i += 2;
+      }
+      cleaned.push_back(' ');
+      continue;
+    }
+    cleaned.push_back(raw[i]);
+    ++i;
+  }
+  return collapse_whitespace(cleaned);
+}
+
+struct CbSymbolTable {
+  std::map<std::string, std::uint32_t> name_to_index;
+  std::map<std::uint32_t, std::string> index_to_name;
+};
+
+[[nodiscard]] bool is_cb_symbol_name(std::string_view name) {
+  return name.rfind("cb_", 0) == 0 || name.rfind("c_", 0) == 0;
+}
+
+[[nodiscard]] CbSymbolTable parse_namespace_cb_constants(
+    const std::vector<Token> &tokens, const SourceFile &source,
+    std::size_t kernel_main_token) {
+  CbSymbolTable table;
+  for (std::size_t i = 0; i + 4 < kernel_main_token; ++i) {
+    if (tokens[i].kind == TokenKind::Identifier &&
+        tokens[i].text == "constexpr" &&
+        tokens[i + 1].kind == TokenKind::Identifier &&
+        tokens[i + 1].text == "uint32_t") {
+      std::size_t cursor = i + 2;
+      while (cursor < kernel_main_token &&
+             tokens[cursor].kind != TokenKind::Semicolon) {
+        if (cursor + 2 < kernel_main_token &&
+            tokens[cursor].kind == TokenKind::Identifier &&
+            tokens[cursor + 1].kind == TokenKind::Equal &&
+            tokens[cursor + 2].kind == TokenKind::Number) {
+          const std::string &name = tokens[cursor].text;
+          const std::string &num_text = tokens[cursor + 2].text;
+          if (is_cb_symbol_name(name)) {
+            std::size_t parsed_len = 0;
+            const unsigned long value = std::stoul(num_text, &parsed_len, 10);
+            if (parsed_len == num_text.size() ||
+                (parsed_len + 1 == num_text.size() &&
+                 (num_text[parsed_len] == 'u' ||
+                  num_text[parsed_len] == 'U'))) {
+              const auto cb_idx = static_cast<std::uint32_t>(value);
+              const auto existing_name = table.name_to_index.find(name);
+              if (existing_name != table.name_to_index.end()) {
+                throw ContractViolation(source.role + ": duplicate CB symbol '" +
+                                        name + "' declaration");
+              }
+              const auto existing_idx = table.index_to_name.find(cb_idx);
+              if (existing_idx != table.index_to_name.end()) {
+                throw ContractViolation(
+                    source.role + ": duplicate CB index " +
+                    std::to_string(cb_idx) + " declared by '" +
+                    existing_idx->second + "' and '" + name + "'");
+              }
+              table.name_to_index.emplace(name, cb_idx);
+              table.index_to_name.emplace(cb_idx, name);
+            }
+          }
+          cursor += 3;
+          if (cursor < kernel_main_token &&
+              tokens[cursor].kind == TokenKind::Comma) {
+            ++cursor;
+          }
+          continue;
+        }
+        ++cursor;
+      }
+      i = cursor;
+    }
+  }
+  return table;
+}
+
+[[nodiscard]] std::size_t find_matching_delim(const std::vector<Token> &tokens,
+                                              std::size_t open_idx,
+                                              TokenKind open_kind,
+                                              TokenKind close_kind,
+                                              const SourceFile &source) {
+  if (open_idx >= tokens.size() || tokens[open_idx].kind != open_kind) {
+    throw ContractViolation(source.role + ": expected opening delimiter");
+  }
+  std::size_t depth = 1;
+  for (std::size_t i = open_idx + 1; i < tokens.size(); ++i) {
+    if (tokens[i].kind == open_kind) {
+      ++depth;
+    } else if (tokens[i].kind == close_kind) {
+      --depth;
+      if (depth == 0) {
+        return i;
+      }
+    }
+  }
+  throw ContractViolation(source.role + ": unmatched delimiter at line " +
+                          std::to_string(tokens[open_idx].line));
+}
+
+[[nodiscard]] std::vector<std::pair<std::size_t, std::size_t>>
+split_call_arguments(const std::vector<Token> &tokens, std::size_t lparen_idx,
+                     std::size_t rparen_idx) {
+  std::vector<std::pair<std::size_t, std::size_t>> args;
+  if (lparen_idx + 1 >= rparen_idx) {
+    return args;
+  }
+  std::size_t arg_start = lparen_idx + 1;
+  std::size_t paren_depth = 0;
+  std::size_t bracket_depth = 0;
+  std::size_t brace_depth = 0;
+  for (std::size_t i = lparen_idx + 1; i < rparen_idx; ++i) {
+    const TokenKind kind = tokens[i].kind;
+    if (kind == TokenKind::LParen) {
+      ++paren_depth;
+    } else if (kind == TokenKind::RParen && paren_depth > 0) {
+      --paren_depth;
+    } else if (kind == TokenKind::LBracket) {
+      ++bracket_depth;
+    } else if (kind == TokenKind::RBracket && bracket_depth > 0) {
+      --bracket_depth;
+    } else if (kind == TokenKind::LBrace) {
+      ++brace_depth;
+    } else if (kind == TokenKind::RBrace && brace_depth > 0) {
+      --brace_depth;
+    } else if (kind == TokenKind::Comma && paren_depth == 0 &&
+               bracket_depth == 0 && brace_depth == 0) {
+      args.emplace_back(arg_start, i);
+      arg_start = i + 1;
+    }
+  }
+  args.emplace_back(arg_start, rparen_idx);
+  return args;
+}
+
+struct LoopFrame {
+  std::string kind;
+  std::string header;
+  std::size_t line = 0;
+  std::string index_var;
+  std::optional<std::uint32_t> const_bound;
+};
+
+struct BranchFrame {
+  std::string kind; // "if" or "else"
+  std::string condition;
+  std::size_t line = 0;
+
+  [[nodiscard]] std::string label() const {
+    if (kind == "if") {
+      return "if (" + condition + ")";
+    }
+    return "else (" + condition + ")";
+  }
+};
+
+enum class PhaseEventKind {
+  Reserve,
+  Push,
+  Wait,
+  Pop,
+  ProducerAccess,
+  ConsumerAccess,
+  ProducerInit,
+  ConsumerInit,
+  Query,
+  Config,
+  LoopExit,
+  BranchExit,
+  ControlJump,
+};
+
+[[nodiscard]] std::string phase_event_kind_name(PhaseEventKind kind) {
+  switch (kind) {
+  case PhaseEventKind::Reserve:
+    return "reserve";
+  case PhaseEventKind::Push:
+    return "push";
+  case PhaseEventKind::Wait:
+    return "wait";
+  case PhaseEventKind::Pop:
+    return "pop";
+  case PhaseEventKind::ProducerAccess:
+    return "producer_access";
+  case PhaseEventKind::ConsumerAccess:
+    return "consumer_access";
+  case PhaseEventKind::ProducerInit:
+    return "producer_init";
+  case PhaseEventKind::ConsumerInit:
+    return "consumer_init";
+  case PhaseEventKind::Query:
+    return "query";
+  case PhaseEventKind::Config:
+    return "config";
+  case PhaseEventKind::LoopExit:
+    return "loop_exit";
+  case PhaseEventKind::BranchExit:
+    return "branch_exit";
+  case PhaseEventKind::ControlJump:
+    return "control_jump";
+  }
+  return "unknown";
+}
+
+struct ResolvedCbTarget {
+  std::string name;
+  std::uint32_t index = 0;
+  PhaseEventKind kind = PhaseEventKind::Query;
+};
+
+struct PhaseEvent {
+  PhaseEventKind kind = PhaseEventKind::Query;
+  std::string operation;
+  std::string cb_expression;
+  std::string cb_name;
+  std::uint32_t cb_index = 0;
+  std::string count_expr;
+  std::string normalized_call;
+  std::size_t line = 0;
+  std::vector<std::string> loop_scope;
+  std::vector<std::string> branch_scope;
+  std::optional<std::string> inlined_from_lambda;
+  std::optional<std::size_t> lambda_body_line;
+};
+
+struct ReadbackEntry {
+  std::size_t line = 0;
+  std::string source_line;
+  std::string operation;
+  std::string kind;
+  std::string cb_expression;
+  std::vector<ResolvedCbTarget> cb_targets;
+  std::optional<std::string> tile_count;
+  std::size_t loop_depth = 0;
+  std::vector<std::string> loop_scope;
+  std::vector<std::string> branch_scope;
+  std::optional<std::string> inlined_from_lambda;
+  std::optional<std::size_t> lambda_body_line;
+  std::optional<std::string> lambda_body_source_line;
+};
+
+struct KernelPhaseExtraction {
+  std::vector<PhaseEvent> events;
+  std::vector<ReadbackEntry> readback;
+};
+
+struct CbApiOperand {
+  std::size_t arg_index = 0;
+  PhaseEventKind kind = PhaseEventKind::Query;
+};
+
+struct CbApiSpec {
+  std::size_t min_args = 0;
+  std::size_t max_args = 0;
+  std::optional<std::size_t> count_arg_index;
+  std::vector<CbApiOperand> operands;
+};
+
+[[nodiscard]] const std::map<std::string, CbApiSpec> &recognized_cb_apis() {
+  static const std::map<std::string, CbApiSpec> kApis = {
+      // Handshakes
+      {"cb_reserve_back", {2, 2, 1, {{0, PhaseEventKind::Reserve}}}},
+      {"cb_push_back", {2, 2, 1, {{0, PhaseEventKind::Push}}}},
+      {"cb_wait_front", {2, 2, 1, {{0, PhaseEventKind::Wait}}}},
+      {"cb_pop_front", {2, 2, 1, {{0, PhaseEventKind::Pop}}}},
+      // Producer data/pointer accesses
+      {"pack_tile", {2, 3, std::nullopt, {{1, PhaseEventKind::ProducerAccess}}}},
+      {"get_write_ptr",
+       {1, 1, std::nullopt, {{0, PhaseEventKind::ProducerAccess}}}},
+      // Consumer data/pointer accesses
+      {"get_read_ptr",
+       {1, 1, std::nullopt, {{0, PhaseEventKind::ConsumerAccess}}}},
+      {"copy_tile", {3, 3, std::nullopt, {{0, PhaseEventKind::ConsumerAccess}}}},
+      {"transpose_wh_tile",
+       {3, 3, std::nullopt, {{0, PhaseEventKind::ConsumerAccess}}}},
+      {"mul_tiles",
+       {5,
+        5,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerAccess},
+         {1, PhaseEventKind::ConsumerAccess}}}},
+      {"matmul_tiles",
+       {5,
+        5,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerAccess},
+         {1, PhaseEventKind::ConsumerAccess}}}},
+      {"mul_tiles_bcast_rows",
+       {5,
+        5,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerAccess},
+         {1, PhaseEventKind::ConsumerAccess}}}},
+      // Init / config / metadata queries
+      {"get_tile_size", {1, 1, std::nullopt, {{0, PhaseEventKind::Query}}}},
+      {"compute_kernel_hw_startup",
+       {3,
+        3,
+        std::nullopt,
+        {{0, PhaseEventKind::Config},
+         {1, PhaseEventKind::Config},
+         {2, PhaseEventKind::Config}}}},
+      {"copy_tile_init",
+       {1, 1, std::nullopt, {{0, PhaseEventKind::ConsumerInit}}}},
+      {"mul_tiles_init",
+       {2,
+        2,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerInit},
+         {1, PhaseEventKind::ConsumerInit}}}},
+      {"mul_bcast_rows_init_short",
+       {2,
+        2,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerInit},
+         {1, PhaseEventKind::ConsumerInit}}}},
+      {"mm_init_short",
+       {3,
+        3,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerInit},
+         {1, PhaseEventKind::ConsumerInit}}}},
+      {"transpose_wh_init",
+       {2,
+        2,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerInit},
+         {1, PhaseEventKind::ProducerInit}}}},
+      {"mm_init",
+       {3,
+        3,
+        std::nullopt,
+        {{0, PhaseEventKind::ConsumerInit},
+         {1, PhaseEventKind::ConsumerInit},
+         {2, PhaseEventKind::ProducerInit}}}},
+  };
+  return kApis;
+}
+
+[[nodiscard]] std::string to_lower_ascii(std::string_view input) {
+  std::string out;
+  out.reserve(input.size());
+  for (const char ch : input) {
+    out.push_back(
+        static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+  }
+  return out;
+}
+
+[[nodiscard]] bool looks_like_macro_call(std::string_view name) {
+  if (name == "MATH") {
+    return false;
+  }
+  std::size_t upper_count = 0;
+  for (const char ch : name) {
+    const unsigned char uch = static_cast<unsigned char>(ch);
+    if (std::islower(uch) != 0) {
+      return false;
+    }
+    if (std::isupper(uch) != 0) {
+      ++upper_count;
+    }
+  }
+  return upper_count >= 2;
+}
+
+[[nodiscard]] bool looks_like_unrecognized_cb_call(std::string_view name) {
+  if (looks_like_macro_call(name)) {
+    return true;
+  }
+  const std::string lower = to_lower_ascii(name);
+  if (lower.rfind("cb_", 0) == 0 || lower.find("_cb_") != std::string::npos ||
+      (lower.size() >= 3 && lower.compare(lower.size() - 3, 3, "_cb") == 0)) {
+    return true;
+  }
+  for (const char *pattern :
+       {"pack_tile", "copy_tile", "write_ptr", "read_ptr", "tile_size",
+        "cbwait", "cbpop", "cbpush", "cbreserve"}) {
+    if (lower.find(pattern) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] std::optional<std::pair<std::string, std::uint32_t>>
+parse_static_for_bound(const std::string &header_text) {
+  static const std::regex pattern(
+      R"(^\(\s*(?:const\s+)?(?:uint32_t|int|std::size_t|size_t)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*0\s*;\s*([A-Za-z_][A-Za-z0-9_]*)\s*<\s*([0-9]+)[uU]?\s*;\s*(?:\+\+([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*)\+\+)\s*\)$)");
+  std::smatch match;
+  if (!std::regex_match(header_text, match, pattern)) {
+    return std::nullopt;
+  }
+  const std::string var = match[1].str();
+  const std::string cmp_var = match[2].str();
+  const std::string inc_var =
+      match[4].matched ? match[4].str() : match[5].str();
+  if (var != cmp_var || var != inc_var) {
+    return std::nullopt;
+  }
+  const auto bound = static_cast<std::uint32_t>(std::stoul(match[3].str()));
+  if (bound == 0) {
+    return std::nullopt;
+  }
+  return std::make_pair(var, bound);
+}
+
+struct ResolvedCbExpression {
+  std::vector<std::pair<std::string, std::uint32_t>> targets;
+  std::optional<std::size_t> collapsed_loop_index;
+};
+
+[[nodiscard]] ResolvedCbExpression resolve_cb_expression(
+    const SourceFile &source, const std::vector<Token> &tokens,
+    std::size_t begin, std::size_t end, const CbSymbolTable &cbs,
+    const std::vector<LoopFrame> &loop_stack, std::string_view call_name,
+    std::size_t call_line) {
+  const std::string expr_text =
+      slice_tokens_clean(source.text, tokens, begin, end);
+  // Case 1: Single declared constexpr CB identifier.
+  if (end - begin == 1 && tokens[begin].kind == TokenKind::Identifier) {
+    const std::string &ident = tokens[begin].text;
+    const auto it = cbs.name_to_index.find(ident);
+    if (it != cbs.name_to_index.end()) {
+      ResolvedCbExpression resolved;
+      resolved.targets.emplace_back(it->first, it->second);
+      return resolved;
+    }
+    throw ContractViolation(
+        source.role + ": unrecognized CB expression '" + expr_text + "' in '" +
+        std::string(call_name) + "' at line " + std::to_string(call_line) +
+        " (expected a declared constexpr CB symbol, not a runtime variable or "
+        "macro)");
+  }
+  // Case 2: Declared CB constant + enclosing static constant-bound for-loop
+  // index (e.g., cb_a + inp inside for (uint32_t inp = 0; inp < 6; inp++)).
+  if (end - begin == 3 && tokens[begin].kind == TokenKind::Identifier &&
+      tokens[begin + 1].kind == TokenKind::Plus &&
+      tokens[begin + 2].kind == TokenKind::Identifier) {
+    const std::string &base_ident = tokens[begin].text;
+    const std::string &var_ident = tokens[begin + 2].text;
+    const auto base_it = cbs.name_to_index.find(base_ident);
+    if (base_it == cbs.name_to_index.end()) {
+      throw ContractViolation(
+          source.role + ": unrecognized CB base symbol '" + base_ident +
+          "' in expression '" + expr_text + "' in '" + std::string(call_name) +
+          "' at line " + std::to_string(call_line));
+    }
+    for (std::size_t idx = loop_stack.size(); idx > 0; --idx) {
+      const LoopFrame &frame = loop_stack[idx - 1];
+      if (frame.index_var == var_ident && frame.const_bound.has_value()) {
+        ResolvedCbExpression resolved;
+        resolved.collapsed_loop_index = idx - 1;
+        for (std::uint32_t offset = 0; offset < *frame.const_bound; ++offset) {
+          const std::uint32_t target_idx = base_it->second + offset;
+          const auto target_it = cbs.index_to_name.find(target_idx);
+          if (target_it == cbs.index_to_name.end()) {
+            throw ContractViolation(
+                source.role + ": CB expression '" + expr_text + "' in '" +
+                std::string(call_name) + "' at line " +
+                std::to_string(call_line) + " resolves to undeclared CB index " +
+                std::to_string(target_idx));
+          }
+          resolved.targets.emplace_back(target_it->second, target_idx);
+        }
+        return resolved;
+      }
+    }
+    throw ContractViolation(
+        source.role + ": unrecognized CB expression '" + expr_text + "' in '" +
+        std::string(call_name) + "' at line " + std::to_string(call_line) +
+        " (index '" + var_ident +
+        "' is not a compile-time constant-bound loop variable)");
+  }
+
+  throw ContractViolation(
+      source.role + ": unrecognized CB expression '" + expr_text + "' in '" +
+      std::string(call_name) + "' at line " + std::to_string(call_line) +
+      " (expected a declared constexpr CB symbol or static constant-bound "
+      "offset)");
+}
+
+struct RecordedLambdaEvent {
+  PhaseEventKind kind = PhaseEventKind::Query;
+  std::string operation;
+  std::string cb_expression;
+  std::vector<ResolvedCbTarget> targets;
+  std::optional<std::string> count_expr;
+  std::string normalized_call;
+  std::size_t body_line = 0;
+  std::string body_source_line;
+};
+
+struct LocalLambdaRecord {
+  std::size_t def_line = 0;
+  std::vector<RecordedLambdaEvent> events;
+  bool invoked = false;
+};
+
+class KernelPhaseParser {
+public:
+  KernelPhaseParser(const SourceFile &source,
+                    const std::vector<std::string> &lines,
+                    const std::vector<Token> &tokens,
+                    const CbSymbolTable &cbs)
+      : source_(source), lines_(lines), tokens_(tokens), cbs_(cbs) {}
+
+  [[nodiscard]] KernelPhaseExtraction extract() {
+    // Locate void kernel_main() { ... }
+    std::optional<std::size_t> main_ident_idx;
+    std::optional<std::size_t> main_lbrace;
+    std::optional<std::size_t> main_rbrace;
+    for (std::size_t i = 0; i + 4 < tokens_.size(); ++i) {
+      if (tokens_[i].kind == TokenKind::Identifier &&
+          tokens_[i].text == "void" &&
+          tokens_[i + 1].kind == TokenKind::Identifier &&
+          tokens_[i + 1].text == "kernel_main" &&
+          tokens_[i + 2].kind == TokenKind::LParen &&
+          tokens_[i + 3].kind == TokenKind::RParen &&
+          tokens_[i + 4].kind == TokenKind::LBrace) {
+        if (main_lbrace.has_value()) {
+          throw ContractViolation(source_.role +
+                                  ": multiple kernel_main() definitions");
+        }
+        main_ident_idx = i + 1;
+        main_lbrace = i + 4;
+        main_rbrace = find_matching_delim(tokens_, *main_lbrace,
+                                          TokenKind::LBrace, TokenKind::RBrace,
+                                          source_);
+      }
+    }
+    if (!main_lbrace.has_value() || !main_rbrace.has_value()) {
+      throw ContractViolation(source_.role +
+                              ": lacks a void kernel_main() definition");
+    }
+    (void)main_ident_idx;
+
+    // Ensure no CB calls appear outside kernel_main().
+    check_no_cb_calls_outside_main(0, *main_lbrace);
+    check_no_cb_calls_outside_main(*main_rbrace + 1, tokens_.size());
+
+    // Parse kernel_main() body statements.
+    std::size_t pos = *main_lbrace + 1;
+    while (pos < *main_rbrace) {
+      pos = parse_statement(pos, *main_rbrace);
+    }
+
+    // Refuse any local lambda that captured CB operations but was never called.
+    for (const auto &[name, record] : lambdas_) {
+      if (!record.events.empty() && !record.invoked) {
+        throw ContractViolation(
+            source_.role + ": local lambda '" + name + "' at line " +
+            std::to_string(record.def_line) +
+            " contains circular-buffer operations but is never invoked");
+      }
+    }
+
+    return std::move(result_);
+  }
+
+private:
+  const SourceFile &source_;
+  const std::vector<std::string> &lines_;
+  const std::vector<Token> &tokens_;
+  const CbSymbolTable &cbs_;
+
+  std::vector<LoopFrame> loop_stack_;
+  std::vector<BranchFrame> branch_stack_;
+  std::map<std::string, LocalLambdaRecord> lambdas_;
+  std::vector<RecordedLambdaEvent> *recording_lambda_ = nullptr;
+  KernelPhaseExtraction result_;
+
+  [[nodiscard]] std::string line_text(std::size_t line_no) const {
+    if (line_no >= 1 && line_no <= lines_.size()) {
+      return lines_[line_no - 1];
+    }
+    return "";
+  }
+
+  [[nodiscard]] std::vector<std::string> current_loop_scope(
+      std::optional<std::size_t> exclude_index = std::nullopt) const {
+    std::vector<std::string> scope;
+    scope.reserve(loop_stack_.size());
+    for (std::size_t i = 0; i < loop_stack_.size(); ++i) {
+      if (exclude_index.has_value() && i == *exclude_index) {
+        continue;
+      }
+      scope.push_back(loop_stack_[i].header);
+    }
+    return scope;
+  }
+
+  [[nodiscard]] std::vector<std::string> current_branch_scope() const {
+    std::vector<std::string> scope;
+    scope.reserve(branch_stack_.size());
+    for (const BranchFrame &frame : branch_stack_) {
+      scope.push_back(frame.label());
+    }
+    return scope;
+  }
+
+  void check_no_cb_calls_outside_main(std::size_t begin, std::size_t end) const {
+    const auto &apis = recognized_cb_apis();
+    for (std::size_t i = begin; i < end; ++i) {
+      if (tokens_[i].kind != TokenKind::Identifier) {
+        continue;
+      }
+      std::size_t call_lparen = i + 1;
+      if (call_lparen < end && tokens_[call_lparen].kind == TokenKind::Less) {
+        // Skip optional template argument list.
+        std::size_t angle_depth = 1;
+        std::size_t j = call_lparen + 1;
+        while (j < end && angle_depth > 0) {
+          if (tokens_[j].kind == TokenKind::Less) {
+            ++angle_depth;
+          } else if (tokens_[j].kind == TokenKind::Greater) {
+            --angle_depth;
+          } else if (tokens_[j].kind == TokenKind::Semicolon ||
+                     tokens_[j].kind == TokenKind::LBrace) {
+            break;
+          }
+          ++j;
+        }
+        if (angle_depth == 0) {
+          call_lparen = j;
+        }
+      }
+      if (call_lparen >= end || tokens_[call_lparen].kind != TokenKind::LParen) {
+        continue;
+      }
+      const std::string &callee = tokens_[i].text;
+      if (callee == "if" || callee == "for" || callee == "while" ||
+          callee == "switch" || callee == "sizeof") {
+        continue;
+      }
+      if (apis.find(callee) != apis.end() ||
+          looks_like_unrecognized_cb_call(callee)) {
+        throw ContractViolation(
+            source_.role + ": circular-buffer/macro call '" + callee +
+            "' outside kernel_main() at line " +
+            std::to_string(tokens_[i].line));
+      }
+    }
+  }
+
+  [[nodiscard]] std::size_t parse_statement(std::size_t pos,
+                                            std::size_t limit) {
+    if (pos >= limit) {
+      return limit;
+    }
+    // Empty statement
+    if (tokens_[pos].kind == TokenKind::Semicolon) {
+      return pos + 1;
+    }
+    // Compound block { ... }
+    if (tokens_[pos].kind == TokenKind::LBrace) {
+      const std::size_t rbrace = find_matching_delim(
+          tokens_, pos, TokenKind::LBrace, TokenKind::RBrace, source_);
+      std::size_t cur = pos + 1;
+      while (cur < rbrace) {
+        cur = parse_statement(cur, rbrace);
+      }
+      return rbrace + 1;
+    }
+    // for (...) <stmt>
+    if (tokens_[pos].kind == TokenKind::Identifier &&
+        tokens_[pos].text == "for") {
+      const std::size_t for_line = tokens_[pos].line;
+      if (pos + 1 >= limit || tokens_[pos + 1].kind != TokenKind::LParen) {
+        throw ContractViolation(source_.role + ": malformed for loop at line " +
+                                std::to_string(for_line));
+      }
+      const std::size_t lparen = pos + 1;
+      const std::size_t rparen = find_matching_delim(
+          tokens_, lparen, TokenKind::LParen, TokenKind::RParen, source_);
+      scan_expression_range(lparen + 1, rparen);
+      const std::string parens_text =
+          slice_tokens_clean(source_.text, tokens_, lparen, rparen + 1);
+      LoopFrame frame;
+      frame.kind = "for";
+      frame.header = "for " + parens_text;
+      frame.line = for_line;
+      if (const auto bound = parse_static_for_bound(parens_text)) {
+        frame.index_var = bound->first;
+        frame.const_bound = bound->second;
+      }
+      loop_stack_.push_back(frame);
+      const std::size_t next = parse_statement(rparen + 1, limit);
+      if (recording_lambda_ == nullptr) {
+        PhaseEvent exit_ev;
+        exit_ev.kind = PhaseEventKind::LoopExit;
+        exit_ev.line = for_line;
+        exit_ev.loop_scope = current_loop_scope();
+        exit_ev.branch_scope = current_branch_scope();
+        result_.events.push_back(std::move(exit_ev));
+      }
+      loop_stack_.pop_back();
+      return next;
+    }
+    // while (...) <stmt>
+    if (tokens_[pos].kind == TokenKind::Identifier &&
+        tokens_[pos].text == "while") {
+      const std::size_t while_line = tokens_[pos].line;
+      if (pos + 1 >= limit || tokens_[pos + 1].kind != TokenKind::LParen) {
+        throw ContractViolation(source_.role +
+                                ": malformed while loop at line " +
+                                std::to_string(while_line));
+      }
+      const std::size_t lparen = pos + 1;
+      const std::size_t rparen = find_matching_delim(
+          tokens_, lparen, TokenKind::LParen, TokenKind::RParen, source_);
+      scan_expression_range(lparen + 1, rparen);
+      const std::string parens_text =
+          slice_tokens_clean(source_.text, tokens_, lparen, rparen + 1);
+      LoopFrame frame;
+      frame.kind = "while";
+      frame.header = "while " + parens_text;
+      frame.line = while_line;
+      loop_stack_.push_back(frame);
+      const std::size_t next = parse_statement(rparen + 1, limit);
+      if (recording_lambda_ == nullptr) {
+        PhaseEvent exit_ev;
+        exit_ev.kind = PhaseEventKind::LoopExit;
+        exit_ev.line = while_line;
+        exit_ev.loop_scope = current_loop_scope();
+        exit_ev.branch_scope = current_branch_scope();
+        result_.events.push_back(std::move(exit_ev));
+      }
+      loop_stack_.pop_back();
+      return next;
+    }
+    // do <stmt> while (...);
+    if (tokens_[pos].kind == TokenKind::Identifier &&
+        tokens_[pos].text == "do") {
+      const std::size_t do_line = tokens_[pos].line;
+      LoopFrame frame;
+      frame.kind = "do";
+      frame.header = "do";
+      frame.line = do_line;
+      loop_stack_.push_back(frame);
+      std::size_t next = parse_statement(pos + 1, limit);
+      if (recording_lambda_ == nullptr) {
+        PhaseEvent exit_ev;
+        exit_ev.kind = PhaseEventKind::LoopExit;
+        exit_ev.line = do_line;
+        exit_ev.loop_scope = current_loop_scope();
+        exit_ev.branch_scope = current_branch_scope();
+        result_.events.push_back(std::move(exit_ev));
+      }
+      loop_stack_.pop_back();
+      if (next < limit && tokens_[next].kind == TokenKind::Identifier &&
+          tokens_[next].text == "while" && next + 1 < limit &&
+          tokens_[next + 1].kind == TokenKind::LParen) {
+        const std::size_t rparen = find_matching_delim(
+            tokens_, next + 1, TokenKind::LParen, TokenKind::RParen, source_);
+        scan_expression_range(next + 2, rparen);
+        next = rparen + 1;
+        if (next < limit && tokens_[next].kind == TokenKind::Semicolon) {
+          ++next;
+        }
+      }
+      return next;
+    }
+    // if (...) <stmt> [else <stmt>]
+    if (tokens_[pos].kind == TokenKind::Identifier &&
+        tokens_[pos].text == "if") {
+      const std::size_t if_line = tokens_[pos].line;
+      if (pos + 1 >= limit || tokens_[pos + 1].kind != TokenKind::LParen) {
+        throw ContractViolation(source_.role +
+                                ": malformed if statement at line " +
+                                std::to_string(if_line));
+      }
+      const std::size_t lparen = pos + 1;
+      const std::size_t rparen = find_matching_delim(
+          tokens_, lparen, TokenKind::LParen, TokenKind::RParen, source_);
+      scan_expression_range(lparen + 1, rparen);
+      const std::string cond =
+          slice_tokens_clean(source_.text, tokens_, lparen + 1, rparen);
+      branch_stack_.push_back(BranchFrame{"if", cond, if_line});
+      std::size_t next = parse_statement(rparen + 1, limit);
+      if (recording_lambda_ == nullptr) {
+        PhaseEvent exit_ev;
+        exit_ev.kind = PhaseEventKind::BranchExit;
+        exit_ev.line = if_line;
+        exit_ev.loop_scope = current_loop_scope();
+        exit_ev.branch_scope = current_branch_scope();
+        result_.events.push_back(std::move(exit_ev));
+      }
+      branch_stack_.pop_back();
+      if (next < limit && tokens_[next].kind == TokenKind::Identifier &&
+          tokens_[next].text == "else") {
+        const std::size_t else_line = tokens_[next].line;
+        branch_stack_.push_back(BranchFrame{"else", cond, else_line});
+        next = parse_statement(next + 1, limit);
+        if (recording_lambda_ == nullptr) {
+          PhaseEvent exit_ev;
+          exit_ev.kind = PhaseEventKind::BranchExit;
+          exit_ev.line = else_line;
+          exit_ev.loop_scope = current_loop_scope();
+          exit_ev.branch_scope = current_branch_scope();
+          result_.events.push_back(std::move(exit_ev));
+        }
+        branch_stack_.pop_back();
+      }
+      return next;
+    }
+    // switch (...) <stmt>
+    if (tokens_[pos].kind == TokenKind::Identifier &&
+        tokens_[pos].text == "switch") {
+      if (pos + 1 < limit && tokens_[pos + 1].kind == TokenKind::LParen) {
+        const std::size_t rparen = find_matching_delim(
+            tokens_, pos + 1, TokenKind::LParen, TokenKind::RParen, source_);
+        scan_expression_range(pos + 2, rparen);
+        return parse_statement(rparen + 1, limit);
+      }
+    }
+    // Local lambda definition: [const] auto <name> = [...] (...) { ... };
+    {
+      std::size_t cur = pos;
+      if (cur < limit && tokens_[cur].kind == TokenKind::Identifier &&
+          tokens_[cur].text == "const") {
+        ++cur;
+      }
+      if (cur + 3 < limit && tokens_[cur].kind == TokenKind::Identifier &&
+          tokens_[cur].text == "auto" &&
+          tokens_[cur + 1].kind == TokenKind::Identifier &&
+          tokens_[cur + 2].kind == TokenKind::Equal &&
+          tokens_[cur + 3].kind == TokenKind::LBracket) {
+        const std::string lambda_name = tokens_[cur + 1].text;
+        const std::size_t def_line = tokens_[cur + 1].line;
+        const std::size_t rbracket = find_matching_delim(
+            tokens_, cur + 3, TokenKind::LBracket, TokenKind::RBracket,
+            source_);
+        std::size_t body_pos = rbracket + 1;
+        if (body_pos < limit && tokens_[body_pos].kind == TokenKind::LParen) {
+          body_pos = find_matching_delim(tokens_, body_pos, TokenKind::LParen,
+                                         TokenKind::RParen, source_) +
+                     1;
+        }
+        while (body_pos < limit && tokens_[body_pos].kind != TokenKind::LBrace &&
+               tokens_[body_pos].kind != TokenKind::Semicolon) {
+          ++body_pos;
+        }
+        if (body_pos < limit && tokens_[body_pos].kind == TokenKind::LBrace) {
+          const std::size_t rbrace = find_matching_delim(
+              tokens_, body_pos, TokenKind::LBrace, TokenKind::RBrace, source_);
+          if (recording_lambda_ != nullptr) {
+            throw ContractViolation(
+                source_.role + ": nested local lambda '" + lambda_name +
+                "' at line " + std::to_string(def_line) + " is not permitted");
+          }
+          LocalLambdaRecord record;
+          record.def_line = def_line;
+          recording_lambda_ = &record.events;
+          std::size_t body_cur = body_pos + 1;
+          while (body_cur < rbrace) {
+            body_cur = parse_statement(body_cur, rbrace);
+          }
+          recording_lambda_ = nullptr;
+          lambdas_[lambda_name] = std::move(record);
+          std::size_t next = rbrace + 1;
+          if (next < limit && tokens_[next].kind == TokenKind::Semicolon) {
+            ++next;
+          }
+          return next;
+        }
+      }
+    }
+
+    // Simple statement ending in ';' (tracking nested delimiters).
+    std::size_t end = pos;
+    std::size_t paren_depth = 0;
+    std::size_t bracket_depth = 0;
+    std::size_t brace_depth = 0;
+    while (end < limit) {
+      const TokenKind kind = tokens_[end].kind;
+      if (kind == TokenKind::LParen) {
+        ++paren_depth;
+      } else if (kind == TokenKind::RParen && paren_depth > 0) {
+        --paren_depth;
+      } else if (kind == TokenKind::LBracket) {
+        ++bracket_depth;
+      } else if (kind == TokenKind::RBracket && bracket_depth > 0) {
+        --bracket_depth;
+      } else if (kind == TokenKind::LBrace) {
+        ++brace_depth;
+      } else if (kind == TokenKind::RBrace && brace_depth > 0) {
+        --brace_depth;
+      } else if (kind == TokenKind::Semicolon && paren_depth == 0 &&
+                 bracket_depth == 0 && brace_depth == 0) {
+        break;
+      }
+      ++end;
+    }
+    scan_expression_range(pos, end);
+    // Refuse early control-flow jumps inside kernel_main() that could bypass
+    // a closing cb_push_back / cb_pop_front handshake.
+    if (pos < end && tokens_[pos].kind == TokenKind::Identifier &&
+        (tokens_[pos].text == "return" || tokens_[pos].text == "break" ||
+         tokens_[pos].text == "continue" || tokens_[pos].text == "goto")) {
+      if (recording_lambda_ == nullptr) {
+        PhaseEvent jump_ev;
+        jump_ev.kind = PhaseEventKind::ControlJump;
+        jump_ev.operation = tokens_[pos].text;
+        jump_ev.line = tokens_[pos].line;
+        jump_ev.loop_scope = current_loop_scope();
+        jump_ev.branch_scope = current_branch_scope();
+        result_.events.push_back(std::move(jump_ev));
+      }
+    }
+    return end < limit ? end + 1 : limit;
+  }
+
+  // Returns true if the token range [begin, end) contains a top-level (outside
+  // nested recognized calls) reference to any declared CB symbol.
+  [[nodiscard]] std::optional<std::string>
+  find_direct_cb_reference(std::size_t begin, std::size_t end) const {
+    const auto &apis = recognized_cb_apis();
+    std::size_t i = begin;
+    while (i < end) {
+      if (tokens_[i].kind == TokenKind::Identifier) {
+        // Skip inside nested recognized CB API calls (e.g.
+        // aligned_l1_scratch_address(get_write_ptr(c_dram_read_scratch))).
+        if (i + 1 < end && tokens_[i + 1].kind == TokenKind::LParen &&
+            apis.find(tokens_[i].text) != apis.end()) {
+          const std::size_t rparen = find_matching_delim(
+              tokens_, i + 1, TokenKind::LParen, TokenKind::RParen, source_);
+          i = rparen + 1;
+          continue;
+        }
+        if (cbs_.name_to_index.find(tokens_[i].text) !=
+            cbs_.name_to_index.end()) {
+          return tokens_[i].text;
+        }
+      }
+      ++i;
+    }
+    return std::nullopt;
+  }
+
+  void scan_expression_range(std::size_t begin, std::size_t end) {
+    // Refuse local shadowing or reassignment of any declared CB constant.
+    for (std::size_t idx = begin; idx < end; ++idx) {
+      if (tokens_[idx].kind == TokenKind::Identifier &&
+          cbs_.name_to_index.find(tokens_[idx].text) !=
+              cbs_.name_to_index.end()) {
+        const bool followed_by_assign =
+            idx + 1 < end && tokens_[idx + 1].kind == TokenKind::Equal &&
+            (idx + 2 >= end || tokens_[idx + 2].kind != TokenKind::Equal);
+        const bool preceded_by_type =
+            idx > begin && tokens_[idx - 1].kind == TokenKind::Identifier &&
+            (tokens_[idx - 1].text == "uint32_t" ||
+             tokens_[idx - 1].text == "int" ||
+             tokens_[idx - 1].text == "auto" ||
+             tokens_[idx - 1].text == "size_t" ||
+             tokens_[idx - 1].text == "const" ||
+             tokens_[idx - 1].text == "constexpr");
+        if (followed_by_assign || preceded_by_type) {
+          throw ContractViolation(
+              source_.role + ": local shadowing or reassignment of CB symbol '" +
+              tokens_[idx].text + "' at line " +
+              std::to_string(tokens_[idx].line));
+        }
+      }
+    }
+
+    const auto &apis = recognized_cb_apis();
+    std::size_t i = begin;
+    while (i < end) {
+      if (tokens_[i].kind != TokenKind::Identifier) {
+        ++i;
+        continue;
+      }
+      // Handle qualified call name (e.g., ttwkv7::read_dram_face_row(...))
+      std::size_t name_start = i;
+      std::size_t name_end = i;
+      while (name_end + 2 < end &&
+             tokens_[name_end + 1].kind == TokenKind::ColonColon &&
+             tokens_[name_end + 2].kind == TokenKind::Identifier) {
+        name_end += 2;
+      }
+      const std::string unqualified = tokens_[name_end].text;
+      const std::string qualified =
+          slice_tokens_clean(source_.text, tokens_, name_start, name_end + 1);
+
+      // Skip optional template arguments <...>
+      std::size_t after_name = name_end + 1;
+      if (after_name < end && tokens_[after_name].kind == TokenKind::Less) {
+        std::size_t angle_depth = 1;
+        std::size_t j = after_name + 1;
+        while (j < end && angle_depth > 0) {
+          if (tokens_[j].kind == TokenKind::Less) {
+            ++angle_depth;
+          } else if (tokens_[j].kind == TokenKind::Greater) {
+            --angle_depth;
+          } else if (tokens_[j].kind == TokenKind::Semicolon ||
+                     tokens_[j].kind == TokenKind::LParen ||
+                     tokens_[j].kind == TokenKind::RParen) {
+            break;
+          }
+          ++j;
+        }
+        if (angle_depth == 0) {
+          after_name = j;
+        }
+      }
+
+      if (after_name >= end || tokens_[after_name].kind != TokenKind::LParen) {
+        i = name_end + 1;
+        continue;
+      }
+
+      const std::size_t lparen = after_name;
+      const std::size_t rparen = find_matching_delim(
+          tokens_, lparen, TokenKind::LParen, TokenKind::RParen, source_);
+      const std::size_t call_line = tokens_[name_start].line;
+
+      // Ignore C++ keywords / type casts / method calls on objects ('.' or
+      // '->') unless it matches a CB name or references a CB.
+      const bool is_member_call =
+          name_start > begin &&
+          (tokens_[name_start - 1].text == "." ||
+           tokens_[name_start - 1].text == ">");
+
+      const auto args = split_call_arguments(tokens_, lparen, rparen);
+
+      // First scan nested expressions inside each argument (C++ evaluates
+      // arguments before the outer call).
+      for (const auto &[arg_begin, arg_end] : args) {
+        scan_expression_range(arg_begin, arg_end);
+      }
+
+      if (unqualified == "sizeof" || unqualified == "static_cast" ||
+          unqualified == "reinterpret_cast" || unqualified == "const_cast") {
+        i = rparen + 1;
+        continue;
+      }
+
+      // Check recognized local lambda invocation.
+      const auto lambda_it =
+          (name_start == name_end && !is_member_call)
+              ? lambdas_.find(unqualified)
+              : lambdas_.end();
+      if (lambda_it != lambdas_.end()) {
+        // Refuse passing a CB symbol dynamically into a lambda.
+        for (const auto &[arg_begin, arg_end] : args) {
+          if (const auto cb_ref = find_direct_cb_reference(arg_begin, arg_end)) {
+            throw ContractViolation(
+                source_.role + ": unrecognized dynamic CB argument '" + *cb_ref +
+                "' passed to lambda '" + unqualified + "' at line " +
+                std::to_string(call_line));
+          }
+        }
+        lambda_it->second.invoked = true;
+        if (recording_lambda_ != nullptr) {
+          throw ContractViolation(
+              source_.role + ": nested invocation of lambda '" + unqualified +
+              "' at line " + std::to_string(call_line));
+        }
+        const std::vector<std::string> call_loops = current_loop_scope();
+        const std::vector<std::string> call_branches = current_branch_scope();
+        for (const RecordedLambdaEvent &lam_ev : lambda_it->second.events) {
+          ReadbackEntry rb;
+          rb.line = call_line;
+          rb.source_line = line_text(call_line);
+          rb.operation = lam_ev.operation;
+          rb.kind = phase_event_kind_name(lam_ev.kind);
+          rb.cb_expression = lam_ev.cb_expression;
+          rb.cb_targets = lam_ev.targets;
+          rb.tile_count = lam_ev.count_expr;
+          rb.loop_depth = call_loops.size();
+          rb.loop_scope = call_loops;
+          rb.branch_scope = call_branches;
+          rb.inlined_from_lambda = unqualified;
+          rb.lambda_body_line = lam_ev.body_line;
+          rb.lambda_body_source_line = lam_ev.body_source_line;
+          result_.readback.push_back(std::move(rb));
+
+          for (const ResolvedCbTarget &target : lam_ev.targets) {
+            PhaseEvent ev;
+            ev.kind = target.kind;
+            ev.operation = lam_ev.operation;
+            ev.cb_expression = lam_ev.cb_expression;
+            ev.cb_name = target.name;
+            ev.cb_index = target.index;
+            ev.count_expr = lam_ev.count_expr.value_or("");
+            ev.normalized_call = lam_ev.normalized_call;
+            ev.line = call_line;
+            ev.loop_scope = call_loops;
+            ev.branch_scope = call_branches;
+            ev.inlined_from_lambda = unqualified;
+            ev.lambda_body_line = lam_ev.body_line;
+            result_.events.push_back(std::move(ev));
+          }
+        }
+        i = rparen + 1;
+        continue;
+      }
+
+      // Check recognized CB API call.
+      const auto api_it =
+          (name_start == name_end && !is_member_call)
+              ? apis.find(unqualified)
+              : apis.end();
+      if (api_it != apis.end()) {
+        const CbApiSpec &spec = api_it->second;
+        if (args.size() < spec.min_args || args.size() > spec.max_args) {
+          throw ContractViolation(
+              source_.role + ": unrecognized arity (" +
+              std::to_string(args.size()) + ") for CB call '" + unqualified +
+              "' at line " + std::to_string(call_line));
+        }
+        const std::string normalized_call =
+            slice_tokens_clean(source_.text, tokens_, name_start, rparen + 1);
+        std::optional<std::string> count_expr;
+        if (spec.count_arg_index.has_value()) {
+          const auto [c_begin, c_end] = args[*spec.count_arg_index];
+          count_expr = slice_tokens_clean(source_.text, tokens_, c_begin, c_end);
+          if (count_expr->empty()) {
+            throw ContractViolation(
+                source_.role + ": empty tile-count expression in '" +
+                unqualified + "' at line " + std::to_string(call_line));
+          }
+        }
+
+        std::vector<ResolvedCbTarget> all_targets;
+        std::vector<std::string> cb_expr_parts;
+        std::vector<std::pair<ResolvedCbTarget, std::vector<std::string>>>
+            emitted_targets;
+
+        for (const CbApiOperand &operand : spec.operands) {
+          const auto [a_begin, a_end] = args[operand.arg_index];
+          const std::string expr_text =
+              slice_tokens_clean(source_.text, tokens_, a_begin, a_end);
+          cb_expr_parts.push_back(expr_text);
+          const ResolvedCbExpression resolved = resolve_cb_expression(
+              source_, tokens_, a_begin, a_end, cbs_, loop_stack_, unqualified,
+              call_line);
+          const std::vector<std::string> eff_loops =
+              current_loop_scope(resolved.collapsed_loop_index);
+          for (const auto &[cb_name, cb_idx] : resolved.targets) {
+            ResolvedCbTarget target{cb_name, cb_idx, operand.kind};
+            all_targets.push_back(target);
+            emitted_targets.emplace_back(target, eff_loops);
+          }
+        }
+
+        std::string combined_cb_expr;
+        for (std::size_t part_i = 0; part_i < cb_expr_parts.size(); ++part_i) {
+          if (part_i > 0) {
+            combined_cb_expr += ", ";
+          }
+          combined_cb_expr += cb_expr_parts[part_i];
+        }
+
+        const PhaseEventKind primary_kind = spec.operands.front().kind;
+        if (recording_lambda_ != nullptr) {
+          RecordedLambdaEvent lam_ev;
+          lam_ev.kind = primary_kind;
+          lam_ev.operation = unqualified;
+          lam_ev.cb_expression = combined_cb_expr;
+          lam_ev.targets = all_targets;
+          lam_ev.count_expr = count_expr;
+          lam_ev.normalized_call = normalized_call;
+          lam_ev.body_line = call_line;
+          lam_ev.body_source_line = line_text(call_line);
+          recording_lambda_->push_back(std::move(lam_ev));
+        } else {
+          const std::vector<std::string> raw_loops = current_loop_scope();
+          const std::vector<std::string> branches = current_branch_scope();
+          ReadbackEntry rb;
+          rb.line = call_line;
+          rb.source_line = line_text(call_line);
+          rb.operation = unqualified;
+          rb.kind = phase_event_kind_name(primary_kind);
+          rb.cb_expression = combined_cb_expr;
+          rb.cb_targets = all_targets;
+          rb.tile_count = count_expr;
+          rb.loop_depth = raw_loops.size();
+          rb.loop_scope = raw_loops;
+          rb.branch_scope = branches;
+          result_.readback.push_back(std::move(rb));
+
+          for (const auto &[target, eff_loops] : emitted_targets) {
+            PhaseEvent ev;
+            ev.kind = target.kind;
+            ev.operation = unqualified;
+            ev.cb_expression = combined_cb_expr;
+            ev.cb_name = target.name;
+            ev.cb_index = target.index;
+            ev.count_expr = count_expr.value_or("");
+            ev.normalized_call = normalized_call;
+            ev.line = call_line;
+            ev.loop_scope = eff_loops;
+            ev.branch_scope = branches;
+            result_.events.push_back(std::move(ev));
+          }
+        }
+        i = rparen + 1;
+        continue;
+      }
+
+      // Refusal by name: any unrecognized call whose name looks like a CB/macro
+      // wrapper OR whose arguments directly pass a declared CB symbol.
+      if (looks_like_unrecognized_cb_call(unqualified)) {
+        throw ContractViolation(
+            source_.role + ": unrecognized CB/macro call '" + qualified +
+            "' at line " + std::to_string(call_line));
+      }
+      for (const auto &[arg_begin, arg_end] : args) {
+        if (const auto cb_ref = find_direct_cb_reference(arg_begin, arg_end)) {
+          throw ContractViolation(
+              source_.role + ": unrecognized CB call '" + qualified +
+              "' referencing CB '" + *cb_ref + "' at line " +
+              std::to_string(call_line));
+        }
+      }
+
+      i = rparen + 1;
+    }
+  }
+};
+
+struct OpenPhaseWindow {
+  std::size_t open_line = 0;
+  std::string count_expr;
+  std::string count_key;
+  std::vector<std::string> loop_scope;
+  std::vector<std::string> branch_scope;
+  bool accessed = false;
+  std::vector<std::string> access_ops;
+  std::vector<std::string> access_calls;
+};
+
+struct ClosedPhaseWindow {
+  std::size_t open_line = 0;
+  std::size_t close_line = 0;
+  std::string count_expr;
+  std::string count_key;
+  std::vector<std::string> loop_scope;
+  std::vector<std::string> branch_scope;
+  std::vector<std::string> access_ops;
+  std::vector<std::string> access_calls;
+};
+
+struct CbWindowState {
+  std::string cb_name;
+  std::uint32_t cb_index = 0;
+  std::optional<OpenPhaseWindow> open_producer;
+  std::optional<OpenPhaseWindow> open_consumer;
+  std::vector<ClosedPhaseWindow> producer_windows;
+  std::vector<ClosedPhaseWindow> consumer_windows;
+  std::size_t total_producer_events = 0;
+  std::size_t total_consumer_events = 0;
+  // Loop-carried consumer state tracking (for compute's on-chip cb_state carry)
+  std::optional<std::vector<std::string>> pending_carry_loop;
+  std::string pending_carry_count_key;
+  std::size_t pending_carry_pop_line = 0;
+};
+
+struct PhaseValidationPolicy {
+  std::optional<std::string> resident_scratch_cb; // reader c_dram_read_scratch
+  std::optional<std::string> resident_const_cb;   // compute cb_ident
+  std::optional<std::string> loop_carry_cb;       // compute cb_state
+  std::optional<std::string> compute_output_cb;   // compute cb_out
+};
+
+[[nodiscard]] bool is_scope_prefix(const std::vector<std::string> &outer,
+                                   const std::vector<std::string> &inner) {
+  if (outer.size() > inner.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < outer.size(); ++i) {
+    if (outer[i] != inner[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] std::string format_scope(const std::vector<std::string> &scope) {
+  if (scope.empty()) {
+    return "<top-level>";
+  }
+  std::string out;
+  for (std::size_t i = 0; i < scope.size(); ++i) {
+    if (i > 0) {
+      out += " > ";
+    }
+    out += scope[i];
+  }
+  return out;
+}
+
+[[nodiscard]] std::map<std::uint32_t, CbWindowState> validate_cb_phase_windows(
+    const SourceFile &source, const CbSymbolTable &cbs,
+    const KernelPhaseExtraction &extraction,
+    const PhaseValidationPolicy &policy) {
+  std::map<std::uint32_t, CbWindowState> states;
+  for (const auto &[idx, name] : cbs.index_to_name) {
+    CbWindowState st;
+    st.cb_name = name;
+    st.cb_index = idx;
+    states.emplace(idx, std::move(st));
+  }
+
+  for (const PhaseEvent &ev : extraction.events) {
+    if (ev.kind == PhaseEventKind::LoopExit) {
+      for (auto &[idx, st] : states) {
+        (void)idx;
+        if (st.pending_carry_loop.has_value() &&
+            *st.pending_carry_loop == ev.loop_scope) {
+          if (!st.open_consumer.has_value() ||
+              st.open_consumer->loop_scope != ev.loop_scope ||
+              st.open_consumer->branch_scope.empty() ||
+              st.open_consumer->branch_scope.back() != "if (!last)" ||
+              st.open_consumer->count_key != st.pending_carry_count_key) {
+            throw ContractViolation(
+                source.role + ": loop-carried consumer window on CB '" +
+                st.cb_name + "' popped at line " +
+                std::to_string(st.pending_carry_pop_line) +
+                " lacks a matching if (!last) cb_wait_front re-establishment "
+                "before loop exit");
+          }
+          // On the final iteration (!last is false), the carried consumer
+          // window closes cleanly at loop exit.
+          st.open_consumer.reset();
+          st.pending_carry_loop.reset();
+          st.pending_carry_count_key.clear();
+          st.pending_carry_pop_line = 0;
+          continue;
+        }
+        if (st.open_producer.has_value() &&
+            is_scope_prefix(ev.loop_scope, st.open_producer->loop_scope)) {
+          throw ContractViolation(
+              source.role + ": unclosed cb_reserve_back window on CB '" +
+              st.cb_name + "' (index " + std::to_string(st.cb_index) +
+              ") opened at line " +
+              std::to_string(st.open_producer->open_line) +
+              " crosses end of loop '" + format_scope(ev.loop_scope) + "'");
+        }
+        if (st.open_consumer.has_value() &&
+            is_scope_prefix(ev.loop_scope, st.open_consumer->loop_scope)) {
+          throw ContractViolation(
+              source.role + ": unclosed cb_wait_front window on CB '" +
+              st.cb_name + "' (index " + std::to_string(st.cb_index) +
+              ") opened at line " +
+              std::to_string(st.open_consumer->open_line) +
+              " crosses end of loop '" + format_scope(ev.loop_scope) + "'");
+        }
+      }
+      continue;
+    }
+
+    if (ev.kind == PhaseEventKind::BranchExit) {
+      for (auto &[idx, st] : states) {
+        (void)idx;
+        if (st.open_producer.has_value() &&
+            is_scope_prefix(ev.branch_scope, st.open_producer->branch_scope)) {
+          throw ContractViolation(
+              source.role + ": unclosed cb_reserve_back window on CB '" +
+              st.cb_name + "' (index " + std::to_string(st.cb_index) +
+              ") opened at line " +
+              std::to_string(st.open_producer->open_line) +
+              " crosses end of branch '" + format_scope(ev.branch_scope) + "'");
+        }
+        if (st.open_consumer.has_value() &&
+            is_scope_prefix(ev.branch_scope, st.open_consumer->branch_scope)) {
+          const bool is_valid_carry_rewait =
+              policy.loop_carry_cb.has_value() &&
+              st.cb_name == *policy.loop_carry_cb &&
+              st.pending_carry_loop.has_value() &&
+              st.open_consumer->loop_scope == *st.pending_carry_loop &&
+              !ev.branch_scope.empty() && ev.branch_scope.back() == "if (!last)";
+          if (!is_valid_carry_rewait) {
+            throw ContractViolation(
+                source.role + ": unclosed cb_wait_front window on CB '" +
+                st.cb_name + "' (index " + std::to_string(st.cb_index) +
+                ") opened at line " +
+                std::to_string(st.open_consumer->open_line) +
+                " crosses end of branch '" + format_scope(ev.branch_scope) +
+                "'");
+          }
+        }
+      }
+      continue;
+    }
+
+    if (ev.kind == PhaseEventKind::ControlJump) {
+      for (const auto &[idx, st] : states) {
+        (void)idx;
+        if (st.open_producer.has_value()) {
+          const bool is_resident_scratch =
+              policy.resident_scratch_cb.has_value() &&
+              st.cb_name == *policy.resident_scratch_cb &&
+              st.open_producer->loop_scope.empty();
+          if (!is_resident_scratch) {
+            throw ContractViolation(
+                source.role + ": control-flow jump '" + ev.operation +
+                "' at line " + std::to_string(ev.line) +
+                " occurs while cb_reserve_back on CB '" + st.cb_name +
+                "' (opened at line " +
+                std::to_string(st.open_producer->open_line) +
+                ") is still open");
+          }
+        }
+        if (st.open_consumer.has_value()) {
+          const bool is_resident_const =
+              policy.resident_const_cb.has_value() &&
+              st.cb_name == *policy.resident_const_cb &&
+              st.open_consumer->loop_scope.empty();
+          if (!is_resident_const) {
+            throw ContractViolation(
+                source.role + ": control-flow jump '" + ev.operation +
+                "' at line " + std::to_string(ev.line) +
+                " occurs while cb_wait_front on CB '" + st.cb_name +
+                "' (opened at line " +
+                std::to_string(st.open_consumer->open_line) +
+                ") is still open");
+          }
+        }
+      }
+      continue;
+    }
+
+    CbWindowState &st = states.at(ev.cb_index);
+    const std::string count_key = strip_whitespace(ev.count_expr);
+
+    switch (ev.kind) {
+    case PhaseEventKind::Query:
+    case PhaseEventKind::Config:
+      break;
+
+    case PhaseEventKind::Reserve:
+      if (st.open_producer.has_value()) {
+        throw ContractViolation(
+            source.role + ": nested/duplicate cb_reserve_back on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " while window from line " +
+            std::to_string(st.open_producer->open_line) + " is still open");
+      }
+      st.open_producer = OpenPhaseWindow{ev.line, ev.count_expr, count_key,
+                                         ev.loop_scope, ev.branch_scope,
+                                         false, {}, {}};
+      ++st.total_producer_events;
+      break;
+
+    case PhaseEventKind::Push:
+      if (!st.open_producer.has_value()) {
+        throw ContractViolation(
+            source.role + ": cb_push_back on CB '" + st.cb_name + "' (index " +
+            std::to_string(st.cb_index) + ") at line " +
+            std::to_string(ev.line) +
+            " without an open cb_reserve_back window");
+      }
+      if (st.open_producer->count_key != count_key) {
+        std::string prefix;
+        if (policy.compute_output_cb.has_value() &&
+            st.cb_name == *policy.compute_output_cb) {
+          prefix = "compute output tile-count mismatch: ";
+        }
+        throw ContractViolation(
+            source.role + ": " + prefix + "cb_push_back(" + st.cb_name + ", " +
+            ev.count_expr + ") at line " + std::to_string(ev.line) +
+            " does not match cb_reserve_back(" + st.cb_name + ", " +
+            st.open_producer->count_expr + ") at line " +
+            std::to_string(st.open_producer->open_line));
+      }
+      if (st.open_producer->loop_scope != ev.loop_scope ||
+          st.open_producer->branch_scope != ev.branch_scope) {
+        throw ContractViolation(
+            source.role + ": cb_push_back on CB '" + st.cb_name + "' (index " +
+            std::to_string(st.cb_index) + ") at line " +
+            std::to_string(ev.line) + " scope [" + format_scope(ev.loop_scope) +
+            "] does not match cb_reserve_back at line " +
+            std::to_string(st.open_producer->open_line) + " scope [" +
+            format_scope(st.open_producer->loop_scope) + "]");
+      }
+      st.producer_windows.push_back(ClosedPhaseWindow{
+          st.open_producer->open_line, ev.line, st.open_producer->count_expr,
+          st.open_producer->count_key, st.open_producer->loop_scope,
+          st.open_producer->branch_scope,
+          std::move(st.open_producer->access_ops),
+          std::move(st.open_producer->access_calls)});
+      st.open_producer.reset();
+      ++st.total_producer_events;
+      break;
+
+    case PhaseEventKind::ProducerAccess:
+    case PhaseEventKind::ProducerInit:
+      if (!st.open_producer.has_value()) {
+        throw ContractViolation(
+            source.role + ": producer access '" + ev.operation + "' on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " occurs outside an open cb_reserve_back..cb_push_back window");
+      }
+      if (!is_scope_prefix(st.open_producer->loop_scope, ev.loop_scope) ||
+          !is_scope_prefix(st.open_producer->branch_scope, ev.branch_scope)) {
+        throw ContractViolation(
+            source.role + ": producer access '" + ev.operation + "' on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " is outside the loop/branch scope of cb_reserve_back at line " +
+            std::to_string(st.open_producer->open_line));
+      }
+      if (ev.kind == PhaseEventKind::ProducerAccess) {
+        st.open_producer->accessed = true;
+        st.open_producer->access_ops.push_back(ev.operation);
+        st.open_producer->access_calls.push_back(ev.normalized_call);
+      }
+      ++st.total_producer_events;
+      break;
+
+    case PhaseEventKind::Wait:
+      if (st.open_consumer.has_value()) {
+        throw ContractViolation(
+            source.role + ": nested/duplicate cb_wait_front on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " while window from line " +
+            std::to_string(st.open_consumer->open_line) + " is still open");
+      }
+      st.open_consumer = OpenPhaseWindow{ev.line, ev.count_expr, count_key,
+                                         ev.loop_scope, ev.branch_scope,
+                                         false, {}, {}};
+      ++st.total_consumer_events;
+      break;
+
+    case PhaseEventKind::Pop: {
+      if (!st.open_consumer.has_value()) {
+        throw ContractViolation(
+            source.role + ": cb_pop_front on CB '" + st.cb_name + "' (index " +
+            std::to_string(st.cb_index) + ") at line " +
+            std::to_string(ev.line) + " without an open cb_wait_front window");
+      }
+      if (st.open_consumer->count_key != count_key) {
+        throw ContractViolation(
+            source.role + ": cb_pop_front(" + st.cb_name + ", " +
+            ev.count_expr + ") at line " + std::to_string(ev.line) +
+            " does not match cb_wait_front(" + st.cb_name + ", " +
+            st.open_consumer->count_expr + ") at line " +
+            std::to_string(st.open_consumer->open_line));
+      }
+      const bool exact_scope =
+          st.open_consumer->loop_scope == ev.loop_scope &&
+          st.open_consumer->branch_scope == ev.branch_scope;
+      const bool valid_loop_carry_pop =
+          policy.loop_carry_cb.has_value() &&
+          st.cb_name == *policy.loop_carry_cb &&
+          !st.pending_carry_loop.has_value() &&
+          st.open_consumer->branch_scope == ev.branch_scope &&
+          is_scope_prefix(st.open_consumer->loop_scope, ev.loop_scope) &&
+          ev.loop_scope.size() == st.open_consumer->loop_scope.size() + 1;
+      if (!exact_scope && !valid_loop_carry_pop) {
+        throw ContractViolation(
+            source.role + ": cb_pop_front on CB '" + st.cb_name + "' (index " +
+            std::to_string(st.cb_index) + ") at line " +
+            std::to_string(ev.line) + " scope [" + format_scope(ev.loop_scope) +
+            "] does not match cb_wait_front at line " +
+            std::to_string(st.open_consumer->open_line) + " scope [" +
+            format_scope(st.open_consumer->loop_scope) + "]");
+      }
+      if (valid_loop_carry_pop) {
+        st.pending_carry_loop = ev.loop_scope;
+        st.pending_carry_count_key = count_key;
+        st.pending_carry_pop_line = ev.line;
+      }
+      st.consumer_windows.push_back(ClosedPhaseWindow{
+          st.open_consumer->open_line, ev.line, st.open_consumer->count_expr,
+          st.open_consumer->count_key, st.open_consumer->loop_scope,
+          st.open_consumer->branch_scope,
+          std::move(st.open_consumer->access_ops),
+          std::move(st.open_consumer->access_calls)});
+      st.open_consumer.reset();
+      ++st.total_consumer_events;
+      break;
+    }
+
+    case PhaseEventKind::ConsumerAccess:
+    case PhaseEventKind::ConsumerInit:
+      if (!st.open_consumer.has_value()) {
+        throw ContractViolation(
+            source.role + ": consumer access '" + ev.operation + "' on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " occurs outside an open cb_wait_front..cb_pop_front window");
+      }
+      if (!is_scope_prefix(st.open_consumer->loop_scope, ev.loop_scope) ||
+          !is_scope_prefix(st.open_consumer->branch_scope, ev.branch_scope)) {
+        throw ContractViolation(
+            source.role + ": consumer access '" + ev.operation + "' on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") at line " + std::to_string(ev.line) +
+            " is outside the loop/branch scope of cb_wait_front at line " +
+            std::to_string(st.open_consumer->open_line));
+      }
+      if (ev.kind == PhaseEventKind::ConsumerAccess) {
+        st.open_consumer->accessed = true;
+        st.open_consumer->access_ops.push_back(ev.operation);
+        st.open_consumer->access_calls.push_back(ev.normalized_call);
+      }
+      ++st.total_consumer_events;
+      break;
+
+    case PhaseEventKind::LoopExit:
+    case PhaseEventKind::BranchExit:
+    case PhaseEventKind::ControlJump:
+      break;
+    }
+  }
+
+  // End-of-kernel closure validation for every declared CB.
+  for (const auto &[idx, st] : states) {
+    (void)idx;
+    if (st.open_producer.has_value()) {
+      const bool allowed_resident_scratch =
+          policy.resident_scratch_cb.has_value() &&
+          st.cb_name == *policy.resident_scratch_cb &&
+          st.open_producer->loop_scope.empty() &&
+          st.open_producer->branch_scope.empty() &&
+          st.open_producer->count_key == "1" && st.open_producer->accessed &&
+          st.producer_windows.empty() && st.total_consumer_events == 0;
+      if (!allowed_resident_scratch) {
+        throw ContractViolation(
+            source.role + ": unclosed cb_reserve_back window on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") opened at line " + std::to_string(st.open_producer->open_line));
+      }
+    }
+    if (st.open_consumer.has_value()) {
+      const bool allowed_resident_const =
+          policy.resident_const_cb.has_value() &&
+          st.cb_name == *policy.resident_const_cb &&
+          st.open_consumer->loop_scope.empty() &&
+          st.open_consumer->branch_scope.empty() &&
+          st.open_consumer->count_key == "4" && st.open_consumer->accessed &&
+          st.consumer_windows.empty() && st.producer_windows.size() == 1;
+      if (!allowed_resident_const) {
+        throw ContractViolation(
+            source.role + ": unclosed cb_wait_front window on CB '" +
+            st.cb_name + "' (index " + std::to_string(st.cb_index) +
+            ") opened at line " + std::to_string(st.open_consumer->open_line));
+      }
+    }
+  }
+
+  return states;
+}
+
+[[nodiscard]] bool contains_op(const std::vector<std::string> &ops,
+                               std::string_view expected) {
+  return std::find(ops.begin(), ops.end(), expected) != ops.end();
+}
+
+[[nodiscard]] Json build_stage_readback_json(
+    const KernelPhaseExtraction &extraction) {
+  Json arr = Json::array();
+  for (const ReadbackEntry &entry : extraction.readback) {
+    Json targets = Json::array();
+    for (const ResolvedCbTarget &target : entry.cb_targets) {
+      targets.push_back({{"name", target.name},
+                         {"index", target.index},
+                         {"role", phase_event_kind_name(target.kind)}});
+    }
+    Json obj = {
+        {"line", entry.line},
+        {"source_line", entry.source_line},
+        {"operation", entry.operation},
+        {"kind", entry.kind},
+        {"cb_expression", entry.cb_expression},
+        {"cb_targets", targets},
+        {"loop_depth", entry.loop_depth},
+        {"loop_scope", entry.loop_scope},
+        {"branch_scope", entry.branch_scope},
+    };
+    if (entry.tile_count.has_value()) {
+      obj["tile_count"] = *entry.tile_count;
+    }
+    if (entry.inlined_from_lambda.has_value()) {
+      obj["inlined_from_lambda"] = *entry.inlined_from_lambda;
+      obj["lambda_body_line"] = *entry.lambda_body_line;
+      obj["lambda_body_source_line"] = *entry.lambda_body_source_line;
+    }
+    arr.push_back(std::move(obj));
+  }
+  return arr;
+}
+
+struct KernelPhaseAnalysis {
+  CbSymbolTable cbs;
+  KernelPhaseExtraction extraction;
+  std::map<std::uint32_t, CbWindowState> windows;
+};
+
+[[nodiscard]] KernelPhaseAnalysis analyze_kernel_phases(
+    const SourceFile &source, const PhaseValidationPolicy &policy) {
+  const std::vector<std::string> lines = split_source_lines(source.text);
+  const std::vector<Token> tokens = tokenize_kernel_source(source);
+  std::optional<std::size_t> main_token;
+  for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
+    if (tokens[i].kind == TokenKind::Identifier && tokens[i].text == "void" &&
+        tokens[i + 1].kind == TokenKind::Identifier &&
+        tokens[i + 1].text == "kernel_main" &&
+        tokens[i + 2].kind == TokenKind::LParen &&
+        tokens[i + 3].kind == TokenKind::RParen &&
+        tokens[i + 4].kind == TokenKind::LBrace) {
+      main_token = i;
+      break;
+    }
+  }
+  if (!main_token.has_value()) {
+    throw ContractViolation(source.role +
+                            ": lacks a void kernel_main() definition");
+  }
+  KernelPhaseAnalysis analysis;
+  analysis.cbs = parse_namespace_cb_constants(tokens, source, *main_token);
+  KernelPhaseParser parser(source, lines, tokens, analysis.cbs);
+  analysis.extraction = parser.extract();
+  analysis.windows = validate_cb_phase_windows(source, analysis.cbs,
+                                               analysis.extraction, policy);
+  return analysis;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1517,6 +3549,8 @@ int main(int argc, char **argv) {
 
     const std::string staging_name =
         require_string_field(flow_reader, "staging", "tile_flow.reader");
+    const std::string scratch_name =
+        require_string_field(flow_reader, "scratch", "tile_flow.reader");
     const std::string output_name =
         require_string_field(flow_compute, "output", "tile_flow.compute");
     if (reader_cbs.at(staging_name) != compute_cbs.at(staging_name) ||
@@ -1526,69 +3560,285 @@ int main(int argc, char **argv) {
           "CB indices");
     }
 
-    require_contains(reader,
-                     "cb_reserve_back(" + staging_name + ", NS);",
-                     "reader state-seed tile reservation drifted");
-    require_occurrence_count(
-        reader, "cb_reserve_back(" + staging_name + ", NS);", 1,
-        "reader must reserve exactly one state-seed tile group");
-    require_occurrence_count(
-        reader, "cb_push_back(" + staging_name + ", NS);", 1,
-        "reader must publish exactly one state-seed tile group");
-    require_occurrence_count(
-        reader, "cb_reserve_back(" + staging_name + ", St);", 1,
-        "reader token-input reservation drifted");
-    require_occurrence_count(
-        reader, "cb_push_back(" + staging_name + ", St);", 1,
-        "reader token-input publication drifted");
-    require_contains(reader, "for (uint32_t t = 0; t < L; t++)",
-                     "reader token loop drifted");
-    require_contains(reader, "for (uint32_t inp = 0; inp < 6; inp++)",
-                     "reader input loop drifted");
-    require_contains(reader, "for (uint32_t inp = 0; inp < 6; inp++)",
-                     "reader input ordering drifted");
+    // Extract and validate ordered per-CB phase windows across all three
+    // decodeL kernels (replacing substring-count checks).
+    PhaseValidationPolicy reader_policy;
+    reader_policy.resident_scratch_cb = scratch_name;
+    const KernelPhaseAnalysis reader_phases =
+        analyze_kernel_phases(reader, reader_policy);
 
-    require_occurrence_count(
-        compute, "cb_wait_front(" + staging_name + ", NS);", 1,
-        "compute must consume exactly one state-seed tile group");
-    require_occurrence_count(
-        compute, "cb_pop_front(" + staging_name + ", NS);", 1,
-        "compute state-seed consumption drifted");
-    require_occurrence_count(
-        compute, "cb_wait_front(" + staging_name + ", St);", 1,
-        "compute token-input consumption drifted");
-    require_occurrence_count(
-        compute, "cb_pop_front(" + staging_name + ", St);", 1,
-        "compute token-input consumption drifted");
-    require_contains(compute, "for (uint32_t tok = 0; tok < L; tok++)",
-                     "compute token loop drifted");
-    require_contains(compute, "for (uint32_t inp = 0; inp < 6; inp++)",
-                     "compute input loop drifted");
-    require_occurrence_count(
-        compute, "cb_reserve_back(" + output_name + ", St + NS);", 1,
-        "compute output tile-count mismatch");
-    require_occurrence_count(
-        compute, "cb_push_back(" + output_name + ", St + NS);", 1,
-        "compute output tile-count mismatch");
-    require_contains(compute, "pack_tile(it, " + output_name + ", it);",
-                     "compute region-1 output layout drifted");
-    require_contains(compute, "pack_tile(t, " + output_name + ", St + t);",
-                     "compute region-2 output layout drifted");
+    PhaseValidationPolicy compute_policy;
+    compute_policy.resident_const_cb = "cb_ident";
+    compute_policy.loop_carry_cb = "cb_state";
+    compute_policy.compute_output_cb = output_name;
+    const KernelPhaseAnalysis compute_phases =
+        analyze_kernel_phases(compute, compute_policy);
 
-    require_contains(writer, "for (uint32_t cc = 0; cc < nc; cc++)",
-                     "writer chunk loop drifted");
-    require_occurrence_count(writer, "cb_wait_front(" + output_name + ", St);",
-                             1, "writer region-1 consumption drifted");
-    require_occurrence_count(writer, "cb_pop_front(" + output_name + ", St);",
-                             1, "writer region-1 consumption drifted");
-    require_occurrence_count(writer, "cb_wait_front(" + output_name + ", NS);",
-                             1, "writer region-2 consumption drifted");
-    require_occurrence_count(writer, "cb_pop_front(" + output_name + ", NS);",
-                             1, "writer region-2 consumption drifted");
-    require_contains(writer, "cb_wait_front(" + output_name + ", St);",
-                     "writer region-1 ordering drifted");
-    require_contains(writer, "cb_wait_front(" + output_name + ", NS);",
-                     "writer region-2 ordering drifted");
+    PhaseValidationPolicy writer_policy;
+    const KernelPhaseAnalysis writer_phases =
+        analyze_kernel_phases(writer, writer_policy);
+
+    const std::uint32_t staging_idx = reader_cbs.at(staging_name);
+    const std::uint32_t scratch_idx = reader_cbs.at(scratch_name);
+    const std::uint32_t output_idx = compute_cbs.at(output_name);
+
+    // ---- Reader phase-order protocol on staging & scratch CBs ----
+    const CbWindowState &reader_staging = reader_phases.windows.at(staging_idx);
+    if (reader_staging.total_consumer_events != 0) {
+      throw ContractViolation(
+          "decode_reader: unexpected consumer operations on staging CB '" +
+          staging_name + "'");
+    }
+    if (reader_staging.producer_windows.size() != 2) {
+      throw ContractViolation(
+          "decode_reader: staging CB '" + staging_name +
+          "' must have exactly 2 ordered producer windows (state seed NS, "
+          "then token inputs St), found " +
+          std::to_string(reader_staging.producer_windows.size()));
+    }
+    {
+      const ClosedPhaseWindow &seed_win = reader_staging.producer_windows[0];
+      const ClosedPhaseWindow &tok_win = reader_staging.producer_windows[1];
+      if (seed_win.count_key != "NS") {
+        throw ContractViolation(
+            "decode_reader: first staging producer window must reserve/push "
+            "'NS' state-seed tiles (found '" +
+            seed_win.count_expr + "')");
+      }
+      if (seed_win.loop_scope.size() != 1 ||
+          seed_win.loop_scope[0] !=
+              "for (uint32_t inst = inst_start; inst < inst_end; inst++)") {
+        throw ContractViolation(
+            "decode_reader: state-seed staging window loop scope drifted "
+            "(got [" +
+            format_scope(seed_win.loop_scope) + "])");
+      }
+      if (!contains_op(seed_win.access_ops, "get_write_ptr")) {
+        throw ContractViolation(
+            "decode_reader: state-seed staging window lacks get_write_ptr "
+            "inside reserve..push");
+      }
+      if (tok_win.count_key != "St") {
+        throw ContractViolation(
+            "decode_reader: second staging producer window must reserve/push "
+            "'St' token-input tiles (found '" +
+            tok_win.count_expr + "')");
+      }
+      if (tok_win.open_line <= seed_win.close_line) {
+        throw ContractViolation(
+            "decode_reader: token-input staging window must strictly follow "
+            "the state-seed window");
+      }
+      if (tok_win.loop_scope.size() != 3 ||
+          tok_win.loop_scope[0] !=
+              "for (uint32_t inst = inst_start; inst < inst_end; inst++)" ||
+          tok_win.loop_scope[1] != "for (uint32_t t = 0; t < L; t++)" ||
+          tok_win.loop_scope[2] != "for (uint32_t inp = 0; inp < 6; inp++)") {
+        throw ContractViolation(
+            "decode_reader: token-input staging window loop scope drifted "
+            "(got [" +
+            format_scope(tok_win.loop_scope) + "])");
+      }
+      if (!contains_op(tok_win.access_ops, "get_write_ptr")) {
+        throw ContractViolation(
+            "decode_reader: token-input staging window lacks get_write_ptr "
+            "inside reserve..push");
+      }
+    }
+    const CbWindowState &reader_scratch = reader_phases.windows.at(scratch_idx);
+    if (!reader_scratch.open_producer.has_value() ||
+        reader_scratch.open_producer->count_key != "1" ||
+        !contains_op(reader_scratch.open_producer->access_ops,
+                     "get_write_ptr")) {
+      throw ContractViolation(
+          "decode_reader: scratch CB '" + scratch_name +
+          "' must reserve 1 tile and acquire get_write_ptr inside that "
+          "reservation");
+    }
+
+    // ---- Compute phase-order protocol on staging & output CBs ----
+    const CbWindowState &compute_staging =
+        compute_phases.windows.at(staging_idx);
+    if (compute_staging.total_producer_events != 0) {
+      throw ContractViolation(
+          "decode_compute: unexpected producer operations on staging CB '" +
+          staging_name + "'");
+    }
+    if (compute_staging.consumer_windows.size() != 2) {
+      throw ContractViolation(
+          "decode_compute: staging CB '" + staging_name +
+          "' must have exactly 2 ordered consumer windows (state seed NS, "
+          "then token inputs St), found " +
+          std::to_string(compute_staging.consumer_windows.size()));
+    }
+    {
+      const ClosedPhaseWindow &seed_win = compute_staging.consumer_windows[0];
+      const ClosedPhaseWindow &tok_win = compute_staging.consumer_windows[1];
+      if (seed_win.count_key != "NS") {
+        throw ContractViolation(
+            "decode_compute: first staging consumer window must wait/pop "
+            "'NS' state-seed tiles (found '" +
+            seed_win.count_expr + "')");
+      }
+      if (seed_win.loop_scope.size() != 1 ||
+          seed_win.loop_scope[0] !=
+              "for (uint32_t inst = inst_lo; inst < inst_hi; inst++)") {
+        throw ContractViolation(
+            "decode_compute: state-seed staging window loop scope drifted "
+            "(got [" +
+            format_scope(seed_win.loop_scope) + "])");
+      }
+      if (!contains_op(seed_win.access_ops, "copy_tile")) {
+        throw ContractViolation(
+            "decode_compute: state-seed staging window lacks copy_tile inside "
+            "wait..pop");
+      }
+      if (tok_win.count_key != "St") {
+        throw ContractViolation(
+            "decode_compute: second staging consumer window must wait/pop "
+            "'St' token-input tiles (found '" +
+            tok_win.count_expr + "')");
+      }
+      if (tok_win.open_line <= seed_win.close_line) {
+        throw ContractViolation(
+            "decode_compute: token-input staging window must strictly follow "
+            "the state-seed window");
+      }
+      if (tok_win.loop_scope.size() != 3 ||
+          tok_win.loop_scope[0] !=
+              "for (uint32_t inst = inst_lo; inst < inst_hi; inst++)" ||
+          tok_win.loop_scope[1] != "for (uint32_t tok = 0; tok < L; tok++)" ||
+          tok_win.loop_scope[2] != "for (uint32_t inp = 0; inp < 6; inp++)") {
+        throw ContractViolation(
+            "decode_compute: token-input staging window loop scope drifted "
+            "(got [" +
+            format_scope(tok_win.loop_scope) + "])");
+      }
+      if (!contains_op(tok_win.access_ops, "mul_tiles") ||
+          !contains_op(tok_win.access_ops, "transpose_wh_tile") ||
+          !contains_op(tok_win.access_ops, "copy_tile")) {
+        throw ContractViolation(
+            "decode_compute: token-input staging window must read tiles "
+            "(mul_tiles/transpose_wh_tile/copy_tile) inside wait..pop");
+      }
+    }
+
+    const CbWindowState &compute_output = compute_phases.windows.at(output_idx);
+    if (compute_output.total_consumer_events != 0) {
+      throw ContractViolation(
+          "decode_compute: unexpected consumer operations on output CB '" +
+          output_name + "'");
+    }
+    if (compute_output.producer_windows.size() != 1) {
+      throw ContractViolation(
+          "decode_compute: compute output tile-count mismatch (expected "
+          "exactly 1 producer window on '" +
+          output_name + "', found " +
+          std::to_string(compute_output.producer_windows.size()) + ")");
+    }
+    {
+      const ClosedPhaseWindow &out_win = compute_output.producer_windows[0];
+      if (out_win.count_key != "St+NS") {
+        throw ContractViolation(
+            "decode_compute: compute output tile-count mismatch (expected "
+            "'St + NS', found '" +
+            out_win.count_expr + "')");
+      }
+      if (out_win.loop_scope.size() != 2 ||
+          out_win.loop_scope[0] !=
+              "for (uint32_t inst = inst_lo; inst < inst_hi; inst++)" ||
+          out_win.loop_scope[1] != "for (uint32_t tok = 0; tok < L; tok++)") {
+        throw ContractViolation(
+            "decode_compute: output producer window loop scope drifted (got [" +
+            format_scope(out_win.loop_scope) + "])");
+      }
+      const std::string expected_r1 = "pack_tile(it, " + output_name + ", it)";
+      const std::string expected_r2 =
+          "pack_tile(t, " + output_name + ", St + t)";
+      std::optional<std::size_t> r1_pos;
+      std::optional<std::size_t> r2_pos;
+      for (std::size_t idx = 0; idx < out_win.access_calls.size(); ++idx) {
+        if (!r1_pos.has_value() && out_win.access_calls[idx] == expected_r1) {
+          r1_pos = idx;
+        }
+        if (!r2_pos.has_value() && out_win.access_calls[idx] == expected_r2) {
+          r2_pos = idx;
+        }
+      }
+      if (!r1_pos.has_value()) {
+        throw ContractViolation(
+            "decode_compute: region-1 output layout drifted (missing '" +
+            expected_r1 + "' inside reserve..push window)");
+      }
+      if (!r2_pos.has_value()) {
+        throw ContractViolation(
+            "decode_compute: region-2 output layout drifted (missing '" +
+            expected_r2 + "' inside reserve..push window)");
+      }
+      if (*r1_pos >= *r2_pos) {
+        throw ContractViolation(
+            "decode_compute: region-1/region-2 output pack_tile ordering "
+            "drifted (region-1 must precede region-2 inside reserve..push)");
+      }
+    }
+
+    // ---- Writer phase-order protocol on output CB ----
+    const CbWindowState &writer_output = writer_phases.windows.at(output_idx);
+    if (writer_output.total_producer_events != 0) {
+      throw ContractViolation(
+          "decode_writer: unexpected producer operations on output CB '" +
+          output_name + "'");
+    }
+    if (writer_output.consumer_windows.size() != 2) {
+      throw ContractViolation(
+          "decode_writer: output CB '" + output_name +
+          "' must have exactly 2 ordered consumer windows (region-1 St, "
+          "then region-2 NS), found " +
+          std::to_string(writer_output.consumer_windows.size()));
+    }
+    {
+      const ClosedPhaseWindow &r1_win = writer_output.consumer_windows[0];
+      const ClosedPhaseWindow &r2_win = writer_output.consumer_windows[1];
+      const std::vector<std::string> expected_writer_scope = {
+          "for (uint32_t inst0 = inst_lo; inst0 < inst_hi; inst0 += NB)",
+          "for (uint32_t cc = 0; cc < nc; cc++)",
+          "for (uint32_t g = 0; g < nb; g++)",
+      };
+      if (r1_win.loop_scope != expected_writer_scope) {
+        throw ContractViolation(
+            "decode_writer: region-1 consumer window loop scope drifted "
+            "(got [" +
+            format_scope(r1_win.loop_scope) + "])");
+      }
+      if (r2_win.loop_scope != expected_writer_scope) {
+        throw ContractViolation(
+            "decode_writer: region-2 consumer window loop scope drifted "
+            "(got [" +
+            format_scope(r2_win.loop_scope) + "])");
+      }
+      if (r1_win.count_key != "St" || r2_win.count_key != "NS") {
+        throw ContractViolation(
+            "decode_writer: writer region-1/region-2 phase ordering drifted "
+            "(expected region-1 window 'St' before region-2 window 'NS', "
+            "found '" +
+            r1_win.count_expr + "' then '" + r2_win.count_expr + "')");
+      }
+      if (r2_win.open_line <= r1_win.close_line) {
+        throw ContractViolation(
+            "decode_writer: region-2 cb_wait_front must strictly follow "
+            "region-1 cb_pop_front");
+      }
+      if (!contains_op(r1_win.access_ops, "get_read_ptr")) {
+        throw ContractViolation(
+            "decode_writer: region-1 consumer window lacks get_read_ptr "
+            "inside wait..pop");
+      }
+      if (!contains_op(r2_win.access_ops, "get_read_ptr")) {
+        throw ContractViolation(
+            "decode_writer: region-2 consumer window lacks get_read_ptr "
+            "inside wait..pop");
+      }
+    }
 
     const std::uint32_t state_tiles = tiles_per_head * tiles_per_head;
     const std::uint32_t reader_staging_tiles =
@@ -1780,6 +4030,12 @@ int main(int argc, char **argv) {
         "tile_shape_format_layout",
         "host_set_runtime_args_construction",
         "producer_consumer_version_fingerprints",
+    };
+    receipt["cb_phase_readback"] = {
+        {"decode_reader", build_stage_readback_json(reader_phases.extraction)},
+        {"decode_compute",
+         build_stage_readback_json(compute_phases.extraction)},
+        {"decode_writer", build_stage_readback_json(writer_phases.extraction)},
     };
     std::cout << receipt.dump(2) << '\n';
     return 0;

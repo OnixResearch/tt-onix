@@ -96,6 +96,13 @@ runCommand "rwkv-ttwkv7-decode-composition-check"
     grep -Fq '"fingerprint": "ce4c56d63ca03382"' "$first_receipt"
     grep -Fq '"fingerprint": "9fa0e9b8368f6885"' "$first_receipt"
     grep -Fq '"fingerprint": "2898af9e2c578078"' "$first_receipt"
+    grep -Fq '"cb_phase_readback"' "$first_receipt"
+    grep -Fq '"decode_reader": [' "$first_receipt"
+    grep -Fq '"decode_compute": [' "$first_receipt"
+    grep -Fq '"decode_writer": [' "$first_receipt"
+    grep -Fq '"source_line": "                cb_wait_front(cb_out, St);"' "$first_receipt"
+    grep -Fq '"source_line": "                cb_wait_front(cb_out, NS);"' "$first_receipt"
+    grep -Fq '"inlined_from_lambda": "gc"' "$first_receipt"
 
     mutation_root="$(mktemp -d)"
 
@@ -220,6 +227,140 @@ runCommand "rwkv-ttwkv7-decode-composition-check"
       ${lib.escapeShellArg hostSource} \
       "$changed_reader_argument" \
       ${lib.escapeShellArg computeSource} \
+      ${lib.escapeShellArg writerSource}
+
+    # Phase-order reordering mutations (previously passed substring-count checks).
+    writer_swapped_regions="$(mutable_copy ${lib.escapeShellArg writerSource} writer-swapped-regions.cpp)"
+    substituteInPlace "$writer_swapped_regions" \
+      --replace-fail 'cb_wait_front(cb_out, St);' '__TTWKV7_TMP_WAIT_ST__' \
+      --replace-fail 'cb_pop_front(cb_out, St);' '__TTWKV7_TMP_POP_ST__'
+    substituteInPlace "$writer_swapped_regions" \
+      --replace-fail 'cb_wait_front(cb_out, NS);' 'cb_wait_front(cb_out, St);' \
+      --replace-fail 'cb_pop_front(cb_out, NS);' 'cb_pop_front(cb_out, St);'
+    substituteInPlace "$writer_swapped_regions" \
+      --replace-fail '__TTWKV7_TMP_WAIT_ST__' 'cb_wait_front(cb_out, NS);' \
+      --replace-fail '__TTWKV7_TMP_POP_ST__' 'cb_pop_front(cb_out, NS);'
+    expect_rejected writer-swapped-regions \
+      'writer region-1/region-2 phase ordering drifted' \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      ${lib.escapeShellArg computeSource} \
+      "$writer_swapped_regions"
+
+    writer_swapped_waits="$(mutable_copy ${lib.escapeShellArg writerSource} writer-swapped-waits.cpp)"
+    substituteInPlace "$writer_swapped_waits" \
+      --replace-fail 'cb_wait_front(cb_out, St);' '__TTWKV7_TMP_WAIT_ST__'
+    substituteInPlace "$writer_swapped_waits" \
+      --replace-fail 'cb_wait_front(cb_out, NS);' 'cb_wait_front(cb_out, St);'
+    substituteInPlace "$writer_swapped_waits" \
+      --replace-fail '__TTWKV7_TMP_WAIT_ST__' 'cb_wait_front(cb_out, NS);'
+    expect_rejected writer-swapped-waits \
+      'does not match cb_wait_front(cb_out, NS)' \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      ${lib.escapeShellArg computeSource} \
+      "$writer_swapped_waits"
+
+    compute_pop_before_read="$(mutable_copy ${lib.escapeShellArg computeSource} compute-pop-before-read.cpp)"
+    substituteInPlace "$compute_pop_before_read" \
+      --replace-fail '                cb_pop_front(c_natstage, St);' "" \
+      --replace-fail '                cb_wait_front(c_natstage, St);' \
+      $'                cb_wait_front(c_natstage, St);\n                cb_pop_front(c_natstage, St);'
+    expect_rejected compute-pop-before-read \
+      'occurs outside an open cb_wait_front..cb_pop_front window' \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      "$compute_pop_before_read" \
+      ${lib.escapeShellArg writerSource}
+
+    compute_pack_after_push="$(mutable_copy ${lib.escapeShellArg computeSource} compute-pack-after-push.cpp)"
+    substituteInPlace "$compute_pack_after_push" \
+      --replace-fail '            for (uint32_t t = 0; t < NS; t++) pack_tile(t, cb_out, St + t);' "" \
+      --replace-fail '            cb_push_back(cb_out, St + NS);' \
+      $'            cb_push_back(cb_out, St + NS);\n            for (uint32_t t = 0; t < NS; t++) pack_tile(t, cb_out, St + t);'
+    expect_rejected compute-pack-after-push \
+      'occurs outside an open cb_reserve_back..cb_push_back window' \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      "$compute_pack_after_push" \
+      ${lib.escapeShellArg writerSource}
+
+    reader_write_before_reserve="$(mutable_copy ${lib.escapeShellArg readerSource} reader-write-before-reserve.cpp)"
+    substituteInPlace "$reader_write_before_reserve" \
+      --replace-fail $'                cb_reserve_back(c_natstage, St);\n                uint32_t wp = get_write_ptr(c_natstage);' \
+      $'                uint32_t wp = get_write_ptr(c_natstage);\n                cb_reserve_back(c_natstage, St);'
+    expect_rejected reader-write-before-reserve \
+      "producer access 'get_write_ptr' on CB 'c_natstage' (index 21)" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      "$reader_write_before_reserve" \
+      ${lib.escapeShellArg computeSource} \
+      ${lib.escapeShellArg writerSource}
+
+    reader_push_scope_mismatch="$(mutable_copy ${lib.escapeShellArg readerSource} reader-push-scope-mismatch.cpp)"
+    substituteInPlace "$reader_push_scope_mismatch" \
+      --replace-fail $'                cb_push_back(c_natstage, St);\n            }' \
+      $'            }\n            cb_push_back(c_natstage, St);'
+    expect_rejected reader-push-scope-mismatch \
+      "unclosed cb_reserve_back window on CB 'c_natstage'" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      "$reader_push_scope_mismatch" \
+      ${lib.escapeShellArg computeSource} \
+      ${lib.escapeShellArg writerSource}
+
+    # Refusal-by-name mutations: macros and runtime-variable CB indices.
+    unrecognized_macro_define="$(mutable_copy ${lib.escapeShellArg writerSource} unrecognized-macro-define.cpp)"
+    {
+      printf '#define WAIT_OUT(n) cb_wait_front(cb_out, n)\n'
+      cat "$unrecognized_macro_define"
+    } >"$unrecognized_macro_define.tmp"
+    mv "$unrecognized_macro_define.tmp" "$unrecognized_macro_define"
+    substituteInPlace "$unrecognized_macro_define" \
+      --replace-fail 'cb_wait_front(cb_out, St);' 'WAIT_OUT(St);'
+    expect_rejected unrecognized-macro-define \
+      "unrecognized preprocessor macro 'WAIT_OUT'" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      ${lib.escapeShellArg computeSource} \
+      "$unrecognized_macro_define"
+
+    unrecognized_macro_call="$(mutable_copy ${lib.escapeShellArg writerSource} unrecognized-macro-call.cpp)"
+    substituteInPlace "$unrecognized_macro_call" \
+      --replace-fail 'cb_wait_front(cb_out, St);' 'CUSTOM_CB_WAIT(cb_out, St);'
+    expect_rejected unrecognized-macro-call \
+      "unrecognized CB/macro call 'CUSTOM_CB_WAIT'" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      ${lib.escapeShellArg computeSource} \
+      "$unrecognized_macro_call"
+
+    runtime_variable_cb="$(mutable_copy ${lib.escapeShellArg writerSource} runtime-variable-cb.cpp)"
+    substituteInPlace "$runtime_variable_cb" \
+      --replace-fail 'cb_wait_front(cb_out, St);' 'uint32_t dyn_cb = cb_out; cb_wait_front(dyn_cb, St);'
+    expect_rejected runtime-variable-cb \
+      "unrecognized CB expression 'dyn_cb' in 'cb_wait_front'" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      ${lib.escapeShellArg computeSource} \
+      "$runtime_variable_cb"
+
+    runtime_loop_offset_cb="$(mutable_copy ${lib.escapeShellArg computeSource} runtime-loop-offset-cb.cpp)"
+    substituteInPlace "$runtime_loop_offset_cb" \
+      --replace-fail 'cb_wait_front(c_natstage, St);' 'cb_wait_front(c_natstage + tok, St);'
+    expect_rejected runtime-loop-offset-cb \
+      "unrecognized CB expression 'c_natstage + tok' in 'cb_wait_front'" \
+      ${lib.escapeShellArg abiHeader} \
+      ${lib.escapeShellArg hostSource} \
+      ${lib.escapeShellArg readerSource} \
+      "$runtime_loop_offset_cb" \
       ${lib.escapeShellArg writerSource}
 
     missing_log="$mutation_root/missing.log"
