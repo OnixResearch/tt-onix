@@ -14,6 +14,7 @@ mod fetch;
 mod gen_burn;
 mod gen_cfg;
 mod gen_isa;
+mod json;
 mod pin;
 mod ship;
 mod silicon;

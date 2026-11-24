@@ -372,11 +372,14 @@ enum Outcome {
     ExpectedFailure,
     UnexpectedFailure,
     UnexpectedPass,
+    HarnessError,
 }
 
 struct Ran {
     full: String,
     verdict: Verdict,
+    outcome: &'static str,
+    harness_error: Option<String>,
     secs: f64,
     out: PathBuf,
 }
@@ -519,7 +522,11 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     let elapsed = started.elapsed();
 
     if o.reference_flex {
-        let failed: Vec<&Ran> = ran.iter().filter(|r| r.verdict != Verdict::Pass).collect();
+        let failed: Vec<&Ran> = ran
+            .iter()
+            .filter(|r| r.verdict != Verdict::Pass || r.harness_error.is_some())
+            .collect();
+        let harness_errors = ran.iter().filter(|r| r.harness_error.is_some()).count();
         let mut summary = format!(
             "burn-flex reference: {} run, {} passed, {} failed\n",
             ran.len(),
@@ -527,11 +534,23 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
             failed.len()
         );
         for r in &failed {
-            summary.push_str(&format!("FAIL {} {}\n", r.verdict, r.full));
+            if let Some(err) = &r.harness_error {
+                summary.push_str(&format!(
+                    "HARNESS_ERROR {} {} {} ({err})\n",
+                    r.verdict, r.outcome, r.full
+                ));
+            } else {
+                summary.push_str(&format!("FAIL {} {} {}\n", r.verdict, r.outcome, r.full));
+            }
         }
         print!("{summary}");
         let _ = fs::write(dir.join("summary.txt"), &summary);
         println!("summary: {}", dir.join("summary.txt").display());
+        if harness_errors > 0 {
+            return Err(format!(
+                "{harness_errors} test(s) suffered a harness/process-containment error"
+            ));
+        }
         return Ok(());
     }
     if o.silicon {
@@ -540,6 +559,10 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
 
     let mut outcomes = Vec::new();
     for r in &ran {
+        if r.harness_error.is_some() {
+            outcomes.push(Outcome::HarnessError);
+            continue;
+        }
         let listed = reasons.contains_key(&r.full);
         outcomes.push(match (r.verdict == Verdict::Pass, listed) {
             (true, false) => Outcome::Pass,
@@ -592,9 +615,18 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
     }
     for (r, oc) in ran.iter().zip(&outcomes) {
         match oc {
-            Outcome::UnexpectedFailure => say(format!(
-                "UNEXPECTED {} {}\n    output: {}",
+            Outcome::HarnessError => say(format!(
+                "HARNESS ERROR {} {} {}\n    error: {}\n    output: {}",
                 r.verdict,
+                r.outcome,
+                r.full,
+                r.harness_error.as_deref().unwrap_or("unknown"),
+                r.out.display()
+            )),
+            Outcome::UnexpectedFailure => say(format!(
+                "UNEXPECTED {} {} {}\n    output: {}",
+                r.verdict,
+                r.outcome,
                 r.full,
                 r.out.display()
             )),
@@ -615,6 +647,13 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
         ));
     }
     let _ = fs::write(dir.join("summary.txt"), &summary);
+
+    if count(Outcome::HarnessError) > 0 {
+        return Err(format!(
+            "{} test(s) suffered a harness/process-containment error",
+            count(Outcome::HarnessError)
+        ));
+    }
 
     if o.update {
         let now_passing: BTreeSet<&String> = ran
@@ -693,20 +732,35 @@ fn run_all(
                         .unwrap()
                         .line(&format!("{} START {full}", unix_secs()));
                 }
-                let verdict = run_one(&bin.exe, test, &bin.dir, &env, o.timeout, &out)
-                    // A harness failure is not a pass.
-                    .unwrap_or(Verdict::Fail);
+                let (verdict, outcome, harness_error) =
+                    match run_one(&bin.exe, test, &bin.dir, &env, o.timeout, &out) {
+                        Ok(report) => (report.verdict, report.outcome.tag(), None),
+                        Err(err) => {
+                            let tag = err.outcome_tag();
+                            (Verdict::Fail, tag, Some(err.to_string()))
+                        }
+                    };
+                let secs = started.elapsed().as_secs_f64();
                 if let Some(log) = log {
-                    let _ = log.lock().unwrap().line(&format!(
-                        "{} END {full} {verdict} {:.2}s",
-                        unix_secs(),
-                        started.elapsed().as_secs_f64()
-                    ));
+                    let line = match &harness_error {
+                        Some(err) => {
+                            format!(
+                                "{} END {full} {verdict} {outcome} {secs:.2}s ({err})",
+                                unix_secs()
+                            )
+                        }
+                        None => {
+                            format!("{} END {full} {verdict} {outcome} {secs:.2}s", unix_secs())
+                        }
+                    };
+                    let _ = log.lock().unwrap().line(&line);
                 }
                 let ran = Ran {
                     full: full.clone(),
                     verdict,
-                    secs: started.elapsed().as_secs_f64(),
+                    outcome,
+                    harness_error,
+                    secs,
                     out,
                 };
                 results.lock().unwrap()[i] = Some(ran);

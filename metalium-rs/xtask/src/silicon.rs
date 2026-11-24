@@ -604,13 +604,27 @@ fn run_opts(o: &Opts) -> Result<(u64, Results), String> {
             let started = Instant::now();
             // `cargo test` runs a package's tests from its own directory.
             let env = [("TT_SILICON_DEVICE", dev.to_string())];
-            let verdict = run_one(&bin.exe, test, &bin.dir, &env, o.timeout, &out_path)?;
+            let report = match run_one(&bin.exe, test, &bin.dir, &env, o.timeout, &out_path) {
+                Ok(report) => report,
+                Err(err) => {
+                    let secs = started.elapsed().as_secs_f64();
+                    let outcome = err.outcome_tag();
+                    log.line(&format!(
+                        "{} boot={boot} dev={dev} END {full} FAIL {outcome} {secs:.2}s ({err})",
+                        unix_secs()
+                    ))?;
+                    println!("dev{dev} FAIL    {outcome:<18} {secs:>7.2}s  {full}: {err}");
+                    return Err(err.to_string());
+                }
+            };
             let secs = started.elapsed().as_secs_f64();
+            let verdict = report.verdict;
+            let outcome = report.outcome.tag();
             log.line(&format!(
-                "{} boot={boot} dev={dev} END {full} {verdict} {secs:.2}s",
+                "{} boot={boot} dev={dev} END {full} {verdict} {outcome} {secs:.2}s",
                 unix_secs()
             ))?;
-            println!("dev{dev} {verdict:<7} {secs:>7.2}s  {full}");
+            println!("dev{dev} {verdict:<7} {outcome:<18} {secs:>7.2}s  {full}");
             let failed = verdict != Verdict::Pass;
             results.push((dev, full.clone(), verdict, out_path));
             if failed && !o.keep_going {
