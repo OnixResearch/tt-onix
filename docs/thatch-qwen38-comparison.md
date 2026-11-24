@@ -91,6 +91,6 @@ existing GDN smoke remains the small-shape device-free gate.
 
 ## Actions taken
 
-- The repeatable `qwen38-benchmark` now provides the same-corpus comparison the
-  issue asks for; see `docs/qwen38-benchmark.md`.
+- The repeatable `qwen38-benchmark` now lives in [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab) (pinned back into `tt-onix` as a compatibility package; see `docs/qwen38-benchmark.md`) and owns future same-corpus cross-runtime comparison harnesses and evidence bundles (`#7` / `#18`).
+- `tt-onix` retains P150x2 device/runtime packaging, `ttsim-qwen-gdn-replay`, and physical admission receipts.
 - The remaining items above are recorded, not silently claimed.

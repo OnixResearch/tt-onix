@@ -74,3 +74,11 @@ Until those steps exist, the only defensible statement is: the local service
 serves the matched regression prompt at 18.4 tokens/s on P150x2, and the
 upstream-reported vLLM number is 22.63 tokens/s on P150x4. No local vLLM
 comparison is available.
+
+## Ownership split for future head-to-head runs
+
+Future cross-runtime comparisons (local P150x2 service vs vLLM, llama.cpp, or
+non-Tenstorrent stacks) should run and publish their frozen workloads, parity
+checks, and evidence bundles through [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab)
+(`qwen38-benchmark` / `#7` / `#18`). `tt-onix` retains packaging of the P150x2
+server and `vllm-tt-plugin`, device isolation, and physical admission receipts.

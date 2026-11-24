@@ -1,5 +1,11 @@
 # Traffic and six-passage retention CLI
 
+> [!IMPORTANT]
+> The backend-independent six-passage retention evaluator (`retention.py`) and its frozen fixtures (`data/passages.json`, `data/qwen38-six-passages.json`) have migrated to [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab/blob/fd90c12231f6664c64e72c47050d90fd14f968e6/docs/retention-eval.md) (`pkgs/retention-eval`).
+>
+> `tt-onix` retains the Tenstorrent-specific analytical tile traffic model (`traffic.py`) and P150x2 hardware logit collector (`collector.py`) locally, and pins `retention.py` + `data/` from `OnixResearch/inference-lab@fd90c12231f6664c64e72c47050d90fd14f968e6` inside `pkgs/tenstorrent-eval-tools/default.nix` so `nix run .#tenstorrent-eval` preserves identical CLI behavior and full test coverage.
+> **Explicit rollback pin:** `OnixResearch/tt-onix@5ed5e90cdd265443fa2f9b73e4ce46aeaa71837a`.
+
 Build/run the dependency-complete offline tool with `nix build .#tenstorrent-eval-tools`
 and `nix run .#tenstorrent-eval -- --help`. Torch and Transformers belong to the
 package; traffic itself imports neither. No model weights/tokenizer assets are
@@ -44,7 +50,7 @@ nix run .#tenstorrent-eval -- retention freeze --model "$model" \
   --checkpoint 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0 --out corpus.json
 ```
 
-The shipped `pkgs/tenstorrent-eval-tools/data/qwen38-six-passages.json` freezes the
+The shipped `$tools/share/tenstorrent-eval-tools/data/qwen38-six-passages.json` (sourced from `OnixResearch/inference-lab/pkgs/retention-eval/data/qwen38-six-passages.json`) freezes the
 exact six original passages, trailing newlines included, token IDs, tokenizer
 asset SHA-256s and authoritative `config.json` SHA-256/vocabulary width. No chat
 template is applied; `add_special_tokens=True`, local files only, remote code
@@ -130,11 +136,11 @@ export TT_METAL_RUNTIME_ROOT="$TT_METAL_HOME"
 export MESH_DEVICE=P150x2 HF_HUB_OFFLINE=1 QWEN35_GDN_DECODE_FUSION=step
 # Keep ordinary runtime precision flags identical between separate processes.
 "$tools/bin/tenstorrent-eval" retention collect --runtime-python "$runtime_python" \
-  --corpus pkgs/tenstorrent-eval-tools/data/qwen38-six-passages.json \
+  --corpus "$tools/share/tenstorrent-eval-tools/data/qwen38-six-passages.json" \
   --model "$model" --package "$package" --runtime "$runtime" --cache "$cache" \
   --out baseline.pt
 "$tools/bin/tenstorrent-eval" retention collect --runtime-python "$runtime_python" \
-  --corpus pkgs/tenstorrent-eval-tools/data/qwen38-six-passages.json \
+  --corpus "$tools/share/tenstorrent-eval-tools/data/qwen38-six-passages.json" \
   --model "$model" --package "$candidate_package" --runtime "$runtime" --cache "$cache" \
   --decode-flags '{"QWEN38_ROUNDED_REGISTER_SWIGLU":"1"}' --out treatment.pt
 ```
