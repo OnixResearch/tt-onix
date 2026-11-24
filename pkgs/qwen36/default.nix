@@ -8,6 +8,8 @@
   makeWrapper,
   nickel,
   b3sum,
+  curl,
+  tlaplus,
   tt-metal,
   tt-metal-tracy-tools,
   # True only for the GDN grid variant runtime, whose kernels carry the
@@ -271,6 +273,10 @@ stdenvNoCC.mkDerivation {
     makeWrapper
     nickel
   ];
+  nativeInstallCheckInputs = [
+    curl
+    tlaplus
+  ];
 
   installPhase = ''
     runHook preInstall
@@ -279,6 +285,7 @@ stdenvNoCC.mkDerivation {
     cp -r models "$out/lib/python${python3.pythonVersion}/site-packages/models"
     qwen_mlp_root="$out/lib/python${python3.pythonVersion}/site-packages/models/demos/blackhole/qwen36/tt"
     cp ${./rounded_register_swiglu.py} "$qwen_mlp_root/rounded_register_swiglu.py"
+    cp ${./rounded_register_swiglu_oracle.py} "$qwen_mlp_root/rounded_register_swiglu_oracle.py"
     cp ${./rounded_register_swiglu_check.py} "$qwen_mlp_root/rounded_register_swiglu_check.py"
     cp -r ${./rounded_register_kernels} "$qwen_mlp_root/rounded_register_kernels"
     cp -r ${stableServiceSource} \
@@ -306,6 +313,9 @@ stdenvNoCC.mkDerivation {
 
     mkdir -p "$out/share/qwen36"
     cp ${./check.py} "$out/share/qwen36/check.py"
+    cp ${./step_probe_core.py} "$out/share/qwen36/step_probe_core.py"
+    cp ${../../docs/qwen38-rounded-register-swiglu-precision-plan.md} \
+      "$out/share/qwen36/rounded-register-swiglu-precision-plan.md"
     cp ${./mtp-kv-tail-device-check.py} "$out/share/qwen36/mtp-kv-tail-device-check.py"
     cp ${./authority.ncl} "$out/share/qwen36/authority.ncl"
     cp ${./authority-contract.ncl} "$out/share/qwen36/authority-contract.ncl"
@@ -1807,6 +1817,13 @@ stdenvNoCC.mkDerivation {
 
     PYTHONPATH="$out/lib/python${python3.pythonVersion}/site-packages" \
       ${pythonEnvironment}/bin/python ${./mtp-width-profile-check.py} "$out/share/qwen36"
+
+    ${pythonEnvironment}/bin/python ${./step-probe-check.py} \
+      ${../../scripts/qwen38-step-probe.sh} \
+      "$out/share/qwen36/step_probe_core.py"
+
+    TLC_WORKERS="''${NIX_BUILD_CORES:-4}" \
+      ${pythonEnvironment}/bin/python ${./prefix-cache-tla-check.py} ${./formal}
 
     # r[verify tenstorrent.qwen38_p150x2.receipt_bootstrap]
     # Positive: the execution identity's own input manifest carries no

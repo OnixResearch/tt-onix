@@ -45,8 +45,14 @@ other preallocated buffers. A root is never superseded in place by a descendant;
 blocks are shared read-only and subsequent writes use the request's own KV run. At
 most one root is soft-retained per worker. Unpinned leaves evict before the root,
 but a live request can evict any unpinned root for KV. A different system/tool header
-falls back to ordinary leaf caching while an unrelated root is resident. Structured
-reads invalidate unpinned entries; a device failure drops every root and leaf.
+falls back to ordinary leaf caching while an unrelated root is resident. Conservative
+invalidation (`invalidate_prefix_cache`, when KV writes cannot be tracked or traces are
+released) retains pinned entries and drops unpinned entries; block-exact invalidation
+(`invalidate_written_prefixes`, after a structured read reports `kv_written_blocks`)
+drops every entry whose KV ranges intersect the written blocks, pinned or unpinned,
+while `_serve_reads` preserves live-reader safety by running only when no slot is
+occupied (`pins == 0`) and passing `protected_blocks = cached_blocks(prefix_entries)`.
+A device failure drops every root and leaf.
 
 Candidate evidence must compare cold and candidate on a common long system/tool
 header with more interleaved chats than saved states, including leaf eviction,

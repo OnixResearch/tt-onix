@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
@@ -13,6 +14,17 @@ def operation():
     path = Path(__file__).with_name("rounded_register_swiglu.py")
     spec = importlib.util.spec_from_file_location("rounded_register_swiglu", path)
     module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_oracle():
+    path = Path(__file__).with_name("rounded_register_swiglu_oracle.py")
+    spec = importlib.util.spec_from_file_location(
+        "rounded_register_swiglu_oracle", path
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -72,12 +84,20 @@ def semantic(op):
     rounded = op.rounded_reference(gate, up)
     unrounded = (torch.nn.functional.silu(gate) * up).to(torch.bfloat16)
     assert not torch.equal(rounded, unrounded)
+
+    oracle = _load_oracle()
+    epilogue_qualification = oracle.run_epilogue_qualification(
+        op.rounded_reference,
+        module_dir=Path(__file__).resolve().parent,
+    )
     return {
         "semantic": "passed",
         "batches": [1, 8],
         "unsupported_decode": "rejected",
         "prefill": "unchanged",
         "rounding": "gate_after_silu_and_up_BF16_then_BF16_product",
+        "exact_parity_gate_preserved": True,
+        "epilogue_qualification": epilogue_qualification,
     }
 
 
