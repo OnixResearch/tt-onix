@@ -3,10 +3,10 @@
 > [!IMPORTANT]
 > The portable `qwen38-benchmark` runner, frozen workloads (`corpus.json`, `agentic_trace.json`), and shared command/metric/agentic documentation have migrated to [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab/blob/main/docs/qwen38-benchmark.md) under [`inference-lab#7`](https://github.com/OnixResearch/inference-lab/issues/7).
 >
-> `tt-onix` retains `pkgs/qwen38-benchmark/default.nix` as a pinned compatibility package (`nix run .#qwen38-benchmark`, `nix build .#checks.x86_64-linux.qwen38-benchmark`) referencing `OnixResearch/inference-lab@fd90c12231f6664c64e72c47050d90fd14f968e6`.
+> `tt-onix` retains `pkgs/qwen38-benchmark/default.nix` as a pinned compatibility package (`nix run .#qwen38-benchmark`, `nix build .#checks.x86_64-linux.qwen38-benchmark`) referencing `OnixResearch/inference-lab@7ec5f6aef4bc64782cb4c4a504832246b5366f1c` via the locked `inference-lab` flake input (including the `#17` bounded stream-stall, cumulative token-deadline, and `interference` prefill-burst checks).
 > **Explicit rollback pin:** `OnixResearch/tt-onix@5ed5e90cdd265443fa2f9b73e4ce46aeaa71837a`.
 
-See [`OnixResearch/inference-lab/docs/qwen38-benchmark.md`](https://github.com/OnixResearch/inference-lab/blob/fd90c12231f6664c64e72c47050d90fd14f968e6/docs/qwen38-benchmark.md) for the full portable command reference, accounting rules, `compare` tamper/parity validation, and `agentic` SLO sweep documentation.
+See [`OnixResearch/inference-lab/docs/qwen38-benchmark.md`](https://github.com/OnixResearch/inference-lab/blob/7ec5f6aef4bc64782cb4c4a504832246b5366f1c/docs/qwen38-benchmark.md) for the full portable command reference, accounting rules, `compare` tamper/parity validation, `agentic` SLO sweeps, and `interference` stream-stall / per-token deadline documentation.
 
 ## Compatibility command and self-test
 

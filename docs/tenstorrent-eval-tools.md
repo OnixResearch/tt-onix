@@ -1,9 +1,9 @@
 # Traffic and six-passage retention CLI
 
 > [!IMPORTANT]
-> The backend-independent six-passage retention evaluator (`retention.py`) and its frozen fixtures (`data/passages.json`, `data/qwen38-six-passages.json`) have migrated to [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab/blob/fd90c12231f6664c64e72c47050d90fd14f968e6/docs/retention-eval.md) (`pkgs/retention-eval`).
+> The backend-independent six-passage retention evaluator (`retention.py`) and its frozen fixtures (`data/passages.json`, `data/qwen38-six-passages.json`) have migrated to [`OnixResearch/inference-lab`](https://github.com/OnixResearch/inference-lab/blob/7ec5f6aef4bc64782cb4c4a504832246b5366f1c/docs/retention-eval.md) (`pkgs/retention-eval`).
 >
-> `tt-onix` retains the Tenstorrent-specific analytical tile traffic model (`traffic.py`) and P150x2 hardware logit collector (`collector.py`) locally, and pins `retention.py` + `data/` from `OnixResearch/inference-lab@fd90c12231f6664c64e72c47050d90fd14f968e6` inside `pkgs/tenstorrent-eval-tools/default.nix` so `nix run .#tenstorrent-eval` preserves identical CLI behavior and full test coverage.
+> `tt-onix` retains the Tenstorrent-specific analytical tile traffic model (`traffic.py`) and P150x2 hardware logit collector (`collector.py`) locally, and pins `retention.py` + `data/` from the locked `inference-lab` flake input (`OnixResearch/inference-lab@7ec5f6aef4bc64782cb4c4a504832246b5366f1c`) inside `pkgs/tenstorrent-eval-tools/default.nix` so `nix run .#tenstorrent-eval` preserves identical CLI behavior and full test coverage.
 > **Explicit rollback pin:** `OnixResearch/tt-onix@5ed5e90cdd265443fa2f9b73e4ce46aeaa71837a`.
 
 Build/run the dependency-complete offline tool with `nix build .#tenstorrent-eval-tools`

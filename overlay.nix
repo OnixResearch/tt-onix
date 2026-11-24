@@ -19,6 +19,7 @@ final: prev: {
   faster-fifo = final.callPackage ./pkgs/faster-fifo {
     python3Packages = final.python313Packages;
   };
+  inference-lab-source = final.callPackage ./pkgs/inference-lab-source.nix { };
   qwen38-benchmark = final.callPackage ./pkgs/qwen38-benchmark { };
   qwen38-trace-reuse-host1 = final.callPackage ./pkgs/qwen36-trace-reuse-host1 { };
   # Compatibility aliases. The checkpoint is Qwen3.8-27B, not Qwen3.6.

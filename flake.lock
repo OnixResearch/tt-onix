@@ -402,6 +402,23 @@
         "type": "github"
       }
     },
+    "inference-lab": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795545318,
+        "narHash": "sha256-Yc9xhnEDs3XZ0y9k9dp2Tj0jbBn9zeN7SSI/if/QjHo=",
+        "owner": "OnixResearch",
+        "repo": "inference-lab",
+        "rev": "7ec5f6aef4bc64782cb4c4a504832246b5366f1c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "OnixResearch",
+        "repo": "inference-lab",
+        "rev": "7ec5f6aef4bc64782cb4c4a504832246b5366f1c",
+        "type": "github"
+      }
+    },
     "nickel-1-17-0": {
       "inputs": {
         "crane": "crane",
@@ -619,6 +636,7 @@
       "inputs": {
         "cairn": "cairn",
         "flake-parts": "flake-parts",
+        "inference-lab": "inference-lab",
         "nixpkgs": "nixpkgs_7",
         "rust-overlay": "rust-overlay_7",
         "systems": "systems_6",

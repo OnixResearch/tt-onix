@@ -9,6 +9,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     cairn.url = "github:OnixResearch/cairn/15f00875562025e7ea7e0d1f4af24d1a2e2ac06f";
+    inference-lab = {
+      url = "github:OnixResearch/inference-lab/7ec5f6aef4bc64782cb4c4a504832246b5366f1c";
+      flake = false;
+    };
   };
 
   outputs =
@@ -39,6 +43,12 @@
             overlays = [
               (import inputs.rust-overlay)
               self.overlays.default
+              (final: prev: {
+                inference-lab-source = prev.inference-lab-source // {
+                  rev = inputs.inference-lab.rev;
+                  src = inputs.inference-lab;
+                };
+              })
             ];
           };
 
